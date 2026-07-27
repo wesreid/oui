@@ -50,6 +50,16 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/transport:
+    dependencies:
+      '@oui/spec':
+        specifier: workspace:*
+        version: link:../spec
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
 packages:
 
   '@turbo/darwin-64@2.10.7':

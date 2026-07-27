@@ -85,6 +85,11 @@ function defineSurface(definition) {
         getActionIds() {
             return definition.actions.map(a => a.id);
         },
+        /** Get the polling config for an action (if async) */
+        getPollingConfig(actionId) {
+            const action = definition.actions.find(a => a.id === actionId);
+            return action?.polling;
+        },
     };
 }
 // ─── Internal helpers ────────────────────────────────────────────────────────
@@ -96,6 +101,7 @@ function actionToManifest(action) {
         output: action.output,
         confirm: action.confirm,
         async: action.async,
+        polling: action.polling,
         usage: action.usage,
         preconditions: action.preconditions,
         estimatedDuration: action.estimatedDuration,

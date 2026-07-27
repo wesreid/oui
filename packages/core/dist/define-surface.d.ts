@@ -1,4 +1,4 @@
-import type { OUISurface, OUIActivation, JSONSchema } from '@oui/spec';
+import type { OUISurface, OUIActivation, OUIActionPolling, JSONSchema } from '@oui/spec';
 /**
  * Configuration for defining an OUI surface with handlers.
  * This is the "integration file" an app provides — it declares both
@@ -15,6 +15,22 @@ export interface SurfaceDefinition<TContext = unknown> {
     metadata?: Record<string, unknown>;
 }
 /**
+ * Polling config with an optional resolve handler.
+ * The spec's OUIActionPolling is the manifest shape (no functions).
+ * The core extends it with the resolve implementation for the runtime.
+ */
+export interface ActionPollingConfig<TContext = unknown> extends OUIActionPolling {
+    /**
+     * Called on each poll interval. Receives the dispatch result from the handler
+     * plus the current context. Return { done: true, data } to stop polling,
+     * or { done: false, data } to continue.
+     */
+    resolve?: (dispatchResult: unknown, context: TContext) => Promise<{
+        done: boolean;
+        data: unknown;
+    }>;
+}
+/**
  * An action definition includes both the schema (for the agent) and
  * the handler (for execution). This is the single source of truth —
  * no separate YAML, no separate listener, no drift possible.
@@ -26,6 +42,13 @@ export interface ActionDefinition<TContext = unknown> {
     output?: JSONSchema;
     confirm?: boolean;
     async?: boolean;
+    /**
+     * Polling/subscription config for async actions.
+     * After the handler returns, the OUI runtime starts polling or subscribing
+     * and pushes observation updates until the operation completes.
+     * Extends the spec's OUIActionPolling with an optional resolve handler.
+     */
+    polling?: ActionPollingConfig<TContext>;
     usage?: string;
     preconditions?: string;
     estimatedDuration?: string;
@@ -45,6 +68,8 @@ export interface ActionHandlerResult {
         message: string;
         details?: unknown;
     };
+    /** For async actions: metadata passed to the polling resolver */
+    dispatchMeta?: Record<string, unknown>;
 }
 export interface ObservationDefinition {
     id: string;
@@ -86,4 +111,6 @@ export interface DefinedSurface<TContext = unknown> extends SurfaceDefinition<TC
     toManifest(): OUISurface;
     executeAction(actionId: string, params: Record<string, unknown>, context: TContext): Promise<ActionHandlerResult>;
     getActionIds(): string[];
+    /** Get the polling config for an action (if async) */
+    getPollingConfig(actionId: string): OUIActionPolling | undefined;
 }

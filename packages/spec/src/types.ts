@@ -63,6 +63,38 @@ export interface OUISurface {
 }
 
 /**
+ * Declarative polling configuration for async actions.
+ * The OUI runtime in the browser manages the polling lifecycle automatically
+ * after the action handler returns its dispatch result.
+ */
+export interface OUIActionPolling {
+  /** How often to check (milliseconds) */
+  intervalMs: number;
+
+  /** Max poll attempts before giving up (optional) */
+  maxAttempts?: number;
+
+  /** Max total duration before giving up in ms (alternative to maxAttempts) */
+  maxDurationMs?: number;
+
+  /**
+   * Subscribe to a realtime event instead of polling.
+   * If provided, the runtime listens for this event instead of using setInterval.
+   * More efficient when realtime infrastructure exists.
+   */
+  subscribe?: {
+    /** Event name to listen for */
+    event: string;
+    /**
+     * Filter to match the event. Values prefixed with '$dispatchResult.'
+     * are resolved from the handler's return value.
+     * Example: { jobId: '$dispatchResult.jobId' }
+     */
+    filter?: Record<string, unknown>;
+  };
+}
+
+/**
  * An Action is a single operation an agent can perform on a surface.
  * Each action becomes a "tool" that the LLM can call.
  *
@@ -87,6 +119,9 @@ export interface OUIAction {
 
   /** If true, the action is async — returns immediately with a job/tracking ID */
   async?: boolean;
+
+  /** Declarative polling configuration — runtime manages the polling lifecycle after dispatch */
+  polling?: OUIActionPolling;
 
   /** Human-readable hint about when this action is appropriate to use */
   usage?: string;
@@ -183,6 +218,12 @@ export interface OUIActionResult {
     message: string;
     details?: unknown;
   };
+
+  /** Progress indicator for interim polling results (0-100) */
+  progress?: number;
+
+  /** Whether this is an interim update (polling still in progress) or final */
+  interim?: boolean;
 
   /** Duration of execution in milliseconds */
   durationMs?: number;

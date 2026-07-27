@@ -20,6 +20,7 @@ export {
   defineSurface,
   type SurfaceDefinition,
   type ActionDefinition,
+  type ActionPollingConfig,
   type ActionHandlerResult,
   type ObservationDefinition,
   type DefinedSurface,

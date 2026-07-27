@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useMemo } from 'react';
-import type { DefinedSurface, ActionHandlerResult } from '@oui/core';
-import type { OUIActionRequest, OUIActionResult, OUIObservationUpdate } from '@oui/spec';
+import type { DefinedSurface, ActionHandlerResult, ActionPollingConfig } from '@oui/core';
+import type { OUIActionRequest, OUIObservationUpdate } from '@oui/spec';
 
 /**
  * Configuration for the useSurface hook.
@@ -21,10 +21,12 @@ export interface UseSurfaceOptions<TContext> {
 
 /**
  * useSurface — registers an OUI surface with the agent runtime and handles
- * incoming action requests by routing them to the surface's action handlers.
+ * incoming action requests by executing them locally and pushing observation
+ * updates. Actions are dispatched one-way (no request/response correlation).
  *
- * This is the primary integration point for React applications. Call it once
- * per surface (typically at the page/feature level).
+ * After an action handler executes, if the action has a polling config, the
+ * hook starts a polling loop that pushes observation updates until the
+ * operation completes or times out.
  *
  * @example
  * ```tsx
@@ -50,6 +52,88 @@ export function useSurface<TContext>(options: UseSurfaceOptions<TContext>) {
   const surfaceRef = useRef(surface);
   surfaceRef.current = surface;
 
+  const sendRef = useRef(send);
+  sendRef.current = send;
+
+  // Track active polling intervals for cleanup
+  const activePollers = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
+
+  // Push an observation update to the agent runtime
+  const pushObservation = useCallback((observationId: string, value: unknown) => {
+    const update: OUIObservationUpdate = {
+      surfaceId: surfaceRef.current.id,
+      observationId,
+      value,
+      timestamp: Date.now(),
+    };
+    sendRef.current({ type: 'observation:update', payload: update });
+  }, []);
+
+  // Start the polling runtime for an async action
+  const startPolling = useCallback((
+    actionId: string,
+    pollingConfig: ActionPollingConfig<TContext>,
+    dispatchResult: unknown,
+  ) => {
+    const observationId = `${surfaceRef.current.id}:${actionId}:status`;
+    let attempts = 0;
+    const maxAttempts = pollingConfig.maxAttempts ?? Infinity;
+    const startTime = Date.now();
+    const maxDuration = pollingConfig.maxDurationMs ?? Infinity;
+
+    // Subscribe mode — transport layer handles events, just push initial state
+    if (pollingConfig.subscribe) {
+      pushObservation(observationId, { status: 'dispatched', dispatchResult, interim: true });
+      return;
+    }
+
+    // Polling mode — requires a resolve function
+    if (!pollingConfig.resolve) {
+      pushObservation(observationId, { status: 'dispatched', dispatchResult, interim: false });
+      return;
+    }
+
+    // Push initial dispatched state
+    pushObservation(observationId, { status: 'polling', dispatchResult, interim: true });
+
+    const timer = setInterval(async () => {
+      attempts++;
+      const elapsed = Date.now() - startTime;
+
+      if (attempts > maxAttempts || elapsed > maxDuration) {
+        clearInterval(timer);
+        activePollers.current.delete(actionId);
+        pushObservation(observationId, { status: 'timeout', dispatchResult, interim: false });
+        return;
+      }
+
+      try {
+        const action = surfaceRef.current.actions.find(a => a.id === actionId);
+        if (action?.polling?.resolve) {
+          const result = await action.polling.resolve(dispatchResult, contextRef.current);
+          pushObservation(observationId, { ...result.data as Record<string, unknown>, interim: !result.done });
+          if (result.done) {
+            clearInterval(timer);
+            activePollers.current.delete(actionId);
+          }
+        }
+      } catch (err) {
+        // Don't stop polling on transient errors — push error state and continue
+        pushObservation(observationId, { status: 'poll_error', error: String(err), interim: true });
+      }
+    }, pollingConfig.intervalMs);
+
+    activePollers.current.set(actionId, timer);
+  }, [pushObservation]);
+
+  // Clear all active pollers
+  const clearAllPollers = useCallback(() => {
+    for (const [, timer] of activePollers.current) {
+      clearInterval(timer);
+    }
+    activePollers.current.clear();
+  }, []);
+
   // Register surface when it becomes active
   useEffect(() => {
     if (!active) {
@@ -69,42 +153,83 @@ export function useSurface<TContext>(options: UseSurfaceOptions<TContext>) {
     });
 
     return () => {
+      // Clean up all active pollers on deregister
+      clearAllPollers();
       send({
         type: 'surface:deregister',
         payload: { surfaceId: surface.id, timestamp: Date.now() },
       });
     };
-  }, [surface.id, active, send]);
+  }, [surface.id, active, send, clearAllPollers]);
 
-  // Handler for incoming action requests
+  // Clean up pollers on unmount (safety net)
+  useEffect(() => {
+    return () => {
+      clearAllPollers();
+    };
+  }, [clearAllPollers]);
+
+  // Handler for incoming action requests — fully async, no response correlation
   const handleActionRequest = useCallback(async (request: OUIActionRequest) => {
     if (request.surfaceId !== surfaceRef.current.id) return;
 
-    const startTime = Date.now();
-    const result = await surfaceRef.current.executeAction(
-      request.actionId,
-      request.params,
-      contextRef.current,
-    );
+    const { actionId, params } = request;
+    const observationId = `${surfaceRef.current.id}:${actionId}:status`;
 
-    const response: OUIActionResult = {
-      requestId: request.requestId,
-      success: result.success,
+    // Execute the handler locally
+    let result: ActionHandlerResult;
+    try {
+      result = await surfaceRef.current.executeAction(actionId, params, contextRef.current);
+    } catch (err) {
+      // Execution failed — push error observation
+      pushObservation(observationId, {
+        status: 'error',
+        error: err instanceof Error ? err.message : String(err),
+        interim: false,
+      });
+      return;
+    }
+
+    // Push observation with dispatch result immediately
+    pushObservation(observationId, {
+      status: result.success ? 'dispatched' : 'error',
       data: result.data,
       error: result.error,
-      durationMs: Date.now() - startTime,
-      timestamp: Date.now(),
-    };
+      interim: !!result.success,
+    });
 
-    send({ type: 'action:result', payload: response });
-  }, [send]);
+    // If action has polling config and dispatch succeeded, start polling runtime
+    if (result.success) {
+      const action = surfaceRef.current.actions.find(a => a.id === actionId);
+      if (action?.polling) {
+        startPolling(actionId, action.polling, result.data ?? result.dispatchMeta);
+      } else {
+        // Non-async action — mark as complete (not interim)
+        pushObservation(observationId, {
+          status: 'complete',
+          data: result.data,
+          interim: false,
+        });
+      }
+    }
+  }, [pushObservation, startPolling]);
 
   // Expose the handler for the transport layer to call
   return useMemo(() => ({
     handleActionRequest,
     surfaceId: surface.id,
     manifest: surface.toManifest(),
-  }), [handleActionRequest, surface]);
+    /** Manually stop polling for a specific action */
+    stopPolling: (actionId: string) => {
+      const timer = activePollers.current.get(actionId);
+      if (timer) {
+        clearInterval(timer);
+        activePollers.current.delete(actionId);
+      }
+    },
+    /** Stop all active pollers */
+    stopAllPolling: clearAllPollers,
+  }), [handleActionRequest, surface, clearAllPollers]);
 }
 
 /**

@@ -1,0 +1,19 @@
+{
+  "name": "@oui/transport",
+  "version": "0.1.0",
+  "description": "OUI transport layer — one-way dispatch + observation channels",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "MIT",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@oui/spec": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}
