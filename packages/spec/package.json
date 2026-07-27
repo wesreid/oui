@@ -1,0 +1,16 @@
+{
+  "name": "@oui/spec",
+  "version": "0.1.0",
+  "description": "OUI specification types — the formal contract for agent-controllable UI surfaces",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "MIT",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}

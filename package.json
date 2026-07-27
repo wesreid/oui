@@ -1,0 +1,23 @@
+{
+  "name": "@oui/monorepo",
+  "private": true,
+  "description": "OUI — Open UI Specification for agent-controllable interfaces",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nicholasgriffintn/oui.git"
+  },
+  "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "turbo": "^2.5.0"
+  }
+}
