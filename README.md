@@ -2,10 +2,11 @@
 
 **The machine-readable contract for agent-controllable user interfaces.**
 
-> *"Oui"* — French for "yes." As in: yes, an AI agent can control this UI.
+> _"Oui"_ — French for "yes." As in: yes, an AI agent can control this UI.
 
 <!-- Badges -->
-[![npm](https://img.shields.io/npm/v/@oui-spec)](https://www.npmjs.com/package/@oui-spec)
+
+[![npm](https://img.shields.io/npm/v/oui-spec)](https://www.npmjs.com/package/oui-spec)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
 [![CI](https://github.com/wesreid/oui/actions/workflows/ci.yml/badge.svg)](https://github.com/wesreid/oui/actions/workflows/ci.yml)
@@ -53,14 +54,15 @@ flowchart TD
 
 OUI uses **two one-way channels** — not request/response. This is the critical architectural decision:
 
-| Channel | Direction | Purpose |
-|---------|-----------|---------|
-| **Dispatch** | Server → Client | Fire action instructions at the UI |
+| Channel         | Direction       | Purpose                              |
+| --------------- | --------------- | ------------------------------------ |
+| **Dispatch**    | Server → Client | Fire action instructions at the UI   |
 | **Observation** | Client → Server | Push state updates back to the agent |
 
 The agent runtime (e.g., a Lambda function) dispatches an action and **terminates immediately**. It does not wait for a response. The browser executes the action, starts any async work, and pushes observation updates over the observation channel as results arrive. The agent picks up those observations on its next invocation.
 
 This means:
+
 - **No Lambda waiting** — no 30-second timeouts holding a connection open
 - **No request/response correlation** — no correlation IDs, no pending promises
 - **No WebSocket held open by the server** — the server writes and disconnects
@@ -74,20 +76,20 @@ The simplest possible OUI surface — a counter the agent can increment:
 
 ```typescript
 // counter.surface.ts
-import { defineSurface } from '@oui-spec/core';
+import { defineSurface } from "oui-spec/core";
 
 export const counterSurface = defineSurface({
-  id: 'counter',
-  name: 'Counter',
-  description: 'A simple counter that can be incremented or reset',
+  id: "counter",
+  name: "Counter",
+  description: "A simple counter that can be incremented or reset",
   actions: [
     {
-      id: 'increment',
-      description: 'Increment the counter by a given amount',
+      id: "increment",
+      description: "Increment the counter by a given amount",
       input: {
-        type: 'object',
+        type: "object",
         properties: {
-          amount: { type: 'number', description: 'Amount to add (default 1)' },
+          amount: { type: "number", description: "Amount to add (default 1)" },
         },
       },
       handler: async (params, ctx) => {
@@ -97,9 +99,9 @@ export const counterSurface = defineSurface({
       },
     },
     {
-      id: 'reset',
-      description: 'Reset the counter to zero',
-      input: { type: 'object', properties: {} },
+      id: "reset",
+      description: "Reset the counter to zero",
+      input: { type: "object", properties: {} },
       handler: async (_params, ctx) => {
         ctx.setCount(0);
         return { success: true, data: { newValue: 0 } };
@@ -108,9 +110,9 @@ export const counterSurface = defineSurface({
   ],
   observations: [
     {
-      id: 'current_value',
-      description: 'The current counter value',
-      schema: { type: 'object', properties: { value: { type: 'number' } } },
+      id: "current_value",
+      description: "The current counter value",
+      schema: { type: "object", properties: { value: { type: "number" } } },
     },
   ],
 });
@@ -118,8 +120,8 @@ export const counterSurface = defineSurface({
 
 ```tsx
 // CounterPage.tsx
-import { useSurface, useObservation } from '@oui-spec/react';
-import { counterSurface } from './counter.surface';
+import { useSurface, useObservation } from "oui-spec/react";
+import { counterSurface } from "./counter.surface";
 
 function CounterPage({ transport }) {
   const [count, setCount] = useState(0);
@@ -131,7 +133,12 @@ function CounterPage({ transport }) {
   });
 
   // Push observation whenever count changes
-  useObservation(counterSurface.id, 'current_value', { value: count }, transport.send);
+  useObservation(
+    counterSurface.id,
+    "current_value",
+    { value: count },
+    transport.send,
+  );
 
   return <div>Count: {count}</div>;
 }
@@ -253,68 +260,92 @@ A complete DataViz wizard surface — the kind of thing you'd build for an AI-as
 
 ```typescript
 // dataviz.surface.ts
-import { defineSurface } from '@oui-spec/core';
-import type { DataVizContext } from './types';
+import { defineSurface } from "oui-spec/core";
+import type { DataVizContext } from "./types";
 
 export const datavizSurface = defineSurface<DataVizContext>({
-  id: 'dataviz-wizard',
-  name: 'Data Visualization Wizard',
-  description: 'AI-controllable data visualization builder. Supports dataset selection, chart configuration, filtering, and export.',
-  version: '1.0.0',
+  id: "dataviz-wizard",
+  name: "Data Visualization Wizard",
+  description:
+    "AI-controllable data visualization builder. Supports dataset selection, chart configuration, filtering, and export.",
+  version: "1.0.0",
 
   activation: {
-    routes: ['/studio/dataviz', '/studio/dataviz/*'],
-    condition: 'User has an active project with at least one dataset',
+    routes: ["/studio/dataviz", "/studio/dataviz/*"],
+    condition: "User has an active project with at least one dataset",
   },
 
   actions: [
     {
-      id: 'select_dataset',
-      description: 'Select a dataset to visualize. Must be called before configuring a chart.',
+      id: "select_dataset",
+      description:
+        "Select a dataset to visualize. Must be called before configuring a chart.",
       input: {
-        type: 'object',
+        type: "object",
         properties: {
-          datasetId: { type: 'string', description: 'The dataset ID from available_datasets observation' },
+          datasetId: {
+            type: "string",
+            description: "The dataset ID from available_datasets observation",
+          },
         },
-        required: ['datasetId'],
+        required: ["datasetId"],
       },
       handler: async (params, ctx) => {
         const dataset = await ctx.api.loadDataset(params.datasetId as string);
-        ctx.updateState({ selectedDataset: dataset, step: 'configure' });
-        return { success: true, data: { columns: dataset.columns, rowCount: dataset.rowCount } };
+        ctx.updateState({ selectedDataset: dataset, step: "configure" });
+        return {
+          success: true,
+          data: { columns: dataset.columns, rowCount: dataset.rowCount },
+        };
       },
     },
     {
-      id: 'configure_chart',
-      description: 'Configure the chart type, axes, and visual options',
+      id: "configure_chart",
+      description: "Configure the chart type, axes, and visual options",
       input: {
-        type: 'object',
+        type: "object",
         properties: {
-          chartType: { type: 'string', enum: ['bar', 'line', 'scatter', 'pie', 'heatmap', 'treemap'] },
-          xAxis: { type: 'string', description: 'Column name for x-axis' },
-          yAxis: { type: 'string', description: 'Column name for y-axis' },
-          colorBy: { type: 'string', description: 'Column to use for color encoding (optional)' },
-          aggregation: { type: 'string', enum: ['sum', 'avg', 'count', 'min', 'max'], description: 'Aggregation function for y-axis' },
+          chartType: {
+            type: "string",
+            enum: ["bar", "line", "scatter", "pie", "heatmap", "treemap"],
+          },
+          xAxis: { type: "string", description: "Column name for x-axis" },
+          yAxis: { type: "string", description: "Column name for y-axis" },
+          colorBy: {
+            type: "string",
+            description: "Column to use for color encoding (optional)",
+          },
+          aggregation: {
+            type: "string",
+            enum: ["sum", "avg", "count", "min", "max"],
+            description: "Aggregation function for y-axis",
+          },
         },
-        required: ['chartType', 'xAxis', 'yAxis'],
+        required: ["chartType", "xAxis", "yAxis"],
       },
-      preconditions: 'A dataset must be selected first (select_dataset)',
+      preconditions: "A dataset must be selected first (select_dataset)",
       handler: async (params, ctx) => {
-        ctx.updateState({ chartConfig: params, step: 'preview' });
-        return { success: true, data: { configured: true, chartType: params.chartType } };
+        ctx.updateState({ chartConfig: params, step: "preview" });
+        return {
+          success: true,
+          data: { configured: true, chartType: params.chartType },
+        };
       },
     },
     {
-      id: 'apply_filter',
-      description: 'Add a filter to narrow the visualized data',
+      id: "apply_filter",
+      description: "Add a filter to narrow the visualized data",
       input: {
-        type: 'object',
+        type: "object",
         properties: {
-          column: { type: 'string' },
-          operator: { type: 'string', enum: ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'contains'] },
-          value: { description: 'Filter value — type depends on the column' },
+          column: { type: "string" },
+          operator: {
+            type: "string",
+            enum: ["eq", "neq", "gt", "gte", "lt", "lte", "in", "contains"],
+          },
+          value: { description: "Filter value — type depends on the column" },
         },
-        required: ['column', 'operator', 'value'],
+        required: ["column", "operator", "value"],
       },
       handler: async (params, ctx) => {
         const filters = [...ctx.state.filters, params];
@@ -323,14 +354,19 @@ export const datavizSurface = defineSurface<DataVizContext>({
       },
     },
     {
-      id: 'render_chart',
-      description: 'Render the configured chart. This is async — the chart is generated server-side.',
+      id: "render_chart",
+      description:
+        "Render the configured chart. This is async — the chart is generated server-side.",
       async: true,
-      estimatedDuration: '5-20s',
+      estimatedDuration: "5-20s",
       input: {
-        type: 'object',
+        type: "object",
         properties: {
-          quality: { type: 'string', enum: ['draft', 'production'], description: 'Render quality' },
+          quality: {
+            type: "string",
+            enum: ["draft", "production"],
+            description: "Render quality",
+          },
         },
       },
       polling: {
@@ -339,13 +375,26 @@ export const datavizSurface = defineSurface<DataVizContext>({
         resolve: async (dispatchResult, ctx) => {
           const result = dispatchResult as { jobId: string };
           const status = await ctx.api.getRenderStatus(result.jobId);
-          if (status.state === 'complete') {
-            return { done: true, data: { status: 'complete', imageUrl: status.imageUrl, renderTimeMs: status.durationMs } };
+          if (status.state === "complete") {
+            return {
+              done: true,
+              data: {
+                status: "complete",
+                imageUrl: status.imageUrl,
+                renderTimeMs: status.durationMs,
+              },
+            };
           }
-          if (status.state === 'failed') {
-            return { done: true, data: { status: 'failed', error: status.error } };
+          if (status.state === "failed") {
+            return {
+              done: true,
+              data: { status: "failed", error: status.error },
+            };
           }
-          return { done: false, data: { status: 'rendering', progress: status.progress } };
+          return {
+            done: false,
+            data: { status: "rendering", progress: status.progress },
+          };
         },
       },
       handler: async (params, ctx) => {
@@ -353,63 +402,80 @@ export const datavizSurface = defineSurface<DataVizContext>({
           dataset: ctx.state.selectedDataset.id,
           config: ctx.state.chartConfig,
           filters: ctx.state.filters,
-          quality: (params.quality as string) ?? 'draft',
+          quality: (params.quality as string) ?? "draft",
         });
         return { success: true, data: { jobId: job.id } };
       },
     },
     {
-      id: 'export_chart',
-      description: 'Export the rendered chart as PNG, SVG, or PDF',
+      id: "export_chart",
+      description: "Export the rendered chart as PNG, SVG, or PDF",
       input: {
-        type: 'object',
+        type: "object",
         properties: {
-          format: { type: 'string', enum: ['png', 'svg', 'pdf'] },
-          width: { type: 'number', description: 'Export width in pixels (default 1200)' },
-          height: { type: 'number', description: 'Export height in pixels (default 800)' },
+          format: { type: "string", enum: ["png", "svg", "pdf"] },
+          width: {
+            type: "number",
+            description: "Export width in pixels (default 1200)",
+          },
+          height: {
+            type: "number",
+            description: "Export height in pixels (default 800)",
+          },
         },
-        required: ['format'],
+        required: ["format"],
       },
-      preconditions: 'A chart must be rendered first (render_chart)',
+      preconditions: "A chart must be rendered first (render_chart)",
       handler: async (params, ctx) => {
-        const url = await ctx.api.exportChart(ctx.state.renderedChart.id, params);
-        return { success: true, data: { downloadUrl: url, format: params.format } };
+        const url = await ctx.api.exportChart(
+          ctx.state.renderedChart.id,
+          params,
+        );
+        return {
+          success: true,
+          data: { downloadUrl: url, format: params.format },
+        };
       },
     },
   ],
 
   observations: [
     {
-      id: 'available_datasets',
-      description: 'List of datasets available for visualization in the current project',
+      id: "available_datasets",
+      description:
+        "List of datasets available for visualization in the current project",
       schema: {
-        type: 'array',
+        type: "array",
         items: {
-          type: 'object',
+          type: "object",
           properties: {
-            id: { type: 'string' },
-            name: { type: 'string' },
-            rowCount: { type: 'number' },
-            columns: { type: 'array', items: { type: 'string' } },
+            id: { type: "string" },
+            name: { type: "string" },
+            rowCount: { type: "number" },
+            columns: { type: "array", items: { type: "string" } },
           },
         },
       },
-      updateFrequency: 'on-change',
+      updateFrequency: "on-change",
     },
     {
-      id: 'wizard_state',
-      description: 'Current state of the DataViz wizard — which step the user is on and what is configured',
+      id: "wizard_state",
+      description:
+        "Current state of the DataViz wizard — which step the user is on and what is configured",
       schema: {
-        type: 'object',
+        type: "object",
         properties: {
-          step: { type: 'string', enum: ['select', 'configure', 'preview', 'export'] },
-          selectedDatasetId: { type: 'string' },
-          chartConfig: { type: 'object' },
-          filters: { type: 'array' },
-          renderedChartUrl: { type: 'string' },
+          step: {
+            type: "string",
+            enum: ["select", "configure", "preview", "export"],
+          },
+          selectedDatasetId: { type: "string" },
+          chartConfig: { type: "object" },
+          filters: { type: "array" },
+          renderedChartUrl: { type: "string" },
         },
       },
-      updateFrequency: 'on-change',
+      updateFrequency: "on-change",
     },
   ],
 });
@@ -419,9 +485,9 @@ export const datavizSurface = defineSurface<DataVizContext>({
 
 ```tsx
 // DataVizPage.tsx
-import { useSurface, useObservation } from '@oui-spec/react';
-import { createWebSocketTransport } from '@oui-spec/transport';
-import { datavizSurface } from './dataviz.surface';
+import { useSurface, useObservation } from "oui-spec/react";
+import { createWebSocketTransport } from "oui-spec/transport";
+import { datavizSurface } from "./dataviz.surface";
 
 export function DataVizPage() {
   const { state, updateState, api } = useDataVizWizard();
@@ -435,20 +501,36 @@ export function DataVizPage() {
   });
 
   // Push observations whenever relevant state changes
-  useObservation(datavizSurface.id, 'wizard_state', {
-    step: state.step,
-    selectedDatasetId: state.selectedDataset?.id,
-    chartConfig: state.chartConfig,
-    filters: state.filters,
-    renderedChartUrl: state.renderedChart?.imageUrl,
-  }, transport.pushObservation);
+  useObservation(
+    datavizSurface.id,
+    "wizard_state",
+    {
+      step: state.step,
+      selectedDatasetId: state.selectedDataset?.id,
+      chartConfig: state.chartConfig,
+      filters: state.filters,
+      renderedChartUrl: state.renderedChart?.imageUrl,
+    },
+    transport.pushObservation,
+  );
 
-  useObservation(datavizSurface.id, 'available_datasets', state.datasets, transport.pushObservation);
+  useObservation(
+    datavizSurface.id,
+    "available_datasets",
+    state.datasets,
+    transport.pushObservation,
+  );
 
   // Wire transport to surface
   useEffect(() => {
     return transport.onAction((surfaceId, actionId, params) => {
-      handleActionRequest({ surfaceId, actionId, params, requestId: '', timestamp: Date.now() });
+      handleActionRequest({
+        surfaceId,
+        actionId,
+        params,
+        requestId: "",
+        timestamp: Date.now(),
+      });
     });
   }, [handleActionRequest, transport]);
 
@@ -479,24 +561,24 @@ The agent can orchestrate the full wizard: select data → configure chart → f
 
 ## Subpath Imports
 
-The `@oui-spec` package exposes subpath exports for granular imports:
+The `oui-spec` package exposes subpath exports for granular imports:
 
 ```typescript
-import { defineSurface } from '@oui-spec/core';
-import { useSurface } from '@oui-spec/react';
-import { createWebSocketTransport } from '@oui-spec/transport';
-import type { OUISurface, OUIAction } from '@oui-spec/spec';
+import { defineSurface } from "oui-spec/core";
+import { useSurface } from "oui-spec/react";
+import { createWebSocketTransport } from "oui-spec/transport";
+import type { OUISurface, OUIAction } from "oui-spec/spec";
 
 // Or import everything from the root
-import { defineSurface, useSurface, createWebSocketTransport } from '@oui-spec';
+import { defineSurface, useSurface, createWebSocketTransport } from "oui-spec";
 ```
 
-| Subpath | Description |
-|---------|-------------|
-| `@oui-spec/spec` | TypeScript types + JSON Schema for the OUI specification. Zero runtime deps. |
-| `@oui-spec/core` | `defineSurface()`, manifest extraction, action execution, polling config. |
-| `@oui-spec/react` | `useSurface()` hook, `useObservation()` helper. React bindings. |
-| `@oui-spec/transport` | Two-channel transport layer. WebSocket (Socket.IO), direct (in-memory). |
+| Subpath              | Description                                                                  |
+| -------------------- | ---------------------------------------------------------------------------- |
+| `oui-spec/spec`      | TypeScript types + JSON Schema for the OUI specification. Zero runtime deps. |
+| `oui-spec/core`      | `defineSurface()`, manifest extraction, action execution, polling config.    |
+| `oui-spec/react`     | `useSurface()` hook, `useObservation()` helper. React bindings.              |
+| `oui-spec/transport` | Two-channel transport layer. WebSocket (Socket.IO), direct (in-memory).      |
 
 ---
 
@@ -504,15 +586,15 @@ import { defineSurface, useSurface, createWebSocketTransport } from '@oui-spec';
 
 OUI and OpenAPI are **complementary**, not competing:
 
-| | OpenAPI | OUI |
-|--|---------|-----|
-| **Describes** | HTTP endpoints | UI capabilities |
-| **Operates on** | Network requests | Application state |
-| **Agent uses it to** | Call backend APIs | Control frontend UIs |
-| **State awareness** | None (stateless HTTP) | Observations push live state |
-| **Async model** | Webhooks / polling (manual) | Built-in polling runtime |
-| **Schema format** | JSON Schema | JSON Schema |
-| **Transport** | HTTP | WebSocket, postMessage, direct |
+|                      | OpenAPI                     | OUI                            |
+| -------------------- | --------------------------- | ------------------------------ |
+| **Describes**        | HTTP endpoints              | UI capabilities                |
+| **Operates on**      | Network requests            | Application state              |
+| **Agent uses it to** | Call backend APIs           | Control frontend UIs           |
+| **State awareness**  | None (stateless HTTP)       | Observations push live state   |
+| **Async model**      | Webhooks / polling (manual) | Built-in polling runtime       |
+| **Schema format**    | JSON Schema                 | JSON Schema                    |
+| **Transport**        | HTTP                        | WebSocket, postMessage, direct |
 
 An application can expose **both**: an OpenAPI spec for its REST API and an OUI manifest for its UI. An agent that needs to "call the API" uses OpenAPI. An agent that needs to "use the app" uses OUI.
 
@@ -522,19 +604,19 @@ They even share JSON Schema for parameter validation — a deliberate design cho
 
 ## Comparison Table
 
-| | Vision / Screenshot | DOM Scraping | MCP Tools | **OUI** |
-|--|---------------------|--------------|-----------|---------|
-| **Discovery** | Infer from pixels | Parse HTML structure | Read tool manifests | Read surface manifest |
-| **Actions** | Click (x, y) | `querySelector().click()` | `call_tool(name, params)` | `dispatch(surfaceId, actionId, params)` |
-| **Feedback** | Screenshot & compare | Check DOM changed | Tool returns response | Observation pushed async |
-| **UI awareness** | Full (but expensive) | Structural only | None | Declared observations |
-| **Reliability** | Breaks on style/layout changes | Breaks on DOM changes | Stable (typed) | Stable (typed) |
-| **Cost per action** | ~$0.01-0.05 (vision model) | Near zero | Near zero | Near zero |
-| **Latency** | 2-10s (screenshot + inference) | <100ms | <100ms | <100ms |
-| **Async operations** | Poll screenshots | Poll DOM | Not built-in | Declarative polling runtime |
-| **Consent model** | Everything visible | Everything in DOM | Server declares tools | App declares surface |
-| **Framework coupling** | None | Tight (HTML-specific) | None | None (spec is universal) |
-| **Complex workflows** | Dozens of screenshots | Dozens of selectors | Multiple tool calls | Multiple dispatches + observations |
+|                        | Vision / Screenshot            | DOM Scraping              | MCP Tools                 | **OUI**                                 |
+| ---------------------- | ------------------------------ | ------------------------- | ------------------------- | --------------------------------------- |
+| **Discovery**          | Infer from pixels              | Parse HTML structure      | Read tool manifests       | Read surface manifest                   |
+| **Actions**            | Click (x, y)                   | `querySelector().click()` | `call_tool(name, params)` | `dispatch(surfaceId, actionId, params)` |
+| **Feedback**           | Screenshot & compare           | Check DOM changed         | Tool returns response     | Observation pushed async                |
+| **UI awareness**       | Full (but expensive)           | Structural only           | None                      | Declared observations                   |
+| **Reliability**        | Breaks on style/layout changes | Breaks on DOM changes     | Stable (typed)            | Stable (typed)                          |
+| **Cost per action**    | ~$0.01-0.05 (vision model)     | Near zero                 | Near zero                 | Near zero                               |
+| **Latency**            | 2-10s (screenshot + inference) | <100ms                    | <100ms                    | <100ms                                  |
+| **Async operations**   | Poll screenshots               | Poll DOM                  | Not built-in              | Declarative polling runtime             |
+| **Consent model**      | Everything visible             | Everything in DOM         | Server declares tools     | App declares surface                    |
+| **Framework coupling** | None                           | Tight (HTML-specific)     | None                      | None (spec is universal)                |
+| **Complex workflows**  | Dozens of screenshots          | Dozens of selectors       | Multiple tool calls       | Multiple dispatches + observations      |
 
 ---
 
@@ -560,13 +642,13 @@ They even share JSON Schema for parameter validation — a deliberate design cho
 ### Roadmap
 
 - [x] Specification v0.1
-- [x] `@oui-spec/spec` — Types package
-- [x] `@oui-spec/core` — `defineSurface()` + manifest extraction
-- [x] `@oui-spec/react` — `useSurface()` hook + observation helpers
-- [x] `@oui-spec/transport` — WebSocket + Direct transports
-- [ ] `@oui-spec/devtools` — Surface inspector / debugger
-- [ ] `@oui-spec/vue` — Vue bindings
-- [ ] `@oui-spec/validator` — Runtime schema validation
+- [x] `oui-spec/spec` — Types package
+- [x] `oui-spec/core` — `defineSurface()` + manifest extraction
+- [x] `oui-spec/react` — `useSurface()` hook + observation helpers
+- [x] `oui-spec/transport` — WebSocket + Direct transports
+- [ ] `oui-spec/devtools` — Surface inspector / debugger
+- [ ] `oui-spec/vue` — Vue bindings
+- [ ] `oui-spec/validator` — Runtime schema validation
 - [ ] Specification v1.0
 
 ---

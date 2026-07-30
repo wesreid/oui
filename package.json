@@ -1,5 +1,5 @@
 {
-  "name": "@oui-spec",
+  "name": "oui-spec",
   "version": "0.1.0",
   "description": "OUI — The OpenUI Specification. A machine-readable contract for agent-controllable user interfaces.",
   "main": "dist/index.cjs",
