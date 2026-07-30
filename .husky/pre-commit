@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+
+# Run lint-staged (format + lint staged files)
+npx lint-staged
+
+# Type-check
+npx tsc --noEmit
+
+# Test
+npx vitest run
+
+# Build (ensures dist is producible)
+npx tsup

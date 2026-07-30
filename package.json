@@ -34,26 +34,46 @@
   },
   "typesVersions": {
     "*": {
-      "spec": ["dist/spec/index.d.ts"],
-      "core": ["dist/core/index.d.ts"],
-      "react": ["dist/react/index.d.ts"],
-      "transport": ["dist/transport/index.d.ts"]
+      "spec": [
+        "dist/spec/index.d.ts"
+      ],
+      "core": [
+        "dist/core/index.d.ts"
+      ],
+      "react": [
+        "dist/react/index.d.ts"
+      ],
+      "transport": [
+        "dist/transport/index.d.ts"
+      ]
     }
   },
-  "files": ["dist", "spec"],
+  "files": [
+    "dist",
+    "spec"
+  ],
   "license": "MIT",
   "type": "module",
   "repository": {
     "type": "git",
     "url": "https://github.com/wesreid/oui.git"
   },
-  "keywords": ["oui", "openui", "ai", "agent", "ui", "specification", "protocol"],
+  "keywords": [
+    "oui",
+    "openui",
+    "ai",
+    "agent",
+    "ui",
+    "specification",
+    "protocol"
+  ],
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
     "test": "vitest run",
     "test:watch": "vitest",
+    "prepare": "husky",
     "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
@@ -65,13 +85,25 @@
     }
   },
   "devDependencies": {
-    "typescript": "^5.8.0",
     "@types/react": "^19.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.9.6",
     "react": "^19.0.0",
     "tsup": "^8.4.0",
-    "vitest": "^3.0.0",
-    "eslint": "^9.0.0",
-    "@typescript-eslint/eslint-plugin": "^8.0.0",
-    "@typescript-eslint/parser": "^8.0.0"
+    "typescript": "^5.8.0",
+    "vitest": "^3.0.0"
+  },
+  "lint-staged": {
+    "src/**/*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md}": [
+      "prettier --write"
+    ]
   }
 }
