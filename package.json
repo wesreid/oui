@@ -2,34 +2,34 @@
   "name": "@oui-spec",
   "version": "0.1.0",
   "description": "OUI — The OpenUI Specification. A machine-readable contract for agent-controllable user interfaces.",
-  "main": "dist/index.js",
-  "module": "dist/index.mjs",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
     },
     "./spec": {
       "types": "./dist/spec/index.d.ts",
-      "import": "./dist/spec/index.mjs",
-      "require": "./dist/spec/index.js"
+      "import": "./dist/spec/index.js",
+      "require": "./dist/spec/index.cjs"
     },
     "./core": {
       "types": "./dist/core/index.d.ts",
-      "import": "./dist/core/index.mjs",
-      "require": "./dist/core/index.js"
+      "import": "./dist/core/index.js",
+      "require": "./dist/core/index.cjs"
     },
     "./react": {
       "types": "./dist/react/index.d.ts",
-      "import": "./dist/react/index.mjs",
-      "require": "./dist/react/index.js"
+      "import": "./dist/react/index.js",
+      "require": "./dist/react/index.cjs"
     },
     "./transport": {
       "types": "./dist/transport/index.d.ts",
-      "import": "./dist/transport/index.mjs",
-      "require": "./dist/transport/index.js"
+      "import": "./dist/transport/index.js",
+      "require": "./dist/transport/index.cjs"
     }
   },
   "typesVersions": {
