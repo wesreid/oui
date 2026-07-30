@@ -68,3 +68,5 @@ jobs:
 
       - name: Publish to npm
         run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.ALL_PACKAGES_NPM_TOKEN }}
