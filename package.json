@@ -1,23 +1,76 @@
 {
-  "name": "@oui/monorepo",
-  "private": true,
-  "description": "OUI — Open UI Specification for agent-controllable interfaces",
+  "name": "@oui-spec",
+  "version": "0.1.0",
+  "description": "OUI — The OpenUI Specification. A machine-readable contract for agent-controllable user interfaces.",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./spec": {
+      "types": "./dist/spec/index.d.ts",
+      "import": "./dist/spec/index.mjs",
+      "require": "./dist/spec/index.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.mjs",
+      "require": "./dist/core/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.mjs",
+      "require": "./dist/react/index.js"
+    },
+    "./transport": {
+      "types": "./dist/transport/index.d.ts",
+      "import": "./dist/transport/index.mjs",
+      "require": "./dist/transport/index.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "spec": ["dist/spec/index.d.ts"],
+      "core": ["dist/core/index.d.ts"],
+      "react": ["dist/react/index.d.ts"],
+      "transport": ["dist/transport/index.d.ts"]
+    }
+  },
+  "files": ["dist", "spec"],
+  "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/nicholasgriffintn/oui.git"
+    "url": "https://github.com/wesreid/oui.git"
   },
-  "license": "MIT",
-  "workspaces": [
-    "packages/*"
-  ],
+  "keywords": ["oui", "openui", "ai", "agent", "ui", "specification", "protocol"],
   "scripts": {
-    "build": "turbo run build",
-    "typecheck": "turbo run typecheck",
-    "lint": "turbo run lint",
-    "test": "turbo run test"
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts,.tsx",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "typescript": "^5.8.0",
-    "turbo": "^2.5.0"
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0",
+    "tsup": "^8.4.0",
+    "vitest": "^3.0.0",
+    "eslint": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0"
   }
 }

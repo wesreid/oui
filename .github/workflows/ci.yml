@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify package contents
+        run: |
+          npm pack --dry-run 2>&1 | tee pack-output.txt
+          # Ensure dist exists and has expected entry points
+          test -f dist/index.js || (echo "Missing dist/index.js" && exit 1)
+          test -f dist/index.mjs || (echo "Missing dist/index.mjs" && exit 1)
+          test -f dist/index.d.ts || (echo "Missing dist/index.d.ts" && exit 1)
+          test -f dist/spec/index.js || (echo "Missing dist/spec/index.js" && exit 1)
+          test -f dist/core/index.js || (echo "Missing dist/core/index.js" && exit 1)
+          test -f dist/react/index.js || (echo "Missing dist/react/index.js" && exit 1)
+          test -f dist/transport/index.js || (echo "Missing dist/transport/index.js" && exit 1)
+
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: npm audit
+        run: npm audit --production --audit-level=moderate

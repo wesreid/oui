@@ -1,13 +1,14 @@
-# OUI — Open UI Specification
+# OUI - The OpenUI Specification
 
 **The machine-readable contract for agent-controllable user interfaces.**
 
 > *"Oui"* — French for "yes." As in: yes, an AI agent can control this UI.
 
 <!-- Badges -->
-<!-- [![npm](https://img.shields.io/npm/v/@oui/core)](https://www.npmjs.com/package/@oui/core) -->
-<!-- [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) -->
-<!-- [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/) -->
+[![npm](https://img.shields.io/npm/v/@oui-spec)](https://www.npmjs.com/package/@oui-spec)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
+[![CI](https://github.com/wesreid/oui/actions/workflows/ci.yml/badge.svg)](https://github.com/wesreid/oui/actions/workflows/ci.yml)
 
 ---
 
@@ -73,7 +74,7 @@ The simplest possible OUI surface — a counter the agent can increment:
 
 ```typescript
 // counter.surface.ts
-import { defineSurface } from '@oui/core';
+import { defineSurface } from '@oui-spec/core';
 
 export const counterSurface = defineSurface({
   id: 'counter',
@@ -117,7 +118,7 @@ export const counterSurface = defineSurface({
 
 ```tsx
 // CounterPage.tsx
-import { useSurface, useObservation } from '@oui/react';
+import { useSurface, useObservation } from '@oui-spec/react';
 import { counterSurface } from './counter.surface';
 
 function CounterPage({ transport }) {
@@ -252,7 +253,7 @@ A complete DataViz wizard surface — the kind of thing you'd build for an AI-as
 
 ```typescript
 // dataviz.surface.ts
-import { defineSurface } from '@oui/core';
+import { defineSurface } from '@oui-spec/core';
 import type { DataVizContext } from './types';
 
 export const datavizSurface = defineSurface<DataVizContext>({
@@ -418,8 +419,8 @@ export const datavizSurface = defineSurface<DataVizContext>({
 
 ```tsx
 // DataVizPage.tsx
-import { useSurface, useObservation } from '@oui/react';
-import { createWebSocketTransport } from '@oui/transport';
+import { useSurface, useObservation } from '@oui-spec/react';
+import { createWebSocketTransport } from '@oui-spec/transport';
 import { datavizSurface } from './dataviz.surface';
 
 export function DataVizPage() {
@@ -476,14 +477,26 @@ The agent can orchestrate the full wizard: select data → configure chart → f
 
 ---
 
-## Packages
+## Subpath Imports
 
-| Package | Description | Dependencies |
-|---------|-------------|--------------|
-| [`@oui/spec`](./packages/spec) | TypeScript types + JSON Schema for the OUI specification. Zero runtime deps. The schema layer. | None |
-| [`@oui/core`](./packages/core) | `defineSurface()`, manifest extraction, action execution, polling config. The integration layer. | `@oui/spec` |
-| [`@oui/react`](./packages/react) | `useSurface()` hook, `useObservation()` helper. React bindings for surfaces. | `@oui/spec`, `@oui/core`, `react` |
-| [`@oui/transport`](./packages/transport) | Two-channel transport layer. WebSocket (Socket.IO), direct (in-memory). | `@oui/spec` |
+The `@oui-spec` package exposes subpath exports for granular imports:
+
+```typescript
+import { defineSurface } from '@oui-spec/core';
+import { useSurface } from '@oui-spec/react';
+import { createWebSocketTransport } from '@oui-spec/transport';
+import type { OUISurface, OUIAction } from '@oui-spec/spec';
+
+// Or import everything from the root
+import { defineSurface, useSurface, createWebSocketTransport } from '@oui-spec';
+```
+
+| Subpath | Description |
+|---------|-------------|
+| `@oui-spec/spec` | TypeScript types + JSON Schema for the OUI specification. Zero runtime deps. |
+| `@oui-spec/core` | `defineSurface()`, manifest extraction, action execution, polling config. |
+| `@oui-spec/react` | `useSurface()` hook, `useObservation()` helper. React bindings. |
+| `@oui-spec/transport` | Two-channel transport layer. WebSocket (Socket.IO), direct (in-memory). |
 
 ---
 
@@ -547,13 +560,13 @@ They even share JSON Schema for parameter validation — a deliberate design cho
 ### Roadmap
 
 - [x] Specification v0.1
-- [x] `@oui/spec` — Types package
-- [x] `@oui/core` — `defineSurface()` + manifest extraction
-- [x] `@oui/react` — `useSurface()` hook + observation helpers
-- [x] `@oui/transport` — WebSocket + Direct transports
-- [ ] `@oui/devtools` — Surface inspector / debugger
-- [ ] `@oui/vue` — Vue bindings
-- [ ] `@oui/validator` — Runtime schema validation
+- [x] `@oui-spec/spec` — Types package
+- [x] `@oui-spec/core` — `defineSurface()` + manifest extraction
+- [x] `@oui-spec/react` — `useSurface()` hook + observation helpers
+- [x] `@oui-spec/transport` — WebSocket + Direct transports
+- [ ] `@oui-spec/devtools` — Surface inspector / debugger
+- [ ] `@oui-spec/vue` — Vue bindings
+- [ ] `@oui-spec/validator` — Runtime schema validation
 - [ ] Specification v1.0
 
 ---
@@ -564,15 +577,18 @@ Contributions welcome. Please read the spec at [`spec/OUI-SPEC-v0.1.md`](./spec/
 
 ```bash
 # Clone and install
-git clone https://github.com/closurestudio/oui.git
+git clone https://github.com/wesreid/oui.git
 cd oui
-pnpm install
+npm install
 
-# Build all packages
-pnpm -r build
+# Build
+npm run build
+
+# Run tests
+npm test
 
 # Typecheck
-pnpm -r typecheck
+npm run typecheck
 ```
 
 ---
