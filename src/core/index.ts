@@ -10,10 +10,11 @@ export type {
   OUISurfaceRegistration,
   OUISurfaceDeregistration,
   OUIProtocolEvent,
+  OUIActionPolling,
   JSONSchema,
-} from '../spec/index.js';
+} from "../spec/index.js";
 
-export { OUI_PROTOCOL_EVENTS } from '../spec/index.js';
+export { OUI_PROTOCOL_EVENTS } from "../spec/index.js";
 
 // Core utilities
 export {
@@ -24,4 +25,12 @@ export {
   type ActionHandlerResult,
   type ObservationDefinition,
   type DefinedSurface,
-} from './define-surface.js';
+} from "./define-surface.js";
+export { createOUI } from "./create-oui.js";
+export type { OUIConfig, OUIInstance, OwnedTransport } from "./create-oui.js";
+export type {
+  OUIConfigError,
+  DuplicateIds,
+  ValidateSurfaceIds,
+} from "./validate.js";
+export type { OUIBranded } from "./brand.js";

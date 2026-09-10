@@ -118,26 +118,42 @@ export const counterSurface = defineSurface({
 });
 ```
 
+Then instantiate OUI. **`createOUI` is the only supported integration path** — it owns the wire so you never implement the protocol yourself:
+
+```typescript
+// oui.ts
+import { createOUI } from "oui-spec/core";
+import { counterSurface } from "./counter.surface";
+import { socket } from "./my-socket"; // your connection, your auth, your lifecycle
+
+export const oui = createOUI({
+  socket, // you own the connection
+  surfaces: [counterSurface], // you own what exists
+});
+
+await oui.start(); // registers every surface and connects
+```
+
 ```tsx
 // CounterPage.tsx
 import { useSurface, useObservation } from "oui-spec/react";
 import { counterSurface } from "./counter.surface";
+import { oui } from "./oui";
 
-function CounterPage({ transport }) {
+function CounterPage() {
   const [count, setCount] = useState(0);
 
-  const { handleActionRequest } = useSurface({
+  useSurface({
     surface: counterSurface,
     context: { count, setCount },
-    send: transport.send,
+    send: oui.transport.send,
   });
 
-  // Push observation whenever count changes
   useObservation(
     counterSurface.id,
     "current_value",
     { value: count },
-    transport.send,
+    oui.transport.send,
   );
 
   return <div>Count: {count}</div>;
@@ -145,6 +161,67 @@ function CounterPage({ transport }) {
 ```
 
 That's it. The agent now sees a `counter` surface with two tools (`increment`, `reset`) and one live observation (`current_value`).
+
+---
+
+## The Integration Contract
+
+OUI owns the protocol. You own the connection and the content. That split is
+enforced by the type system, not by documentation.
+
+### What OUI owns — and you cannot reimplement
+
+|                    | Owned by OUI                                                                                     |
+| ------------------ | ------------------------------------------------------------------------------------------------ |
+| Socket event names | `{ns}:dispatch`, `{ns}:observation`, `{ns}:surface:register`, `{ns}:surface:deregister`          |
+| Namespace prefix   | `transport.namespace`, default `'oui'`                                                           |
+| Payload shapes     | `OUIActionRequest`, `OUIObservationUpdate`, `OUISurfaceRegistration`, `OUISurfaceDeregistration` |
+| Result routing     | Action results return through the **observation channel** — there is no separate result event    |
+
+`OUIInstance.transport` is a branded `OwnedTransport`. Only `createOUI`
+produces one, so a transport you construct by hand cannot be substituted for
+it. This is deliberate: an early integrator satisfied every type in this
+package without calling any of its runtime, rebuilt the wire by hand, hardcoded
+the namespace, and added a redundant result channel beside the observation
+channel that already carried results. Both ends then agreed only by the
+coincidence of matching string literals.
+
+### What you own
+
+|                     | Owned by the integrator                      |
+| ------------------- | -------------------------------------------- |
+| Connection          | The `socket` — auth, reconnection, lifecycle |
+| Surfaces            | What exists, via `defineSurface`             |
+| Action schemas      | `input` / `output` JSON Schema per action    |
+| Observation schemas | `schema` per observation                     |
+| Handlers            | What actually executes                       |
+
+### Requirements enforced at compile time
+
+`createOUI` will not compile unless every requirement is met:
+
+```typescript
+createOUI({ socket, surfaces: [alpha, alpha] });
+// ✗ Duplicate surface id: "alpha". Registration is keyed by id,
+//   so the second would silently replace the first.
+
+createOUI({ socket, surfaces: [] });
+// ✗ createOUI requires at least one surface. An instance with no
+//   surfaces registers nothing and dispatches nowhere.
+
+createOUI({ surfaces: [alpha] });
+// ✗ Property 'socket' is missing.
+
+createOUI({ socket, surfaces: [{ id: "x", name: "X" /* ... */ }] });
+// ✗ Property '[OUI_BRAND]' is missing — surfaces must come from defineSurface.
+
+const mine: OwnedTransport = createWebSocketTransport(socket);
+// ✗ Property '[OUI_BRAND]' is missing in type 'OUITransport'.
+```
+
+Duplicate action and observation ids within a surface are validated by
+`defineSurface`. Surface-level rules are checked by the type system, so they
+fail in your editor rather than at render time in a browser after a deploy.
 
 ---
 
@@ -564,19 +641,25 @@ The agent can orchestrate the full wizard: select data → configure chart → f
 The `oui-spec` package exposes subpath exports for granular imports:
 
 ```typescript
-import { defineSurface } from "oui-spec/core";
-import { useSurface } from "oui-spec/react";
-import { createWebSocketTransport } from "oui-spec/transport";
+import { createOUI, defineSurface } from "oui-spec/core";
+import { useSurface, useObservation } from "oui-spec/react";
+import type { SocketLike } from "oui-spec/transport";
 import type { OUISurface, OUIAction } from "oui-spec/spec";
 
 // Or import everything from the root
-import { defineSurface, useSurface, createWebSocketTransport } from "oui-spec";
+import { createOUI, defineSurface, useSurface } from "oui-spec";
 ```
+
+`oui-spec/transport` also exports `createWebSocketTransport` and
+`createDirectTransportPair`. These exist for tests and for embedding OUI in a
+runtime that owns its own wiring — they are **not** the integration path, and
+they return a plain `OUITransport` rather than the branded `OwnedTransport` that
+OUI's own APIs accept. If you are integrating an application, use `createOUI`.
 
 | Subpath              | Description                                                                  |
 | -------------------- | ---------------------------------------------------------------------------- |
 | `oui-spec/spec`      | TypeScript types + JSON Schema for the OUI specification. Zero runtime deps. |
-| `oui-spec/core`      | `defineSurface()`, manifest extraction, action execution, polling config.    |
+| `oui-spec/core`      | `createOUI()`, `defineSurface()`, manifest extraction, action execution.     |
 | `oui-spec/react`     | `useSurface()` hook, `useObservation()` helper. React bindings.              |
 | `oui-spec/transport` | Two-channel transport layer. WebSocket (Socket.IO), direct (in-memory).      |
 
@@ -632,6 +715,7 @@ They even share JSON Schema for parameter validation — a deliberate design cho
 8. **Consent-based.** The app controls what's exposed. Users and developers decide what agents can do.
 9. **Composable.** Multiple surfaces coexist. A complex app exposes many surfaces (one per feature/page).
 10. **Complementary.** OUI doesn't replace OpenAPI, MCP, or any other standard. It fills the "UI control" gap they leave open.
+11. **Unbypassable.** A contract an integrator can satisfy without using is not a contract. OUI brands the values it owns with a `unique symbol`, so structural typing cannot be used to substitute a hand-rolled transport or surface. Requirements fail at compile time, with the offending id named.
 
 ---
 
@@ -646,6 +730,7 @@ They even share JSON Schema for parameter validation — a deliberate design cho
 - [x] `oui-spec/core` — `defineSurface()` + manifest extraction
 - [x] `oui-spec/react` — `useSurface()` hook + observation helpers
 - [x] `oui-spec/transport` — WebSocket + Direct transports
+- [x] `createOUI()` — gated instantiation; integration requirements enforced at compile time
 - [ ] `oui-spec/devtools` — Surface inspector / debugger
 - [ ] `oui-spec/vue` — Vue bindings
 - [ ] `oui-spec/validator` — Runtime schema validation
