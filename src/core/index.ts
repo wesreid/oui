@@ -10,6 +10,7 @@ export type {
   OUISurfaceRegistration,
   OUISurfaceDeregistration,
   OUIProtocolEvent,
+  OUIActionPolling,
   JSONSchema,
 } from "../spec/index.js";
 
