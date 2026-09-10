@@ -1,7 +1,7 @@
 {
   "name": "oui-spec",
-  "version": "0.1.0",
-  "description": "OUI \u2014 The OpenUI Specification. A machine-readable contract for agent-controllable user interfaces.",
+  "version": "0.2.0",
+  "description": "OUI — The OpenUI Specification. A machine-readable contract for agent-controllable user interfaces.",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
