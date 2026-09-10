@@ -1,4 +1,12 @@
-import type { OUISurface, OUIAction, OUIObservation, OUIActivation, OUIActionPolling, JSONSchema } from '../spec/index.js';
+import type {
+  OUISurface,
+  OUIAction,
+  OUIObservation,
+  OUIActivation,
+  OUIActionPolling,
+  JSONSchema,
+} from "../spec/index.js";
+import { brand, type OUIBranded } from "./brand.js";
 
 /**
  * Configuration for defining an OUI surface with handlers.
@@ -21,13 +29,18 @@ export interface SurfaceDefinition<TContext = unknown> {
  * The spec's OUIActionPolling is the manifest shape (no functions).
  * The core extends it with the resolve implementation for the runtime.
  */
-export interface ActionPollingConfig<TContext = unknown> extends OUIActionPolling {
+export interface ActionPollingConfig<
+  TContext = unknown,
+> extends OUIActionPolling {
   /**
    * Called on each poll interval. Receives the dispatch result from the handler
    * plus the current context. Return { done: true, data } to stop polling,
    * or { done: false, data } to continue.
    */
-  resolve?: (dispatchResult: unknown, context: TContext) => Promise<{ done: boolean; data: unknown }>;
+  resolve?: (
+    dispatchResult: unknown,
+    context: TContext,
+  ) => Promise<{ done: boolean; data: unknown }>;
 }
 
 /**
@@ -61,7 +74,10 @@ export interface ActionDefinition<TContext = unknown> {
    * Receives typed params and a context object (app-specific state/utilities).
    * Returns a result that the agent sees as the tool output.
    */
-  handler: (params: Record<string, unknown>, context: TContext) => Promise<ActionHandlerResult>;
+  handler: (
+    params: Record<string, unknown>,
+    context: TContext,
+  ) => Promise<ActionHandlerResult>;
 }
 
 export interface ActionHandlerResult {
@@ -107,14 +123,19 @@ export interface ObservationDefinition {
  * });
  * ```
  */
-export function defineSurface<TContext = unknown>(
-  definition: SurfaceDefinition<TContext>,
-): DefinedSurface<TContext> {
+export function defineSurface<
+  TContext = unknown,
+  const TId extends string = string,
+>(
+  definition: SurfaceDefinition<TContext> & { id: TId },
+): DefinedSurface<TContext> & { id: TId } {
   // Validate: no duplicate action IDs
   const actionIds = new Set<string>();
   for (const action of definition.actions) {
     if (actionIds.has(action.id)) {
-      throw new Error(`[OUI] Duplicate action ID "${action.id}" in surface "${definition.id}"`);
+      throw new Error(
+        `[OUI] Duplicate action ID "${action.id}" in surface "${definition.id}"`,
+      );
     }
     actionIds.add(action.id);
   }
@@ -124,13 +145,15 @@ export function defineSurface<TContext = unknown>(
     const obsIds = new Set<string>();
     for (const obs of definition.observations) {
       if (obsIds.has(obs.id)) {
-        throw new Error(`[OUI] Duplicate observation ID "${obs.id}" in surface "${definition.id}"`);
+        throw new Error(
+          `[OUI] Duplicate observation ID "${obs.id}" in surface "${definition.id}"`,
+        );
       }
       obsIds.add(obs.id);
     }
   }
 
-  return {
+  return brand<"surface", unknown>({
     ...definition,
 
     /** Extract the manifest (schema only, no handlers) for transmission to the agent runtime */
@@ -148,10 +171,20 @@ export function defineSurface<TContext = unknown>(
     },
 
     /** Execute an action by ID with the given params and context */
-    async executeAction(actionId: string, params: Record<string, unknown>, context: TContext): Promise<ActionHandlerResult> {
-      const action = definition.actions.find(a => a.id === actionId);
+    async executeAction(
+      actionId: string,
+      params: Record<string, unknown>,
+      context: TContext,
+    ): Promise<ActionHandlerResult> {
+      const action = definition.actions.find((a) => a.id === actionId);
       if (!action) {
-        return { success: false, error: { code: 'ACTION_NOT_FOUND', message: `Action "${actionId}" not found on surface "${definition.id}"` } };
+        return {
+          success: false,
+          error: {
+            code: "ACTION_NOT_FOUND",
+            message: `Action "${actionId}" not found on surface "${definition.id}"`,
+          },
+        };
       }
       try {
         return await action.handler(params, context);
@@ -159,7 +192,7 @@ export function defineSurface<TContext = unknown>(
         return {
           success: false,
           error: {
-            code: 'ACTION_EXECUTION_ERROR',
+            code: "ACTION_EXECUTION_ERROR",
             message: err instanceof Error ? err.message : String(err),
           },
         };
@@ -168,21 +201,33 @@ export function defineSurface<TContext = unknown>(
 
     /** Get all action IDs */
     getActionIds(): string[] {
-      return definition.actions.map(a => a.id);
+      return definition.actions.map((a) => a.id);
     },
 
     /** Get the polling config for an action (if async) */
     getPollingConfig(actionId: string): OUIActionPolling | undefined {
-      const action = definition.actions.find(a => a.id === actionId);
+      const action = definition.actions.find((a) => a.id === actionId);
       return action?.polling;
     },
-  };
+  }) as DefinedSurface<TContext> & { id: TId };
 }
 
 /** A fully defined surface with both manifest extraction and execution capabilities */
-export interface DefinedSurface<TContext = unknown> extends SurfaceDefinition<TContext> {
+/**
+ * Branded so it can only come from `defineSurface`.
+ *
+ * Without the brand a plain object literal satisfies this interface
+ * structurally, which is how an integrator can assemble a surface that never
+ * ran defineSurface's duplicate-id checks and never produced a real manifest.
+ */
+export interface DefinedSurface<TContext = unknown>
+  extends SurfaceDefinition<TContext>, OUIBranded<"surface"> {
   toManifest(): OUISurface;
-  executeAction(actionId: string, params: Record<string, unknown>, context: TContext): Promise<ActionHandlerResult>;
+  executeAction(
+    actionId: string,
+    params: Record<string, unknown>,
+    context: TContext,
+  ): Promise<ActionHandlerResult>;
   getActionIds(): string[];
   /** Get the polling config for an action (if async) */
   getPollingConfig(actionId: string): OUIActionPolling | undefined;
