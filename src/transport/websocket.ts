@@ -1,21 +1,33 @@
-import type { OUITransport, OUITransportConfig, OUIActionHandler, OUIObservationHandler } from './types.js';
-import type { OUISurface, OUIObservationUpdate } from '../spec/index.js';
+import type {
+  OUITransport,
+  OUITransportConfig,
+  OUIActionHandler,
+  OUIObservationHandler,
+  OUIResultHandler,
+} from "./types.js";
+import type {
+  OUISurface,
+  OUIObservationUpdate,
+  OUIActionRequest,
+  OUIActionResult,
+} from "../spec/index.js";
 
 /**
  * WebSocket transport using Socket.IO.
  * Maps OUI protocol events to socket events with a configurable namespace prefix.
  *
- * Events emitted:
- *   {ns}:dispatch        — action dispatch (server → client)
- *   {ns}:observation     — observation update (client → server)
- *   {ns}:surface:register   — surface registration (client → server)
- *   {ns}:surface:deregister — surface deregistration (client → server)
+ * Events:
+ *   {ns}:dispatch            — action request   (runtime → client)
+ *   {ns}:action:result       — action result    (client → runtime)
+ *   {ns}:observation         — observation      (client → runtime)
+ *   {ns}:surface:register    — registration     (client → runtime)
+ *   {ns}:surface:deregister  — deregistration   (client → runtime)
  */
 export function createWebSocketTransport(
   socket: SocketLike,
   config?: OUITransportConfig,
 ): OUITransport {
-  const ns = config?.namespace ?? 'oui';
+  const ns = config?.namespace ?? "oui";
   const buffer: Array<{ event: string; data: unknown }> = [];
   const maxBuffer = config?.maxBufferSize ?? 100;
   const shouldBuffer = config?.bufferWhileDisconnected ?? true;
@@ -23,22 +35,40 @@ export function createWebSocketTransport(
   let connected = socket.connected ?? false;
   const connectionHandlers: Array<(c: boolean) => void> = [];
 
-  // Track connection state
-  socket.on('connect', () => {
+  // Every listener this transport attaches, so dispose() can remove exactly
+  // these and nothing the integrator attached to the same socket.
+  const attached: Array<{ event: string; handler: (...args: any[]) => void }> =
+    [];
+  function listen(
+    event: string,
+    handler: (...args: any[]) => void,
+  ): () => void {
+    socket.on(event, handler);
+    const entry = { event, handler };
+    attached.push(entry);
+    return () => {
+      socket.off(event, handler);
+      const i = attached.indexOf(entry);
+      if (i >= 0) attached.splice(i, 1);
+    };
+  }
+
+  listen("connect", () => {
     connected = true;
-    connectionHandlers.forEach(h => h(true));
-    // Flush buffer
+    // Flush before announcing: anything queued while offline was sent earlier
+    // than whatever a connection handler is about to send.
     if (shouldBuffer) {
       while (buffer.length > 0) {
         const msg = buffer.shift()!;
         socket.emit(msg.event, msg.data);
       }
     }
+    connectionHandlers.forEach((h) => h(true));
   });
 
-  socket.on('disconnect', () => {
+  listen("disconnect", () => {
     connected = false;
-    connectionHandlers.forEach(h => h(false));
+    connectionHandlers.forEach((h) => h(false));
   });
 
   function emit(event: string, data: unknown) {
@@ -50,17 +80,51 @@ export function createWebSocketTransport(
   }
 
   return {
-    // ─── Dispatch Channel ───────────────────────────────────────
-    dispatch(surfaceId, actionId, params) {
-      emit(`${ns}:dispatch`, { surfaceId, actionId, params, timestamp: Date.now() });
+    // ─── Dispatch ───────────────────────────────────────────────
+    dispatch(request: OUIActionRequest) {
+      emit(`${ns}:dispatch`, request);
     },
 
     onAction(handler: OUIActionHandler) {
-      const listener = (data: { surfaceId: string; actionId: string; params: Record<string, unknown> }) => {
-        handler(data.surfaceId, data.actionId, data.params);
-      };
-      socket.on(`${ns}:dispatch`, listener);
-      return () => socket.off(`${ns}:dispatch`, listener);
+      return listen(
+        `${ns}:dispatch`,
+        (data: Partial<OUIActionRequest> | undefined) => {
+          // A request without a requestId cannot be answered, and answering is
+          // the contract. Refuse it loudly rather than run an action whose
+          // result has nowhere to go.
+          if (
+            !data ||
+            typeof data.requestId !== "string" ||
+            !data.requestId ||
+            typeof data.surfaceId !== "string" ||
+            typeof data.actionId !== "string"
+          ) {
+            console.warn(
+              "[OUI] Dropped a dispatch without requestId/surfaceId/actionId",
+              data,
+            );
+            return;
+          }
+          handler({
+            requestId: data.requestId,
+            surfaceId: data.surfaceId,
+            actionId: data.actionId,
+            params: data.params ?? {},
+            timestamp: data.timestamp ?? Date.now(),
+          });
+        },
+      );
+    },
+
+    // ─── Result ─────────────────────────────────────────────────
+    sendResult(result: OUIActionResult) {
+      emit(`${ns}:action:result`, result);
+    },
+
+    onResult(handler: OUIResultHandler) {
+      return listen(`${ns}:action:result`, (data: OUIActionResult) =>
+        handler(data),
+      );
     },
 
     // ─── Observation Channel ────────────────────────────────────
@@ -69,9 +133,9 @@ export function createWebSocketTransport(
     },
 
     onObservation(handler: OUIObservationHandler) {
-      const listener = (data: OUIObservationUpdate) => handler(data);
-      socket.on(`${ns}:observation`, listener);
-      return () => socket.off(`${ns}:observation`, listener);
+      return listen(`${ns}:observation`, (data: OUIObservationUpdate) =>
+        handler(data),
+      );
     },
 
     // ─── Surface Lifecycle ──────────────────────────────────────
@@ -84,40 +148,46 @@ export function createWebSocketTransport(
     },
 
     onSurfaceRegister(handler: (surface: OUISurface) => void) {
-      const listener = (data: { surface: OUISurface }) => handler(data.surface);
-      socket.on(`${ns}:surface:register`, listener);
-      return () => socket.off(`${ns}:surface:register`, listener);
+      return listen(`${ns}:surface:register`, (data: { surface: OUISurface }) =>
+        handler(data.surface),
+      );
     },
 
     onSurfaceDeregister(handler: (surfaceId: string) => void) {
-      const listener = (data: { surfaceId: string }) => handler(data.surfaceId);
-      socket.on(`${ns}:surface:deregister`, listener);
-      return () => socket.off(`${ns}:surface:deregister`, listener);
+      return listen(`${ns}:surface:deregister`, (data: { surfaceId: string }) =>
+        handler(data.surfaceId),
+      );
     },
 
     // ─── Connection ─────────────────────────────────────────────
-    get connected() { return connected; },
+    get connected() {
+      return connected;
+    },
 
     async connect() {
       if (connected) return;
       return new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
-          reject(new Error(`OUI transport connect timeout (${config?.connectTimeoutMs ?? 10000}ms)`));
+          reject(
+            new Error(
+              `OUI transport connect timeout (${config?.connectTimeoutMs ?? 10000}ms)`,
+            ),
+          );
         }, config?.connectTimeoutMs ?? 10000);
 
-        socket.once('connect', () => {
+        socket.once("connect", () => {
           clearTimeout(timeout);
           resolve();
         });
 
-        if (typeof socket.connect === 'function') {
+        if (typeof socket.connect === "function") {
           socket.connect();
         }
       });
     },
 
     disconnect() {
-      if (typeof socket.disconnect === 'function') {
+      if (typeof socket.disconnect === "function") {
         socket.disconnect();
       }
     },
@@ -128,6 +198,14 @@ export function createWebSocketTransport(
         const idx = connectionHandlers.indexOf(handler);
         if (idx >= 0) connectionHandlers.splice(idx, 1);
       };
+    },
+
+    dispose() {
+      for (const { event, handler } of attached.splice(0)) {
+        socket.off(event, handler);
+      }
+      connectionHandlers.length = 0;
+      buffer.length = 0;
     },
   };
 }

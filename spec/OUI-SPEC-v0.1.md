@@ -3,7 +3,7 @@
 **Version:** 0.1.0  
 **Status:** Draft  
 **Date:** 2026-07-27  
-**Authors:** Closure Studio  
+**Authors:** Closure Studio
 
 ---
 
@@ -35,11 +35,13 @@ This document defines the **Open UI Specification (OUI)** — a machine-readable
 OUI defines a standard interface through which AI agents can programmatically control user interfaces. It replaces fragile vision-based or DOM-scraping approaches with an application-declared, typed, semantic contract.
 
 An application that implements OUI declares:
+
 - **What it can do** (Actions)
 - **What state is observable** (Observations)
 - **When capabilities are available** (Activation)
 
 An agent runtime that consumes OUI:
+
 - **Discovers** available capabilities at runtime
 - **Invokes** typed operations and receives structured results
 - **Observes** application state changes in real-time
@@ -48,12 +50,12 @@ An agent runtime that consumes OUI:
 
 Current approaches for AI agents to interact with user interfaces are fundamentally unreliable:
 
-| Approach | Failure Mode |
-|----------|-------------|
-| Screenshot + Vision Model | Breaks on theme changes, responsive layouts, overlays |
-| DOM Scraping | Breaks on framework updates, CSS refactors, dynamic rendering |
-| Coordinate Clicking | Breaks on window resize, scroll position, element reflow |
-| Accessibility Tree | Incomplete for custom components, missing semantics |
+| Approach                  | Failure Mode                                                  |
+| ------------------------- | ------------------------------------------------------------- |
+| Screenshot + Vision Model | Breaks on theme changes, responsive layouts, overlays         |
+| DOM Scraping              | Breaks on framework updates, CSS refactors, dynamic rendering |
+| Coordinate Clicking       | Breaks on window resize, scroll position, element reflow      |
+| Accessibility Tree        | Incomplete for custom components, missing semantics           |
 
 All of these approaches attempt to **infer** application capabilities from implementation details. OUI inverts this: the application **declares** its capabilities explicitly.
 
@@ -66,13 +68,13 @@ OpenAPI Spec  + HTTP Server  = any client can consume the API
 OUI Manifest  + UI App       = any agent can control the UI
 ```
 
-| Dimension | OpenAPI | OUI |
-|-----------|---------|-----|
-| Describes | HTTP endpoints | UI capabilities |
-| Consumer | HTTP clients | Agent runtimes |
-| Transport | HTTP request/response | Protocol events (WebSocket, postMessage, etc.) |
-| Discovery | Static spec document (JSON/YAML) | Dynamic registration (surfaces appear/disappear) |
-| Statefulness | Stateless (per-request) | Stateful (observations persist, surfaces have lifecycle) |
+| Dimension    | OpenAPI                          | OUI                                                      |
+| ------------ | -------------------------------- | -------------------------------------------------------- |
+| Describes    | HTTP endpoints                   | UI capabilities                                          |
+| Consumer     | HTTP clients                     | Agent runtimes                                           |
+| Transport    | HTTP request/response            | Protocol events (WebSocket, postMessage, etc.)           |
+| Discovery    | Static spec document (JSON/YAML) | Dynamic registration (surfaces appear/disappear)         |
+| Statefulness | Stateless (per-request)          | Stateful (observations persist, surfaces have lifecycle) |
 
 An application MAY expose both an OpenAPI spec for its REST API and an OUI manifest for its UI. These serve different consumers: programmatic API clients vs. interactive agent runtimes.
 
@@ -97,18 +99,18 @@ Field types reference [JSON Schema Draft 2020-12](https://json-schema.org/draft/
 
 ## 2. Terminology
 
-| Term | Definition |
-|------|-----------|
-| **Surface** | A controllable boundary within an application that declares a set of actions and observations. Represents a cohesive unit of functionality (e.g., a page, a feature, a component) that an agent can interact with. |
-| **Action** | A single, named operation that an agent can invoke on a surface. Has typed input parameters and a typed return value. Becomes a "tool" in the agent runtime's tool set. |
-| **Observation** | A piece of application state that the agent can read. Observations are pushed to the agent when state changes, providing situational awareness without screenshots. |
-| **Manifest** | The serializable, schema-only representation of a surface — its metadata, actions (without handlers), and observations. This is what crosses the wire to the agent runtime. |
-| **Agent Runtime** | The system that consumes OUI manifests, presents actions as tools to an LLM, and coordinates invocations. Examples: Closure Agent SDK, LangChain, custom orchestrators. |
-| **Transport** | The communication layer between a surface and the agent runtime. OUI is transport-agnostic; bindings are defined for WebSocket, postMessage, and direct function call. |
-| **Activation** | Conditions under which a surface is available. A surface that is not activated MUST NOT be presented to the agent as available. |
-| **Protocol Event** | A typed message exchanged between surfaces and the agent runtime over the transport layer. |
-| **Correlation ID** | A unique identifier (`requestId`) that links an action request to its corresponding result, enabling asynchronous request/response over any transport. |
-| **Handler** | The implementation function that executes when an action is invoked. Handlers are local to the surface and never cross the wire. |
+| Term               | Definition                                                                                                                                                                                                         |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Surface**        | A controllable boundary within an application that declares a set of actions and observations. Represents a cohesive unit of functionality (e.g., a page, a feature, a component) that an agent can interact with. |
+| **Action**         | A single, named operation that an agent can invoke on a surface. Has typed input parameters and a typed return value. Becomes a "tool" in the agent runtime's tool set.                                            |
+| **Observation**    | A piece of application state that the agent can read. Observations are pushed to the agent when state changes, providing situational awareness without screenshots.                                                |
+| **Manifest**       | The serializable, schema-only representation of a surface — its metadata, actions (without handlers), and observations. This is what crosses the wire to the agent runtime.                                        |
+| **Agent Runtime**  | The system that consumes OUI manifests, presents actions as tools to an LLM, and coordinates invocations. Examples: Closure Agent SDK, LangChain, custom orchestrators.                                            |
+| **Transport**      | The communication layer between a surface and the agent runtime. OUI is transport-agnostic; bindings are defined for WebSocket, postMessage, and direct function call.                                             |
+| **Activation**     | Conditions under which a surface is available. A surface that is not activated MUST NOT be presented to the agent as available.                                                                                    |
+| **Protocol Event** | A typed message exchanged between surfaces and the agent runtime over the transport layer.                                                                                                                         |
+| **Correlation ID** | A unique identifier (`requestId`) that links an action request to its corresponding result, enabling asynchronous request/response over any transport.                                                             |
+| **Handler**        | The implementation function that executes when an action is invoked. Handlers are local to the surface and never cross the wire.                                                                                   |
 
 ---
 
@@ -118,20 +120,21 @@ A Surface is the top-level object in OUI. It represents a self-contained, contro
 
 ### 3.1 Schema
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | `string` | ✅ | Unique identifier for this surface. MUST be unique within the application scope. SHOULD use kebab-case (e.g., `document-editor`, `dataviz-wizard`). |
-| `name` | `string` | ✅ | Human-readable display name for the surface. Used in agent UIs and logs. |
-| `description` | `string` | ✅ | Natural-language description of what this surface does. This text is included in the agent's LLM context to inform tool selection. SHOULD be concise but descriptive (1–3 sentences). |
-| `version` | `string` | | Semantic version of this surface's contract (e.g., `1.0.0`). When present, agent runtimes MAY use this for compatibility checking. |
-| `actions` | `OUIAction[]` | ✅ | Array of actions available on this surface. MUST contain at least one action. |
-| `observations` | `OUIObservation[]` | | Array of observable state exposed by this surface. MAY be empty or omitted. |
-| `activation` | `OUIActivation` | | Conditions under which this surface is active. If omitted, the surface is considered always active when registered. |
-| `metadata` | `object` | | Arbitrary key-value pairs for implementation-specific extensions. Agent runtimes SHOULD pass metadata to the LLM context if it aids decision-making. |
+| Field          | Type               | Required | Description                                                                                                                                                                           |
+| -------------- | ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`           | `string`           | ✅       | Unique identifier for this surface. MUST be unique within the application scope. SHOULD use kebab-case (e.g., `document-editor`, `dataviz-wizard`).                                   |
+| `name`         | `string`           | ✅       | Human-readable display name for the surface. Used in agent UIs and logs.                                                                                                              |
+| `description`  | `string`           | ✅       | Natural-language description of what this surface does. This text is included in the agent's LLM context to inform tool selection. SHOULD be concise but descriptive (1–3 sentences). |
+| `version`      | `string`           |          | Semantic version of this surface's contract (e.g., `1.0.0`). When present, agent runtimes MAY use this for compatibility checking.                                                    |
+| `actions`      | `OUIAction[]`      | ✅       | Array of actions available on this surface. MUST contain at least one action.                                                                                                         |
+| `observations` | `OUIObservation[]` |          | Array of observable state exposed by this surface. MAY be empty or omitted.                                                                                                           |
+| `activation`   | `OUIActivation`    |          | Conditions under which this surface is active. If omitted, the surface is considered always active when registered.                                                                   |
+| `metadata`     | `object`           |          | Arbitrary key-value pairs for implementation-specific extensions. Agent runtimes SHOULD pass metadata to the LLM context if it aids decision-making.                                  |
 
 ### 3.2 Identifier Requirements
 
 Surface IDs:
+
 - MUST match the pattern `^[a-z][a-z0-9-]*[a-z0-9]$` (lowercase letters, digits, hyphens; must start with a letter and end with a letter or digit)
 - MUST be between 2 and 64 characters in length
 - MUST be unique within a single application's registration scope
@@ -139,6 +142,7 @@ Surface IDs:
 ### 3.3 Description Best Practices
 
 The `description` field is critical — it is the primary signal an LLM uses to decide whether to interact with a surface. Effective descriptions:
+
 - State the surface's **purpose** (what it lets you do)
 - Mention the **domain** (what kind of data/entities it works with)
 - Are **concise** (avoid implementation details)
@@ -187,22 +191,23 @@ An Action represents a single operation an agent can perform on a surface. Each 
 
 ### 4.1 Schema
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | `string` | ✅ | Unique action identifier within this surface. Becomes the tool name in the agent runtime. MUST use snake_case (e.g., `create_document`, `set_font_size`). |
-| `description` | `string` | ✅ | Natural-language description of what this action does. Included in LLM context. SHOULD clearly state the effect and when to use it. |
-| `input` | `JSONSchema` | ✅ | JSON Schema defining the action's input parameters. The agent runtime validates payloads against this schema before dispatching. |
-| `output` | `JSONSchema` | | JSON Schema defining the action's return value. When present, agent runtimes MAY validate results. If omitted, the result is still returned to the agent as untyped data. |
-| `confirm` | `boolean` | | Default: `false`. If `true`, the agent runtime MUST obtain user confirmation before executing this action. Use for destructive, irreversible, or high-impact operations. |
-| `async` | `boolean` | | Default: `false`. If `true`, the action returns immediately with a tracking identifier. The actual result is delivered later via an `action:result` event. |
-| `usage` | `string` | | Human-readable hint about when this action is appropriate. Supplements `description` with situational guidance (e.g., "Use after the user has selected a document"). |
-| `preconditions` | `string` | | Natural-language description of conditions that should be met before invocation. Expressed for the LLM's benefit, not as executable validation logic. |
-| `estimatedDuration` | `string` | | Human-readable duration hint. One of: `"instant"`, `"< 1s"`, `"1-5s"`, `"5-30s"`, `"30-120s"`, `"> 2min"`, or a custom string. Helps agents manage user expectations. |
-| `tags` | `string[]` | | Categorization tags (e.g., `["write", "destructive"]`, `["read-only"]`). Agent runtimes MAY use tags for filtering or policy enforcement. |
+| Field               | Type         | Required | Description                                                                                                                                                               |
+| ------------------- | ------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                | `string`     | ✅       | Unique action identifier within this surface. Becomes the tool name in the agent runtime. MUST use snake_case (e.g., `create_document`, `set_font_size`).                 |
+| `description`       | `string`     | ✅       | Natural-language description of what this action does. Included in LLM context. SHOULD clearly state the effect and when to use it.                                       |
+| `input`             | `JSONSchema` | ✅       | JSON Schema defining the action's input parameters. The agent runtime validates payloads against this schema before dispatching.                                          |
+| `output`            | `JSONSchema` |          | JSON Schema defining the action's return value. When present, agent runtimes MAY validate results. If omitted, the result is still returned to the agent as untyped data. |
+| `confirm`           | `boolean`    |          | Default: `false`. If `true`, the agent runtime MUST obtain user confirmation before executing this action. Use for destructive, irreversible, or high-impact operations.  |
+| `async`             | `boolean`    |          | Default: `false`. If `true`, the action returns immediately with a tracking identifier. The actual result is delivered later via an `action:result` event.                |
+| `usage`             | `string`     |          | Human-readable hint about when this action is appropriate. Supplements `description` with situational guidance (e.g., "Use after the user has selected a document").      |
+| `preconditions`     | `string`     |          | Natural-language description of conditions that should be met before invocation. Expressed for the LLM's benefit, not as executable validation logic.                     |
+| `estimatedDuration` | `string`     |          | Human-readable duration hint. One of: `"instant"`, `"< 1s"`, `"1-5s"`, `"5-30s"`, `"30-120s"`, `"> 2min"`, or a custom string. Helps agents manage user expectations.     |
+| `tags`              | `string[]`   |          | Categorization tags (e.g., `["write", "destructive"]`, `["read-only"]`). Agent runtimes MAY use tags for filtering or policy enforcement.                                 |
 
 ### 4.2 Identifier Requirements
 
 Action IDs:
+
 - MUST match the pattern `^[a-z][a-z0-9_]*[a-z0-9]$` (lowercase letters, digits, underscores; must start with a letter and end with a letter or digit)
 - MUST be between 2 and 64 characters in length
 - MUST be unique within a single surface
@@ -212,6 +217,7 @@ Action IDs:
 The `input` field MUST be a valid JSON Schema object. The top-level schema SHOULD have `type: "object"` with a `properties` map. The `required` array specifies which properties are mandatory.
 
 **Requirements:**
+
 - Every property SHOULD include a `description` field to inform the LLM
 - The schema MUST be self-contained (no external `$ref` references in manifest form)
 - Default values SHOULD be specified where applicable
@@ -305,16 +311,16 @@ When an action fails, the `action:result` MUST have `success: false` and include
 
 #### Standard Error Codes
 
-| Code | Description |
-|------|-------------|
-| `ACTION_NOT_FOUND` | The specified `actionId` does not exist on this surface |
-| `VALIDATION_ERROR` | Input parameters failed schema validation |
-| `PRECONDITION_FAILED` | Action preconditions are not met |
-| `ACTION_DENIED` | User denied confirmation for a `confirm: true` action |
-| `EXECUTION_ERROR` | Handler threw an unhandled exception |
-| `TIMEOUT` | Action exceeded its execution timeout |
-| `SURFACE_UNAVAILABLE` | The target surface is not currently active |
-| `INTERNAL_ERROR` | An unexpected internal error occurred |
+| Code                  | Description                                             |
+| --------------------- | ------------------------------------------------------- |
+| `ACTION_NOT_FOUND`    | The specified `actionId` does not exist on this surface |
+| `VALIDATION_ERROR`    | Input parameters failed schema validation               |
+| `PRECONDITION_FAILED` | Action preconditions are not met                        |
+| `ACTION_DENIED`       | User denied confirmation for a `confirm: true` action   |
+| `EXECUTION_ERROR`     | Handler threw an unhandled exception                    |
+| `TIMEOUT`             | Action exceeded its execution timeout                   |
+| `SURFACE_UNAVAILABLE` | The target surface is not currently active              |
+| `INTERNAL_ERROR`      | An unexpected internal error occurred                   |
 
 Implementations MAY define additional error codes. Custom codes SHOULD use a namespaced format (e.g., `app:quota_exceeded`).
 
@@ -327,8 +333,16 @@ Implementations MAY define additional error codes. Custom codes SHOULD use a nam
   "input": {
     "type": "object",
     "properties": {
-      "title": { "type": "string", "description": "Document title", "minLength": 1 },
-      "template": { "type": "string", "enum": ["blank", "meeting-notes", "project-brief"], "default": "blank" }
+      "title": {
+        "type": "string",
+        "description": "Document title",
+        "minLength": 1
+      },
+      "template": {
+        "type": "string",
+        "enum": ["blank", "meeting-notes", "project-brief"],
+        "default": "blank"
+      }
     },
     "required": ["title"]
   },
@@ -356,16 +370,17 @@ An Observation exposes a piece of application state to the agent runtime. Observ
 
 ### 5.1 Schema
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | `string` | ✅ | Unique identifier within the surface. MUST use snake_case. |
-| `description` | `string` | ✅ | Natural-language description of what this observation represents. Included in LLM context. |
-| `schema` | `JSONSchema` | ✅ | JSON Schema defining the shape of the observation's value. |
-| `updateFrequency` | `string` | | One of `"realtime"`, `"on-change"`, or `"polling"`. Defaults to `"on-change"`. Informs the agent runtime about expected update patterns. |
+| Field             | Type         | Required | Description                                                                                                                              |
+| ----------------- | ------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`              | `string`     | ✅       | Unique identifier within the surface. MUST use snake_case.                                                                               |
+| `description`     | `string`     | ✅       | Natural-language description of what this observation represents. Included in LLM context.                                               |
+| `schema`          | `JSONSchema` | ✅       | JSON Schema defining the shape of the observation's value.                                                                               |
+| `updateFrequency` | `string`     |          | One of `"realtime"`, `"on-change"`, or `"polling"`. Defaults to `"on-change"`. Informs the agent runtime about expected update patterns. |
 
 ### 5.2 Identifier Requirements
 
 Observation IDs follow the same rules as action IDs:
+
 - MUST match `^[a-z][a-z0-9_]*[a-z0-9]$`
 - MUST be between 2 and 64 characters
 - MUST be unique within a single surface
@@ -377,11 +392,11 @@ Observations are state snapshots pushed from the surface to the agent runtime.
 
 #### 5.3.1 Update Frequencies
 
-| Frequency | Behavior |
-|-----------|----------|
-| `realtime` | Value is pushed on every frame/tick/render cycle. Use sparingly — appropriate for continuously changing values (cursor position, audio level). |
-| `on-change` | Value is pushed whenever the underlying state changes. This is the default and RECOMMENDED mode for most observations. |
-| `polling` | The agent runtime must explicitly request the value. The surface does not push updates proactively. |
+| Frequency   | Behavior                                                                                                                                       |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `realtime`  | Value is pushed on every frame/tick/render cycle. Use sparingly — appropriate for continuously changing values (cursor position, audio level). |
+| `on-change` | Value is pushed whenever the underlying state changes. This is the default and RECOMMENDED mode for most observations.                         |
+| `polling`   | The agent runtime must explicitly request the value. The surface does not push updates proactively.                                            |
 
 #### 5.3.2 Push Model (Default)
 
@@ -420,7 +435,10 @@ Pull-mode observations are useful for expensive-to-compute state that shouldn't 
       "documentId": { "type": "string" },
       "title": { "type": "string" },
       "wordCount": { "type": "integer" },
-      "selectedText": { "type": "string", "description": "Currently selected text, empty if no selection" },
+      "selectedText": {
+        "type": "string",
+        "description": "Currently selected text, empty if no selection"
+      },
       "cursorPosition": {
         "type": "object",
         "properties": {
@@ -428,7 +446,10 @@ Pull-mode observations are useful for expensive-to-compute state that shouldn't 
           "column": { "type": "integer" }
         }
       },
-      "isDirty": { "type": "boolean", "description": "True if document has unsaved changes" }
+      "isDirty": {
+        "type": "boolean",
+        "description": "True if document has unsaved changes"
+      }
     }
   },
   "updateFrequency": "on-change"
@@ -443,13 +464,13 @@ Activation defines the conditions under which a surface is available to the agen
 
 ### 6.1 Schema
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `routes` | `string \| string[]` | | URL path pattern(s) where this surface is active. Supports glob patterns (e.g., `/documents/*`, `/settings/**`). |
-| `entity` | `object` | | An entity that must be loaded/present for this surface to activate. |
-| `entity.type` | `string` | ✅ (if `entity` present) | The entity type (e.g., `"document"`, `"project"`, `"user-profile"`). |
-| `entity.id` | `string` | | A specific entity ID. If omitted, any entity of the given type satisfies the condition. |
-| `condition` | `string` | | Free-form natural-language description of additional activation conditions. Not executable — serves as documentation for the agent runtime and developers. |
+| Field         | Type                 | Required                 | Description                                                                                                                                                |
+| ------------- | -------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `routes`      | `string \| string[]` |                          | URL path pattern(s) where this surface is active. Supports glob patterns (e.g., `/documents/*`, `/settings/**`).                                           |
+| `entity`      | `object`             |                          | An entity that must be loaded/present for this surface to activate.                                                                                        |
+| `entity.type` | `string`             | ✅ (if `entity` present) | The entity type (e.g., `"document"`, `"project"`, `"user-profile"`).                                                                                       |
+| `entity.id`   | `string`             |                          | A specific entity ID. If omitted, any entity of the given type satisfies the condition.                                                                    |
+| `condition`   | `string`             |                          | Free-form natural-language description of additional activation conditions. Not executable — serves as documentation for the agent runtime and developers. |
 
 ### 6.2 Evaluation Rules
 
@@ -462,16 +483,17 @@ Activation defines the conditions under which a surface is available to the agen
 
 Route patterns follow simplified glob syntax:
 
-| Pattern | Matches |
-|---------|---------|
-| `/documents` | Exactly `/documents` |
-| `/documents/*` | `/documents/abc` but not `/documents/abc/edit` |
-| `/documents/**` | `/documents/abc`, `/documents/abc/edit`, `/documents/abc/edit/v2` |
-| `/users/*/settings` | `/users/123/settings` |
+| Pattern             | Matches                                                           |
+| ------------------- | ----------------------------------------------------------------- |
+| `/documents`        | Exactly `/documents`                                              |
+| `/documents/*`      | `/documents/abc` but not `/documents/abc/edit`                    |
+| `/documents/**`     | `/documents/abc`, `/documents/abc/edit`, `/documents/abc/edit/v2` |
+| `/users/*/settings` | `/users/123/settings`                                             |
 
 ### 6.4 Dynamic Activation
 
 Applications with complex activation logic SHOULD manage surface lifecycle explicitly:
+
 - Register the surface (via `surface:register`) when conditions are met
 - Deregister (via `surface:deregister`) when conditions are no longer met
 
@@ -499,13 +521,13 @@ The OUI Protocol defines the message exchange between agent runtimes and surface
 
 All communication consists of typed protocol events. Each event has a `type` string and a `payload` object.
 
-| Event Type | Direction | Description |
-|-----------|-----------|-------------|
-| `surface:register` | Surface → Runtime | A surface is announcing itself as available |
-| `surface:deregister` | Surface → Runtime | A surface is announcing it is no longer available |
-| `action:request` | Runtime → Surface | The agent is invoking an action |
-| `action:result` | Surface → Runtime | The surface is returning an action's result |
-| `observation:update` | Surface → Runtime | An observation value has changed |
+| Event Type            | Direction         | Description                                                   |
+| --------------------- | ----------------- | ------------------------------------------------------------- |
+| `surface:register`    | Surface → Runtime | A surface is announcing itself as available                   |
+| `surface:deregister`  | Surface → Runtime | A surface is announcing it is no longer available             |
+| `action:request`      | Runtime → Surface | The agent is invoking an action                               |
+| `action:result`       | Surface → Runtime | The surface is returning an action's result                   |
+| `observation:update`  | Surface → Runtime | An observation value has changed                              |
 | `observation:request` | Runtime → Surface | The agent is requesting a polling observation's current value |
 
 ### 7.2 Surface Registration and Deregistration
@@ -533,6 +555,7 @@ When a surface becomes active, it MUST send a `surface:register` event:
 ```
 
 **Requirements:**
+
 - The `surface` field contains the complete manifest (schema only, no handlers)
 - The agent runtime MUST acknowledge registration by making the surface's actions available as tools
 - If a surface with the same `id` is already registered, the new registration MUST replace the old one (hot-reload semantics)
@@ -552,6 +575,7 @@ When a surface becomes inactive or is destroyed, it MUST send a `surface:deregis
 ```
 
 **Requirements:**
+
 - The agent runtime MUST remove the surface's actions from the available tool set
 - Any pending action requests targeting this surface MUST be resolved with error code `SURFACE_UNAVAILABLE`
 - Observation state for this surface MUST be discarded
@@ -579,6 +603,7 @@ When the agent invokes an action, the runtime sends an `action:request`:
 ```
 
 **Requirements:**
+
 - `requestId` MUST be a globally unique string. UUID v4 is RECOMMENDED.
 - `params` MUST conform to the action's declared `input` schema
 - The agent runtime SHOULD validate `params` before sending; the surface MUST validate upon receipt
@@ -622,11 +647,45 @@ When the agent invokes an action, the runtime sends an `action:request`:
 ```
 
 **Requirements:**
+
 - The `requestId` in the result MUST exactly match the request's `requestId`
 - Exactly one `action:result` MUST be sent for each `action:request` (for sync actions)
 - For async actions: one immediate acknowledgment result, then one final result (both with the same `requestId`)
 - If `success` is `false`, the `error` field MUST be present
 - If `success` is `true`, the `error` field MUST NOT be present
+- An async action's acknowledgment result MUST set `interim: true`; its final result MUST set `interim: false`
+
+#### 7.3.4 The Client's State After an Action
+
+A result MAY carry the client's state once the action's effects settled:
+
+| Field          | Type                                          | Description                                                   |
+| -------------- | --------------------------------------------- | ------------------------------------------------------------- |
+| `surfaces`     | `OUISurface[]`                                | Every surface active on the client after the action           |
+| `observations` | `{ [surfaceId]: { [observationId]: value } }` | The latest observation values of those surfaces               |
+| `settled`      | `boolean`                                     | `false` if the client's deadline passed before its UI settled |
+
+An action can change what the agent may do next: navigating unmounts one
+page's surfaces and mounts another's. A client that reports `surfaces` lets
+the agent act on the page the action led to, rather than on the capability set
+it had before.
+
+A client SHOULD wait until its UI settles before answering: no surface mounted
+or unmounted and no observation changed for a quiet window, and no known work
+(such as a route's code loading) still pending. It MUST answer by a deadline
+regardless, with `settled: false`.
+
+#### 7.3.5 Client Snapshot
+
+A client MAY provide its surfaces and observations to the agent runtime as a
+snapshot (`{ surfaces, observations }`), for example with each request the
+user makes of the agent, instead of through registration events (§7.2). A
+runtime that works from snapshots needs no registry of its own, and cannot
+hold a registration the client no longer has.
+
+A client's snapshot is authoritative for that client. A runtime MUST NOT merge
+snapshots from different clients of the same user into one capability set:
+each client can act only on what it has mounted.
 
 ### 7.4 Observation Updates
 
@@ -668,6 +727,7 @@ When the agent invokes an action, the runtime sends an `action:request`:
 The surface responds with a standard `observation:update` event.
 
 **Requirements:**
+
 - The `value` MUST conform to the observation's declared `schema`
 - Surfaces SHOULD batch rapid observation updates (e.g., debounce to max 10 updates/second for `on-change` observations)
 - The agent runtime MUST handle out-of-order updates gracefully — always use the latest `timestamp`
@@ -676,14 +736,15 @@ The surface responds with a standard `observation:update` event.
 
 Timeouts prevent resource leaks and provide predictable failure modes.
 
-| Scenario | Default Timeout | Configurable |
-|----------|----------------|--------------|
-| Synchronous action execution | 30,000 ms | Yes |
-| Action acknowledgment (async) | 5,000 ms | Yes |
-| Surface registration response | 10,000 ms | Yes |
-| Observation pull request | 5,000 ms | Yes |
+| Scenario                      | Default Timeout | Configurable |
+| ----------------------------- | --------------- | ------------ |
+| Synchronous action execution  | 30,000 ms       | Yes          |
+| Action acknowledgment (async) | 5,000 ms        | Yes          |
+| Surface registration response | 10,000 ms       | Yes          |
+| Observation pull request      | 5,000 ms        | Yes          |
 
 When a timeout expires:
+
 - The agent runtime MUST generate a synthetic `action:result` with `success: false` and error code `TIMEOUT`
 - The agent runtime MUST NOT retry automatically (retry policy is the agent's decision)
 - The surface MAY still complete the operation; late results SHOULD be silently discarded by the runtime
@@ -693,6 +754,7 @@ When a timeout expires:
 #### 7.6.1 Transport-Level Errors
 
 If the transport connection is lost:
+
 - All registered surfaces MUST be considered deregistered
 - All pending action requests MUST be resolved with error code `SURFACE_UNAVAILABLE`
 - On reconnection, surfaces MUST re-register
@@ -700,6 +762,7 @@ If the transport connection is lost:
 #### 7.6.2 Protocol-Level Errors
 
 If a protocol event is malformed:
+
 - The receiving party MUST ignore the event
 - The receiving party SHOULD log a warning
 - The receiving party MUST NOT crash or close the connection
@@ -739,7 +802,7 @@ interface OUITransport {
   disconnect(): void;
 
   /** Current connection state */
-  readonly state: 'disconnected' | 'connecting' | 'connected';
+  readonly state: "disconnected" | "connecting" | "connected";
 }
 ```
 
@@ -855,6 +918,7 @@ interface DirectTransport {
 #### 8.4.2 Synchronous vs. Asynchronous
 
 Even in direct-call mode:
+
 - Action handlers MUST be invoked asynchronously (via `await` or microtask)
 - The protocol's event-based semantics are preserved — the runtime still receives `action:result` events
 - This ensures behavioral consistency regardless of transport
@@ -862,6 +926,7 @@ Even in direct-call mode:
 #### 8.4.3 Testing
 
 Direct function call transport is the RECOMMENDED approach for unit and integration testing of surfaces. It allows tests to:
+
 - Register a surface
 - Send action requests
 - Assert on action results
@@ -871,16 +936,16 @@ All without network overhead or browser infrastructure.
 
 ### 8.5 Transport Selection
 
-| Scenario | Recommended Transport |
-|----------|----------------------|
-| Web app ↔ remote agent server | WebSocket |
-| Iframe plugin ↔ host app | postMessage |
-| Web worker ↔ main thread | postMessage |
-| Same-process SDK integration | Direct function call |
-| Server-side rendering | Direct function call |
-| Automated testing | Direct function call |
-| Electron main ↔ renderer | postMessage or WebSocket |
-| React Native | WebSocket |
+| Scenario                      | Recommended Transport    |
+| ----------------------------- | ------------------------ |
+| Web app ↔ remote agent server | WebSocket                |
+| Iframe plugin ↔ host app      | postMessage              |
+| Web worker ↔ main thread      | postMessage              |
+| Same-process SDK integration  | Direct function call     |
+| Server-side rendering         | Direct function call     |
+| Automated testing             | Direct function call     |
+| Electron main ↔ renderer      | postMessage or WebSocket |
+| React Native                  | WebSocket                |
 
 ---
 
@@ -907,17 +972,18 @@ OUI surfaces expose application capabilities to external agent runtimes. Securit
 
 The `confirm: true` flag is the primary mechanism for protecting high-impact operations:
 
-| Operation Type | Confirm Recommended |
-|---------------|-------------------|
-| Read-only / query | No |
-| Create / add | Situational |
-| Update / modify | Situational |
-| Delete / destroy | Yes |
-| External side effects (send email, publish) | Yes |
-| Financial transactions | Yes |
-| Permission changes | Yes |
+| Operation Type                              | Confirm Recommended |
+| ------------------------------------------- | ------------------- |
+| Read-only / query                           | No                  |
+| Create / add                                | Situational         |
+| Update / modify                             | Situational         |
+| Delete / destroy                            | Yes                 |
+| External side effects (send email, publish) | Yes                 |
+| Financial transactions                      | Yes                 |
+| Permission changes                          | Yes                 |
 
 Agent runtimes MUST NOT bypass confirmation. The confirmation prompt MUST clearly describe:
+
 - Which action is being invoked
 - What parameters are being passed
 - The expected effect (from the action's `description`)
@@ -927,6 +993,7 @@ Agent runtimes MUST NOT bypass confirmation. The confirmation prompt MUST clearl
 #### 9.3.1 Surface Scoping
 
 Applications SHOULD scope surfaces narrowly:
+
 - One surface per feature or page (not one monolithic surface for the entire app)
 - Only expose actions relevant to the surface's domain
 - Prefer many small surfaces over few large ones
@@ -945,11 +1012,11 @@ Applications SHOULD scope surfaces narrowly:
 
 ### 9.4 Transport Security
 
-| Transport | Security Requirement |
-|-----------|---------------------|
-| WebSocket | MUST use TLS (`wss://`) in production. SHOULD authenticate the connection (e.g., via token in initial handshake). |
-| postMessage | MUST validate `origin`. MUST NOT use `targetOrigin: "*"` in production. |
-| Direct call | Inherits the process's security context. No additional requirements. |
+| Transport   | Security Requirement                                                                                              |
+| ----------- | ----------------------------------------------------------------------------------------------------------------- |
+| WebSocket   | MUST use TLS (`wss://`) in production. SHOULD authenticate the connection (e.g., via token in initial handshake). |
+| postMessage | MUST validate `origin`. MUST NOT use `targetOrigin: "*"` in production.                                           |
+| Direct call | Inherits the process's security context. No additional requirements.                                              |
 
 ### 9.5 Rate Limiting
 
@@ -960,6 +1027,7 @@ Applications SHOULD scope surfaces narrowly:
 ### 9.6 Capability Enumeration
 
 The manifest is readable by the agent runtime. This means:
+
 - Do not include security-sensitive information in action descriptions
 - Do not expose admin-only actions to non-admin agent sessions
 - Consider per-role surface variants if different users have different capabilities
@@ -1026,12 +1094,12 @@ Surfaces and runtimes SHOULD declare which spec version they implement. Compatib
 
 The specification provides explicit extension mechanisms:
 
-| Extension Point | Mechanism |
-|----------------|-----------|
-| Surface metadata | The `metadata` field on `OUISurface` accepts arbitrary key-value pairs |
-| Custom error codes | Namespaced codes (e.g., `app:custom_error`) alongside standard codes |
+| Extension Point        | Mechanism                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------ |
+| Surface metadata       | The `metadata` field on `OUISurface` accepts arbitrary key-value pairs                           |
+| Custom error codes     | Namespaced codes (e.g., `app:custom_error`) alongside standard codes                             |
 | Custom protocol events | Implementations MAY define additional event types prefixed with `x-` (e.g., `x-analytics:track`) |
-| Transport extensions | Custom transports that implement the `OUITransport` interface |
+| Transport extensions   | Custom transports that implement the `OUITransport` interface                                    |
 
 Extensions MUST NOT conflict with the standard protocol. Receivers that encounter unknown event types MUST silently ignore them.
 
@@ -1053,20 +1121,20 @@ Until the compliance suite is available, implementations SHOULD self-verify agai
 
 ```typescript
 type OUIProtocolEvent =
-  | { type: 'surface:register'; payload: OUISurfaceRegistration }
-  | { type: 'surface:deregister'; payload: OUISurfaceDeregistration }
-  | { type: 'action:request'; payload: OUIActionRequest }
-  | { type: 'action:result'; payload: OUIActionResult }
-  | { type: 'observation:update'; payload: OUIObservationUpdate }
-  | { type: 'observation:request'; payload: OUIObservationRequest };
+  | { type: "surface:register"; payload: OUISurfaceRegistration }
+  | { type: "surface:deregister"; payload: OUISurfaceDeregistration }
+  | { type: "action:request"; payload: OUIActionRequest }
+  | { type: "action:result"; payload: OUIActionResult }
+  | { type: "observation:update"; payload: OUIObservationUpdate }
+  | { type: "observation:request"; payload: OUIObservationRequest };
 ```
 
 ### OUISurfaceRegistration
 
 ```typescript
 {
-  surface: OUISurface;   // Complete manifest
-  timestamp: number;     // Unix epoch milliseconds
+  surface: OUISurface; // Complete manifest
+  timestamp: number; // Unix epoch milliseconds
 }
 ```
 
@@ -1074,7 +1142,7 @@ type OUIProtocolEvent =
 
 ```typescript
 {
-  surfaceId: string;     // ID of surface being removed
+  surfaceId: string; // ID of surface being removed
   timestamp: number;
 }
 ```
@@ -1083,10 +1151,10 @@ type OUIProtocolEvent =
 
 ```typescript
 {
-  requestId: string;     // UUID v4 recommended
-  surfaceId: string;     // Target surface
-  actionId: string;      // Target action
-  params: object;        // Input conforming to action's input schema
+  requestId: string; // UUID v4 recommended
+  surfaceId: string; // Target surface
+  actionId: string; // Target action
+  params: object; // Input conforming to action's input schema
   timestamp: number;
 }
 ```
@@ -1114,7 +1182,7 @@ type OUIProtocolEvent =
 {
   surfaceId: string;
   observationId: string;
-  value: unknown;        // Conforms to observation's schema
+  value: unknown; // Conforms to observation's schema
   timestamp: number;
 }
 ```
@@ -1273,8 +1341,14 @@ This appendix shows a full OUI manifest for a todo application, demonstrating al
       "schema": {
         "type": "object",
         "properties": {
-          "status": { "type": "string", "enum": ["all", "active", "completed"] },
-          "priority": { "type": "string", "enum": ["all", "low", "medium", "high"] }
+          "status": {
+            "type": "string",
+            "enum": ["all", "active", "completed"]
+          },
+          "priority": {
+            "type": "string",
+            "enum": ["all", "low", "medium", "high"]
+          }
         }
       },
       "updateFrequency": "on-change"
@@ -1308,16 +1382,16 @@ This appendix shows a full OUI manifest for a todo application, demonstrating al
 
 ## Appendix C: Relationship to Existing Standards
 
-| Standard | Relationship to OUI |
-|----------|-------------------|
-| [OpenAPI](https://spec.openapis.org/oas/latest.html) | Complementary. OpenAPI describes HTTP APIs; OUI describes UI capabilities. An app may expose both. |
-| [JSON Schema](https://json-schema.org/) | Foundation. OUI uses JSON Schema for all input/output/observation type definitions. |
-| [JSON-RPC](https://www.jsonrpc.org/specification) | Inspiration. OUI's request/result correlation is similar to JSON-RPC's `id` field, but OUI adds lifecycle (registration, observations). |
-| [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) | Inspiration. LSP's capability negotiation and typed messages influenced OUI's protocol design. |
-| [Web Components](https://developer.mozilla.org/en-US/docs/Web/API/Web_components) | Orthogonal. Web Components define UI encapsulation at the DOM level; OUI defines semantic capability exposure at the agent level. |
-| [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) | Related. MCP defines tools/resources for LLMs in a server context. OUI is specifically designed for UI surfaces with lifecycle, activation, and real-time observations. |
-| [WAI-ARIA](https://www.w3.org/WAI/ARIA/apg/) | Complementary. ARIA describes UI semantics for assistive technology; OUI describes UI capabilities for agent technology. |
+| Standard                                                                          | Relationship to OUI                                                                                                                                                     |
+| --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [OpenAPI](https://spec.openapis.org/oas/latest.html)                              | Complementary. OpenAPI describes HTTP APIs; OUI describes UI capabilities. An app may expose both.                                                                      |
+| [JSON Schema](https://json-schema.org/)                                           | Foundation. OUI uses JSON Schema for all input/output/observation type definitions.                                                                                     |
+| [JSON-RPC](https://www.jsonrpc.org/specification)                                 | Inspiration. OUI's request/result correlation is similar to JSON-RPC's `id` field, but OUI adds lifecycle (registration, observations).                                 |
+| [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) | Inspiration. LSP's capability negotiation and typed messages influenced OUI's protocol design.                                                                          |
+| [Web Components](https://developer.mozilla.org/en-US/docs/Web/API/Web_components) | Orthogonal. Web Components define UI encapsulation at the DOM level; OUI defines semantic capability exposure at the agent level.                                       |
+| [MCP (Model Context Protocol)](https://modelcontextprotocol.io/)                  | Related. MCP defines tools/resources for LLMs in a server context. OUI is specifically designed for UI surfaces with lifecycle, activation, and real-time observations. |
+| [WAI-ARIA](https://www.w3.org/WAI/ARIA/apg/)                                      | Complementary. ARIA describes UI semantics for assistive technology; OUI describes UI capabilities for agent technology.                                                |
 
 ---
 
-*End of specification.*
+_End of specification._

@@ -7,6 +7,8 @@ export type {
   OUIActionRequest,
   OUIActionResult,
   OUIObservationUpdate,
+  OUIObservationSnapshot,
+  OUISurfaceSnapshot,
   OUISurfaceRegistration,
   OUISurfaceDeregistration,
   OUIProtocolEvent,
@@ -27,6 +29,13 @@ export {
   type DefinedSurface,
 } from "./define-surface.js";
 export { createOUI } from "./create-oui.js";
+export { createSurfaceRuntime } from "./surface-runtime.js";
+export type {
+  SurfaceRuntime,
+  SurfaceRuntimeOptions,
+  SettleOptions,
+  MountedSurface,
+} from "./surface-runtime.js";
 export type { OUIConfig, OUIInstance, OwnedTransport } from "./create-oui.js";
 export type {
   OUIConfigError,

@@ -1,25 +1,42 @@
-import type { OUISurface, OUIObservationUpdate } from '../spec/index.js';
+import type {
+  OUISurface,
+  OUIObservationUpdate,
+  OUIActionRequest,
+  OUIActionResult,
+} from "../spec/index.js";
 
 /**
  * OUI Transport — the wire protocol between agent runtime and surfaces.
  *
- * Two one-way channels:
- * - Dispatch channel (server → client): sends action instructions
- * - Observation channel (client → server): pushes state updates
+ * - Dispatch (runtime → client): an `OUIActionRequest`, carrying a `requestId`.
+ * - Result (client → runtime): the `OUIActionResult` for that `requestId`.
+ * - Observations (client → runtime): state updates pushed as they happen.
+ * - Surface lifecycle (client → runtime): registration, for runtimes that keep
+ *   a server-side registry. A runtime can instead take the client's snapshot.
  *
- * NO request/response. NO correlation IDs. NO waiting.
- * The Lambda dispatches and terminates. The browser processes and pushes state.
+ * Every dispatch is answered by exactly one result. An earlier version of this
+ * transport had no correlation id and no result channel, so an agent could
+ * never learn whether its action ran, and was told it succeeded before the
+ * client had done anything.
  */
 export interface OUITransport {
-  // ─── Dispatch Channel (server → client) ─────────────────────────────
+  // ─── Dispatch (runtime → client) ────────────────────────────────────
 
-  /** Dispatch an action to a surface (one-way, fire-and-forget) */
-  dispatch(surfaceId: string, actionId: string, params: Record<string, unknown>): void;
+  /** Send an action request to the client. */
+  dispatch(request: OUIActionRequest): void;
 
-  /** Receive dispatched actions (surface/client side) */
+  /** Receive action requests (client side). */
   onAction(handler: OUIActionHandler): () => void;
 
-  // ─── Observation Channel (client → server) ──────────────────────────
+  // ─── Result (client → runtime) ──────────────────────────────────────
+
+  /** Answer an action request (client side). */
+  sendResult(result: OUIActionResult): void;
+
+  /** Receive action results (runtime side). */
+  onResult(handler: OUIResultHandler): () => void;
+
+  // ─── Observation Channel (client → runtime) ─────────────────────────
 
   /** Push an observation update from the surface to the agent runtime */
   pushObservation(update: OUIObservationUpdate): void;
@@ -45,16 +62,25 @@ export interface OUITransport {
 
   readonly connected: boolean;
   connect(): Promise<void>;
+
+  /** Disconnect the underlying socket. The integrator owns the socket: prefer `dispose`. */
   disconnect(): void;
+
   onConnectionChange(handler: (connected: boolean) => void): () => void;
+
+  /**
+   * Detach every listener this transport attached to its socket, and leave the
+   * socket connected. A socket outlives the transports built on it; without
+   * this, each one leaked its connection listeners onto the shared socket.
+   */
+  dispose(): void;
 }
 
-/** Handler for incoming action dispatches (client side) */
-export type OUIActionHandler = (
-  surfaceId: string,
-  actionId: string,
-  params: Record<string, unknown>,
-) => void;
+/** Handler for incoming action requests (client side) */
+export type OUIActionHandler = (request: OUIActionRequest) => void;
+
+/** Handler for incoming action results (runtime side) */
+export type OUIResultHandler = (result: OUIActionResult) => void;
 
 /** Handler for incoming observation updates (server side) */
 export type OUIObservationHandler = (update: OUIObservationUpdate) => void;
@@ -69,7 +95,7 @@ export interface OUITransportConfig {
   /** Connection timeout in ms */
   connectTimeoutMs?: number;
 
-  /** Whether to buffer dispatches while disconnected */
+  /** Whether to buffer outbound messages while disconnected */
   bufferWhileDisconnected?: boolean;
 
   /** Max buffer size (messages dropped after this) */

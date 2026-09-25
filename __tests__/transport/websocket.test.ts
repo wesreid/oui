@@ -2,6 +2,11 @@ import { createWebSocketTransport } from '../../src/transport/websocket.js';
 import type { SocketLike } from '../../src/transport/websocket.js';
 import type { OUIObservationUpdate, OUISurface } from '../../src/spec/types.js';
 
+let reqSeq = 0;
+function req(surfaceId: string, actionId: string, params: Record<string, unknown>) {
+  return { requestId: `r${++reqSeq}`, surfaceId, actionId, params, timestamp: Date.now() };
+}
+
 // ─── Mock Socket ─────────────────────────────────────────────────────────────
 
 type Listener = (...args: any[]) => void;
@@ -102,7 +107,7 @@ describe('createWebSocketTransport()', () => {
       const socket = createMockSocket();
       const transport = createWebSocketTransport(socket);
 
-      transport.dispatch('surface-1', 'click_button', { x: 10 });
+      transport.dispatch(req('surface-1', 'click_button', { x: 10 }));
 
       expect(socket._emitted).toHaveLength(1);
       expect(socket._emitted[0].event).toBe('oui:dispatch');
@@ -118,7 +123,7 @@ describe('createWebSocketTransport()', () => {
       const socket = createMockSocket();
       const transport = createWebSocketTransport(socket, { namespace: 'studio' });
 
-      transport.dispatch('s', 'a', {});
+      transport.dispatch(req('s', 'a', {}));
 
       expect(socket._emitted[0].event).toBe('studio:dispatch');
     });
@@ -131,10 +136,10 @@ describe('createWebSocketTransport()', () => {
       const handler = vi.fn();
 
       transport.onAction(handler);
-      socket._emit('oui:dispatch', { surfaceId: 's-1', actionId: 'do_thing', params: { key: 'val' } });
+      socket._emit('oui:dispatch', { requestId: 'r-1', surfaceId: 's-1', actionId: 'do_thing', params: { key: 'val' } });
 
       expect(handler).toHaveBeenCalledOnce();
-      expect(handler).toHaveBeenCalledWith('s-1', 'do_thing', { key: 'val' });
+      expect(handler).toHaveBeenCalledWith(expect.objectContaining({ requestId: 'r-1', surfaceId: 's-1', actionId: 'do_thing', params: { key: 'val' } }));
     });
 
     it('returns cleanup function that removes listener', () => {
@@ -144,7 +149,7 @@ describe('createWebSocketTransport()', () => {
 
       const unsub = transport.onAction(handler);
       unsub();
-      socket._emit('oui:dispatch', { surfaceId: 's', actionId: 'a', params: {} });
+      socket._emit('oui:dispatch', { requestId: 'r-x', surfaceId: 's', actionId: 'a', params: {} });
 
       expect(handler).not.toHaveBeenCalled();
     });
@@ -155,7 +160,7 @@ describe('createWebSocketTransport()', () => {
       const handler = vi.fn();
 
       transport.onAction(handler);
-      socket._emit('custom:dispatch', { surfaceId: 's', actionId: 'a', params: {} });
+      socket._emit('custom:dispatch', { requestId: 'r-y', surfaceId: 's', actionId: 'a', params: {} });
 
       expect(handler).toHaveBeenCalledOnce();
     });
@@ -252,7 +257,7 @@ describe('createWebSocketTransport()', () => {
       const socket = createMockSocket({ connected: false });
       const transport = createWebSocketTransport(socket);
 
-      transport.dispatch('s', 'a', { queued: true });
+      transport.dispatch(req('s', 'a', { queued: true }));
       transport.pushObservation({ surfaceId: 's', observationId: 'o', value: 1, timestamp: 1 });
 
       // Nothing emitted yet (socket disconnected)
@@ -263,8 +268,8 @@ describe('createWebSocketTransport()', () => {
       const socket = createMockSocket({ connected: false });
       const transport = createWebSocketTransport(socket);
 
-      transport.dispatch('s', 'action1', { p: 1 });
-      transport.dispatch('s', 'action2', { p: 2 });
+      transport.dispatch(req('s', 'action1', { p: 1 }));
+      transport.dispatch(req('s', 'action2', { p: 2 }));
 
       expect(socket._emitted).toHaveLength(0);
 
@@ -283,7 +288,7 @@ describe('createWebSocketTransport()', () => {
       const socket = createMockSocket({ connected: false });
       const transport = createWebSocketTransport(socket, { bufferWhileDisconnected: false });
 
-      transport.dispatch('s', 'a', {});
+      transport.dispatch(req('s', 'a', {}));
       transport.pushObservation({ surfaceId: 's', observationId: 'o', value: 1, timestamp: 1 });
 
       // Nothing buffered and nothing emitted
@@ -300,7 +305,7 @@ describe('createWebSocketTransport()', () => {
 
       // Try to queue 5 messages (limit is 3)
       for (let i = 0; i < 5; i++) {
-        transport.dispatch('s', `action_${i}`, {});
+        transport.dispatch(req('s', `action_${i}`, {}));
       }
 
       // Simulate connect — only first 3 should flush
@@ -381,7 +386,7 @@ describe('createWebSocketTransport()', () => {
       const socket = createMockSocket();
       const transport = createWebSocketTransport(socket, { namespace: 'myapp' });
 
-      transport.dispatch('s', 'a', {});
+      transport.dispatch(req('s', 'a', {}));
       transport.pushObservation({ surfaceId: 's', observationId: 'o', value: 1, timestamp: 1 });
       transport.registerSurface(makeSurfaceManifest());
       transport.deregisterSurface('s');

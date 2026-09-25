@@ -1,5 +1,10 @@
-import type { OUITransport, OUIActionHandler, OUIObservationHandler } from './types.js';
-import type { OUISurface, OUIObservationUpdate } from '../spec/index.js';
+import type {
+  OUITransport,
+  OUIActionHandler,
+  OUIObservationHandler,
+  OUIResultHandler,
+} from "./types.js";
+import type { OUISurface, OUIObservationUpdate } from "../spec/index.js";
 
 /**
  * Direct transport — for same-process communication.
@@ -9,62 +14,88 @@ import type { OUISurface, OUIObservationUpdate } from '../spec/index.js';
  * Creates a paired (server, client) transport where messages sent on one
  * side are immediately received on the other.
  */
-export function createDirectTransportPair(): { server: OUITransport; client: OUITransport } {
+export function createDirectTransportPair(): {
+  server: OUITransport;
+  client: OUITransport;
+} {
   const actionHandlers: OUIActionHandler[] = [];
+  const resultHandlers: OUIResultHandler[] = [];
   const observationHandlers: OUIObservationHandler[] = [];
   const surfaceRegisterHandlers: Array<(s: OUISurface) => void> = [];
   const surfaceDeregisterHandlers: Array<(id: string) => void> = [];
 
+  function subscribe<T>(list: T[], handler: T): () => void {
+    list.push(handler);
+    return () => {
+      const i = list.indexOf(handler);
+      if (i >= 0) list.splice(i, 1);
+    };
+  }
+
+  const noop = () => {};
+  const unsubscribed = () => noop;
+
   const server: OUITransport = {
-    dispatch(surfaceId, actionId, params) {
+    dispatch(request) {
       // Server dispatches → client receives
-      actionHandlers.forEach(h => h(surfaceId, actionId, params));
+      actionHandlers.forEach((h) => h(request));
     },
-    onAction() { return () => {}; }, // Server doesn't receive dispatches
-    pushObservation() {}, // Server doesn't push observations
+    onAction: unsubscribed, // Server doesn't receive dispatches
+    sendResult: noop, // Server doesn't answer requests
+    onResult(handler) {
+      return subscribe(resultHandlers, handler);
+    },
+    pushObservation: noop, // Server doesn't push observations
     onObservation(handler) {
-      observationHandlers.push(handler);
-      return () => { const i = observationHandlers.indexOf(handler); if (i >= 0) observationHandlers.splice(i, 1); };
+      return subscribe(observationHandlers, handler);
     },
-    registerSurface() {},
-    deregisterSurface() {},
+    registerSurface: noop,
+    deregisterSurface: noop,
     onSurfaceRegister(handler) {
-      surfaceRegisterHandlers.push(handler);
-      return () => { const i = surfaceRegisterHandlers.indexOf(handler); if (i >= 0) surfaceRegisterHandlers.splice(i, 1); };
+      return subscribe(surfaceRegisterHandlers, handler);
     },
     onSurfaceDeregister(handler) {
-      surfaceDeregisterHandlers.push(handler);
-      return () => { const i = surfaceDeregisterHandlers.indexOf(handler); if (i >= 0) surfaceDeregisterHandlers.splice(i, 1); };
+      return subscribe(surfaceDeregisterHandlers, handler);
     },
-    get connected() { return true; },
+    get connected() {
+      return true;
+    },
     async connect() {},
-    disconnect() {},
-    onConnectionChange() { return () => {}; },
+    disconnect: noop,
+    onConnectionChange: unsubscribed,
+    dispose: noop,
   };
 
   const client: OUITransport = {
-    dispatch() {}, // Client doesn't dispatch
+    dispatch: noop, // Client doesn't dispatch
     onAction(handler) {
-      actionHandlers.push(handler);
-      return () => { const i = actionHandlers.indexOf(handler); if (i >= 0) actionHandlers.splice(i, 1); };
+      return subscribe(actionHandlers, handler);
     },
+    sendResult(result) {
+      // Client answers → server receives
+      resultHandlers.forEach((h) => h(result));
+    },
+    onResult: unsubscribed, // Client doesn't receive results
     pushObservation(update: OUIObservationUpdate) {
       // Client pushes → server receives
-      observationHandlers.forEach(h => h(update));
+      observationHandlers.forEach((h) => h(update));
     },
-    onObservation() { return () => {}; }, // Client doesn't receive observations
+    onObservation: unsubscribed, // Client doesn't receive observations
     registerSurface(surface) {
-      surfaceRegisterHandlers.forEach(h => h(surface));
+      surfaceRegisterHandlers.forEach((h) => h(surface));
     },
     deregisterSurface(surfaceId) {
-      surfaceDeregisterHandlers.forEach(h => h(surfaceId));
+      surfaceDeregisterHandlers.forEach((h) => h(surfaceId));
     },
-    onSurfaceRegister() { return () => {}; },
-    onSurfaceDeregister() { return () => {}; },
-    get connected() { return true; },
+    onSurfaceRegister: unsubscribed,
+    onSurfaceDeregister: unsubscribed,
+    get connected() {
+      return true;
+    },
     async connect() {},
-    disconnect() {},
-    onConnectionChange() { return () => {}; },
+    disconnect: noop,
+    onConnectionChange: unsubscribed,
+    dispose: noop,
   };
 
   return { server, client };

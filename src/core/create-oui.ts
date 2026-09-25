@@ -1,5 +1,9 @@
 /**
- * createOUI — the only supported way to instantiate OUI.
+ * createOUI — a fixed set of surfaces announced over one socket.
+ *
+ * For a client whose surfaces come and go (a React app, where a page's
+ * surfaces mount with the page), use `createSurfaceRuntime` instead: it keeps
+ * the client's own record of what is mounted and answers every request.
  *
  * WHY THIS EXISTS
  *
@@ -22,8 +26,8 @@
  *   transport, because `OUITransport` values are branded and only this module
  *   brands them.
  *
- *   OUI owns the result path. Results return through the observation channel,
- *   as `use-surface` already implements. An integrator cannot add a parallel
+ *   OUI owns the result path. Every dispatch carries a requestId and is
+ *   answered on OUI's result channel. An integrator cannot add a parallel
  *   channel because it cannot construct a transport to add one to.
  *
  *   The integrator owns content. Surfaces, action schemas, observation schemas
@@ -80,7 +84,10 @@ export interface OUIInstance {
   /** Register every surface and connect. */
   start(): Promise<void>;
 
-  /** Deregister every surface and disconnect. */
+  /**
+   * Deregister every surface and detach OUI from the socket. The socket stays
+   * connected: the integrator owns it, and other code may share it.
+   */
   stop(): void;
 
   /** Look up a registered surface by id. */
@@ -148,7 +155,7 @@ export function createOUI<
       for (const surface of surfaces) {
         transport.deregisterSurface(surface.id);
       }
-      transport.disconnect();
+      transport.dispose();
     },
 
     getSurface(id) {

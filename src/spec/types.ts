@@ -155,7 +155,7 @@ export interface OUIObservation {
   schema: JSONSchema;
 
   /** How frequently this observation updates */
-  updateFrequency?: 'realtime' | 'on-change' | 'polling';
+  updateFrequency?: "realtime" | "on-change" | "polling";
 }
 
 /**
@@ -230,6 +230,39 @@ export interface OUIActionResult {
 
   /** Timestamp of the result */
   timestamp: number;
+
+  /**
+   * The surfaces active on the client once the action's effects settled.
+   *
+   * An action can change what the agent is able to do next: navigating
+   * unmounts one page's surfaces and mounts another's. Without this, the agent
+   * would act on the capability set it had before the action, which is the
+   * set the action just replaced.
+   */
+  surfaces?: OUISurface[];
+
+  /** Latest observation values per surface once the action's effects settled. */
+  observations?: OUIObservationSnapshot;
+
+  /**
+   * False when the client's deadline passed before its UI settled, so
+   * `surfaces` and `observations` may still be changing. Absent or true
+   * otherwise.
+   */
+  settled?: boolean;
+}
+
+/** Latest observation values, keyed by surface id and then observation id. */
+export type OUIObservationSnapshot = Record<string, Record<string, unknown>>;
+
+/**
+ * What a client can do right now: the surfaces it has mounted and their latest
+ * observation values. A client sends this to its agent runtime (for example,
+ * with each turn), and returns it on every action result.
+ */
+export interface OUISurfaceSnapshot {
+  surfaces: OUISurface[];
+  observations: OUIObservationSnapshot;
 }
 
 /**
@@ -277,19 +310,19 @@ export interface OUISurfaceDeregistration {
  * All protocol events exchanged between agent runtime and surfaces.
  */
 export type OUIProtocolEvent =
-  | { type: 'surface:register'; payload: OUISurfaceRegistration }
-  | { type: 'surface:deregister'; payload: OUISurfaceDeregistration }
-  | { type: 'action:request'; payload: OUIActionRequest }
-  | { type: 'action:result'; payload: OUIActionResult }
-  | { type: 'observation:update'; payload: OUIObservationUpdate };
+  | { type: "surface:register"; payload: OUISurfaceRegistration }
+  | { type: "surface:deregister"; payload: OUISurfaceDeregistration }
+  | { type: "action:request"; payload: OUIActionRequest }
+  | { type: "action:result"; payload: OUIActionResult }
+  | { type: "observation:update"; payload: OUIObservationUpdate };
 
 /**
  * Protocol event type strings (for type guards and routing).
  */
 export const OUI_PROTOCOL_EVENTS = {
-  SURFACE_REGISTER: 'surface:register',
-  SURFACE_DEREGISTER: 'surface:deregister',
-  ACTION_REQUEST: 'action:request',
-  ACTION_RESULT: 'action:result',
-  OBSERVATION_UPDATE: 'observation:update',
+  SURFACE_REGISTER: "surface:register",
+  SURFACE_DEREGISTER: "surface:deregister",
+  ACTION_REQUEST: "action:request",
+  ACTION_RESULT: "action:result",
+  OBSERVATION_UPDATE: "observation:update",
 } as const;

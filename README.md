@@ -36,37 +36,43 @@ OUI     + UI App        = any agent can control the UI
 flowchart TD
     Agent[Agent Runtime / LLM]
     Manifest[OUI Manifest]
-    Dispatch[Dispatch Channel]
-    Observe[Observation Channel]
+    Runtime[Client Surface Runtime]
     Surface[UI Surface]
     App[Application State]
 
     Agent -->|reads| Manifest
-    Agent -->|fire-and-forget action| Dispatch
-    Dispatch -->|WebSocket| Surface
-    Surface -->|executes handler| App
-    App -->|state changes| Surface
-    Surface -->|pushes observations| Observe
-    Observe -->|WebSocket| Agent
+    Agent -->|action request + requestId| Runtime
+    Runtime -->|runs handler| Surface
+    Surface -->|changes| App
+    App -->|UI settles| Runtime
+    Runtime -->|action result + surfaces after it| Agent
 ```
 
-### Fully Async. Fully Stateless. No Waiting.
+### Every Action Is Answered
 
-OUI uses **two one-way channels** — not request/response. This is the critical architectural decision:
+Every action request carries a `requestId`, and the client answers it exactly
+once with an `OUIActionResult` (spec §7.3):
 
-| Channel         | Direction       | Purpose                              |
-| --------------- | --------------- | ------------------------------------ |
-| **Dispatch**    | Server → Client | Fire action instructions at the UI   |
-| **Observation** | Client → Server | Push state updates back to the agent |
+| Event                | Direction        | Carries                                                                                              |
+| -------------------- | ---------------- | ---------------------------------------------------------------------------------------------------- |
+| `{ns}:dispatch`      | runtime → client | `OUIActionRequest` — `requestId`, `surfaceId`, `actionId`, `params`                                  |
+| `{ns}:action:result` | client → runtime | `OUIActionResult` — success or error, and the client's surfaces and observations once the UI settled |
+| `{ns}:observation`   | client → runtime | state updates as they happen                                                                         |
 
-The agent runtime (e.g., a Lambda function) dispatches an action and **terminates immediately**. It does not wait for a response. The browser executes the action, starts any async work, and pushes observation updates over the observation channel as results arrive. The agent picks up those observations on its next invocation.
+The result includes what the client can do **after** the action. An action can
+change that: navigating unmounts one page's surfaces and mounts another's. An
+agent that only knew the capability set from before the action would be acting
+on the page it just left.
 
-This means:
+An async action (`async: true`) is acknowledged at once with `interim: true`,
+and answered a second time, under the same `requestId`, when its polling
+finishes. Progress in between is published as observations.
 
-- **No Lambda waiting** — no 30-second timeouts holding a connection open
-- **No request/response correlation** — no correlation IDs, no pending promises
-- **No WebSocket held open by the server** — the server writes and disconnects
-- **Long-running operations work naturally** — the UI polls or subscribes and pushes status updates over time
+An earlier version of this package had no result channel: dispatch was
+fire-and-forget and results were expected to arrive as observations. An agent
+could not tell whether an action ran, and its integrator reported success
+before the browser had done anything. The spec always required a result; the
+package now implements it.
 
 ---
 
@@ -118,47 +124,50 @@ export const counterSurface = defineSurface({
 });
 ```
 
-Then instantiate OUI. **`createOUI` is the only supported integration path** — it owns the wire so you never implement the protocol yourself:
+Then create **one surface runtime per client** and provide it at the root. The
+runtime keeps the client's own record of what is mounted, answers every request
+that arrives on the socket, and produces the snapshot an agent works from:
 
-```typescript
-// oui.ts
-import { createOUI } from "oui-spec/core";
-import { counterSurface } from "./counter.surface";
-import { socket } from "./my-socket"; // your connection, your auth, your lifecycle
+```tsx
+// App.tsx
+import { createSurfaceRuntime } from "oui-spec/core";
+import { SurfaceRuntimeProvider } from "oui-spec/react";
 
-export const oui = createOUI({
-  socket, // you own the connection
-  surfaces: [counterSurface], // you own what exists
-});
+const runtime = createSurfaceRuntime({ socket }); // your connection, your auth
 
-await oui.start(); // registers every surface and connects
+export function App() {
+  return (
+    <SurfaceRuntimeProvider runtime={runtime}>
+      <CounterPage />
+    </SurfaceRuntimeProvider>
+  );
+}
 ```
 
 ```tsx
 // CounterPage.tsx
 import { useSurface, useObservation } from "oui-spec/react";
 import { counterSurface } from "./counter.surface";
-import { oui } from "./oui";
 
 function CounterPage() {
   const [count, setCount] = useState(0);
 
-  useSurface({
+  // Mounted while the page is. The runtime answers requests for it.
+  const surface = useSurface({
     surface: counterSurface,
     context: { count, setCount },
-    send: oui.transport.send,
   });
 
-  useObservation(
-    counterSurface.id,
-    "current_value",
-    { value: count },
-    oui.transport.send,
-  );
+  useObservation(surface, "current_value", { value: count });
 
   return <div>Count: {count}</div>;
 }
 ```
+
+`runtime.snapshot()` returns `{ surfaces, observations }` for everything
+mounted. An agent runtime that keeps no registry of its own can take it with
+each request (for example, with each chat turn); set `announce: false` and the
+runtime sends nothing but results over the socket.
 
 That's it. The agent now sees a `counter` surface with two tools (`increment`, `reset`) and one live observation (`current_value`).
 
@@ -171,20 +180,19 @@ enforced by the type system, not by documentation.
 
 ### What OUI owns — and you cannot reimplement
 
-|                    | Owned by OUI                                                                                     |
-| ------------------ | ------------------------------------------------------------------------------------------------ |
-| Socket event names | `{ns}:dispatch`, `{ns}:observation`, `{ns}:surface:register`, `{ns}:surface:deregister`          |
-| Namespace prefix   | `transport.namespace`, default `'oui'`                                                           |
-| Payload shapes     | `OUIActionRequest`, `OUIObservationUpdate`, `OUISurfaceRegistration`, `OUISurfaceDeregistration` |
-| Result routing     | Action results return through the **observation channel** — there is no separate result event    |
+|                    | Owned by OUI                                                                                                        |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| Socket event names | `{ns}:dispatch`, `{ns}:action:result`, `{ns}:observation`, `{ns}:surface:register`, `{ns}:surface:deregister`       |
+| Namespace prefix   | `transport.namespace`, default `'oui'`                                                                              |
+| Payload shapes     | `OUIActionRequest`, `OUIActionResult`, `OUIObservationUpdate`, `OUISurfaceRegistration`, `OUISurfaceDeregistration` |
+| Result routing     | One `{ns}:action:result` per request, correlated by `requestId`                                                     |
 
 `OUIInstance.transport` is a branded `OwnedTransport`. Only `createOUI`
 produces one, so a transport you construct by hand cannot be substituted for
 it. This is deliberate: an early integrator satisfied every type in this
-package without calling any of its runtime, rebuilt the wire by hand, hardcoded
-the namespace, and added a redundant result channel beside the observation
-channel that already carried results. Both ends then agreed only by the
-coincidence of matching string literals.
+package without calling any of its runtime, rebuilt the wire by hand and
+hardcoded the namespace. Both ends then agreed only by the coincidence of
+matching string literals.
 
 ### What you own
 
@@ -227,44 +235,35 @@ fail in your editor rather than at render time in a browser after a deploy.
 
 ## Architecture
 
-### Two One-Way Channels
+### Request and Result
 
 ```mermaid
 sequenceDiagram
-    participant Lambda as Agent Lambda
+    participant Agent as Agent Runtime
     participant WS as WebSocket Server
-    participant Browser as Browser / UI
+    participant Browser as Browser (surface runtime)
 
-    Note over Lambda: Agent decides to act
-    Lambda->>WS: dispatch(surfaceId, actionId, params)
-    Note over Lambda: Lambda terminates immediately
-
-    WS->>Browser: oui:dispatch event
-    Note over Browser: Handler executes
-    Note over Browser: Async work begins
-
-    loop Polling / Subscribe
-        Browser->>Browser: Check job status
-        Browser->>WS: oui:observation (interim update)
-    end
-
-    Browser->>WS: oui:observation (final result)
-    Note over Lambda: Next invocation reads observations
+    Agent->>WS: oui:dispatch { requestId, surfaceId, actionId, params }
+    WS->>Browser: oui:dispatch
+    Note over Browser: Handler runs once (de-duplicated by requestId)
+    Note over Browser: Waits until the UI settles
+    Browser->>WS: oui:action:result { requestId, success, data, surfaces, observations }
+    WS->>Agent: result for requestId
 ```
 
-The dispatch channel carries action instructions **downward** (server → client). The observation channel carries state updates **upward** (client → server). They never mix. There is no concept of "waiting for a response."
+The client waits for the UI to settle before answering: nothing mounted,
+unmounted or changed an observation for a quiet window (250 ms by default), and
+no hold open. A component whose work mounting cannot show, such as a route's
+code or a page's data still loading, keeps the result waiting with
+`useSurfaceHold(isLoading)`. If the deadline passes first, the result says
+`settled: false`.
 
-### Why Not Request/Response?
+### Long operations
 
-In a typical agent architecture:
-
-1. The agent runs in a Lambda (or similar serverless function)
-2. The Lambda has a 30-second timeout
-3. The UI operation might take 2 minutes (file upload, ML inference, user confirmation)
-
-Request/response forces the Lambda to hold a connection open until the operation completes. That either times out or requires expensive long-running compute.
-
-OUI's two-channel model means the Lambda does O(1) work — write a message to the dispatch channel and exit. The browser handles the rest on its own timeline and pushes results as observations. The agent reads those observations whenever it runs next.
+The result of an async action is its acknowledgment: the job was started, and
+here is its id. The agent is not held until a two-minute render finishes. The
+client polls or subscribes, publishes progress as observations, and sends the
+request's final result when the job ends.
 
 ---
 
@@ -561,55 +560,27 @@ export const datavizSurface = defineSurface<DataVizContext>({
 ### Using the Surface in React
 
 ```tsx
-// DataVizPage.tsx
+// DataVizPage.tsx — rendered inside a SurfaceRuntimeProvider
 import { useSurface, useObservation } from "oui-spec/react";
-import { createWebSocketTransport } from "oui-spec/transport";
 import { datavizSurface } from "./dataviz.surface";
 
 export function DataVizPage() {
   const { state, updateState, api } = useDataVizWizard();
-  const transport = useTransport(); // your app's transport setup
 
-  const { handleActionRequest } = useSurface({
+  const surface = useSurface({
     surface: datavizSurface,
     context: { state, updateState, api },
-    send: transport.pushObservation,
-    active: true,
   });
 
-  // Push observations whenever relevant state changes
-  useObservation(
-    datavizSurface.id,
-    "wizard_state",
-    {
-      step: state.step,
-      selectedDatasetId: state.selectedDataset?.id,
-      chartConfig: state.chartConfig,
-      filters: state.filters,
-      renderedChartUrl: state.renderedChart?.imageUrl,
-    },
-    transport.pushObservation,
-  );
-
-  useObservation(
-    datavizSurface.id,
-    "available_datasets",
-    state.datasets,
-    transport.pushObservation,
-  );
-
-  // Wire transport to surface
-  useEffect(() => {
-    return transport.onAction((surfaceId, actionId, params) => {
-      handleActionRequest({
-        surfaceId,
-        actionId,
-        params,
-        requestId: "",
-        timestamp: Date.now(),
-      });
-    });
-  }, [handleActionRequest, transport]);
+  // Keep observations equal to the state they describe
+  useObservation(surface, "wizard_state", {
+    step: state.step,
+    selectedDatasetId: state.selectedDataset?.id,
+    chartConfig: state.chartConfig,
+    filters: state.filters,
+    renderedChartUrl: state.renderedChart?.imageUrl,
+  });
+  useObservation(surface, "available_datasets", state.datasets);
 
   return <DataVizWizardUI state={state} />;
 }
@@ -699,7 +670,7 @@ They even share JSON Schema for parameter validation — a deliberate design cho
 | **Async operations**   | Poll screenshots               | Poll DOM                  | Not built-in              | Declarative polling runtime             |
 | **Consent model**      | Everything visible             | Everything in DOM         | Server declares tools     | App declares surface                    |
 | **Framework coupling** | None                           | Tight (HTML-specific)     | None                      | None (spec is universal)                |
-| **Complex workflows**  | Dozens of screenshots          | Dozens of selectors       | Multiple tool calls       | Multiple dispatches + observations      |
+| **Complex workflows**  | Dozens of screenshots          | Dozens of selectors       | Multiple tool calls       | Multiple requests, each answered        |
 
 ---
 
@@ -708,8 +679,8 @@ They even share JSON Schema for parameter validation — a deliberate design cho
 1. **App-declared, not inferred.** The application explicitly states what it supports. Agents don't guess from pixels or DOM.
 2. **Semantic, not structural.** Actions are named operations (`render_chart`), not DOM paths (`click #btn-render`).
 3. **Typed end-to-end.** Inputs and outputs use JSON Schema. The agent knows exactly what to send and expect.
-4. **Fully async.** Dispatch is fire-and-forget. Results arrive as observations. No blocking, no timeouts.
-5. **Two channels, one direction each.** Dispatch goes down. Observations go up. Never mixed.
+4. **Every action is answered.** One result per request, correlated by `requestId`, carrying what the client can do after it. Long jobs are acknowledged at once and answered again when they finish.
+5. **The client is the record.** The client's surface runtime knows what is mounted; an agent can take its snapshot rather than trust a registry that can drift from it.
 6. **Framework-agnostic.** The spec works with React, Vue, Svelte, vanilla JS, native apps — anything that can handle a function call and emit an event.
 7. **Observable.** The agent reads relevant state without screenshots. The app pushes state changes when they happen.
 8. **Consent-based.** The app controls what's exposed. Users and developers decide what agents can do.
@@ -731,6 +702,7 @@ They even share JSON Schema for parameter validation — a deliberate design cho
 - [x] `oui-spec/react` — `useSurface()` hook + observation helpers
 - [x] `oui-spec/transport` — WebSocket + Direct transports
 - [x] `createOUI()` — gated instantiation; integration requirements enforced at compile time
+- [x] `createSurfaceRuntime()` — client-side record of mounted surfaces; every request answered with a result and the snapshot after it
 - [ ] `oui-spec/devtools` — Surface inspector / debugger
 - [ ] `oui-spec/vue` — Vue bindings
 - [ ] `oui-spec/validator` — Runtime schema validation

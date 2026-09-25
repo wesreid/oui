@@ -1,2 +1,12 @@
-export { useSurface, useObservation } from './use-surface.js';
-export type { UseSurfaceOptions } from './use-surface.js';
+export {
+  SurfaceRuntimeProvider,
+  useSurfaceRuntime,
+  useSurface,
+  useObservation,
+  useSurfaceHold,
+} from "./use-surface.js";
+export type {
+  SurfaceRuntimeProviderProps,
+  UseSurfaceOptions,
+  UseSurfaceResult,
+} from "./use-surface.js";
