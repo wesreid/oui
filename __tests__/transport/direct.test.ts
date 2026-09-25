@@ -1,6 +1,11 @@
 import { createDirectTransportPair } from '../../src/transport/direct.js';
 import type { OUIObservationUpdate, OUISurface } from '../../src/spec/types.js';
 
+let reqSeq = 0;
+function req(surfaceId: string, actionId: string, params: Record<string, unknown>) {
+  return { requestId: `r${++reqSeq}`, surfaceId, actionId, params, timestamp: Date.now() };
+}
+
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
 function makeSurfaceManifest(id = 'test-surface'): OUISurface {
@@ -52,10 +57,10 @@ describe('createDirectTransportPair()', () => {
       const handler = vi.fn();
 
       client.onAction(handler);
-      server.dispatch('my-surface', 'click_button', { target: '#btn' });
+      server.dispatch(req('my-surface', 'click_button', { target: '#btn' }));
 
       expect(handler).toHaveBeenCalledOnce();
-      expect(handler).toHaveBeenCalledWith('my-surface', 'click_button', { target: '#btn' });
+      expect(handler).toHaveBeenCalledWith(expect.objectContaining({ surfaceId: 'my-surface', actionId: 'click_button', params: { target: '#btn' } }));
     });
 
     it('supports multiple onAction handlers', () => {
@@ -65,7 +70,7 @@ describe('createDirectTransportPair()', () => {
 
       client.onAction(handler1);
       client.onAction(handler2);
-      server.dispatch('s', 'a', { x: 1 });
+      server.dispatch(req('s', 'a', { x: 1 }));
 
       expect(handler1).toHaveBeenCalledOnce();
       expect(handler2).toHaveBeenCalledOnce();
@@ -81,9 +86,9 @@ describe('createDirectTransportPair()', () => {
         special: null,
         empty: '',
       };
-      server.dispatch('surface-x', 'complex_action', complexParams);
+      server.dispatch(req('surface-x', 'complex_action', complexParams));
 
-      expect(handler).toHaveBeenCalledWith('surface-x', 'complex_action', complexParams);
+      expect(handler).toHaveBeenCalledWith(expect.objectContaining({ surfaceId: 'surface-x', actionId: 'complex_action', params: complexParams }));
     });
   });
 
@@ -158,11 +163,11 @@ describe('createDirectTransportPair()', () => {
       const handler = vi.fn();
 
       const unsub = client.onAction(handler);
-      server.dispatch('s', 'a', {});
+      server.dispatch(req('s', 'a', {}));
       expect(handler).toHaveBeenCalledOnce();
 
       unsub();
-      server.dispatch('s', 'a', {});
+      server.dispatch(req('s', 'a', {}));
       expect(handler).toHaveBeenCalledOnce(); // not called again
     });
 
@@ -214,7 +219,7 @@ describe('createDirectTransportPair()', () => {
       client.onAction(handler2);
 
       unsub1();
-      server.dispatch('s', 'a', {});
+      server.dispatch(req('s', 'a', {}));
 
       expect(handler1).not.toHaveBeenCalled();
       expect(handler2).toHaveBeenCalledOnce();

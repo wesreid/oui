@@ -12,6 +12,7 @@ export type {
   OUITransport,
   OUIActionHandler,
   OUIObservationHandler,
+  OUIResultHandler,
   OUITransportConfig,
 } from "./types.js";
 
