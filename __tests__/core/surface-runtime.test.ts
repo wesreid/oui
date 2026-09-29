@@ -266,4 +266,27 @@ describe('createSurfaceRuntime', () => {
     expect(runtime.snapshot().observations.render['render:render_start:status']).toMatchObject({ interim: false });
     runtime.dispose();
   });
+
+  it('neither runs nor answers a socket request its accept check refuses', async () => {
+    const socket = createMockSocket();
+    let turnActive = false;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const runtime = createSurfaceRuntime({ socket, announce: false, settle: FAST, accept: () => turnActive });
+    const go = vi.fn();
+    runtime.mount(shell, () => ({ go }));
+
+    socket.receive('oui:dispatch', request('shell', 'go', { to: '/x' }, 'no-turn'));
+    await wait(FAST.quietMs + 50);
+    expect(go).not.toHaveBeenCalled();
+    expect(socket.emitted.filter(e => e.event === 'oui:action:result')).toEqual([]);
+    expect(warn).toHaveBeenCalled();
+
+    turnActive = true;
+    socket.receive('oui:dispatch', request('shell', 'go', { to: '/x' }, 'in-turn'));
+    await wait(FAST.quietMs + 50);
+    expect(go).toHaveBeenCalledOnce();
+    expect(socket.emitted.filter(e => e.event === 'oui:action:result')).toHaveLength(1);
+    warn.mockRestore();
+    runtime.dispose();
+  });
 });
