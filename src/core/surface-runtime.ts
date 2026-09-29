@@ -72,6 +72,17 @@ export interface SurfaceRuntimeOptions {
 
   /** How many answered request ids to remember, for de-duplication. Default 500. */
   dedupeWindow?: number;
+
+  /**
+   * Decides whether a request that arrived on the socket may run at all. A
+   * refused request is neither run nor answered, and is logged.
+   *
+   * The server should be the only sender of action requests, but a client can
+   * also check that a request is one it expects: for example, only while its
+   * agent has a turn in progress. Requests passed to `execute` directly are
+   * not checked; they come from the application itself.
+   */
+  accept?: (request: OUIActionRequest) => boolean;
 }
 
 // ─── Public types ────────────────────────────────────────────────────────────
@@ -523,6 +534,12 @@ export function createSurfaceRuntime(
 
     detachTransport.push(
       t.onAction((request) => {
+        if (options.accept && !options.accept(request)) {
+          console.warn(
+            `[OUI] Refused a request the client does not accept: ${request.surfaceId}.${request.actionId} (${request.requestId})`,
+          );
+          return;
+        }
         void execute(request).then((result) => {
           // Answer on whichever transport is live when the result is ready: a
           // reconnect in between keeps the same socket, so this still reaches
