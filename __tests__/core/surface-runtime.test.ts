@@ -267,6 +267,95 @@ describe('createSurfaceRuntime', () => {
     runtime.dispose();
   });
 
+  describe('an async action is always answered once it has been acknowledged', () => {
+    function renderSurface(resolve: () => Promise<{ done: boolean; data?: unknown }>, withAction = true) {
+      return defineSurface({
+        id: 'render',
+        name: 'Render',
+        description: 'r',
+        actions: withAction
+          ? [
+              {
+                id: 'render_start',
+                description: 'start',
+                input: { type: 'object' },
+                async: true,
+                polling: { intervalMs: 10, resolve },
+                handler: async () => ({ success: true, data: { jobId: 'job-1' } }),
+              },
+            ]
+          : [],
+      });
+    }
+
+    function finalResults(socket: ReturnType<typeof createMockSocket>) {
+      return socket.emitted
+        .filter(e => e.event === 'oui:action:result')
+        .map(e => e.data as OUIActionResult)
+        .filter(r => r.interim === false);
+    }
+
+    it('keeps following the job when the surface remounts without the action', async () => {
+      const socket = createMockSocket();
+      const runtime = createSurfaceRuntime({ socket, announce: false, settle: FAST });
+      let polls = 0;
+      const resolve = async () => (++polls >= 3 ? { done: true, data: { url: 'https://x/y.png' } } : { done: false, data: { progress: 50 } });
+      const first = runtime.mount(renderSurface(resolve), () => ({}));
+
+      socket.receive('oui:dispatch', request('render', 'render_start', {}, 'job-disabled'));
+      await wait(FAST.quietMs + 5);
+      // The control is disabled while its job runs, so the surface comes back without it.
+      runtime.mount(renderSurface(resolve, false), () => ({}));
+      first.unmount();
+      await wait(FAST.quietMs + 150);
+
+      expect(finalResults(socket)).toEqual([
+        expect.objectContaining({ requestId: 'job-disabled', success: true, data: { url: 'https://x/y.png' } }),
+      ]);
+      runtime.dispose();
+    });
+
+    it('answers with a failure when the surface leaves the page mid-job', async () => {
+      const socket = createMockSocket();
+      const runtime = createSurfaceRuntime({ socket, announce: false, settle: FAST });
+      const handle = runtime.mount(renderSurface(async () => ({ done: false, data: { progress: 10 } })), () => ({}));
+
+      socket.receive('oui:dispatch', request('render', 'render_start', {}, 'job-gone'));
+      await wait(FAST.quietMs + 30);
+      handle.unmount();
+      await wait(FAST.quietMs + 80);
+
+      const finals = finalResults(socket);
+      expect(finals).toHaveLength(1);
+      expect(finals[0]).toMatchObject({ requestId: 'job-gone', success: false, error: { code: 'SURFACE_NOT_MOUNTED' } });
+      runtime.dispose();
+    });
+
+    it('answers the older request when the same action starts again', async () => {
+      const socket = createMockSocket();
+      const runtime = createSurfaceRuntime({ socket, announce: false, settle: FAST });
+      let second = false;
+      const resolve = async () => (second ? { done: true, data: { ok: 2 } } : { done: false });
+      runtime.mount(renderSurface(resolve), () => ({}));
+
+      socket.receive('oui:dispatch', request('render', 'render_start', {}, 'job-old'));
+      await wait(FAST.quietMs + 30);
+      second = true;
+      socket.receive('oui:dispatch', request('render', 'render_start', {}, 'job-new'));
+      await wait(FAST.quietMs + 120);
+
+      const finals = finalResults(socket);
+      expect(finals).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ requestId: 'job-old', success: false, error: expect.objectContaining({ code: 'SUPERSEDED' }) }),
+          expect.objectContaining({ requestId: 'job-new', success: true, data: { ok: 2 } }),
+        ]),
+      );
+      expect(finals).toHaveLength(2);
+      runtime.dispose();
+    });
+  });
+
   it('neither runs nor answers a socket request its accept check refuses', async () => {
     const socket = createMockSocket();
     let turnActive = false;
