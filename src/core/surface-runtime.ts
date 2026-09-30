@@ -164,6 +164,11 @@ export function createSurfaceRuntime(
   let nextHold = 1;
   const results = new Map<string, Promise<OUIActionResult>>();
   const pollers = new Map<string, ReturnType<typeof setInterval>>();
+  // How each running poll answers its request if it has to stop early.
+  const abandon = new Map<
+    string,
+    (error: { code: string; message: string }) => void
+  >();
   const listeners = new Set<() => void>();
   // Resolves once a request's first result has been handed to the transport.
   const acks = new Map<
@@ -282,6 +287,16 @@ export function createSurfaceRuntime(
       if (key.startsWith(`${surfaceId}\u0000`)) {
         clearInterval(timer);
         pollers.delete(key);
+        // The request still gets its final answer: a poll that stops
+        // without one leaves the agent waiting forever.
+        abandon.get(key)?.({
+          code: "SURFACE_NOT_MOUNTED",
+          message:
+            `Surface "${surfaceId}" left the page before its action finished, ` +
+            "so it is no longer being followed. Check what the page shows " +
+            "before trying again.",
+        });
+        abandon.delete(key);
       }
     }
   }
@@ -345,7 +360,17 @@ export function createSurfaceRuntime(
     }
 
     const existing = pollers.get(pollerKey);
-    if (existing) clearInterval(existing);
+    if (existing) {
+      clearInterval(existing);
+      pollers.delete(pollerKey);
+      abandon.get(pollerKey)?.({
+        code: "SUPERSEDED",
+        message:
+          `"${actionId}" was started again before this run finished, ` +
+          "so only the newer run is being followed.",
+      });
+      abandon.delete(pollerKey);
+    }
 
     setObservation(
       surfaceId,
@@ -364,6 +389,7 @@ export function createSurfaceRuntime(
       if (attempts > maxAttempts || Date.now() - startedAt > maxDuration) {
         clearInterval(timer);
         pollers.delete(pollerKey);
+        abandon.delete(pollerKey);
         setObservation(
           surfaceId,
           observationId,
@@ -377,17 +403,29 @@ export function createSurfaceRuntime(
         return;
       }
       const entry = activeFor(surfaceId);
-      const action = entry?.surface.actions.find((a) => a.id === actionId);
-      if (!entry || !action?.polling?.resolve) {
+      if (!entry) {
+        // forgetSurface normally gets here first; answer anyway.
         clearInterval(timer);
         pollers.delete(pollerKey);
+        const gone = abandon.get(pollerKey);
+        abandon.delete(pollerKey);
+        gone?.({
+          code: "SURFACE_NOT_MOUNTED",
+          message:
+            `Surface "${surfaceId}" left the page before "${actionId}" ` +
+            "finished, so it is no longer being followed. Check what the " +
+            "page shows before trying again.",
+        });
         return;
       }
+      // The surface may have remounted without this action (a control that is
+      // disabled while its job runs, say). The job is still running, so keep
+      // following it with the polling it started with.
+      const action = entry.surface.actions.find((a) => a.id === actionId);
+      const resolve = action?.polling?.resolve ?? polling.resolve;
+      if (!resolve) return;
       try {
-        const r = await action.polling.resolve(
-          dispatchResult,
-          entry.getContext(),
-        );
+        const r = await resolve(dispatchResult, entry.getContext());
         setObservation(
           surfaceId,
           observationId,
@@ -400,6 +438,7 @@ export function createSurfaceRuntime(
         if (r.done) {
           clearInterval(timer);
           pollers.delete(pollerKey);
+          abandon.delete(pollerKey);
           void finish(true, r.data);
         }
       } catch (err) {
@@ -414,6 +453,7 @@ export function createSurfaceRuntime(
     }, polling.intervalMs);
 
     pollers.set(pollerKey, timer);
+    abandon.set(pollerKey, (error) => void finish(false, undefined, error));
   }
 
   // ─── Settling ─────────────────────────────────────────────────────────────
@@ -633,6 +673,7 @@ export function createSurfaceRuntime(
     dispose() {
       for (const timer of pollers.values()) clearInterval(timer);
       pollers.clear();
+      abandon.clear();
       attach(null);
       entries.length = 0;
       observations.clear();
