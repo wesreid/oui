@@ -122,12 +122,7 @@ export function canonicalJson(value: unknown): string {
 /** SHA-256 of the canonical JSON of a request's params, lowercase hex. Runs wherever WebCrypto does. */
 export async function argsHash(params: unknown): Promise<string> {
   const canonical = canonicalJson(params);
-  const subtle = globalThis.crypto?.subtle;
-  if (!subtle) {
-    throw new Error(
-      "[OUI] argsHash needs WebCrypto (crypto.subtle), which this runtime does not provide",
-    );
-  }
+  const subtle = await webCrypto();
   const digest = await subtle.digest(
     "SHA-256",
     new TextEncoder().encode(canonical),
@@ -136,6 +131,27 @@ export async function argsHash(params: unknown): Promise<string> {
   for (const byte of new Uint8Array(digest))
     hex += byte.toString(16).padStart(2, "0");
   return hex;
+}
+
+/**
+ * WebCrypto: global in browsers and Node 19+; Node 18 has it only on
+ * `node:crypto`, imported here by a specifier bundlers leave alone.
+ */
+async function webCrypto(): Promise<SubtleCrypto> {
+  const global = globalThis.crypto?.subtle;
+  if (global) return global;
+  const nodeCrypto = "node:crypto";
+  try {
+    const mod = (await import(/* @vite-ignore */ nodeCrypto)) as {
+      webcrypto?: { subtle?: SubtleCrypto };
+    };
+    if (mod.webcrypto?.subtle) return mod.webcrypto.subtle;
+  } catch {
+    // Not Node: fall through to the error below.
+  }
+  throw new Error(
+    "[OUI] argsHash needs WebCrypto (crypto.subtle), which this runtime does not provide",
+  );
 }
 
 function refuse(path: string, what: string): never {
