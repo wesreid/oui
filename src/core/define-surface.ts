@@ -5,6 +5,7 @@ import type {
   OUIActivation,
   OUIActionPolling,
   JSONSchema,
+  OUIEffectKind,
 } from "../spec/index.js";
 import { brand, type OUIBranded } from "./brand.js";
 
@@ -51,8 +52,13 @@ export interface ActionPollingConfig<
 export interface ActionDefinition<TContext = unknown> {
   id: string;
   description: string;
+  /** Its name as a person reads it, for a confirmation the user approves. */
+  title?: string;
+  /** What using it does; a `transaction` runs only on the user's approval of the exact request. */
+  effect?: OUIEffectKind;
   input: JSONSchema;
   output?: JSONSchema;
+  /** Destructive: it runs only on the user's approval of the exact request, unless it only reads. */
   confirm?: boolean;
   async?: boolean;
 
@@ -239,6 +245,8 @@ function actionToManifest<T>(action: ActionDefinition<T>): OUIAction {
   return {
     id: action.id,
     description: action.description,
+    ...(action.title !== undefined ? { title: action.title } : {}),
+    ...(action.effect !== undefined ? { effect: action.effect } : {}),
     input: action.input,
     output: action.output,
     confirm: action.confirm,

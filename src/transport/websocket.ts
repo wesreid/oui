@@ -10,6 +10,7 @@ import type {
   OUIObservationUpdate,
   OUIActionRequest,
   OUIActionResult,
+  OUIActionApproval,
 } from "../spec/index.js";
 
 /**
@@ -111,6 +112,14 @@ export function createWebSocketTransport(
             actionId: data.actionId,
             params: data.params ?? {},
             timestamp: data.timestamp ?? Date.now(),
+            ...(isApproval(data.approval)
+              ? {
+                  approval: {
+                    approvalId: data.approval.approvalId,
+                    argsHash: data.approval.argsHash,
+                  },
+                }
+              : {}),
           });
         },
       );
@@ -222,4 +231,15 @@ export interface SocketLike {
   once(event: string, handler: (...args: any[]) => void): void;
   connect?(): void;
   disconnect?(): void;
+}
+
+/** An approval as the wire carries it; anything else is dropped, so the runtime treats the request as unapproved. */
+function isApproval(value: unknown): value is OUIActionApproval {
+  const a = value as Partial<OUIActionApproval> | null | undefined;
+  return (
+    !!a &&
+    typeof a.approvalId === "string" &&
+    !!a.approvalId &&
+    typeof a.argsHash === "string"
+  );
 }

@@ -265,6 +265,28 @@ here is its id. The agent is not held until a two-minute render finishes. The
 client polls or subscribes, publishes progress as observations, and sends the
 request's final result when the job ends.
 
+### Approvals
+
+Some actions can't be undone: an order placed, a payment made, a message sent, something published, or something the person made deleted. An action declares this with `effect: 'transaction'`, or with `confirm: true` for a destructive write. It then runs only on the user's approval of the exact request.
+
+1. The agent runtime stops at the action and shows the user a confirmation built from the action's `title`, `description` and input schema.
+2. The user confirms. The approval store answers this tab, and only this tab, with a grant. The tab records it:
+
+   ```ts
+   runtime.grantApproval({ approvalId, argsHash, expiresAt });
+   ```
+
+3. The request that runs the action carries `approval: { approvalId, argsHash }`. The runtime runs it only when all of these hold:
+   - the grant exists in this tab;
+   - the grant is unused and unexpired;
+   - `argsHash(params)` equals the hash the user approved.
+
+   Otherwise it answers `{ success: false, error: { code: 'APPROVAL_REQUIRED' } }` and never calls the handler. That applies even during a turn the `accept` gate admits.
+
+4. A grant admits one request.
+
+`argsHash` is SHA-256 over the RFC 8785 (JCS) canonical JSON of the params, as lowercase hex. Every implementation (the agent runtime, the approval store, this runtime, and engines in other languages) must reproduce [`spec/approval-vectors.json`](./spec/approval-vectors.json), which is also published as `oui-spec/approval-vectors.json`.
+
 ---
 
 ## Polling & Async Operations
@@ -703,6 +725,7 @@ They even share JSON Schema for parameter validation — a deliberate design cho
 - [x] `oui-spec/transport` — WebSocket + Direct transports
 - [x] `createOUI()` — gated instantiation; integration requirements enforced at compile time
 - [x] `createSurfaceRuntime()` — client-side record of mounted surfaces; every request answered with a result and the snapshot after it
+- [x] Approvals — `transaction` and destructive actions run only on a grant from the user's own confirmation, bound to the exact params (0.5.0)
 - [ ] `oui-spec/devtools` — Surface inspector / debugger
 - [ ] `oui-spec/vue` — Vue bindings
 - [ ] `oui-spec/validator` — Runtime schema validation

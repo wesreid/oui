@@ -25,10 +25,16 @@
 import type {
   OUIActionRequest,
   OUIActionResult,
+  OUIApprovalGrant,
   OUISurface,
   OUISurfaceSnapshot,
   OUIObservationSnapshot,
 } from "../spec/index.js";
+import {
+  ARGS_HASH_PATTERN,
+  argsHash,
+  requiresApproval,
+} from "../spec/approval.js";
 import type { OUITransport, OUITransportConfig } from "../transport/types.js";
 import {
   createWebSocketTransport,
@@ -127,6 +133,15 @@ export interface SurfaceRuntime {
    */
   hold(): () => void;
 
+  /**
+   * Record that the user approved one request, here, through their own
+   * confirmation (the agent runtime's approval store answered it to this tab).
+   * An action that needs approval — a `transaction`, or a destructive write —
+   * runs only on a request whose `approval` matches an unused, unexpired grant
+   * for exactly its params. Each grant admits one request.
+   */
+  grantApproval(grant: OUIApprovalGrant): void;
+
   /** Called whenever the snapshot changes. */
   subscribe(listener: () => void): () => void;
 
@@ -189,6 +204,38 @@ export function createSurfaceRuntime(
     return ackFor(requestId).promise;
   }
   let lastChangeAt = Date.now();
+  // Approvals the user gave in this tab, by approval id, until used or expired.
+  const grants = new Map<string, OUIApprovalGrant>();
+
+  /**
+   * Why a request for an action that needs approval may not run, or null when
+   * it may — in which case its grant is used up.
+   */
+  async function approvalRefusal(
+    request: OUIActionRequest,
+  ): Promise<string | null> {
+    const approval = request.approval;
+    if (!approval)
+      return "it needs the user's approval, and the request carries none";
+    let hash: string;
+    try {
+      hash = await argsHash(request.params ?? {});
+    } catch (err) {
+      return `its params cannot be checked against an approval: ${err instanceof Error ? err.message : String(err)}`;
+    }
+    // Checked and used up with no await in between, so one grant admits one request.
+    const grant = grants.get(approval.approvalId);
+    if (!grant) return "this tab holds no unused approval for it";
+    if (Date.now() >= grant.expiresAt) {
+      grants.delete(approval.approvalId);
+      return "its approval has expired";
+    }
+    if (approval.argsHash !== grant.argsHash || hash !== grant.argsHash) {
+      return "its params are not the ones the user approved";
+    }
+    grants.delete(approval.approvalId);
+    return null;
+  }
 
   let socket: SocketLike | null = null;
   let transport: OUITransport | null = null;
@@ -489,12 +536,27 @@ export function createSurfaceRuntime(
         },
       };
     } else {
-      // executeAction turns a thrown handler into ACTION_EXECUTION_ERROR.
-      result = await entry.surface.executeAction(
-        request.actionId,
-        request.params ?? {},
-        entry.getContext(),
+      const declared = entry.surface.actions.find(
+        (a) => a.id === request.actionId,
       );
+      const refusal =
+        declared && requiresApproval(declared.effect, declared.confirm)
+          ? await approvalRefusal(request)
+          : null;
+      // executeAction turns a thrown handler into ACTION_EXECUTION_ERROR.
+      result = refusal
+        ? {
+            success: false,
+            error: {
+              code: "APPROVAL_REQUIRED",
+              message: `"${request.actionId}" was not run: ${refusal}.`,
+            },
+          }
+        : await entry.surface.executeAction(
+            request.actionId,
+            request.params ?? {},
+            entry.getContext(),
+          );
       if (result.success) {
         const action = entry.surface.actions.find(
           (a) => a.id === request.actionId,
@@ -664,6 +726,23 @@ export function createSurfaceRuntime(
         changed();
       };
     },
+    grantApproval(grant) {
+      if (
+        !grant ||
+        typeof grant.approvalId !== "string" ||
+        !grant.approvalId ||
+        typeof grant.argsHash !== "string" ||
+        !ARGS_HASH_PATTERN.test(grant.argsHash) ||
+        !Number.isFinite(grant.expiresAt)
+      ) {
+        throw new Error(
+          "[OUI] grantApproval needs an approvalId, an args hash and an expiry",
+        );
+      }
+      const now = Date.now();
+      for (const [id, g] of grants) if (now >= g.expiresAt) grants.delete(id);
+      grants.set(grant.approvalId, { ...grant });
+    },
     subscribe(listener) {
       listeners.add(listener);
       return () => {
@@ -681,6 +760,7 @@ export function createSurfaceRuntime(
       holds.clear();
       listeners.clear();
       acks.clear();
+      grants.clear();
     },
   };
 }
