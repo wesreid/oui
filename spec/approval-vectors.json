@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "algorithm": "SHA-256 over the RFC 8785 (JCS) canonical JSON of the value, UTF-8 encoded; lowercase hex",
+  "use": "The approval args hash. Every implementation (an agent runtime, an approval store, the browser runtime, a gateway in another language) parses each `json`, canonicalizes it to exactly `canonical`, and hashes it to exactly `sha256`; it refuses every `invalid` input.",
+  "provenance": "Canonical forms derived by hand from RFC 8785 §3.2 and Appendix B; hashes computed with Python hashlib over those forms, independently of any implementation under test.",
+  "vectors": [
+    {
+      "name": "key order",
+      "json": "{\"b\":2,\"a\":1,\"c\":{\"z\":true,\"y\":null,\"x\":[3,2,1]}}",
+      "canonical": "{\"a\":1,\"b\":2,\"c\":{\"x\":[3,2,1],\"y\":null,\"z\":true}}",
+      "sha256": "a3e834099e840d9028fa0c005d117ffd5ae99f8275223ae3b64121241290958d"
+    },
+    {
+      "name": "key order by UTF-16 code units, not code points (RFC 8785 §3.2.3)",
+      "json": "{\"\\u20ac\":\"Euro Sign\",\"\\r\":\"Carriage Return\",\"\\ufb33\":\"Hebrew Letter Dalet With Dagesh\",\"1\":\"One\",\"\\ud83d\\ude00\":\"Emoji: Grinning Face\",\"\\u0080\":\"Control\",\"\\u00f6\":\"Latin Small Letter O With Diaeresis\"}",
+      "canonical": "{\"\\r\":\"Carriage Return\",\"1\":\"One\",\"\":\"Control\",\"ö\":\"Latin Small Letter O With Diaeresis\",\"€\":\"Euro Sign\",\"😀\":\"Emoji: Grinning Face\",\"דּ\":\"Hebrew Letter Dalet With Dagesh\"}",
+      "sha256": "5e321556d22018a9656991a9e94f77ec175fa193e52a2429d312f8419ec8b08c"
+    },
+    {
+      "name": "key order with digits, capitals and underscore",
+      "json": "{\"aa\":1,\"a\":2,\"b\":3,\"A\":4,\"_\":5,\"10\":6,\"9\":7}",
+      "canonical": "{\"10\":6,\"9\":7,\"A\":4,\"_\":5,\"a\":2,\"aa\":1,\"b\":3}",
+      "sha256": "e395d6cbc8557fd7b4e4dd42af7c48c30fb4d5ec7da43567ccf39bc322ff9804"
+    },
+    {
+      "name": "RFC 8785 §3.2.2 example: numbers, string escapes, literals",
+      "json": "{\"numbers\":[333333333.33333329,1E30,4.50,2e-3,0.000000000000000000000000001],\"string\":\"\\u20ac$\\u000F\\u000aA'\\u0042\\u0022\\u005c\\\\\\\"\\/\",\"literals\":[null,true,false]}",
+      "canonical": "{\"literals\":[null,true,false],\"numbers\":[333333333.3333333,1e+30,4.5,0.002,1e-27],\"string\":\"€$\\u000f\\nA'B\\\"\\\\\\\\\\\"/\"}",
+      "sha256": "2d5e01a318d0f0879ab568c4be289c8b1f64ef8921a53c6277d5e069978baacb"
+    },
+    {
+      "name": "numbers: RFC 8785 Appendix B and ECMAScript formatting",
+      "json": "[0,-0,5e-324,-5e-324,1.7976931348623157e308,9007199254740992,1e21,999999999999999900000,0.000001,9.999999999999997e-7,1e-7,100,1.5,-1.5,123456789012345680000,1E2,0.1,-0.0000123]",
+      "canonical": "[0,0,5e-324,-5e-324,1.7976931348623157e+308,9007199254740992,1e+21,999999999999999900000,0.000001,9.999999999999997e-7,1e-7,100,1.5,-1.5,123456789012345680000,100,0.1,-0.0000123]",
+      "sha256": "6f4a14dff8d80f1da955de6c0dc2099dd8a65c8538b4cbcabf4dbf92323832d6"
+    },
+    {
+      "name": "nested arrays",
+      "json": "{\"a\":[[],[[]],[1,[2,[3,{}]]],[{\"b\":[],\"a\":{}}]]}",
+      "canonical": "{\"a\":[[],[[]],[1,[2,[3,{}]]],[{\"a\":{},\"b\":[]}]]}",
+      "sha256": "f5cb025d9d4301d5b460a2919d5d5c21856faef0fba5a987555d8be6e36cfc1a"
+    },
+    {
+      "name": "empty object",
+      "json": "{}",
+      "canonical": "{}",
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "name": "empty members",
+      "json": "{ \"c\" : \"\", \"b\" : [ ], \"a\" : { } }",
+      "canonical": "{\"a\":{},\"b\":[],\"c\":\"\"}",
+      "sha256": "e052004170cc85d084722ffe760c499548014bfdbdf5275548b688255770dfc2"
+    },
+    {
+      "name": "Unicode and control characters in strings",
+      "json": "{\"s\":\"line1\\nline2\\ttab \\u0000 \\u001f \\u007f \\u2028 \\b\\f\\r é 中文 \\ud83d\\ude00 \\\"q\\\" \\\\ \\/\"}",
+      "canonical": "{\"s\":\"line1\\nline2\\ttab \\u0000 \\u001f    \\b\\f\\r é 中文 😀 \\\"q\\\" \\\\ /\"}",
+      "sha256": "0704f4e91b2358f88126313e3d01b58887d0222527f54a365f7c47284701f77b"
+    },
+    {
+      "name": "a tool call's arguments",
+      "json": "{\"to\":\"cfo@desk.example\",\"reportId\":\"q3-2026\",\"amount\":1250.5,\"lines\":[{\"sku\":\"A-1\",\"qty\":2},{\"qty\":1,\"sku\":\"B-7\"}],\"note\":null,\"urgent\":false}",
+      "canonical": "{\"amount\":1250.5,\"lines\":[{\"qty\":2,\"sku\":\"A-1\"},{\"qty\":1,\"sku\":\"B-7\"}],\"note\":null,\"reportId\":\"q3-2026\",\"to\":\"cfo@desk.example\",\"urgent\":false}",
+      "sha256": "9fca331ee3441ff41fb72daf559bb93cb062624683e896fad0ba11f1ebfa39b3"
+    },
+    {
+      "name": "an order",
+      "json": "{\"side\":\"buy\",\"symbol\":\"ACME\",\"quantity\":100,\"limitPrice\":12.34,\"timeInForce\":\"day\"}",
+      "canonical": "{\"limitPrice\":12.34,\"quantity\":100,\"side\":\"buy\",\"symbol\":\"ACME\",\"timeInForce\":\"day\"}",
+      "sha256": "95d63838fb17517676ce7070891709fc5fdb1bc21bd378f44f20aa1e463d7024"
+    }
+  ],
+  "invalid": [
+    {
+      "name": "a lone high surrogate",
+      "json": "{\"s\":\"\\ud800\"}"
+    },
+    {
+      "name": "a lone low surrogate",
+      "json": "{\"s\":\"a\\udc00b\"}"
+    },
+    {
+      "name": "a lone surrogate in a key",
+      "json": "{\"\\udbff\":1}"
+    }
+  ]
+}

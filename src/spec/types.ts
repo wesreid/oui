@@ -1,3 +1,5 @@
+import type { OUIActionApproval, OUIEffectKind } from "./approval.js";
+
 /**
  * OUI — Open UI Specification
  *
@@ -108,13 +110,27 @@ export interface OUIAction {
   /** Human-readable description — this is what the LLM reads to decide when to use it */
   description: string;
 
+  /** The action's name as a person reads it, for a confirmation the user approves. */
+  title?: string;
+
+  /**
+   * What using the action does. A `transaction` runs only on the user's
+   * approval of the exact request (see `requiresApproval`). Undeclared counts
+   * as a write.
+   */
+  effect?: OUIEffectKind;
+
   /** JSON Schema for the action's input parameters */
   input: JSONSchema;
 
   /** JSON Schema for the action's return value (optional — agent still gets the result) */
   output?: JSONSchema;
 
-  /** If true, the agent runtime should confirm with the user before executing */
+  /**
+   * Destructive: the action removes or replaces something the person made.
+   * Unless its effect only reads, it runs only on the user's approval of the
+   * exact request, which the surface runtime checks before it runs.
+   */
   confirm?: boolean;
 
   /** If true, the action is async — returns immediately with a job/tracking ID */
@@ -197,6 +213,13 @@ export interface OUIActionRequest {
 
   /** Timestamp of the request */
   timestamp: number;
+
+  /**
+   * The user's approval this request runs on, for an action that needs one.
+   * The surface runtime runs such an action only when this matches a grant
+   * the tab received from the user's own confirmation, for exactly `params`.
+   */
+  approval?: OUIActionApproval;
 }
 
 /**
