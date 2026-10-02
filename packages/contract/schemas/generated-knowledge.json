@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.closurestudio.ai/oui/v1/generated-knowledge.json",
+  "title": "GeneratedKnowledge",
+  "description": "The knowledge the generator emits with the manifest (`oui-knowledge.json`, ADR-0220 §2.5), from the same declarations: the map of the app, every page in full with its relationships and recipes, and the app's frame. No word of it is written by hand. Each turn carries the part for the page the person is on (`resolveKnowledge`): the map, the frame parts around that page, the page in full, and one paragraph for each adjacent page.",
+  "type": "object",
+  "properties": {
+    "version": { "description": "The contract major (`MANIFEST_VERSION`).", "const": 1 },
+    "buildId": { "description": "The manifest's build id: the two are one build.", "type": "string", "minLength": 1 },
+    "overview": { "description": "Every page, one line each: the map of the app.", "$ref": "#/$defs/KnowledgeEntry" },
+    "pages": { "type": "array", "items": { "$ref": "#/$defs/PageKnowledge" } },
+    "frames": {
+      "description": "The app's frame around the pages (`shell` surfaces), each part with the route patterns it frames.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/PageKnowledge" }
+    }
+  },
+  "required": ["version", "buildId", "overview", "pages"],
+  "additionalProperties": false,
+  "$defs": {
+    "KnowledgeEntry": {
+      "description": "One block of knowledge, as the assistant's prompt shows it.",
+      "type": "object",
+      "properties": { "title": { "type": "string" }, "content": { "type": "string" } },
+      "required": ["title", "content"],
+      "additionalProperties": false
+    },
+    "KnowledgeRecipe": {
+      "description": "A task recipe the UI implies, as the assistant's prompt shows a workflow.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "trigger": { "type": "string" },
+        "steps": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["name", "trigger", "steps"],
+      "additionalProperties": false
+    },
+    "PageKnowledge": {
+      "description": "What the assistant knows of one page, or one part of the app's frame.",
+      "type": "object",
+      "properties": {
+        "surface": { "description": "The page surface this describes.", "type": "string" },
+        "routes": { "type": "array", "items": { "type": "string" } },
+        "summary": { "description": "One paragraph: what the page is for, for when the user is elsewhere.", "$ref": "#/$defs/KnowledgeEntry" },
+        "detail": { "description": "Everything the page and its rooms offer, where each thing is, and its parameters.", "$ref": "#/$defs/KnowledgeEntry" },
+        "relationships": {
+          "description": "Relationships derived from types: which fields apply to what, which animate, what leads where.",
+          "anyOf": [{ "$ref": "#/$defs/KnowledgeEntry" }, { "type": "null" }]
+        },
+        "recipes": { "type": "array", "items": { "$ref": "#/$defs/KnowledgeRecipe" } },
+        "adjacent": { "description": "Page surfaces this page leads to or is reached from.", "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["surface", "routes", "summary", "detail", "relationships", "recipes", "adjacent"],
+      "additionalProperties": false
+    }
+  }
+}

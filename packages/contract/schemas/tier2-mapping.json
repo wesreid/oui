@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.closurestudio.ai/oui/v1/tier2-mapping.json",
+  "title": "Tier2Mapping",
+  "description": "A tier 2 mapping (ADR-0226 §2.3): how an app binds the controls of a third-party design system it does not own (MUI, Mantine, shadcn/Radix). It is a declaration, not handler code: `oui generate` emits one module per mapping into `<out>/bound/`. Each wrapper accepts `agent`, calls `useAgentBinding` with the app's own callback, returns that callback's result (§2.2 rule 3), and renders the third-party component unchanged. The emitted module ships its own control table and is treated exactly like a tier 1 package. On an enforced page, importing a mapped component straight from the third-party package fails the build.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "package": {
+      "description": "The third-party package the controls are imported from (`@mantine/core`).",
+      "type": "string",
+      "minLength": 1
+    },
+    "controls": {
+      "description": "Each mapped export, by its export name in that package.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[A-Z][A-Za-z0-9]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/Tier2Control"
+      }
+    }
+  },
+  "required": [
+    "package",
+    "controls"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "ValueFrom": {
+      "description": "Where the new value is in the callback's arguments: `{ \"arg\": 0 }` for Mantine's `onChange(value)`, `{ \"arg\": 1 }` for MUI's `onChange(event, value)`, and `{ \"arg\": 0, \"path\": \"target.value\" }` for a native-style event. The wrapper builds those arguments when the assistant sets the value, and reads them back when the person does.",
+      "type": "object",
+      "properties": {
+        "arg": {
+          "description": "The argument's position.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "path": {
+          "description": "A dotted path into that argument.",
+          "type": "string",
+          "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*(\\.[A-Za-z_$][A-Za-z0-9_$]*)*$"
+        }
+      },
+      "required": [
+        "arg"
+      ],
+      "additionalProperties": false
+    },
+    "Tier2Part": {
+      "description": "One part of a control exported under a namespace: the export path of that part (`Select.Root`, `Select.Item`, `Tabs.Tab`). A path is an export of the package, or one member of one (one dot at most).",
+      "type": "object",
+      "properties": {
+        "export": {
+          "description": "The part's export path: an export of the package, or one member of it, dotted (`Select.Item`).",
+          "type": "string",
+          "pattern": "^[A-Z][A-Za-z0-9]*(\\.[A-Z][A-Za-z0-9]*)?$"
+        },
+        "valueProp": {
+          "description": "On an item part: the prop that is the option's value.",
+          "type": "string",
+          "minLength": 1
+        },
+        "titleProps": {
+          "description": "On an item part: the props, in order, that give the option's title. `children` means its text.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "export"
+      ],
+      "additionalProperties": false
+    },
+    "Tier2Control": {
+      "description": "One mapped control. The bound wrapper reports the component's `disabled` prop, so a control the page disables is not offered (a disabled job control is still followed until its job settles).",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "control-kind-registration.json#/$defs/AnyControlKind"
+        },
+        "callbacks": {
+          "description": "Props whose presence makes a use interactive. The first is the one a binding runs: for a value, with the arguments `valueFrom` describes; for a button or a dialog, with an event-shaped argument whose `isTrusted` is false.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "valueFrom": {
+          "description": "Required for every kind that takes a value (all but `button` and `dialog`).",
+          "$ref": "#/$defs/ValueFrom"
+        },
+        "controlled": {
+          "description": "The prop that shows the value. The generator reports every use of the control that does not pass it: there the handler would run, but the control would not show the new value.",
+          "type": "string",
+          "minLength": 1
+        },
+        "options": {
+          "description": "Where the options come from: the prop, and the keys of each option's value and title.",
+          "$ref": "control-table.json#/$defs/OptionsSource"
+        },
+        "titleProps": {
+          "description": "Props that give a default title, in order. `children` means the element's text.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "schemaProps": {
+          "description": "Props the value schema is derived from, by `SchemaProps` key.",
+          "$ref": "control-table.json#/$defs/SchemaPropSources"
+        },
+        "defaults": {
+          "description": "What the schema props are when the app leaves them out, as the component defaults them.",
+          "$ref": "control-kind-registration.json#/$defs/SchemaProps"
+        },
+        "parts": {
+          "description": "A control exported under a namespace (Radix `Switch.Root`) or made of parts (Radix `Select.Root` / `Select.Item`, Mantine `Tabs` / `Tabs.Tab`): its `root`, which takes the callbacks, and, when the options are the items it renders, its `item`. The bound module keeps every other member of each namespace (`Select.Trigger`, `Tabs.List`).",
+          "type": "object",
+          "properties": {
+            "root": {
+              "$ref": "#/$defs/Tier2Part"
+            },
+            "item": {
+              "$ref": "#/$defs/Tier2Part"
+            }
+          },
+          "required": [
+            "root"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "kind",
+        "callbacks"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "not": {
+                  "enum": [
+                    "button",
+                    "dialog"
+                  ]
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "valueFrom",
+              "controlled"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "parts"
+            ],
+            "properties": {
+              "parts": {
+                "type": "object",
+                "required": [
+                  "item"
+                ]
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "options"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

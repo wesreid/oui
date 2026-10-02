@@ -3,7 +3,17 @@
   "changelog": "@changesets/cli/changelog",
   "commit": false,
   "fixed": [],
-  "linked": [],
+  "linked": [
+    [
+      "@ouispec/contract",
+      "@ouispec/bindings",
+      "@ouispec/cli",
+      "@ouispec/testing"
+    ],
+    [
+      "@ouispec/agent-*"
+    ]
+  ],
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",

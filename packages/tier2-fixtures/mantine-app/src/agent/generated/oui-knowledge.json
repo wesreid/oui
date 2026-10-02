@@ -1,0 +1,38 @@
+{
+  "buildId": "9b3b88285d072106",
+  "overview": {
+    "content": "1 more pages are reached from these or by address; the page you are on is described in full below, and moving to another page gives you its tools.\nGo to any page by its address with [app_navigate]; its path lists every page.",
+    "title": "The app’s pages"
+  },
+  "pages": [
+    {
+      "adjacent": [],
+      "detail": {
+        "content": "The Screener page (/screener).\nWhere: reached by address (/screener) or from another page.\n\nWhat you can do here (tool in brackets):\nOn the page:\n- Alerts [screener_alerts]\n- Live prices [screener_live]\n- Market [screener_market]\n- Minimum price [screener_min_price]\n- Run screen [screener_run]\n- Save screen [screener_save]\n- Sectors [screener_sectors]\n- Sort by [screener_sort]\n- Symbol [screener_symbol]\n- View [screener_view]\nIn the \"Save screen\" dialog (open it with screener_save):\n- Save [screener_save_confirm]: Save the screen under this name.\n- Save screen [screener_save_dialog]: Naming the screen to save.\n- Name [screener_save_name]: What the saved screen is called. Takes value: string.\n\nWhat the page reports: state (its fields, lists and unavailable controls) and problems.",
+        "title": "Screener (/screener)"
+      },
+      "recipes": [
+        {
+          "name": "Use the \"Save screen\" dialog",
+          "steps": [
+            "Open it with screener_save.",
+            "Set what it asks for: Name [screener_save_name].",
+            "Finish with Save [screener_save_confirm].",
+            "Read the page's state and problems in the result, and tell the user only what they confirm."
+          ],
+          "trigger": "Anything done in the \"Save screen\" dialog on Screener"
+        }
+      ],
+      "relationships": null,
+      "routes": [
+        "/screener"
+      ],
+      "summary": {
+        "content": "Screener (/screener): The Screener page (/screener).",
+        "title": "Screener"
+      },
+      "surface": "page:ScreenerPage"
+    }
+  ],
+  "version": 1
+}

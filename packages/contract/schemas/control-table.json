@@ -1,0 +1,276 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.closurestudio.ai/oui/v1/control-table.json",
+  "title": "ControlTableFile",
+  "description": "A design-system package's control table as it ships (`agent-controls.json`, ADR-0226 §2.2 rule 4): each interactive export's `ControlDescriptor` by export name, and under `$kinds` the control kinds the design system registers, if any. The package declares the table next to its controls, writes it at build time, and names it in its `package.json` under `oui.agentControls` (`closure.agentControls` is read during the transition; declaring both is an error). The conformance kit holds every listed component to registering with the kind declared here.",
+  "type": "object",
+  "properties": {
+    "$kinds": {
+      "description": "The control kinds this design system registers.",
+      "type": "array",
+      "items": {
+        "$ref": "control-kind-registration.json"
+      }
+    }
+  },
+  "propertyNames": {
+    "anyOf": [
+      {
+        "const": "$kinds"
+      },
+      {
+        "pattern": "^[A-Z][A-Za-z0-9]*$"
+      }
+    ]
+  },
+  "additionalProperties": {
+    "$ref": "#/$defs/ControlDescriptor"
+  },
+  "$defs": {
+    "ControlTable": {
+      "description": "A design-system package's controls, by export name: the table without its `$kinds`.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/ControlDescriptor"
+      }
+    },
+    "SlotDescriptor": {
+      "description": "One slot of a composite: its kind and the callback it binds. `callback` absent: the slot is always interactive (a toast host's toasts, whatever the page passes). `rows`: the slot registers once per row the control renders (a table's rows, a filter bar's pills), so its action takes an `item`. `defaults`: what the slot always registers, over the component's (a table's sort can be cleared), so the declared schema is as wide as the live one.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "control-kind-registration.json#/$defs/AnyControlKind"
+        },
+        "callback": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rows": {
+          "type": "boolean"
+        },
+        "defaults": {
+          "$ref": "control-kind-registration.json#/$defs/SchemaProps"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "EntriesDescriptor": {
+      "description": "An array prop whose entries carry their own `agent` (toolbar items, menu items, selection actions).",
+      "type": "object",
+      "properties": {
+        "prop": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "$ref": "control-kind-registration.json#/$defs/AnyControlKind"
+        },
+        "callback": {
+          "type": "string",
+          "minLength": 1
+        },
+        "titleKey": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "prop",
+        "kind",
+        "callback",
+        "titleKey"
+      ],
+      "additionalProperties": false
+    },
+    "ControlDescriptor": {
+      "description": "How the generator reads one design-system component where a page uses it: what kind of control it is, which of its props make it interactive, and where its schema, options, slots and nested bindings come from. The component itself registers through `useAgentBinding` with the same kind.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "What a binding on the component itself makes. Absent when it binds only per slot or per entry.",
+          "$ref": "control-kind-registration.json#/$defs/AnyControlKind"
+        },
+        "callbacks": {
+          "description": "Props whose presence makes a use interactive — a use with one of them must be bound. Empty: always.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "schemaProps": {
+          "description": "Props the schema is derived from, by `SchemaProps` key: the prop of the component each comes from.",
+          "$ref": "#/$defs/SchemaPropSources"
+        },
+        "options": {
+          "description": "Where the options come from: the prop, and the keys of each option's value and title.",
+          "$ref": "#/$defs/OptionsSource"
+        },
+        "slots": {
+          "description": "A composite with several callbacks: slot name → its kind and the callback it binds.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/SlotDescriptor"
+          }
+        },
+        "entries": {
+          "$ref": "#/$defs/EntriesDescriptor"
+        },
+        "rows": {
+          "description": "The control registers one binding per row it renders (a selectable grid), so its action takes an `item`.",
+          "type": "boolean"
+        },
+        "container": {
+          "description": "A container: a dialog whose prop says whether it shows, or a tab set whose prop selects a panel.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "enum": [
+                "dialog",
+                "tabs"
+              ]
+            },
+            "stateProp": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "kind",
+            "stateProp"
+          ],
+          "additionalProperties": false
+        },
+        "defaults": {
+          "description": "What the schema props are when the page leaves them out, as the component defaults them. The declared schema is the widest the control can take; the live one may only narrow it.",
+          "$ref": "control-kind-registration.json#/$defs/SchemaProps"
+        },
+        "display": {
+          "description": "It shows facts rather than taking input (a clip's parameters): a binding on it names what it shows, and the page reports its facts by label. Its facts are the array prop `itemsProp`, each labelled by `labelKey`. Not a control, so a use without a binding is not unbound.",
+          "type": "object",
+          "properties": {
+            "itemsProp": {
+              "type": "string",
+              "minLength": 1
+            },
+            "labelKey": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "itemsProp",
+            "labelKey"
+          ],
+          "additionalProperties": false
+        },
+        "titleProps": {
+          "description": "Props that give a default title, in order. `children` means the element's text.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "callbacks",
+        "titleProps"
+      ],
+      "additionalProperties": false
+    },
+    "OptionsSource": {
+      "description": "Where a control's options come from: the prop that holds them, and the keys of each option's value and title.",
+      "type": "object",
+      "properties": {
+        "prop": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "prop",
+        "value",
+        "title"
+      ],
+      "additionalProperties": false
+    },
+    "OuiPackageDeclaration": {
+      "description": "What a package declares to the generator under the `oui` key of its `package.json` (ADR-0226 §2.2): its control table, its room catalog, and the components only the person may use. During the transition the generator and the kit also read `closure.agentControls` and `closure.agentCatalog`; a package declaring a key under both `oui` and `closure` is an error.",
+      "type": "object",
+      "properties": {
+        "agentControls": {
+          "description": "The path of the package's control table, relative to the package.",
+          "type": "string",
+          "minLength": 1
+        },
+        "agentCatalog": {
+          "$ref": "room-catalog-data.json#/$defs/AgentCatalogManifestEntry"
+        },
+        "personOnly": {
+          "description": "Export name → why only the person may use it, such as the approval card (ADR-0228). The generator refuses an `agent` binding on one.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "SchemaPropSources": {
+      "description": "Props a control's schema is derived from, by `SchemaProps` key (every key but `options`, which `OptionsSource` gives): the prop of the component each comes from.",
+      "type": "object",
+      "properties": {
+        "min": {
+          "type": "string"
+        },
+        "max": {
+          "type": "string"
+        },
+        "step": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "wrap": {
+          "type": "string"
+        },
+        "minLength": {
+          "type": "string"
+        },
+        "maxLength": {
+          "type": "string"
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "inputType": {
+          "type": "string"
+        },
+        "paintKinds": {
+          "type": "string"
+        },
+        "allowNone": {
+          "type": "string"
+        },
+        "clearable": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

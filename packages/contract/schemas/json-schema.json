@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.closurestudio.ai/oui/v1/json-schema.json",
+  "title": "JsonSchema",
+  "description": "The subset of JSON Schema (draft 2020-12) every capability declares its input and values in. It is what assistant tool inputs are written in, so a declared or derived schema is used as is. `x-unit` names the unit a number is in: `px`, `%`, `°`.",
+  "type": "object",
+  "properties": {
+    "type": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/JsonSchemaType"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/JsonSchemaType"
+          }
+        }
+      ]
+    },
+    "description": {
+      "type": "string"
+    },
+    "enum": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "const": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "properties": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#"
+      }
+    },
+    "required": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "additionalProperties": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "$ref": "#"
+        }
+      ]
+    },
+    "items": {
+      "$ref": "#"
+    },
+    "minItems": {
+      "type": "number"
+    },
+    "maxItems": {
+      "type": "number"
+    },
+    "uniqueItems": {
+      "description": "No two items are the same.",
+      "type": "boolean"
+    },
+    "minimum": {
+      "type": "number"
+    },
+    "maximum": {
+      "type": "number"
+    },
+    "multipleOf": {
+      "type": "number"
+    },
+    "minLength": {
+      "type": "number"
+    },
+    "maxLength": {
+      "type": "number"
+    },
+    "pattern": {
+      "type": "string"
+    },
+    "format": {
+      "type": "string"
+    },
+    "oneOf": {
+      "type": "array",
+      "items": {
+        "$ref": "#"
+      }
+    },
+    "anyOf": {
+      "type": "array",
+      "items": {
+        "$ref": "#"
+      }
+    },
+    "default": {
+      "$comment": "ts: unknown"
+    },
+    "x-unit": {
+      "description": "The unit a number is in: `px`, `%`, `°`.",
+      "type": "string"
+    },
+    "x-enum-omitted": {
+      "description": "How many allowed values a shortened `enum` leaves out. Only in the page state, where a row's options are summarised; a tool's input schema always lists every value.",
+      "type": "number"
+    }
+  },
+  "$defs": {
+    "JsonSchemaType": {
+      "description": "A JSON Schema type name.",
+      "enum": [
+        "object",
+        "array",
+        "string",
+        "number",
+        "integer",
+        "boolean",
+        "null"
+      ]
+    }
+  }
+}

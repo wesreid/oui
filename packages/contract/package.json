@@ -1,0 +1,65 @@
+{
+  "name": "@ouispec/contract",
+  "version": "0.1.0",
+  "description": "The OUI integrator contract (ADR-0226 §3): versioned JSON Schemas for the control table, control-kind registration, tier 2 mapping, binding, action effect, room catalog, manifest, knowledge, oui.config.json, approvals and event declarations; the TypeScript types generated from them; a validator; and the integrator guide",
+  "homepage": "https://github.com/wesreid/oui/tree/main/packages/contract#readme",
+  "bugs": {
+    "url": "https://github.com/wesreid/oui/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wesreid/oui.git",
+    "directory": "packages/contract"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./validate": {
+      "types": "./dist/validate.d.ts",
+      "import": "./dist/validate.js",
+      "default": "./dist/validate.js"
+    },
+    "./codegen": {
+      "types": "./dist/codegen.d.ts",
+      "import": "./dist/codegen.js",
+      "default": "./dist/codegen.js"
+    },
+    "./schemas/*": "./schemas/*",
+    "./INTEGRATOR-GUIDE.md": "./INTEGRATOR-GUIDE.md",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "README.md",
+    "INTEGRATOR-GUIDE.md",
+    "dist",
+    "schemas"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/generate.mjs --check",
+    "generate": "tsc -p tsconfig.build.json && node scripts/generate.mjs && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "ajv": "^8.17.0",
+    "ajv-formats": "^3.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

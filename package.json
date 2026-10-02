@@ -23,6 +23,7 @@
     "version-packages": "changeset version && pnpm install --lockfile-only",
     "release:check": "node scripts/release-check.mjs",
     "packs:check": "node scripts/verify-packs.mjs",
+    "smoke": "node scripts/consumer-smoke/run.mjs",
     "site": "node scripts/build-site.mjs",
     "prepare": "husky"
   },

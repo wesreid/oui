@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": null,
+    "resolveJsonModule": true,
+    "paths": { "@kit/ds": ["./__tests__/fixtures/ds.ts"] }
+  },
+  "include": ["src/**/*.ts", "__tests__/**/*.ts", "__tests__/**/*.tsx"],
+  "exclude": ["node_modules", "dist", "__tests__/fixtures/app/src/routes.tsx"]
+}

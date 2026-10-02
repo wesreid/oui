@@ -1,0 +1,249 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.closurestudio.ai/oui/v1/approvals.json",
+  "title": "Approvals",
+  "description": "Approvals (ADR-0228): the shapes the agent worker, the approval store in the realtime server, the browser's approval card, OUI's surface runtime and a conversation engine exchange. An irreversible action — a `transaction`, or a `write` declared `destructive` — runs only on an approval the person gave, bound to the exact call by a single-use token.\n\n1. The worker stops the turn at the call and stores it (`PendingApprovalInput`); the person's tab receives `agent:approval_required` (`ApprovalRequiredEvent`) and renders the approval card from its `preview`, whose every word comes from the action's declaration, never from the model.\n2. In a UI only a click on the card counts: the card sends `approval:decide` (`ApprovalDecidePayload`) from the person's own socket. On a conversation channel, the verbatim `readback` and an affirmative next turn (ADR-0210 §2.6).\n3. The store answers the decider only (`ApprovalDecideResult`): a single-use token, a compact JWS (`ApprovalTokenClaims`), and the call's `argsHash`. The tab's OUI runtime holds an `ApprovalGrant`.\n4. The next turn carries the token (`ApprovalContinuation`); the worker redeems it for the stored call, exactly (`ApprovedCall`), and runs it. A UI action request then carries `approval` (`ActionRequestApproval`), which the browser checks against its grant before it runs the handler.\n\nThe args hash is SHA-256 over the RFC 8785 (JCS) canonical JSON of the call's arguments, lowercase hex; `oui-spec/approval-vectors.json` holds every implementation, in any language, to it.",
+  "$defs": {
+    "ArgsHash": {
+      "description": "SHA-256 of the RFC 8785 canonical JSON of a call's arguments, lowercase hex.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "ApprovalChannel": {
+      "description": "Where the person confirmed. In a UI only a click on the card counts (`ui`); in a conversation channel, the verbatim readback and an affirmative next turn (ADR-0210 §2.6).",
+      "enum": ["ui", "voice", "phone", "sms", "chat"]
+    },
+    "ApprovalDecision": { "enum": ["approve", "decline"] },
+    "ApprovalPreviewArgument": {
+      "description": "One argument of the call, as the person reads it: its declared label and its value in words.",
+      "type": "object",
+      "properties": {
+        "name": { "description": "The argument's name in the call.", "type": "string" },
+        "label": { "description": "Its label, from the action's input schema.", "type": "string" },
+        "value": { "description": "Its value, as text.", "type": "string" }
+      },
+      "required": ["name", "label", "value"],
+      "additionalProperties": false
+    },
+    "ApprovalPreview": {
+      "description": "What the person is asked to approve. Every word comes from the action's declaration (its title, description and input schema labels), never from the model (ADR-0228 §2.2).",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "consequence": { "description": "What running it does, from the declaration.", "type": "string" },
+        "arguments": { "type": "array", "items": { "$ref": "#/$defs/ApprovalPreviewArgument" } },
+        "readback": {
+          "description": "One sentence composed from the fields above, read or sent verbatim on a conversation channel.",
+          "type": "string"
+        }
+      },
+      "required": ["title", "arguments", "readback"],
+      "additionalProperties": false
+    },
+    "ApprovalEffect": {
+      "description": "The effect the approval is for: the action's declared effect kind (ADR-0226 §2.6, `transaction` for an irreversible external act), or `write` when it declares none.",
+      "type": "string",
+      "minLength": 1
+    },
+    "PendingApprovalInput": {
+      "description": "A call waiting for the person's approval, as the worker stores it (`POST /internal/approvals`).",
+      "type": "object",
+      "properties": {
+        "approvalId": { "description": "Equals the tool call id.", "type": "string" },
+        "toolCallId": { "type": "string" },
+        "conversationId": { "type": "string" },
+        "turnId": { "type": "string" },
+        "userId": { "description": "The user whose turn made the call: the only one who may decide it.", "type": "string" },
+        "tool": { "type": "string" },
+        "args": { "type": "object", "additionalProperties": true },
+        "argsHash": { "description": "`argsHash(args)`; the store checks it.", "$ref": "#/$defs/ArgsHash" },
+        "effect": { "$ref": "#/$defs/ApprovalEffect" },
+        "destructive": { "type": "boolean" },
+        "argsSensitive": {
+          "description": "Whether the arguments may be written to logs. They are only when the declaration says they are not sensitive.",
+          "type": "boolean"
+        },
+        "expiresAt": { "description": "Epoch ms, at most 30 minutes away (`MAX_APPROVAL_TTL_MS`).", "type": "number" },
+        "preview": { "$ref": "#/$defs/ApprovalPreview" }
+      },
+      "required": [
+        "approvalId",
+        "toolCallId",
+        "conversationId",
+        "turnId",
+        "userId",
+        "tool",
+        "args",
+        "argsHash",
+        "effect",
+        "destructive",
+        "argsSensitive",
+        "expiresAt",
+        "preview"
+      ],
+      "additionalProperties": false
+    },
+    "ApprovalRequiredEvent": {
+      "description": "`agent:approval_required`: the worker stopped the turn at a call that needs the person's approval. The approval card renders it.",
+      "type": "object",
+      "properties": {
+        "turnId": { "type": "string" },
+        "conversationId": { "type": "string" },
+        "approvalId": { "type": "string" },
+        "tool": { "type": "string" },
+        "effect": { "$ref": "#/$defs/ApprovalEffect" },
+        "destructive": { "type": "boolean" },
+        "preview": { "$ref": "#/$defs/ApprovalPreview" },
+        "expiresAt": { "type": "number" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["turnId", "conversationId", "approvalId", "tool", "effect", "destructive", "preview", "expiresAt", "timestamp"],
+      "additionalProperties": false
+    },
+    "ApprovalDecidePayload": {
+      "description": "`approval:decide`, from the person's own socket: the card's click.",
+      "type": "object",
+      "properties": { "approvalId": { "type": "string" }, "decision": { "$ref": "#/$defs/ApprovalDecision" } },
+      "required": ["approvalId", "decision"],
+      "additionalProperties": false
+    },
+    "ApprovalRefusalReason": {
+      "description": "Why an approval was refused:\n\n- `unknown`: no such pending approval: never stored, already declined or redeemed, or expired and gone.\n- `forbidden`: another user's approval, or another conversation's.\n- `expired`.\n- `decided`: already decided.\n- `used`: already redeemed.\n- `invalid`: not a token this environment signed, or malformed.\n- `mismatch`: signed, but not for the stored call.\n- `channel`: a decision from a channel that may not make it.",
+      "enum": ["unknown", "forbidden", "expired", "decided", "used", "invalid", "mismatch", "channel"]
+    },
+    "ApprovalRefusal": {
+      "type": "object",
+      "properties": {
+        "ok": { "const": false },
+        "reason": { "$ref": "#/$defs/ApprovalRefusalReason" },
+        "error": { "type": "string" }
+      },
+      "required": ["ok", "reason", "error"],
+      "additionalProperties": false
+    },
+    "ApprovalDecideResult": {
+      "description": "The answer to a decision. An approval's token goes only to the decider: the socket that clicked, or the engine that asked.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": { "const": true },
+            "decision": { "const": "approve" },
+            "approvalId": { "type": "string" },
+            "token": { "description": "The single-use token the continuation turn redeems.", "type": "string" },
+            "argsHash": { "description": "What the browser checks a UI action's params against before it runs it.", "$ref": "#/$defs/ArgsHash" },
+            "expiresAt": { "type": "number" },
+            "channel": { "$ref": "#/$defs/ApprovalChannel" }
+          },
+          "required": ["ok", "decision", "approvalId", "token", "argsHash", "expiresAt", "channel"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "ok": { "const": true }, "decision": { "const": "decline" }, "approvalId": { "type": "string" } },
+          "required": ["ok", "decision", "approvalId"],
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/ApprovalRefusal" }
+      ]
+    },
+    "ApprovalTokenClaims": {
+      "description": "The token's claims: a compact JWS (HS256), signed with the environment's approval key.",
+      "type": "object",
+      "properties": {
+        "aid": { "description": "The approval id, which is the tool call id.", "type": "string" },
+        "sub": { "description": "The user.", "type": "string" },
+        "cid": { "description": "The conversation.", "type": "string" },
+        "tool": { "type": "string" },
+        "ah": { "description": "The args hash.", "$ref": "#/$defs/ArgsHash" },
+        "eff": { "description": "The effect.", "$ref": "#/$defs/ApprovalEffect" },
+        "ch": { "description": "Where the user confirmed.", "$ref": "#/$defs/ApprovalChannel" },
+        "iat": { "description": "Issued at, epoch seconds.", "type": "integer" },
+        "exp": { "description": "Expires at, epoch seconds.", "type": "integer" },
+        "jti": { "description": "A nonce.", "type": "string" }
+      },
+      "required": ["aid", "sub", "cid", "tool", "ah", "eff", "ch", "iat", "exp", "jti"],
+      "additionalProperties": false
+    },
+    "ApprovedCall": {
+      "description": "What redeeming a token returns: the stored call, exactly, for the worker to run.",
+      "type": "object",
+      "properties": {
+        "approvalId": { "type": "string" },
+        "toolCallId": { "type": "string" },
+        "conversationId": { "type": "string" },
+        "turnId": { "type": "string" },
+        "userId": { "type": "string" },
+        "tool": { "type": "string" },
+        "args": { "type": "object", "additionalProperties": true },
+        "argsHash": { "$ref": "#/$defs/ArgsHash" },
+        "effect": { "$ref": "#/$defs/ApprovalEffect" },
+        "destructive": { "type": "boolean" },
+        "channel": { "$ref": "#/$defs/ApprovalChannel" }
+      },
+      "required": ["approvalId", "toolCallId", "conversationId", "turnId", "userId", "tool", "args", "argsHash", "effect", "destructive", "channel"],
+      "additionalProperties": false
+    },
+    "ApprovalRedeemResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": { "ok": { "const": true }, "call": { "$ref": "#/$defs/ApprovedCall" } },
+          "required": ["ok", "call"],
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/ApprovalRefusal" }
+      ]
+    },
+    "ApprovalStatus": {
+      "description": "An approval's state, for the turn that follows a decision.",
+      "type": "object",
+      "properties": {
+        "approvalId": { "type": "string" },
+        "status": { "enum": ["pending", "approved", "declined"] },
+        "tool": { "type": "string" },
+        "title": { "type": "string" }
+      },
+      "required": ["approvalId", "status", "tool", "title"],
+      "additionalProperties": false
+    },
+    "ApprovalContinuation": {
+      "description": "What a turn that follows a decision carries, outside the message text: the token to redeem, or that the person declined.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": { "approvalId": { "type": "string" }, "decision": { "const": "approve" }, "token": { "type": "string" } },
+          "required": ["approvalId", "decision", "token"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "approvalId": { "type": "string" }, "decision": { "const": "decline" } },
+          "required": ["approvalId", "decision"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ActionRequestApproval": {
+      "description": "What a UI action request carries when it runs an approved call (`OUIActionApproval`): the browser runs a `transaction` or destructive action only when this matches a grant this tab received from its own card click (ADR-0228 §2.2.6).",
+      "type": "object",
+      "properties": {
+        "approvalId": { "type": "string" },
+        "argsHash": { "description": "`argsHash(params)` of the request the user approved.", "$ref": "#/$defs/ArgsHash" }
+      },
+      "required": ["approvalId", "argsHash"],
+      "additionalProperties": false
+    },
+    "ApprovalGrant": {
+      "description": "What the person's approval click gives this tab's OUI runtime (`runtime.grantApproval`, `OUIApprovalGrant`): the request it approved, until it expires.",
+      "type": "object",
+      "properties": {
+        "approvalId": { "type": "string" },
+        "argsHash": { "$ref": "#/$defs/ArgsHash" },
+        "expiresAt": { "description": "Epoch ms after which the grant no longer admits anything.", "type": "number" }
+      },
+      "required": ["approvalId", "argsHash", "expiresAt"],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schemas.closurestudio.ai/oui/v1/tier2-mapping.json",
+  "package": "radix-ui",
+  "controls": {
+    "Select": {
+      "kind": "choice",
+      "callbacks": ["onValueChange"],
+      "valueFrom": { "arg": 0 },
+      "controlled": "value",
+      "titleProps": ["name"],
+      "parts": {
+        "root": { "export": "Select.Root" },
+        "item": { "export": "Select.Item", "valueProp": "value", "titleProps": ["textValue", "children"] }
+      }
+    },
+    "RadioGroup": {
+      "kind": "choice",
+      "callbacks": ["onValueChange"],
+      "valueFrom": { "arg": 0 },
+      "controlled": "value",
+      "titleProps": ["aria-label", "name"],
+      "parts": {
+        "root": { "export": "RadioGroup.Root" },
+        "item": { "export": "RadioGroup.Item", "valueProp": "value", "titleProps": ["aria-label", "children"] }
+      }
+    },
+    "Tabs": {
+      "kind": "tabs",
+      "callbacks": ["onValueChange"],
+      "valueFrom": { "arg": 0 },
+      "controlled": "value",
+      "titleProps": ["aria-label"],
+      "parts": {
+        "root": { "export": "Tabs.Root" },
+        "item": { "export": "Tabs.Trigger", "valueProp": "value", "titleProps": ["children"] }
+      }
+    },
+    "Switch": {
+      "kind": "toggle",
+      "callbacks": ["onCheckedChange"],
+      "valueFrom": { "arg": 0 },
+      "controlled": "checked",
+      "titleProps": ["aria-label", "name"],
+      "parts": { "root": { "export": "Switch.Root" } }
+    },
+    "Checkbox": {
+      "kind": "toggle",
+      "callbacks": ["onCheckedChange"],
+      "valueFrom": { "arg": 0 },
+      "controlled": "checked",
+      "titleProps": ["aria-label", "name"],
+      "parts": { "root": { "export": "Checkbox.Root" } }
+    }
+  }
+}

@@ -55,6 +55,15 @@ jobs:
       - name: Package contents
         run: pnpm packs:check
 
+      # The packages as a product outside this repository gets them: packed,
+      # installed with npm into an empty directory, and used — every entry
+      # point, the contract, the generator's command, and a whole agent turn on
+      # the fixture product (scripts/consumer-smoke).
+      - name: Consumer smoke test (from the packed tarballs)
+        env:
+          REDIS_URL: redis://localhost:6379
+        run: pnpm smoke --dir "$RUNNER_TEMP/consumer-smoke"
+
       # A release is decided in its pull request: changesets are applied there,
       # and a package whose shipped source changed has a new version.
       - name: Release check

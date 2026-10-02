@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.closurestudio.ai/oui/v1/control-kind-registration.json",
+  "title": "ControlKindRegistration",
+  "description": "A control kind a design system adds (ADR-0226 §2.6). `ControlKind` is closed: a design system adds a kind only by registering it, under an `x-` name. The registration ships in the design system's control table (`$kinds`), where the generator reads it, and the design system registers it at run time with `registerControlKind`, so the browser and the generator derive the same schema.",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "$ref": "#/$defs/RegisteredControlKind"
+    },
+    "verb": {
+      "description": "What using it does, as a tool description starts: \"Set the price range of\".",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "deriveSchema": {
+      "$ref": "#/$defs/KindSchemaDerivation"
+    }
+  },
+  "required": [
+    "kind",
+    "verb",
+    "deriveSchema"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "ControlKind": {
+      "description": "The built-in control kinds, closed:\n\n- `button`: press it (buttons, toolbar buttons, menu items, a row's action).\n- `toggle`: set it on or off (switches, checkboxes).\n- `text`: type into it (inputs, text areas).\n- `number`: set a number (sliders, scrub fields).\n- `choice`: choose one of its options (selects, radio groups, preset tiles).\n- `multi-choice`: choose any of its options (multi-selects, checkbox groups, filter chips).\n- `color`: set a colour or paint (colour pickers, swatches).\n- `font`: choose a family and style (font pickers).\n- `tabs`: select a tab.\n- `date`: set a date.\n- `date-range`: set a start and an end date.\n- `dialog`: close it. Opening is its trigger's.",
+      "enum": [
+        "button",
+        "toggle",
+        "text",
+        "number",
+        "choice",
+        "multi-choice",
+        "color",
+        "font",
+        "tabs",
+        "date",
+        "date-range",
+        "dialog"
+      ]
+    },
+    "RegisteredControlKind": {
+      "description": "A kind a design system registers: `x-` and lower-kebab, so it never collides with a built-in one.",
+      "type": "string",
+      "pattern": "^x-[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+      "$comment": "ts: `x-${string}`"
+    },
+    "AnyControlKind": {
+      "description": "A built-in kind, or one a design system registers.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ControlKind"
+        },
+        {
+          "$ref": "#/$defs/RegisteredControlKind"
+        }
+      ]
+    },
+    "SchemaPropName": {
+      "description": "A key of `SchemaProps`: a prop a control's value schema is derived from.",
+      "enum": [
+        "min",
+        "max",
+        "step",
+        "unit",
+        "wrap",
+        "options",
+        "minLength",
+        "maxLength",
+        "pattern",
+        "inputType",
+        "paintKinds",
+        "allowNone",
+        "clearable"
+      ]
+    },
+    "ControlOption": {
+      "description": "One option of a choice, tab set or menu, as the control shows it.",
+      "type": "object",
+      "properties": {
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "disabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "value",
+        "title"
+      ],
+      "additionalProperties": false
+    },
+    "SchemaProps": {
+      "description": "The props a control's input schema is derived from, by the one derivation (`deriveInputSchema`) the browser runs on live props and the generator on the props it reads statically. A live schema may narrow the generated one but never widen it.",
+      "type": "object",
+      "properties": {
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        },
+        "step": {
+          "type": "number"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "wrap": {
+          "description": "Wraps past either end: an angle, where 181° is −179°.",
+          "type": "boolean"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ControlOption"
+          }
+        },
+        "minLength": {
+          "type": "number"
+        },
+        "maxLength": {
+          "type": "number"
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "inputType": {
+          "description": "An input's `type`: `email`, `url`, `number`, `password`…",
+          "type": "string"
+        },
+        "paintKinds": {
+          "description": "The paint kinds a colour control offers: `solid`, `linear`, `radial`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "allowNone": {
+          "description": "A colour control can be set to no paint.",
+          "type": "boolean"
+        },
+        "clearable": {
+          "description": "A choice that can be cleared (a toggleable tile grid).",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "KindSchemaDerivation": {
+      "description": "How a registered kind's value schema follows from a control's props, as data, so the browser and the generator derive it with the same function: the schema, and which of its keywords each prop sets, by JSON Pointer. `options` sets a keyword to the values of the options that are not disabled.\n\n```json\n{ \"schema\": { \"type\": \"object\", \"properties\": { \"low\": { \"type\": \"number\" }, \"high\": { \"type\": \"number\" } } },\n  \"props\": { \"/properties/low/minimum\": \"min\", \"/properties/high/maximum\": \"max\" } }\n```",
+      "type": "object",
+      "properties": {
+        "schema": {
+          "$ref": "json-schema.json"
+        },
+        "props": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^/"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/SchemaPropName"
+          }
+        }
+      },
+      "required": [
+        "schema"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

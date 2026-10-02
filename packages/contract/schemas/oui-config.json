@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.closurestudio.ai/oui/v1/oui-config.json",
+  "title": "OuiConfigFile",
+  "description": "`oui.config.json` at the app's root (ADR-0226 §2.4): where the app keeps its routes, navigation and output, which design systems and mappings its controls come from, where its API is described, and which of its pages are not yet bound. Paths are relative to the file. It is required and explicit: nothing an app depends on has a default, so a misconfigured app fails here, naming the setting, instead of generating an assistant that can do nothing. A setting the generator does not know is an error.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "description": "This schema's URL, for editors.",
+      "type": "string"
+    },
+    "$comment": {
+      "type": "string"
+    },
+    "tsconfig": {
+      "description": "The tsconfig the app's source compiles with.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "routes": {
+      "description": "The file whose routes decide where the app can go: `<Route>` elements (nested paths are joined to their parent, `index` routes kept, `React.lazy` followed) or a data router (`createBrowserRouter([...])`).",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "routeWrappers": {
+      "description": "Components a route's element is wrapped in that are never the page (`Suspense`, `ErrorBoundary`). Default none.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "\\S"
+      }
+    },
+    "nav": {
+      "description": "Files holding the navigation entries (`{ label, route, group }` object literals). Default none.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "\\S"
+      }
+    },
+    "out": {
+      "description": "Where generated output goes.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "designSystem": {
+      "description": "Design-system packages whose controls carry bindings (tier 1). Each must resolve from the app and name its control table in its `package.json` (`oui.agentControls`). `[]`: every control is tier 2 or in a room.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "\\S"
+      }
+    },
+    "mappings": {
+      "description": "Tier 2 mappings (`tier2-mapping.json`), one per third-party design system the app does not own, by path. `oui generate` emits a bound module per mapping into `<out>/bound/` (named after the package: `@mantine/core` → `mantine-core.ts`, with its control table beside it), and reads every use of a bound control as it reads a tier 1 control. On an enforced page, importing a mapped control straight from its package is an error naming the bound import. A package is in `designSystem` or mapped, never both. Default none.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "\\S"
+      }
+    },
+    "apiSpec": {
+      "description": "The API's OpenAPI 3 document, by module path, as the installed API client ships it (`@traidr/api-client/openapi.json`) — never a sibling checkout path, so the generator reads exactly the spec of the client version the app installs; or a path inside the app. Every `mutate` effect names one of its `operationId`s. `null`: the app declares no API, and a `mutate` effect is an error.",
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "unbound": {
+      "description": "Page components whose interactive controls are not all bound yet. It may only get shorter: the generator fails for a listed page that is fully bound, so the list cannot rot. Every other page is enforced. Default none.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "\\S"
+      }
+    },
+    "appCatalogs": {
+      "description": "Room catalogs the app itself declares (tier 3, a page's own editor), each loaded through the app's own Vite config so its modules resolve as the app build resolves them: the app needs `vite` among its own dependencies. Only their declarations are read. Default none.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/AppCatalogEntry"
+      }
+    },
+    "shell": {
+      "description": "The app's frame: components mounted around the pages rather than by a route (a sidebar, a top bar, a phone tab bar, a toast host). Each becomes a `shell:` surface offered on the routes it frames, and its controls are enforced as a page's are, unless listed in `unbound`. Default none.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ShellEntry"
+      }
+    }
+  },
+  "required": [
+    "tsconfig",
+    "routes",
+    "designSystem",
+    "apiSpec",
+    "out"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "ShellEntry": {
+      "description": "One part of the app's frame.",
+      "type": "object",
+      "properties": {
+        "module": {
+          "description": "The module, relative to the app root.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "export": {
+          "description": "The export that is the frame's component.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "routes": {
+          "description": "The route patterns it frames. Default every route (`*`).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "module",
+        "export"
+      ],
+      "additionalProperties": false
+    },
+    "AppCatalogEntry": {
+      "description": "A room catalog the app declares.",
+      "type": "object",
+      "properties": {
+        "module": {
+          "description": "The module, relative to the app root.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "export": {
+          "description": "The export that is the catalog.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "hosts": {
+          "description": "App components whose use puts the room on a page.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "module",
+        "export",
+        "hosts"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,316 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.closurestudio.ai/agent-sdk/event-declarations/v1.json",
+  "title": "Event declarations",
+  "description": "Every event a product emits over realtime: its payload schema, the rooms it is published to, its correlation fields and its role in a job (ADR-0227 §2.4).",
+  "type": "object",
+  "required": [
+    "version",
+    "product",
+    "rooms",
+    "events"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "description": "The version of this document's format.",
+      "const": 1
+    },
+    "product": {
+      "description": "Who declares these events.",
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string"
+    },
+    "$defs": {
+      "description": "Payload shapes the events share, referenced as `#/$defs/<Name>`.",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Z][A-Za-z0-9]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/EventPayloadSchema"
+      }
+    },
+    "rooms": {
+      "description": "Every room these events go to, by name.",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][A-Za-z0-9]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/RoomDeclaration"
+      }
+    },
+    "events": {
+      "description": "Every event, by its name on the wire.",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_-]*(:[a-z][a-z0-9_-]*)*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/EventDeclaration"
+      }
+    }
+  },
+  "$defs": {
+    "JsonType": {
+      "description": "The JSON Schema types a payload may use.",
+      "enum": [
+        "object",
+        "array",
+        "string",
+        "number",
+        "integer",
+        "boolean",
+        "null"
+      ]
+    },
+    "EventPayloadSchema": {
+      "description": "A JSON Schema (draft 2020-12). A payload may use any keyword; the platform reads `$ref` (to the document's `$defs`), `allOf`, `type`, `properties` and `required` to find the fields it correlates and reports on, and validates the rest with a full validator.",
+      "type": "object",
+      "properties": {
+        "$ref": {
+          "type": "string"
+        },
+        "type": {
+          "description": "A JSON Schema type name, or a list of them.",
+          "$comment": "ts: JsonType | readonly JsonType[]"
+        },
+        "description": {
+          "type": "string"
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/EventPayloadSchema"
+          }
+        },
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": {
+          "description": "`false`, or the schema every other property follows.",
+          "$comment": "ts: boolean | EventPayloadSchema"
+        },
+        "items": {
+          "$ref": "#/$defs/EventPayloadSchema"
+        },
+        "enum": {
+          "type": "array"
+        },
+        "const": {},
+        "allOf": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EventPayloadSchema"
+          }
+        },
+        "anyOf": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EventPayloadSchema"
+          }
+        },
+        "oneOf": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EventPayloadSchema"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "RoomDeclaration": {
+      "type": "object",
+      "required": [
+        "pattern"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "pattern": {
+          "description": "The room's name with `{placeholder}`s for its ids, e.g. `generation:{jobId}`. An id is letters, digits, `_` and `-`.",
+          "type": "string",
+          "pattern": "^([a-z0-9_:-]|\\{[a-zA-Z][a-zA-Z0-9]*\\})+$"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "EventRole": {
+      "description": "What an event is for, as the platform acts on it:\n- `completion`: a job of kind `completes` produced its result. A wait on the job ends well.\n- `failure`: a job of kind `completes` ended without a result. A wait on the job ends with its reason.\n- `progress`: a job is still running. Nothing waits on it: resolving a wait on progress reports a running job as done.\n- `notice`: anything else a client is told.",
+      "enum": [
+        "completion",
+        "failure",
+        "progress",
+        "notice"
+      ]
+    },
+    "FailureReason": {
+      "description": "Where a settling event says why a job failed.",
+      "type": "object",
+      "required": [
+        "field",
+        "fallback"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "description": "The payload field carrying the reason.",
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "fallback": {
+          "description": "What the reason is when the field is absent.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "EventDeclaration": {
+      "type": "object",
+      "required": [
+        "description",
+        "payload",
+        "rooms",
+        "correlation",
+        "role"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload": {
+          "description": "The payload's JSON Schema: an object. `$ref`s point into the document's `$defs`. Every correlation, result and reason field is one of its properties.",
+          "$ref": "#/$defs/EventPayloadSchema"
+        },
+        "typeName": {
+          "description": "The name generated code gives the payload type. Default: the event name in PascalCase (`generation:completed` → `GenerationCompleted`).",
+          "type": "string",
+          "pattern": "^[A-Z][A-Za-z0-9]*$"
+        },
+        "rooms": {
+          "description": "The rooms the event is published to: names from the document's `rooms`, or `turn` for the room of the agent turn it belongs to (the host names that room in each turn).",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "correlation": {
+          "description": "The payload fields that say which job, or which resource, the event is about (e.g. `jobId`). A completion or failure has exactly one.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "uniqueItems": true
+        },
+        "role": {
+          "$ref": "#/$defs/EventRole"
+        },
+        "completes": {
+          "description": "For a completion or failure: the kind of job it settles.",
+          "type": "string",
+          "pattern": "^[a-z][A-Za-z0-9]*$"
+        },
+        "result": {
+          "description": "For a completion: the payload fields that are the job's result, as a follower reports them.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "uniqueItems": true
+        },
+        "reason": {
+          "description": "For a failure: where its reason is.",
+          "$ref": "#/$defs/FailureReason"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "role": {
+                "enum": [
+                  "completion",
+                  "failure"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "completes"
+            ],
+            "properties": {
+              "correlation": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 1
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "completes"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "role": {
+                "const": "completion"
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "result"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "role": {
+                "const": "failure"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "reason"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "reason"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

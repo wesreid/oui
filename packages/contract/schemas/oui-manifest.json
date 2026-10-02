@@ -1,0 +1,346 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.closurestudio.ai/oui/v1/oui-manifest.json",
+  "title": "OuiManifest",
+  "description": "What the generator emits for each build (`oui-manifest.json`, ADR-0220 §2.4–2.5): every surface, action and observation the build's UI offers. The runtime (`connectBindings`) offers the intersection of the manifest and the handlers mounted right now, so an action the build declares is a tool only while its control, or its room, is on screen. CI regenerates it and diffs it (`oui generate --check`).",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "The contract major (`MANIFEST_VERSION`). A breaking change to any of these schemas bumps it.",
+      "const": 1
+    },
+    "buildId": {
+      "description": "A hash of everything else in the manifest and the knowledge: the build's identity to the assistant.",
+      "type": "string",
+      "minLength": 1
+    },
+    "surfaces": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ManifestSurface"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "buildId",
+    "surfaces"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "ReachStep": {
+      "description": "One step of the way a person reaches a capability.",
+      "oneOf": [
+        {
+          "description": "Go to the page. `nav` is where the sidebar lists it.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "route"
+            },
+            "path": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "nav": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path",
+            "title"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Select a tab: the tab set's binding (its tool) and the tab's value.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "tab"
+            },
+            "binding": {
+              "type": "string"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "binding",
+            "value",
+            "title"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Open a dialog, drawer or popover, with one of the controls that open it.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "dialog"
+            },
+            "binding": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "openedBy": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "title",
+            "openedBy"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Show a part of the page that appears once a control sets its state (a detail panel opened by choosing a row).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "panel"
+            },
+            "title": {
+              "type": "string"
+            },
+            "openedBy": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "title",
+            "openedBy"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Open a menu or toolbar the control is an entry of.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "menu"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "title"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "A room's own place for it: its tool, panel, section, key or gesture, as the room says.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "room"
+            },
+            "room": {
+              "type": "string"
+            },
+            "where": {
+              "type": "string"
+            },
+            "selection": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "room",
+            "where"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ManifestActionSource": {
+      "description": "Where an action comes from: a bound control, a room's catalog entry, or the generated navigation.",
+      "enum": [
+        "control",
+        "room-action",
+        "navigation"
+      ]
+    },
+    "ManifestAction": {
+      "description": "One action a surface offers: one tool.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The tool name: unique across the build.",
+          "type": "string",
+          "pattern": "^[a-z0-9_]{1,64}$"
+        },
+        "id": {
+          "description": "The binding id, or `<room>/<kind>/<entry>` for a room's.",
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "$ref": "#/$defs/ManifestActionSource"
+        },
+        "control": {
+          "description": "The control kind, for a control: a built-in one, or one its design system registers.",
+          "$ref": "control-kind-registration.json#/$defs/AnyControlKind"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "input": {
+          "description": "The tool's input: one object schema, never a union at its top level.",
+          "$ref": "json-schema.json"
+        },
+        "effect": {
+          "description": "What running it does. A `job` or `transaction` settles on its outcome (`JobSettlement`); a `transaction`, or a destructive `write`, runs only on the person's approval of the exact call.",
+          "$ref": "action-effect.json"
+        },
+        "destructive": {
+          "type": "boolean"
+        },
+        "confirm": {
+          "description": "It changes what the person is working in (account, project, role): the assistant asks first.",
+          "type": "boolean"
+        },
+        "itemized": {
+          "description": "One of a list's rows: the action takes the row as `item`.",
+          "type": "boolean"
+        },
+        "reach": {
+          "description": "How a person gets to it, from the page.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ReachStep"
+          }
+        },
+        "declaredIn": {
+          "description": "The source file that declares it, relative to the app.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "id",
+        "source",
+        "title",
+        "description",
+        "input",
+        "reach"
+      ],
+      "additionalProperties": false
+    },
+    "ManifestObservation": {
+      "description": "One observation a surface reports: its id, what it means, and its value's schema.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "schema": {
+          "$ref": "json-schema.json"
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "schema"
+      ],
+      "additionalProperties": false
+    },
+    "ManifestSurfaceKind": {
+      "description": "A page, a room on a page, a component shared by pages, the app's frame around the pages (`shell`, from `oui.config.json`'s `shell` entries), or the app's pages themselves: going to one by address (`navigation`).",
+      "enum": [
+        "page",
+        "room",
+        "shared",
+        "shell",
+        "navigation"
+      ]
+    },
+    "ManifestSurface": {
+      "description": "One surface: what it offers, where it can be mounted, and what it reports.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "`page:VoicesPage`, `room:vector-studio`, `shared:MoveToProjectModal`, `shell:StudioShell`, `app:navigation`.",
+          "type": "string",
+          "pattern": "^(page|room|shared|shell|app):.+$"
+        },
+        "kind": {
+          "$ref": "#/$defs/ManifestSurfaceKind"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "routes": {
+          "description": "The route patterns where it can be mounted.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ManifestAction"
+          }
+        },
+        "observations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ManifestObservation"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "description",
+        "routes",
+        "actions",
+        "observations"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

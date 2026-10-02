@@ -1,0 +1,112 @@
+/**
+ * The approval store's internal endpoints (ADR-0228 §2.4). Each requires the
+ * internal key: they are for the product's agent worker and a conversation
+ * engine, never a browser. A browser decides only through `approval:decide`
+ * on its own authenticated socket.
+ *
+ *   POST /internal/approvals               store a pending approval (worker, engine)
+ *   POST /internal/approvals/:id/decide    a conversation channel's decision (engine)
+ *   POST /internal/approvals/redeem        atomic single use (worker, engine)
+ *   GET  /internal/approvals/:id?userId=   where an approval stands (worker, for the turn after a decision)
+ */
+import { Router, type Request, type Response } from 'express';
+import type { ApprovalChannel, ApprovalDecision, ApprovalRefusalReason, PendingApprovalInput } from '@ouispec/agent-core';
+import type { PayloadSchema } from '../types.js';
+import type { ApprovalStore } from './store.js';
+import { internalDecideSchema, pendingApprovalSchema, redeemSchema } from './schemas.js';
+
+export interface ApprovalRouteDeps {
+  approvals: ApprovalStore;
+  isInternalKey: (presented: string | undefined) => boolean;
+}
+
+const DECIDE_STATUS: Record<ApprovalRefusalReason, number> = {
+  unknown: 404,
+  forbidden: 403,
+  expired: 410,
+  decided: 409,
+  used: 410,
+  invalid: 400,
+  mismatch: 403,
+  channel: 400,
+};
+const REDEEM_STATUS: Record<ApprovalRefusalReason, number> = {
+  ...DECIDE_STATUS,
+  invalid: 403,
+  unknown: 410,
+};
+
+export function approvalRouter(deps: ApprovalRouteDeps): Router {
+  const router = Router();
+
+  const accept = <T>(req: Request, res: Response, schema: PayloadSchema): T | null => {
+    if (!deps.isInternalKey(req.headers['x-api-key'] as string | undefined)) {
+      res.status(401).json({ error: 'Invalid or missing API key' });
+      return null;
+    }
+    const { value, error } = schema.validate(req.body ?? {}, { abortEarly: true, convert: false });
+    if (error) {
+      res.status(400).json({ error: `invalid body: ${error.message}`, reason: 'invalid' });
+      return null;
+    }
+    return value as T;
+  };
+
+  router.post('/internal/approvals/redeem', async (req, res) => {
+    const body = accept<{ token: string; userId: string; conversationId: string }>(req, res, redeemSchema);
+    if (!body) return;
+    const result = await deps.approvals.redeem(body.token, { userId: body.userId, conversationId: body.conversationId });
+    if (!result.ok) {
+      res.status(REDEEM_STATUS[result.reason]).json({ error: result.error, reason: result.reason });
+      return;
+    }
+    res.json({ call: result.call });
+  });
+
+  router.post('/internal/approvals', async (req, res) => {
+    const body = accept<PendingApprovalInput>(req, res, pendingApprovalSchema);
+    if (!body) return;
+    const result = await deps.approvals.create(body);
+    if (!result.ok) {
+      res.status(result.reason === 'decided' ? 409 : 400).json({ error: result.error, reason: result.reason });
+      return;
+    }
+    res.status(201).json({ approvalId: result.approvalId, argsHash: result.argsHash, expiresAt: result.expiresAt });
+  });
+
+  router.post('/internal/approvals/:id/decide', async (req, res) => {
+    const body = accept<{ userId: string; decision: ApprovalDecision; channel: ApprovalChannel }>(req, res, internalDecideSchema);
+    if (!body) return;
+    // In a UI only the user's click counts, and it arrives on their own socket.
+    if (body.channel === 'ui') {
+      res.status(400).json({ error: 'a UI approval is decided only on the user’s own socket (approval:decide)', reason: 'channel' });
+      return;
+    }
+    const result = await deps.approvals.decide(req.params.id as string, body);
+    if (!result.ok) {
+      res.status(DECIDE_STATUS[result.reason]).json({ error: result.error, reason: result.reason });
+      return;
+    }
+    res.json(result);
+  });
+
+  router.get('/internal/approvals/:id', async (req, res) => {
+    if (!deps.isInternalKey(req.headers['x-api-key'] as string | undefined)) {
+      res.status(401).json({ error: 'Invalid or missing API key' });
+      return;
+    }
+    const userId = typeof req.query.userId === 'string' ? req.query.userId : '';
+    if (!userId) {
+      res.status(400).json({ error: 'userId is required' });
+      return;
+    }
+    const status = await deps.approvals.status(req.params.id as string, userId);
+    if (!status) {
+      res.status(404).json({ error: 'no such approval for this user', reason: 'unknown' });
+      return;
+    }
+    res.json(status);
+  });
+
+  return router;
+}

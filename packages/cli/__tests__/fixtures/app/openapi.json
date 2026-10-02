@@ -1,0 +1,13 @@
+{
+  "openapi": "3.0.0",
+  "info": { "title": "Fixture API", "version": "sha256:fixture" },
+  "paths": {
+    "/api/v1/voices": {
+      "get": { "operationId": "listVoices", "description": "List the voices — `apiClient.listVoices()`" }
+    },
+    "/api/v1/voices/{voiceId}": {
+      "parameters": [{ "name": "voiceId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "delete": { "operationId": "deleteVoice", "summary": "Delete a voice", "description": "Deletes the voice and its samples." }
+    }
+  }
+}

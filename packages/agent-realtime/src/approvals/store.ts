@@ -1,0 +1,291 @@
+/**
+ * The approval store (ADR-0228 §2.4), beside the UI action result store and on
+ * the same Redis, so every realtime instance sees every approval:
+ *
+ *   approval:{id}           → the pending call as the worker stored it (JSON,
+ *                             never rewritten), TTL until it expires
+ *   approval:{id}:state     → hash: status (pending | approved), userId,
+ *                             conversationId, tool, argsHash, expiresAt, and
+ *                             once approved the token's jti and the channel
+ *   approval:declined:{id}  → what the next turn tells the model, 30 min
+ *
+ * Each decision and each redemption is one Lua script, so two instances can
+ * never both approve one call, or both redeem one token. The stored call is
+ * kept as the worker wrote it and never re-encoded inside Redis: Lua's JSON
+ * would round numbers and turn `[]` into `{}`, and the redeemed call must be
+ * exactly the one the user approved.
+ */
+import crypto from 'node:crypto';
+import {
+  argsHash as hashOf,
+  MAX_APPROVAL_TTL_MS,
+  type ApprovalChannel,
+  type ApprovalDecideResult,
+  type ApprovalDecision,
+  type ApprovalRedeemResult,
+  type ApprovalRefusal,
+  type ApprovalRefusalReason,
+  type ApprovalStatus,
+  type ApprovedCall,
+  type PendingApprovalInput,
+} from '@ouispec/agent-core';
+import type { RealtimeLogger } from '../logger.js';
+import type { ApprovalTokenSigner } from './token.js';
+
+/** The Redis command the store uses. ioredis satisfies it. */
+export interface ApprovalRedis {
+  eval(script: string, numKeys: number, ...args: Array<string | number>): Promise<unknown>;
+}
+
+export interface ApprovalStore {
+  /** Keep a pending approval until it expires. */
+  create(input: PendingApprovalInput): Promise<{ ok: true; approvalId: string; argsHash: string; expiresAt: number } | ApprovalRefusal>;
+  /** The user's decision. An approval's token is returned only here, to the decider. */
+  decide(approvalId: string, by: { userId: string; decision: ApprovalDecision; channel: ApprovalChannel }): Promise<ApprovalDecideResult>;
+  /** Atomic single use: the stored call, for a valid, unexpired, unused token of this user and conversation. */
+  redeem(token: string, caller: { userId: string; conversationId: string }): Promise<ApprovalRedeemResult>;
+  /** Where an approval of this user's stands, or null when it is not theirs or not known. */
+  status(approvalId: string, userId: string): Promise<ApprovalStatus | null>;
+}
+
+/** How long a decline is remembered for the turn that follows it. */
+export const DECLINED_TTL_SEC = 30 * 60;
+
+const recordKey = (id: string) => `approval:${id}`;
+const stateKey = (id: string) => `approval:${id}:state`;
+const declinedKey = (id: string) => `approval:declined:${id}`;
+
+// KEYS: record, state, declined. ARGV: record JSON, ttl ms, userId, conversationId, tool, argsHash, expiresAt.
+// A new approval supersedes an old decline under the same id.
+const CREATE = `
+if redis.call('EXISTS', KEYS[1]) == 1 or redis.call('EXISTS', KEYS[2]) == 1 then return 'exists' end
+redis.call('DEL', KEYS[3])
+redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
+redis.call('HSET', KEYS[2], 'status', 'pending', 'userId', ARGV[3], 'conversationId', ARGV[4], 'tool', ARGV[5], 'argsHash', ARGV[6], 'expiresAt', ARGV[7])
+redis.call('PEXPIRE', KEYS[2], ARGV[2])
+return 'ok'`;
+
+// KEYS: state, record, declined. ARGV: userId, decision, now ms, jti, channel, declined ttl s, declined JSON.
+const DECIDE = `
+if redis.call('EXISTS', KEYS[1]) == 0 then return {'unknown'} end
+local s = redis.call('HMGET', KEYS[1], 'status', 'userId', 'expiresAt')
+if s[2] ~= ARGV[1] then return {'forbidden'} end
+if s[1] ~= 'pending' then return {'decided'} end
+if tonumber(ARGV[3]) >= tonumber(s[3]) then return {'expired'} end
+local record = redis.call('GET', KEYS[2])
+if ARGV[2] == 'approve' then
+  redis.call('HSET', KEYS[1], 'status', 'approved', 'jti', ARGV[4], 'channel', ARGV[5])
+  return {'approved', record}
+end
+redis.call('DEL', KEYS[1], KEYS[2])
+redis.call('SET', KEYS[3], ARGV[7], 'EX', ARGV[6])
+return {'declined', record}`;
+
+// KEYS: state, record. ARGV: jti, argsHash, tool, userId, conversationId.
+const REDEEM = `
+if redis.call('EXISTS', KEYS[1]) == 0 then return {'used'} end
+local s = redis.call('HMGET', KEYS[1], 'status', 'jti', 'argsHash', 'tool', 'userId', 'conversationId', 'channel')
+if s[1] ~= 'approved' or s[2] ~= ARGV[1] or s[3] ~= ARGV[2] or s[4] ~= ARGV[3] or s[5] ~= ARGV[4] or s[6] ~= ARGV[5] then
+  return {'mismatch'}
+end
+local record = redis.call('GET', KEYS[2])
+redis.call('DEL', KEYS[1], KEYS[2])
+return {'ok', record, s[7]}`;
+
+// KEYS: state, record, declined. ARGV: userId. A live approval first, then a remembered decline.
+const STATUS = `
+if redis.call('EXISTS', KEYS[1]) == 1 then
+  local s = redis.call('HMGET', KEYS[1], 'status', 'userId')
+  if s[2] ~= ARGV[1] then return {'unknown'} end
+  return {s[1], redis.call('GET', KEYS[2])}
+end
+local d = redis.call('GET', KEYS[3])
+if d then return {'declined', d} end
+return {'unknown'}`;
+
+interface Declined {
+  userId: string;
+  tool: string;
+  title: string;
+}
+
+const refusal = (reason: ApprovalRefusalReason, error: string): ApprovalRefusal => ({ ok: false, reason, error });
+
+const REFUSALS: Partial<Record<string, string>> = {
+  unknown: 'no such approval is waiting: it was never asked for, was already decided and used, or has expired',
+  forbidden: "this approval is another user's",
+  decided: 'this approval has already been decided',
+  expired: 'this approval has expired',
+  used: 'this approval has already been used',
+  mismatch: 'this token is not for the stored call',
+};
+
+type Seen =
+  | { kind: 'open'; status: 'pending' | 'approved'; pending: PendingApprovalInput }
+  | { kind: 'declined'; declined: Declined }
+  | { kind: 'unknown' };
+
+export function createApprovalStore(redis: ApprovalRedis, signer: ApprovalTokenSigner, logger: RealtimeLogger): ApprovalStore {
+  /** An approval as this user may see it. */
+  async function read(approvalId: string, userId: string): Promise<Seen> {
+    const [status, raw] = ((await redis.eval(STATUS, 3, stateKey(approvalId), recordKey(approvalId), declinedKey(approvalId), userId)) ??
+      []) as [string | undefined, string | undefined];
+    if (status === 'declined' && raw) return { kind: 'declined', declined: JSON.parse(raw) as Declined };
+    if ((status === 'pending' || status === 'approved') && raw) return { kind: 'open', status, pending: JSON.parse(raw) as PendingApprovalInput };
+    return { kind: 'unknown' };
+  }
+
+  /** What every log record about an approval carries; the arguments only when their declaration says they are not sensitive. */
+  const audit = (p: PendingApprovalInput, extra: Record<string, unknown> = {}) => ({
+    approvalId: p.approvalId,
+    userId: p.userId,
+    conversationId: p.conversationId,
+    tool: p.tool,
+    effect: p.effect,
+    destructive: p.destructive,
+    argsHash: p.argsHash,
+    ...(p.argsSensitive === false ? { args: p.args } : {}),
+    ...extra,
+  });
+
+  return {
+    async create(input) {
+      const now = Date.now();
+      if (input.approvalId !== input.toolCallId) return refusal('invalid', 'approvalId must be the tool call id');
+      if (!(input.expiresAt > now)) return refusal('invalid', 'expiresAt must be in the future');
+      if (input.expiresAt - now > MAX_APPROVAL_TTL_MS) {
+        return refusal('invalid', `an approval lasts at most ${MAX_APPROVAL_TTL_MS / 60_000} minutes`);
+      }
+      let computed: string;
+      try {
+        computed = await hashOf(input.args);
+      } catch (err) {
+        return refusal('invalid', err instanceof Error ? err.message : String(err));
+      }
+      if (computed !== input.argsHash) return refusal('invalid', 'argsHash does not match the arguments');
+
+      const result = await redis.eval(
+        CREATE,
+        3,
+        recordKey(input.approvalId),
+        stateKey(input.approvalId),
+        declinedKey(input.approvalId),
+        JSON.stringify(input),
+        input.expiresAt - now,
+        input.userId,
+        input.conversationId,
+        input.tool,
+        input.argsHash,
+        input.expiresAt,
+      );
+      if (result !== 'ok') return refusal('decided', `an approval ${input.approvalId} already exists`);
+      logger.info(audit(input, { expiresAt: input.expiresAt }), 'Approval stored');
+      return { ok: true, approvalId: input.approvalId, argsHash: input.argsHash, expiresAt: input.expiresAt };
+    },
+
+    async decide(approvalId, { userId, decision, channel }) {
+      const jti = crypto.randomUUID();
+      // What a decline is remembered by: the call's tool and title, from its
+      // record, which never changes once stored.
+      const seen = await read(approvalId, userId);
+      const declined: Declined = {
+        userId,
+        tool: seen.kind === 'open' ? seen.pending.tool : '',
+        title: seen.kind === 'open' ? seen.pending.preview.title : '',
+      };
+
+      const [outcome, raw] = (await redis.eval(
+        DECIDE,
+        3,
+        stateKey(approvalId),
+        recordKey(approvalId),
+        declinedKey(approvalId),
+        userId,
+        decision,
+        Date.now(),
+        jti,
+        channel,
+        DECLINED_TTL_SEC,
+        JSON.stringify(declined),
+      )) as [string, string | undefined];
+
+      if (outcome !== 'approved' && outcome !== 'declined') {
+        logger.warn({ approvalId, userId, decision, channel, reason: outcome }, 'Approval decision refused');
+        return refusal(outcome as ApprovalRefusalReason, REFUSALS[outcome] ?? outcome);
+      }
+      const pending = JSON.parse(raw!) as PendingApprovalInput;
+      if (outcome === 'declined') {
+        logger.info(audit(pending, { channel }), 'Approval declined');
+        return { ok: true, decision: 'decline', approvalId };
+      }
+      const token = signer.sign({
+        aid: approvalId,
+        sub: pending.userId,
+        cid: pending.conversationId,
+        tool: pending.tool,
+        ah: pending.argsHash,
+        eff: pending.effect,
+        ch: channel,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(pending.expiresAt / 1000),
+        jti,
+      });
+      logger.info(audit(pending, { channel, expiresAt: pending.expiresAt }), 'Approval approved');
+      return { ok: true, decision: 'approve', approvalId, token, argsHash: pending.argsHash, expiresAt: pending.expiresAt, channel };
+    },
+
+    async redeem(token, caller) {
+      const checked = signer.verify(token);
+      if (!checked.ok) {
+        logger.warn({ userId: caller.userId, conversationId: caller.conversationId, reason: checked.reason, error: checked.error }, 'Approval redemption refused');
+        return refusal(checked.reason, checked.reason === 'expired' ? (REFUSALS.expired as string) : `not a valid approval token: ${checked.error}`);
+      }
+      const { claims } = checked;
+      const context = { approvalId: claims.aid, userId: caller.userId, tool: claims.tool, effect: claims.eff, channel: claims.ch, argsHash: claims.ah };
+      if (claims.sub !== caller.userId || claims.cid !== caller.conversationId) {
+        logger.warn({ ...context, tokenUser: claims.sub, reason: 'forbidden' }, 'Approval redemption refused');
+        return refusal('forbidden', "this approval is another user's or another conversation's");
+      }
+      const [outcome, raw, channel] = (await redis.eval(
+        REDEEM,
+        2,
+        stateKey(claims.aid),
+        recordKey(claims.aid),
+        claims.jti,
+        claims.ah,
+        claims.tool,
+        claims.sub,
+        claims.cid,
+      )) as [string, string | undefined, string | undefined];
+      if (outcome !== 'ok') {
+        logger.warn({ ...context, reason: outcome }, 'Approval redemption refused');
+        return refusal(outcome as ApprovalRefusalReason, REFUSALS[outcome] ?? outcome);
+      }
+      const p = JSON.parse(raw!) as PendingApprovalInput;
+      const call: ApprovedCall = {
+        approvalId: p.approvalId,
+        toolCallId: p.toolCallId,
+        conversationId: p.conversationId,
+        turnId: p.turnId,
+        userId: p.userId,
+        tool: p.tool,
+        args: p.args,
+        argsHash: p.argsHash,
+        effect: p.effect,
+        destructive: p.destructive,
+        channel: channel as ApprovalChannel,
+      };
+      logger.info(audit(p, { channel }), 'Approval redeemed');
+      return { ok: true, call };
+    },
+
+    async status(approvalId, userId) {
+      const seen = await read(approvalId, userId);
+      if (seen.kind === 'declined') {
+        return seen.declined.userId === userId ? { approvalId, status: 'declined', tool: seen.declined.tool, title: seen.declined.title } : null;
+      }
+      if (seen.kind === 'open') return { approvalId, status: seen.status, tool: seen.pending.tool, title: seen.pending.preview.title };
+      return null;
+    },
+  };
+}

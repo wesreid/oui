@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.closurestudio.ai/oui/v1/action-effect.json",
+  "title": "ActionEffect",
+  "description": "What using an action does (ADR-0226 §2.6): one vocabulary for a design-system control's binding, a room catalog's entry and a generated API tool, so a page control, a room action and an API call are told apart by what they change, never by where they are declared.\n\n| Effect | What it changes | ADR-0210 access |\n|---|---|---|\n| `view`, `selection`, `navigate`, `open` | What is shown | read |\n| `edit` | The document, one undo step | write |\n| `file` | Imports or exports a file | write |\n| `mutate` | Backend data, through an API operation | write |\n| `job` | Starts work that outlives the call, settled on its outcome | write |\n| `transaction` | An irreversible external act: an order, a payment, a send, a publish | write, approved |\n\nA `transaction`, and any `write` declared `destructive`, runs only on an approval the person gave, bound to the call (ADR-0228).",
+  "oneOf": [
+    { "$ref": "#/$defs/SimpleEffect" },
+    {
+      "description": "Goes to another page: a route pattern from the app's routes.",
+      "type": "object",
+      "properties": { "kind": { "const": "navigate" }, "to": { "type": "string", "minLength": 1 } },
+      "required": ["kind", "to"],
+      "additionalProperties": false
+    },
+    {
+      "description": "Opens a container on the page: the binding id of a dialog, drawer, popover or tab set.",
+      "type": "object",
+      "properties": { "kind": { "const": "open" }, "container": { "type": "string", "minLength": 1 } },
+      "required": ["kind", "container"],
+      "additionalProperties": false
+    },
+    {
+      "description": "Changes backend data through an API operation, by its `operationId` (`updateVoice`).",
+      "type": "object",
+      "properties": { "kind": { "const": "mutate" }, "operation": { "type": "string", "minLength": 1 } },
+      "required": ["kind", "operation"],
+      "additionalProperties": false
+    },
+    {
+      "description": "Starts work that outlives the call, such as a GPU job. The handler returns `{ ok: true, pending: { jobId } }`; the action is reported done only when the job's completion arrives, failed when it fails, and never done when it has not finished within `timeoutMs` (default 5 minutes). Its states are `JobStatus`.",
+      "type": "object",
+      "properties": {
+        "kind": { "const": "job" },
+        "estimatedDuration": { "type": "string" },
+        "timeoutMs": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    {
+      "description": "An irreversible external act: an order placed, a payment made, a message sent, something published. Modelled on `job`: its handler may return `pending: { jobId }` and it settles on the outcome. It always needs the person's approval of the exact call (ADR-0228), which no policy waives.\n\n- `operation`: the API operation it goes through, when it is one.\n- `approvalMinutes`: how long an approval of it lasts, at most 30 (default 5).",
+      "type": "object",
+      "properties": {
+        "kind": { "const": "transaction" },
+        "operation": { "type": "string", "minLength": 1 },
+        "estimatedDuration": { "type": "string" },
+        "timeoutMs": { "type": "number", "exclusiveMinimum": 0 },
+        "approvalMinutes": { "type": "integer", "minimum": 1, "maximum": 30 }
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    }
+  ],
+  "$defs": {
+    "SimpleEffect": {
+      "description": "An effect that needs nothing but its name.",
+      "enum": ["view", "selection", "edit", "file"]
+    },
+    "ActionEffectKind": {
+      "description": "The effect kinds, in the order of the table above. The vocabulary, what each one may change, and what needs the person's approval are OUI's (`oui-spec`).",
+      "enum": ["view", "selection", "navigate", "open", "edit", "file", "mutate", "job", "transaction"]
+    },
+    "EffectAccess": {
+      "description": "Whether an effect only changes what is shown (`read`), or changes something (`write`), as ADR-0210 names it. An action that declares no effect is a `write`.",
+      "enum": ["read", "write"]
+    },
+    "JobStatus": {
+      "description": "Where an action whose effect is `job` or `transaction` is (plan §2.3, #205/#209):\n\n- `started`: the handler returned; the job is tracked from this moment, so an outcome that arrives before the first poll is kept.\n- `running`: still going; the runtime polls the app's `JobTracker`.\n- `complete`: the job's declared completion arrived; the result exists.\n- `failed`: its declared failure arrived; the result never will.\n- `timeout`: it did not finish within `timeoutMs`. A failure, never a late success.\n- `unverified`: no `JobTracker`, or no job id to follow: the work was started but cannot be confirmed from the page.",
+      "enum": ["started", "running", "complete", "failed", "timeout", "unverified"]
+    },
+    "JobOutcome": {
+      "description": "A job's end, as the assistant is told it. `complete` means the result exists; `failed` that it never will. A `complete` outcome carries the declared result fields beside its job id.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": { "status": { "const": "complete" }, "jobId": { "type": "string" } },
+          "required": ["status", "jobId"],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": { "status": { "const": "failed" }, "jobId": { "type": "string" }, "error": { "type": "string" } },
+          "required": ["status", "jobId", "error"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "JobSettlement": {
+      "description": "What an action that settles on a job reports, from its first answer to its last: `started` (with the job id when the handler gave one), `running` while it polls, then the `JobOutcome`, or `unverified`. A `timeout` is reported as the error `TIMEOUT`, never as data.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": { "status": { "const": "started" }, "jobId": { "type": "string" } },
+          "required": ["status"],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": { "status": { "const": "running" }, "jobId": { "type": "string" } },
+          "required": ["status", "jobId"],
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/JobOutcome" },
+        {
+          "type": "object",
+          "properties": { "status": { "const": "unverified" }, "message": { "type": "string" } },
+          "required": ["status", "message"],
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}
