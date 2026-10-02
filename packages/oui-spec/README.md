@@ -64,13 +64,25 @@ change that: navigating unmounts one page's surfaces and mounts another's. An
 agent that only knew the capability set from before the action would be acting
 on the page it just left.
 
-Surfaces are heavy (every action's schema), so a result repeats them only when
-the agent runtime does not hold them: the runtime sends the `surfacesHash` it
-holds as the request's `knownSurfaces`, and the result carries `surfaces` only
-when the client's hash differs. A result the receiver refuses (too large,
-invalid) is acknowledged as refused, and the client sends it again trimmed,
-with `delivery` saying what was left out and why: the agent always learns the
-action's outcome. A request is acknowledged on receipt when the sender asks,
+Action definitions are heavy (every action's schema: several hundred KB on a
+studio page), so a client does not send them. It sends an **index**: one entry
+per action, with its title, the first sentence of its description, its effect
+and a one-line summary of what it takes. An agent runtime fetches the
+definition it needs with the runtime's own `oui.describe`, and reads state that
+did not fit with `oui.read`. This is the index form: pass `form: "index"` to
+`createSurfaceRuntime` once the agent runtime reads it. Until 1.0 the default is
+`"full"`, which sends every definition as earlier versions did.
+
+A result repeats the index only when the agent runtime does not hold it: the
+runtime sends the `surfacesHash` it holds as the request's `knownSurfaces`, and
+the result carries `index` only when the client's hash differs.
+
+What a client sends is fitted to a byte budget before it is sent (480 KB for a
+result, 256 KB for a snapshot): long lists are cut first, then long texts, and
+`fit` says where, so the rest can be read. A result the receiver still refuses
+is acknowledged as refused, and the client sends it again trimmed a step at a
+time (the index, then the observations, then the data), with `delivery` saying
+what was left out and why: the agent always learns the action's outcome. A request is acknowledged on receipt when the sender asks,
 and a repeat of a request whose answer is on its way gets no second copy.
 
 An async action (`async: true`) is acknowledged at once with `interim: true`,
@@ -173,7 +185,7 @@ function CounterPage() {
 }
 ```
 
-`runtime.snapshot()` returns `{ surfaces, observations, surfacesHash }` for
+`runtime.snapshot()` returns `{ surfaces, observations, surfacesHash }` (or `index` in place of `surfaces`, in index form) for
 everything mounted. An agent runtime that keeps no registry of its own can take it with
 each request (for example, with each chat turn); set `announce: false` and the
 runtime sends nothing but results over the socket.
@@ -256,7 +268,7 @@ sequenceDiagram
     WS->>Browser: oui:dispatch
     Note over Browser: Handler runs once (de-duplicated by requestId)
     Note over Browser: Waits until the UI settles
-    Browser->>WS: oui:action:result { requestId, success, data, observations, surfacesHash, surfaces if changed }
+    Browser->>WS: oui:action:result { requestId, success, data, observations, surfacesHash, surfaces or index if changed }
     WS->>Agent: result for requestId
 ```
 
@@ -736,6 +748,7 @@ They even share JSON Schema for parameter validation — a deliberate design cho
 - [x] `createSurfaceRuntime()` — client-side record of mounted surfaces; every request answered with a result and the snapshot after it
 - [x] Approvals — `transaction` and destructive actions run only on a grant from the user's own confirmation, bound to the exact params (0.5.0)
 - [x] Results carry surfaces only when they changed (`knownSurfaces` / `surfacesHash`), and a refused result is sent again trimmed, saying why (0.6.0)
+- [x] The index form: a client sends an index of its actions, definitions are fetched with `oui.describe`, state is read with `oui.read`, and every frame is fitted to a byte budget (0.7.0)
 - [ ] `oui-spec/devtools` — Surface inspector / debugger
 - [ ] `oui-spec/vue` — Vue bindings
 - [ ] `oui-spec/validator` — Runtime schema validation

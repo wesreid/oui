@@ -663,6 +663,8 @@ A result MAY carry the client's state once the action's effects settled:
 | Field          | Type                                          | Description                                                                      |
 | -------------- | --------------------------------------------- | -------------------------------------------------------------------------------- |
 | `surfaces`     | `OUISurface[]`                                | Every surface active on the client after the action, when the runtime lacks them |
+| `index`        | `OUISurfaceIndex[]`                           | The same in index form (§7.3.8), which a client sends in place of `surfaces`     |
+| `fit`          | `OUIFit`                                      | What was shortened or left out so the result fits its byte budget (§7.3.9)       |
 | `surfacesHash` | `string`                                      | The hash of those surfaces, always: `fnv1a64:` and 16 hex digits (see below)     |
 | `observations` | `{ [surfaceId]: { [observationId]: value } }` | The latest observation values of those surfaces                                  |
 | `settled`      | `boolean`                                     | `false` if the client's deadline passed before its UI settled                    |
@@ -674,9 +676,9 @@ while what changed for one click is usually nothing. So the client sends
 - The client MUST send `surfacesHash`. It is `fnv1a64:` followed by the 64-bit
   FNV-1a hash, in 16 lowercase hex digits, of the surfaces' JSON with every
   object's keys sorted, taken over its UTF-16 code units.
-- The client MUST include `surfaces` when `surfacesHash` differs from the
-  request's `knownSurfaces`, or the request carried none; it MAY leave them out
-  otherwise.
+- The client MUST include `surfaces` (or `index`, §7.3.8) when `surfacesHash`
+  differs from the request's `knownSurfaces`, or the request carried none; it
+  MAY leave them out otherwise. The hash is of whichever of the two it sends.
 - For an async action's final result, the comparison is with the
   `surfacesHash` of its acknowledgment, which the runtime received first.
 - A runtime that receives a result without `surfaces` MUST keep the surfaces it
@@ -697,7 +699,8 @@ regardless, with `settled: false`.
 #### 7.3.5 Client Snapshot
 
 A client MAY provide its surfaces and observations to the agent runtime as a
-snapshot (`{ surfaces, observations, surfacesHash }`), for example with each
+snapshot (`{ index, observations, surfacesHash }`, or `surfaces` in place of
+`index`: §7.3.8), for example with each
 request the user makes of the agent, instead of through registration events
 (§7.2). Its `surfacesHash` is what the runtime then sends as `knownSurfaces`. A
 runtime that works from snapshots needs no registry of its own, and cannot
@@ -717,9 +720,13 @@ its deadline and reporting an action that ran as one that did not answer. So:
   reason (`{ "ok": false, "error": "<reason>" }` on a Socket.IO
   acknowledgment).
 - A client whose result is refused MUST send it again, trimmed, with
-  `delivery: { trimmed: true, reason, omitted }`. It first leaves out
-  `surfaces` and `observations`, and then also `data`. The action's outcome
-  (`success`, `error`) is never trimmed.
+  `delivery: { trimmed: true, reason, omitted }`. It leaves out a step at a
+  time: first what the page offers (`index`, or `surfaces`), then also
+  `observations`, then also `data`. What the page shows is given up after what
+  it offers: an agent that can still see the page can carry on. The action's
+  outcome (`success`, `error`) is never trimmed.
+- A client SHOULD NOT need this: it fits what it sends to a byte budget first
+  (§7.3.9).
 - A runtime that receives a trimmed result MUST report the action's outcome as
   it happened, and SHOULD tell its agent what was left out, and why.
 
@@ -742,6 +749,108 @@ missed ones. So:
   and was sent less than a re-answer interval ago (default 8 s). After that
   interval the answer may have been lost, and the client answers the repeat
   with the same result.
+
+#### 7.3.8 The Index Form
+
+A page's action definitions weigh what its whole catalogue weighs: on a studio
+page, several hundred kilobytes, most of it the input schemas of a few actions.
+That is more than a frame may carry, and more than an agent's model can be
+given on every call. So a client sends its surfaces in **index form** unless it
+was made to send definitions:
+
+```ts
+interface OUISurfaceIndex {
+  id: string;
+  name: string;
+  description: string;
+  observations?: OUIObservation[]; // whole: they say how to read the values
+  index: OUIActionIndexEntry[];
+}
+
+interface OUIActionIndexEntry {
+  id: string;
+  title?: string;
+  description: string; // the first sentence, at most 160 characters
+  effect?: OUIEffectKind;
+  confirm?: boolean;
+  async?: boolean;
+  estimatedDuration?: string;
+  maxDurationMs?: number; // an async action's polling limit
+  input: string; // what it takes, in one line, at most 120 characters
+  definitionHash: string; // 64-bit FNV-1a of the definition's sorted-key JSON, 16 hex digits
+  definitionBytes: number; // the definition's size as JSON
+}
+```
+
+- An entry is derived from the action's definition by rule, so the same
+  definition gives the same entry everywhere.
+- `input` names the input's properties with their types, required ones first,
+  optional ones marked `?`, the first six, then `+N more`. An action that takes
+  nothing has `none`. A union has `one of N shapes`, and `by <property>` when
+  one property tells its members apart.
+- A snapshot and a result carry `index` in place of `surfaces`. Exactly one of
+  the two is present, and `surfacesHash` is the hash of the one that is.
+- An agent runtime MUST accept both forms. From full surfaces it can derive the
+  same index.
+- An agent runtime fetches an action's definition when it needs it (§7.3.10),
+  and MAY keep it until the entry's `definitionHash` changes.
+
+#### 7.3.9 Fitting a Frame
+
+A frame larger than its receiver accepts is refused whole, and the agent then
+knows nothing of the page. So a client fits what it sends to a byte budget
+before it sends it (by default 480 KB for a result and 256 KB for a snapshot):
+
+1. What the page offers (`index`) goes whole.
+2. The action's `data` goes whole, unless it alone leaves no room for the
+   page's observations. Then it is left out, and `fit.data` gives its size and
+   the most a frame could carry: `{ bytes, limit }`. The action's outcome stands.
+3. The observations take what is left. When they exceed it, the client shortens
+   them by rule, stopping as soon as they fit:
+   - every list longer than 200 rows is cut to 200, then to 50, 20, 5 and 0;
+   - then every text longer than 2,000 characters is cut to that;
+   - then whole observation values are left out (`null`), the largest first.
+
+Each cut is reported in `fit.observations`:
+
+```ts
+interface OUIFitCut {
+  surface: string;
+  observation: string;
+  path: string; // JSON Pointer (RFC 6901) into the observation's value; "" is the value
+  kind: "list" | "text" | "value";
+  total: number; // rows, characters, or bytes
+  kept: number;
+}
+```
+
+An agent runtime SHOULD tell its agent what was cut, and how to read the rest
+(§7.3.10).
+
+#### 7.3.10 The Runtime's Own Actions
+
+The surface id `oui` belongs to the client's surface runtime. No surface may be
+defined with it. The runtime answers its actions itself, at once: they read
+what the client holds and change nothing, so there is nothing to settle, and
+their result carries `data` and `surfacesHash` only.
+
+**`oui.describe`** returns the definitions of mounted actions, as the page has
+them now (including what it narrowed at run time):
+
+- Params: `{ actions: [{ surface, action }, …] }`, at least one.
+- Data: `{ definitions: [{ surface, action: OUIAction }], missing?, deferred? }`.
+  `missing` names what is not on screen. `deferred` names what did not fit this
+  frame and is asked for again; the first definition found always goes.
+
+**`oui.read`** returns part of an observation's current value:
+
+- Params: `{ surface, observation, path?, offset?, limit? }`. `path` is a JSON
+  Pointer into the value.
+- For a list, data is `{ rows, total, offset, more?, next? }`: `limit` rows from
+  `offset` (50 by default), fewer when they would not fit the frame, and where
+  the next page begins.
+- For any other value, data is `{ value, fit? }`, fitted as in §7.3.9.
+- An unknown surface, observation or path is `NOT_FOUND`.
 
 ### 7.4 Observation Updates
 

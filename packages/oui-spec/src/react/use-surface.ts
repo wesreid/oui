@@ -10,6 +10,7 @@ import {
 } from "react";
 import type {
   DefinedSurface,
+  SurfaceForm,
   SurfaceRuntime,
   MountedSurface,
 } from "../core/index.js";
@@ -17,10 +18,13 @@ import type { OUIActionResult } from "../spec/index.js";
 
 // ─── Runtime context ─────────────────────────────────────────────────────────
 
-const SurfaceRuntimeContext = createContext<SurfaceRuntime | null>(null);
+const SurfaceRuntimeContext = createContext<SurfaceRuntime<SurfaceForm> | null>(
+  null,
+);
 
 export interface SurfaceRuntimeProviderProps {
-  runtime: SurfaceRuntime;
+  /** A runtime in either form (§7.3.8). */
+  runtime: SurfaceRuntime<SurfaceForm>;
   children?: ReactNode;
 }
 
@@ -37,7 +41,7 @@ export function SurfaceRuntimeProvider({
 }
 
 /** The surface runtime from the nearest `SurfaceRuntimeProvider`. */
-export function useSurfaceRuntime(): SurfaceRuntime {
+export function useSurfaceRuntime(): SurfaceRuntime<SurfaceForm> {
   const runtime = useContext(SurfaceRuntimeContext);
   if (!runtime) {
     throw new Error(
