@@ -30,8 +30,17 @@ export interface OUITransport {
 
   // ─── Result (client → runtime) ──────────────────────────────────────
 
-  /** Answer an action request (client side). */
-  sendResult(result: OUIActionResult): void;
+  /**
+   * Answer an action request (client side). `onAcknowledged` is called with
+   * the receiving side's acknowledgment: accepted, or refused with its reason
+   * — too large, invalid, over a rate limit — so the client can answer again
+   * in a form it accepts (§7.3.6). A receiver that does not acknowledge
+   * answers never calls it.
+   */
+  sendResult(
+    result: OUIActionResult,
+    onAcknowledged?: (ack: OUIAcknowledgment) => void,
+  ): void;
 
   /** Receive action results (runtime side). */
   onResult(handler: OUIResultHandler): () => void;
@@ -76,8 +85,19 @@ export interface OUITransport {
   dispose(): void;
 }
 
-/** Handler for incoming action requests (client side) */
-export type OUIActionHandler = (request: OUIActionRequest) => void;
+/**
+ * Handler for incoming action requests (client side). `receipt`, when the
+ * sender asked for one, acknowledges the request: received and accepted, or
+ * refused with why (§7.3.7). The sender can then tell a request that reached a
+ * client from one that reached nobody, and need not send it again.
+ */
+export type OUIActionHandler = (
+  request: OUIActionRequest,
+  receipt?: (ack: OUIAcknowledgment) => void,
+) => void;
+
+/** An acknowledgment: accepted, or refused with a reason. */
+export type OUIAcknowledgment = { ok: true } | { ok: false; reason: string };
 
 /** Handler for incoming action results (runtime side) */
 export type OUIResultHandler = (result: OUIActionResult) => void;

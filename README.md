@@ -53,16 +53,25 @@ flowchart TD
 Every action request carries a `requestId`, and the client answers it exactly
 once with an `OUIActionResult` (spec §7.3):
 
-| Event                | Direction        | Carries                                                                                              |
-| -------------------- | ---------------- | ---------------------------------------------------------------------------------------------------- |
-| `{ns}:dispatch`      | runtime → client | `OUIActionRequest` — `requestId`, `surfaceId`, `actionId`, `params`                                  |
-| `{ns}:action:result` | client → runtime | `OUIActionResult` — success or error, and the client's surfaces and observations once the UI settled |
-| `{ns}:observation`   | client → runtime | state updates as they happen                                                                         |
+| Event                | Direction        | Carries                                                                                                                                     |
+| -------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `{ns}:dispatch`      | runtime → client | `OUIActionRequest` — `requestId`, `surfaceId`, `actionId`, `params`                                                                         |
+| `{ns}:action:result` | client → runtime | `OUIActionResult` — success or error, the client's observations once the UI settled, its surfaces' hash, and its surfaces when they changed |
+| `{ns}:observation`   | client → runtime | state updates as they happen                                                                                                                |
 
 The result includes what the client can do **after** the action. An action can
 change that: navigating unmounts one page's surfaces and mounts another's. An
 agent that only knew the capability set from before the action would be acting
 on the page it just left.
+
+Surfaces are heavy (every action's schema), so a result repeats them only when
+the agent runtime does not hold them: the runtime sends the `surfacesHash` it
+holds as the request's `knownSurfaces`, and the result carries `surfaces` only
+when the client's hash differs. A result the receiver refuses (too large,
+invalid) is acknowledged as refused, and the client sends it again trimmed,
+with `delivery` saying what was left out and why: the agent always learns the
+action's outcome. A request is acknowledged on receipt when the sender asks,
+and a repeat of a request whose answer is on its way gets no second copy.
 
 An async action (`async: true`) is acknowledged at once with `interim: true`,
 and answered a second time, under the same `requestId`, when its polling
@@ -164,8 +173,8 @@ function CounterPage() {
 }
 ```
 
-`runtime.snapshot()` returns `{ surfaces, observations }` for everything
-mounted. An agent runtime that keeps no registry of its own can take it with
+`runtime.snapshot()` returns `{ surfaces, observations, surfacesHash }` for
+everything mounted. An agent runtime that keeps no registry of its own can take it with
 each request (for example, with each chat turn); set `announce: false` and the
 runtime sends nothing but results over the socket.
 
@@ -247,7 +256,7 @@ sequenceDiagram
     WS->>Browser: oui:dispatch
     Note over Browser: Handler runs once (de-duplicated by requestId)
     Note over Browser: Waits until the UI settles
-    Browser->>WS: oui:action:result { requestId, success, data, surfaces, observations }
+    Browser->>WS: oui:action:result { requestId, success, data, observations, surfacesHash, surfaces if changed }
     WS->>Agent: result for requestId
 ```
 
@@ -726,6 +735,7 @@ They even share JSON Schema for parameter validation — a deliberate design cho
 - [x] `createOUI()` — gated instantiation; integration requirements enforced at compile time
 - [x] `createSurfaceRuntime()` — client-side record of mounted surfaces; every request answered with a result and the snapshot after it
 - [x] Approvals — `transaction` and destructive actions run only on a grant from the user's own confirmation, bound to the exact params (0.5.0)
+- [x] Results carry surfaces only when they changed (`knownSurfaces` / `surfacesHash`), and a refused result is sent again trimmed, saying why (0.6.0)
 - [ ] `oui-spec/devtools` — Surface inspector / debugger
 - [ ] `oui-spec/vue` — Vue bindings
 - [ ] `oui-spec/validator` — Runtime schema validation

@@ -9,6 +9,7 @@
  * hand-rolled second implementation of the wire the first time around.
  */
 export type {
+  OUIAcknowledgment,
   OUITransport,
   OUIActionHandler,
   OUIObservationHandler,

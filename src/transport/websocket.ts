@@ -1,4 +1,5 @@
 import type {
+  OUIAcknowledgment,
   OUITransport,
   OUITransportConfig,
   OUIActionHandler,
@@ -29,7 +30,7 @@ export function createWebSocketTransport(
   config?: OUITransportConfig,
 ): OUITransport {
   const ns = config?.namespace ?? "oui";
-  const buffer: Array<{ event: string; data: unknown }> = [];
+  const buffer: Array<{ event: string; data: unknown; ack?: Ack }> = [];
   const maxBuffer = config?.maxBufferSize ?? 100;
   const shouldBuffer = config?.bufferWhileDisconnected ?? true;
 
@@ -61,7 +62,8 @@ export function createWebSocketTransport(
     if (shouldBuffer) {
       while (buffer.length > 0) {
         const msg = buffer.shift()!;
-        socket.emit(msg.event, msg.data);
+        if (msg.ack) socket.emit(msg.event, msg.data, msg.ack);
+        else socket.emit(msg.event, msg.data);
       }
     }
     connectionHandlers.forEach((h) => h(true));
@@ -72,11 +74,12 @@ export function createWebSocketTransport(
     connectionHandlers.forEach((h) => h(false));
   });
 
-  function emit(event: string, data: unknown) {
+  function emit(event: string, data: unknown, ack?: Ack) {
     if (connected) {
-      socket.emit(event, data);
+      if (ack) socket.emit(event, data, ack);
+      else socket.emit(event, data);
     } else if (shouldBuffer && buffer.length < maxBuffer) {
-      buffer.push({ event, data });
+      buffer.push({ event, data, ...(ack ? { ack } : {}) });
     }
   }
 
@@ -89,7 +92,12 @@ export function createWebSocketTransport(
     onAction(handler: OUIActionHandler) {
       return listen(
         `${ns}:dispatch`,
-        (data: Partial<OUIActionRequest> | undefined) => {
+        (data: Partial<OUIActionRequest> | undefined, ack?: unknown) => {
+          // The sender's receipt, when it asked for one (§7.3.7).
+          const receipt =
+            typeof ack === "function"
+              ? (a: OUIAcknowledgment) => (ack as (r: unknown) => void)(a)
+              : undefined;
           // A request without a requestId cannot be answered, and answering is
           // the contract. Refuse it loudly rather than run an action whose
           // result has nowhere to go.
@@ -104,30 +112,54 @@ export function createWebSocketTransport(
               "[OUI] Dropped a dispatch without requestId/surfaceId/actionId",
               data,
             );
+            receipt?.({
+              ok: false,
+              reason: "a request needs requestId, surfaceId and actionId",
+            });
             return;
           }
-          handler({
-            requestId: data.requestId,
-            surfaceId: data.surfaceId,
-            actionId: data.actionId,
-            params: data.params ?? {},
-            timestamp: data.timestamp ?? Date.now(),
-            ...(isApproval(data.approval)
-              ? {
-                  approval: {
-                    approvalId: data.approval.approvalId,
-                    argsHash: data.approval.argsHash,
-                  },
-                }
-              : {}),
-          });
+          handler(
+            {
+              requestId: data.requestId,
+              surfaceId: data.surfaceId,
+              actionId: data.actionId,
+              params: data.params ?? {},
+              timestamp: data.timestamp ?? Date.now(),
+              ...(isApproval(data.approval)
+                ? {
+                    approval: {
+                      approvalId: data.approval.approvalId,
+                      argsHash: data.approval.argsHash,
+                    },
+                  }
+                : {}),
+              // The surfaces the agent runtime holds, so the answer need not repeat them (§7.3.4).
+              ...(typeof data.knownSurfaces === "string" && data.knownSurfaces
+                ? { knownSurfaces: data.knownSurfaces }
+                : {}),
+            },
+            receipt,
+          );
         },
       );
     },
 
     // ─── Result ─────────────────────────────────────────────────
-    sendResult(result: OUIActionResult) {
-      emit(`${ns}:action:result`, result);
+    sendResult(
+      result: OUIActionResult,
+      onAcknowledged?: (ack: OUIAcknowledgment) => void,
+    ) {
+      // Acknowledged, so a refusal is heard rather than silent (§7.3.6).
+      emit(
+        `${ns}:action:result`,
+        result,
+        onAcknowledged
+          ? (response: unknown) => {
+              const ack = acknowledgmentOf(response);
+              if (ack) onAcknowledged(ack);
+            }
+          : undefined,
+      );
     },
 
     onResult(handler: OUIResultHandler) {
@@ -225,7 +257,8 @@ export function createWebSocketTransport(
  */
 export interface SocketLike {
   readonly connected?: boolean;
-  emit(event: string, data: unknown): void;
+  /** An optional last argument is the receiver's acknowledgment callback, as Socket.IO takes it. */
+  emit(event: string, ...args: any[]): void;
   on(event: string, handler: (...args: any[]) => void): void;
   off(event: string, handler: (...args: any[]) => void): void;
   once(event: string, handler: (...args: any[]) => void): void;
@@ -242,4 +275,26 @@ function isApproval(value: unknown): value is OUIActionApproval {
     !!a.approvalId &&
     typeof a.argsHash === "string"
   );
+}
+
+/** The receiver's acknowledgment callback. */
+type Ack = (response: unknown) => void;
+
+/**
+ * A receiver's acknowledgment: `{ ok: true }`, or `{ ok: false, error }` /
+ * `{ ok: false, reason }` as a refusal; null for anything else.
+ */
+function acknowledgmentOf(response: unknown): OUIAcknowledgment | null {
+  const r = response as
+    { ok?: unknown; error?: unknown; reason?: unknown } | null | undefined;
+  if (!r || typeof r !== "object") return null;
+  if (r.ok === true) return { ok: true };
+  if (r.ok !== false) return null;
+  const why =
+    typeof r.error === "string"
+      ? r.error
+      : typeof r.reason === "string"
+        ? r.reason
+        : "";
+  return { ok: false, reason: why || "refused" };
 }
