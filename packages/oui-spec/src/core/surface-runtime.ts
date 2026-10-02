@@ -23,11 +23,15 @@
  * answered with its result and the snapshot after it.
  */
 import type {
+  OUIAction,
   OUIActionRequest,
   OUIActionResult,
   OUIApprovalGrant,
+  OUIFit,
+  OUIIndexSnapshot,
   OUIResultDelivery,
   OUISurface,
+  OUISurfaceIndex,
   OUISurfaceSnapshot,
   OUIObservationSnapshot,
 } from "../spec/index.js";
@@ -37,6 +41,14 @@ import {
   requiresApproval,
 } from "../spec/approval.js";
 import { surfacesHash } from "../spec/surfaces-hash.js";
+import {
+  jsonBytes,
+  OUI_DESCRIBE_ACTION,
+  OUI_READ_ACTION,
+  OUI_RUNTIME_SURFACE,
+  surfaceIndex,
+} from "../spec/index-form.js";
+import { atPointer, fitObservations } from "../spec/fit.js";
 import type { OUITransport, OUITransportConfig } from "../transport/types.js";
 import {
   createWebSocketTransport,
@@ -93,6 +105,25 @@ export interface SurfaceRuntimeOptions {
   accept?: (request: OUIActionRequest) => boolean;
 
   /**
+   * What a snapshot and an answer say of the mounted surfaces (§7.3.8):
+   * - `"index"`: each action as an index entry. The agent runtime fetches a
+   *   definition when it needs one (`oui.describe`). Use it with an agent
+   *   runtime that reads the index form.
+   * - `"full"` (the default until 1.0): each action's whole definition, as
+   *   every earlier version sent. A page's definitions can outweigh what a
+   *   frame may carry; then its answers are refused and arrive trimmed.
+   */
+  form?: "index" | "full";
+
+  /** The most bytes of JSON a frame carries; what does not fit is shortened and said so (§7.3.9). */
+  budgets?: {
+    /** One answer. Default 480 KB: under the 512 KB a relay commonly caps a frame at. */
+    answerBytes?: number;
+    /** One snapshot, as sent with a turn. Default 256 KB. */
+    snapshotBytes?: number;
+  };
+
+  /**
    * A request sent again while its answer is on the way is not answered again
    * (§7.3.7): every copy of a large answer queues on the one socket, ahead of
    * the next request's answer. Only once the answer has gone this long without
@@ -112,7 +143,10 @@ export interface MountedSurface {
   unmount(): void;
 }
 
-export interface SurfaceRuntime {
+/** The form a runtime sends its surfaces in (§7.3.8). */
+export type SurfaceForm = "full" | "index";
+
+export interface SurfaceRuntime<F extends SurfaceForm = "full"> {
   /**
    * Mount a surface. `getContext` is read when an action runs, so handlers see
    * the latest state rather than the state at mount time.
@@ -129,7 +163,7 @@ export interface SurfaceRuntime {
   attach(socket: SocketLike | null): void;
 
   /** What the client can do right now. */
-  snapshot(): OUISurfaceSnapshot;
+  snapshot(): F extends "index" ? OUIIndexSnapshot : OUISurfaceSnapshot;
 
   /**
    * Run a request once and resolve with its result. A request id seen before
@@ -173,16 +207,50 @@ const DEFAULT_SETTLE_TIMEOUT_MS = 5000;
 const DEFAULT_DEDUPE_WINDOW = 500;
 const DEFAULT_REANSWER_AFTER_MS = 8000;
 const SETTLE_TICK_MS = 50;
+const DEFAULT_ANSWER_BYTES = 480 * 1024;
+const DEFAULT_SNAPSHOT_BYTES = 256 * 1024;
+/** What an answer keeps for the page's observations whatever its `data` weighs. */
+const OBSERVATION_FLOOR_BYTES = 16 * 1024;
+/** Rows `oui.read` returns of a list when the request names no limit. */
+const DEFAULT_READ_ROWS = 50;
 
 export function createSurfaceRuntime(
+  options: SurfaceRuntimeOptions & { form: "index" },
+): SurfaceRuntime<"index">;
+export function createSurfaceRuntime(
+  options?: SurfaceRuntimeOptions & { form?: "full" },
+): SurfaceRuntime<"full">;
+export function createSurfaceRuntime(
   options: SurfaceRuntimeOptions = {},
-): SurfaceRuntime {
+): SurfaceRuntime<SurfaceForm> {
   const announce = options.announce ?? true;
   const quietMs = options.settle?.quietMs ?? DEFAULT_QUIET_MS;
   const settleTimeoutMs =
     options.settle?.timeoutMs ?? DEFAULT_SETTLE_TIMEOUT_MS;
   const dedupeWindow = options.dedupeWindow ?? DEFAULT_DEDUPE_WINDOW;
   const reanswerAfterMs = options.reanswerAfterMs ?? DEFAULT_REANSWER_AFTER_MS;
+  const form: SurfaceForm = options.form ?? "full";
+  const answerBytes = options.budgets?.answerBytes ?? DEFAULT_ANSWER_BYTES;
+  const snapshotBytes =
+    options.budgets?.snapshotBytes ?? DEFAULT_SNAPSHOT_BYTES;
+  // A defined surface never changes, so its manifest and index are made once.
+  const manifests = new WeakMap<object, OUISurface>();
+  const indexes = new WeakMap<object, OUISurfaceIndex>();
+  const manifestOf = (surface: DefinedSurface<unknown>): OUISurface => {
+    let manifest = manifests.get(surface);
+    if (!manifest)
+      manifests.set(
+        surface,
+        (manifest = toJsonSafe(surface.toManifest()) as OUISurface),
+      );
+    return manifest;
+  };
+  const indexOf = (surface: DefinedSurface<unknown>): OUISurfaceIndex => {
+    let index = indexes.get(surface);
+    if (!index)
+      indexes.set(surface, (index = surfaceIndex(manifestOf(surface))));
+    return index;
+  };
 
   let nextKey = 1;
   const entries: Entry[] = [];
@@ -393,19 +461,19 @@ export function createSurfaceRuntime(
     ) => {
       // The acknowledgment goes first: a job can finish before the UI settles.
       await acknowledged(requestId);
-      const snap = snapshot();
-      const known = answeredHash.get(requestId);
-      answer({
-        requestId,
-        success,
-        ...(data !== undefined ? { data: toJsonSafe(data) } : {}),
-        ...(error ? { error } : {}),
-        interim: false,
-        timestamp: Date.now(),
-        ...(snap.surfacesHash !== known ? { surfaces: snap.surfaces } : {}),
-        observations: snap.observations,
-        surfacesHash: snap.surfacesHash,
-      });
+      answer(
+        frame(
+          {
+            requestId,
+            success,
+            ...(data !== undefined ? { data: toJsonSafe(data) } : {}),
+            ...(error ? { error } : {}),
+            interim: false,
+            timestamp: Date.now(),
+          },
+          answeredHash.get(requestId),
+        ),
+      );
       acks.delete(requestId);
       answeredHash.delete(requestId);
     };
@@ -547,6 +615,8 @@ export function createSurfaceRuntime(
 
   async function run(request: OUIActionRequest): Promise<OUIActionResult> {
     const startedAt = Date.now();
+    if (request.surfaceId === OUI_RUNTIME_SURFACE)
+      return builtin(request, startedAt);
     const entry = activeFor(request.surfaceId);
 
     let result: ActionHandlerResult;
@@ -602,42 +672,270 @@ export function createSurfaceRuntime(
     }
 
     const settled = await waitUntilSettled(startedAt);
-    const snap = snapshot();
-    if (interim) answeredHash.set(request.requestId, snap.surfacesHash!);
+    const answered = frame(
+      {
+        requestId: request.requestId,
+        success: result.success,
+        ...(result.data !== undefined ? { data: toJsonSafe(result.data) } : {}),
+        ...(result.error
+          ? { error: toJsonSafe(result.error) as OUIActionResult["error"] }
+          : {}),
+        ...(interim ? { interim: true } : {}),
+        durationMs: Date.now() - startedAt,
+        timestamp: Date.now(),
+        settled,
+      },
+      request.knownSurfaces,
+    );
+    if (interim) answeredHash.set(request.requestId, answered.surfacesHash!);
+    return answered;
+  }
 
-    return {
-      requestId: request.requestId,
-      success: result.success,
-      ...(result.data !== undefined ? { data: toJsonSafe(result.data) } : {}),
-      ...(result.error
-        ? { error: toJsonSafe(result.error) as OUIActionResult["error"] }
+  /**
+   * An outcome as the answer that carries it: with what the page offers, only
+   * when the agent runtime does not already hold it (§7.3.4), and the page's
+   * observations, all within the answer's byte budget (§7.3.9). The action's
+   * own `data` is kept whole unless it alone outweighs the frame; the
+   * observations take what is left, and say where they were cut.
+   */
+  function frame(
+    outcome: OUIActionResult,
+    knownSurfaces: string | undefined,
+  ): OUIActionResult {
+    const page = capture();
+    const out: OUIActionResult = {
+      ...outcome,
+      ...(page.surfacesHash !== knownSurfaces
+        ? form === "index"
+          ? { index: page.index }
+          : { surfaces: page.surfaces }
         : {}),
-      ...(interim ? { interim: true } : {}),
+      surfacesHash: page.surfacesHash,
+    };
+    const fit: OUIFit = {};
+    // Definitions that alone outweigh the frame are refused and then left out
+    // (§7.3.6): the rest is fitted as the answer that will then be sent.
+    const carried =
+      jsonBytes(out.index ?? out.surfaces) >= answerBytes
+        ? { ...out, index: undefined, surfaces: undefined }
+        : out;
+    const dataLimit =
+      answerBytes -
+      jsonBytes({ ...carried, data: undefined }) -
+      OBSERVATION_FLOOR_BYTES;
+    const dataBytes = jsonBytes(out.data);
+    if (dataBytes > Math.max(0, dataLimit)) {
+      delete out.data;
+      fit.data = { bytes: dataBytes, limit: Math.max(0, dataLimit) };
+    }
+    const fitted = fitObservations(
+      page.observations,
+      Math.max(
+        0,
+        answerBytes -
+          jsonBytes(
+            out.data === undefined ? { ...carried, data: undefined } : carried,
+          ),
+      ),
+    );
+    out.observations = fitted.observations;
+    if (fitted.cuts.length) fit.observations = fitted.cuts;
+    if (fit.data || fit.observations) out.fit = fit;
+    return out;
+  }
+
+  // ─── The runtime's own actions (§7.3.10) ─────────────────────────────────────
+
+  /**
+   * `oui.describe` and `oui.read`: answered here, at once. They read what the
+   * client holds and change nothing, so there is nothing to settle, and their
+   * answer carries their data and the surfaces hash only.
+   */
+  function builtin(
+    request: OUIActionRequest,
+    startedAt: number,
+  ): OUIActionResult {
+    const done = (
+      body: Pick<OUIActionResult, "success" | "data" | "error">,
+    ): OUIActionResult => ({
+      requestId: request.requestId,
+      ...body,
       durationMs: Date.now() - startedAt,
       timestamp: Date.now(),
-      // Only what the agent runtime does not already hold (§7.3.4).
-      ...(snap.surfacesHash !== request.knownSurfaces
-        ? { surfaces: snap.surfaces }
-        : {}),
-      observations: snap.observations,
-      surfacesHash: snap.surfacesHash,
-      settled,
-    };
+      surfacesHash: capture().surfacesHash,
+      settled: true,
+    });
+    const refuse = (code: string, message: string) =>
+      done({ success: false, error: { code, message } });
+    const params = request.params ?? {};
+
+    if (request.actionId === OUI_DESCRIBE_ACTION) {
+      const asked = params.actions;
+      if (
+        !Array.isArray(asked) ||
+        asked.length === 0 ||
+        !asked.every(
+          (a) =>
+            a &&
+            typeof a === "object" &&
+            typeof (a as Record<string, unknown>).surface === "string" &&
+            typeof (a as Record<string, unknown>).action === "string",
+        )
+      ) {
+        return refuse(
+          "INVALID_PARAMS",
+          '"describe" takes actions: [{ surface, action }], at least one',
+        );
+      }
+      const definitions: Array<{ surface: string; action: OUIAction }> = [];
+      const missing: Array<{ surface: string; action: string }> = [];
+      const deferred: Array<{ surface: string; action: string }> = [];
+      let bytes = 0;
+      for (const { surface, action } of asked as Array<{
+        surface: string;
+        action: string;
+      }>) {
+        const entry = activeFor(surface);
+        const definition =
+          entry &&
+          manifestOf(entry.surface).actions.find((a) => a.id === action);
+        if (!definition) {
+          missing.push({ surface, action });
+          continue;
+        }
+        const size = jsonBytes(definition);
+        // One definition always goes, however large: the rest wait for the next request.
+        if (
+          definitions.length > 0 &&
+          bytes + size > answerBytes - OBSERVATION_FLOOR_BYTES
+        ) {
+          deferred.push({ surface, action });
+          continue;
+        }
+        bytes += size;
+        definitions.push({ surface, action: definition });
+      }
+      return done({
+        success: true,
+        data: {
+          definitions,
+          ...(missing.length ? { missing } : {}),
+          ...(deferred.length ? { deferred } : {}),
+        },
+      });
+    }
+
+    if (request.actionId === OUI_READ_ACTION) {
+      const { surface, observation } = params as Record<string, unknown>;
+      const path = params.path === undefined ? "" : params.path;
+      const offset = params.offset === undefined ? 0 : params.offset;
+      const limit =
+        params.limit === undefined ? DEFAULT_READ_ROWS : params.limit;
+      if (
+        typeof surface !== "string" ||
+        typeof observation !== "string" ||
+        typeof path !== "string"
+      ) {
+        return refuse(
+          "INVALID_PARAMS",
+          '"read" takes surface, observation and, to read part of the value, path',
+        );
+      }
+      if (
+        !Number.isInteger(offset) ||
+        (offset as number) < 0 ||
+        !Number.isInteger(limit) ||
+        (limit as number) < 1
+      ) {
+        return refuse(
+          "INVALID_PARAMS",
+          '"read" takes offset (0 or more) and limit (1 or more) as whole numbers',
+        );
+      }
+      const values = observations.get(surface);
+      if (!values || !values.has(observation)) {
+        const known = values ? [...values.keys()] : [];
+        return refuse(
+          "NOT_FOUND",
+          values
+            ? `Surface "${surface}" reports no observation "${observation}". It reports: ${known.join(", ") || "none"}.`
+            : `Surface "${surface}" is not on screen, or reports nothing.`,
+        );
+      }
+      let value: unknown;
+      try {
+        value = atPointer(values.get(observation), path);
+      } catch (err) {
+        return refuse(
+          "INVALID_PARAMS",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+      if (value === undefined) {
+        return refuse(
+          "NOT_FOUND",
+          `Nothing is at "${path}" in ${surface}.${observation}.`,
+        );
+      }
+      const room = answerBytes - OBSERVATION_FLOOR_BYTES;
+      if (Array.isArray(value)) {
+        const total = value.length;
+        let rows = value.slice(
+          offset as number,
+          (offset as number) + (limit as number),
+        );
+        // A page of rows that outweighs the frame is halved until it fits; one row always goes.
+        while (rows.length > 1 && jsonBytes(rows) > room)
+          rows = rows.slice(0, Math.ceil(rows.length / 2));
+        const next = (offset as number) + rows.length;
+        return done({
+          success: true,
+          data: {
+            rows,
+            total,
+            offset,
+            ...(next < total ? { more: true, next } : {}),
+          },
+        });
+      }
+      const fitted = fitObservations(
+        { [surface]: { [observation]: value } },
+        room,
+      );
+      // Cuts are reported relative to the observation, as every other cut is.
+      const cuts = fitted.cuts.map((c) => ({ ...c, path: `${path}${c.path}` }));
+      return done({
+        success: true,
+        data: {
+          value: fitted.observations[surface][observation],
+          ...(cuts.length ? { fit: { observations: cuts } } : {}),
+        },
+      });
+    }
+
+    return refuse(
+      "ACTION_NOT_FOUND",
+      `The runtime answers "${OUI_DESCRIBE_ACTION}" and "${OUI_READ_ACTION}"; it has no "${request.actionId}".`,
+    );
   }
 
   // ─── Answering ────────────────────────────────────────────────────────────
 
   /**
    * Send an answer, and if the receiving side refuses it, send it again
-   * trimmed, saying why (§7.3.6): first without the page's surfaces and
-   * observations, then without the action's data too. An answer that is
+   * trimmed, saying why (§7.3.6): first without what the page offers, then
+   * without the page's observations too, then without the action's data. What
+   * the page shows is given up after what it offers: an agent that still sees
+   * the page can carry on, and one that does not must stop. An answer that is
    * refused and not sent again leaves the agent waiting until its deadline,
    * then reporting an action that ran as one that did not answer.
    */
   function answer(result: OUIActionResult, onReceived?: () => void) {
+    const offered = form === "index" ? "index" : "surfaces";
     const steps: Array<OUIResultDelivery["omitted"]> = [
-      ["surfaces", "observations"],
-      ["surfaces", "observations", "data"],
+      [offered],
+      [offered, "observations"],
+      [offered, "observations", "data"],
     ];
     const send = (frame: OUIActionResult, step: number) => {
       transport?.sendResult(frame, (ack) => {
@@ -677,19 +975,50 @@ export function createSurfaceRuntime(
 
   // ─── Snapshot ─────────────────────────────────────────────────────────────
 
-  function snapshot(): OUISurfaceSnapshot {
-    const surfaces: OUISurface[] = [];
+  /** What is mounted, in the runtime's form, with every observation whole. */
+  function capture(): {
+    surfaces?: OUISurface[];
+    index?: OUISurfaceIndex[];
+    observations: OUIObservationSnapshot;
+    surfacesHash: string;
+  } {
+    const active = activeEntries();
     const obs: OUIObservationSnapshot = {};
-    for (const e of activeEntries()) {
-      surfaces.push(e.surface.toManifest());
+    for (const e of active) {
       const values = observations.get(e.surface.id);
       if (values && values.size > 0)
         obs[e.surface.id] = Object.fromEntries(values);
     }
+    if (form === "index") {
+      const index = active.map((e) => indexOf(e.surface));
+      return { index, observations: obs, surfacesHash: surfacesHash(index) };
+    }
+    const surfaces = active.map((e) => manifestOf(e.surface));
     return {
       surfaces,
       observations: obs,
       surfacesHash: surfacesHash(surfaces),
+    };
+  }
+
+  function snapshot(): OUISurfaceSnapshot | OUIIndexSnapshot {
+    const page = capture();
+    const offered =
+      form === "index" ? { index: page.index! } : { surfaces: page.surfaces! };
+    // Definitions that alone outweigh the snapshot cannot be shortened here:
+    // the observations are then fitted to the whole budget, not to none of it.
+    const offeredBytes = jsonBytes(offered);
+    const fitted = fitObservations(
+      page.observations,
+      offeredBytes >= snapshotBytes
+        ? snapshotBytes
+        : snapshotBytes - offeredBytes,
+    );
+    return {
+      ...offered,
+      observations: fitted.observations,
+      surfacesHash: page.surfacesHash,
+      ...(fitted.cuts.length ? { fit: { observations: fitted.cuts } } : {}),
     };
   }
 
@@ -804,7 +1133,7 @@ export function createSurfaceRuntime(
   return {
     mount,
     attach,
-    snapshot,
+    snapshot: snapshot as SurfaceRuntime<SurfaceForm>["snapshot"],
     execute,
     hold() {
       const id = nextHold++;

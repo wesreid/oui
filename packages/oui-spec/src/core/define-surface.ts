@@ -7,6 +7,7 @@ import type {
   JSONSchema,
   OUIEffectKind,
 } from "../spec/index.js";
+import { OUI_RUNTIME_SURFACE } from "../spec/index-form.js";
 import { brand, type OUIBranded } from "./brand.js";
 
 /**
@@ -135,6 +136,13 @@ export function defineSurface<
 >(
   definition: SurfaceDefinition<TContext> & { id: TId },
 ): DefinedSurface<TContext> & { id: TId } {
+  // The runtime answers this id itself (§7.3.10).
+  if (definition.id === OUI_RUNTIME_SURFACE) {
+    throw new Error(
+      `[OUI] "${OUI_RUNTIME_SURFACE}" is the surface runtime's own id: give the surface another`,
+    );
+  }
+
   // Validate: no duplicate action IDs
   const actionIds = new Set<string>();
   for (const action of definition.actions) {

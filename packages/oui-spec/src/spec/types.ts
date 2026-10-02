@@ -28,6 +28,9 @@ export type JSONSchema = {
   pattern?: string;
   format?: string;
   additionalProperties?: boolean | JSONSchema;
+  title?: string;
+  /** Annotations (`x-unit`, `x-rows`, …) a product's contract adds; OUI carries them unread. */
+  [annotation: `x-${string}`]: unknown;
 };
 
 /**
@@ -193,6 +196,73 @@ export interface OUIActivation {
   condition?: string;
 }
 
+// ─── Index form (§7.3.8) ───────────────────────────────────────────────────────
+
+/**
+ * One action as a snapshot and an answer carry it: enough to choose it and to
+ * know what it takes in outline, without its definition. A page's actions
+ * weigh what its whole catalogue weighs (on a studio page, several hundred
+ * KB), and an agent runtime that received every definition could neither be
+ * sent them in one frame nor give them all to its model. The definition of an
+ * action is fetched when it is needed (`oui.describe`, §7.3.10).
+ */
+export interface OUIActionIndexEntry {
+  /** The action's id. */
+  id: string;
+  /** Its name as a person reads it. */
+  title?: string;
+  /** The first sentence of its description, at most `INDEX_DESCRIPTION_CHARS` characters. */
+  description: string;
+  effect?: OUIEffectKind;
+  confirm?: boolean;
+  async?: boolean;
+  estimatedDuration?: string;
+  /** For an async action: how long its work is followed before it is reported as not finished. */
+  maxDurationMs?: number;
+  /** What it takes, in one line (`summarizeInput`): "none", "value: number 0–100", "clipId, start?, +4 more". */
+  input: string;
+  /** A hash of the full definition: a fetched definition is good until this changes. */
+  definitionHash: string;
+  /** The full definition's size in bytes of JSON, so a reader knows to ask for it in outline. */
+  definitionBytes: number;
+}
+
+/** A surface as a snapshot and an answer carry it in index form: its actions as index entries. */
+export interface OUISurfaceIndex {
+  id: string;
+  name: string;
+  description: string;
+  version?: string;
+  /** Observation definitions travel whole: they are small, and say how to read the values that follow. */
+  observations?: OUIObservation[];
+  index: OUIActionIndexEntry[];
+}
+
+/**
+ * One place where a snapshot's or an answer's observations were shortened to
+ * fit its byte budget (§7.3.9): a list cut to its first rows, a long text cut,
+ * or a value left out. The rest is read with `oui.read` (§7.3.10), by this
+ * surface, observation and path.
+ */
+export interface OUIFitCut {
+  surface: string;
+  observation: string;
+  /** JSON Pointer (RFC 6901) into the observation's value; "" is the value itself. */
+  path: string;
+  kind: "list" | "text" | "value";
+  /** Rows of a list, characters of a text, bytes of a value. */
+  total: number;
+  /** How many of them this frame keeps. */
+  kept: number;
+}
+
+/** What was shortened or left out to fit a frame's byte budget (§7.3.9). */
+export interface OUIFit {
+  observations?: OUIFitCut[];
+  /** The action's `data` was left out: its size, and the most a frame could carry. */
+  data?: { bytes: number; limit: number };
+}
+
 // ─── Protocol Types ──────────────────────────────────────────────────────────
 
 /**
@@ -242,7 +312,7 @@ export interface OUIResultDelivery {
   /** What the receiving side said when it refused the full answer. */
   reason: string;
   /** The fields left out of this answer. */
-  omitted: Array<"surfaces" | "observations" | "data">;
+  omitted: Array<"surfaces" | "index" | "observations" | "data">;
 }
 
 /**
@@ -287,8 +357,17 @@ export interface OUIActionResult {
    */
   surfaces?: OUISurface[];
 
+  /**
+   * The same, in index form (§7.3.8): what a client sends in place of
+   * `surfaces` unless it was made to send definitions.
+   */
+  index?: OUISurfaceIndex[];
+
   /** Latest observation values per surface once the action's effects settled. */
   observations?: OUIObservationSnapshot;
+
+  /** What was shortened or left out so this answer fits its byte budget (§7.3.9). */
+  fit?: OUIFit;
 
   /**
    * The hash of the client's surfaces once the action's effects settled
@@ -317,6 +396,9 @@ export type OUIObservationSnapshot = Record<string, Record<string, unknown>>;
  * What a client can do right now: the surfaces it has mounted and their latest
  * observation values. A client sends this to its agent runtime (for example,
  * with each turn), and returns it on every action result.
+ *
+ * This is the full form: every action with its definition. A client made in
+ * index form (§7.3.8) sends an `OUIIndexSnapshot` instead.
  */
 export interface OUISurfaceSnapshot {
   surfaces: OUISurface[];
@@ -327,7 +409,22 @@ export interface OUISurfaceSnapshot {
    * runtime already holds.
    */
   surfacesHash?: string;
+  /** What was shortened so the snapshot fits its byte budget (§7.3.9). */
+  fit?: OUIFit;
 }
+
+/** A client's snapshot in index form (§7.3.8): each action as an index entry, not its definition. */
+export interface OUIIndexSnapshot {
+  index: OUISurfaceIndex[];
+  observations: OUIObservationSnapshot;
+  /** `surfacesHash(index)`. */
+  surfacesHash?: string;
+  /** What was shortened so the snapshot fits its byte budget (§7.3.9). */
+  fit?: OUIFit;
+}
+
+/** A snapshot as an agent runtime receives it: in either form. */
+export type OUIClientSnapshot = OUISurfaceSnapshot | OUIIndexSnapshot;
 
 /**
  * An observation update pushed from the surface to the agent.

@@ -17,13 +17,15 @@
  * collision-resistant enough that two different capability sets of one page
  * never share one.
  */
-import type { OUISurface } from "./types.js";
+import type { OUISurface, OUISurfaceIndex } from "./types.js";
 
 /** The prefix names the algorithm, so a different one is a different hash rather than a false match. */
 const PREFIX = "fnv1a64:";
 
 /** `surfaces`' hash, as a result's `surfacesHash` and a request's `knownSurfaces` carry it. */
-export function surfacesHash(surfaces: readonly OUISurface[]): string {
+export function surfacesHash(
+  surfaces: readonly OUISurface[] | readonly OUISurfaceIndex[],
+): string {
   return PREFIX + fnv1a64(sortedJson(surfaces));
 }
 
@@ -34,7 +36,7 @@ export function surfacesHash(surfaces: readonly OUISurface[]): string {
  * wire): a snapshot is taken on every answer, and must never throw on a
  * manifest that carries, say, an `undefined` in an array.
  */
-function sortedJson(value: unknown): string {
+export function sortedJson(value: unknown): string {
   return JSON.stringify(sortKeys(value)) ?? "null";
 }
 

@@ -31,6 +31,7 @@ export {
 export { createOUI } from "./create-oui.js";
 export { createSurfaceRuntime } from "./surface-runtime.js";
 export type {
+  SurfaceForm,
   SurfaceRuntime,
   SurfaceRuntimeOptions,
   SettleOptions,
