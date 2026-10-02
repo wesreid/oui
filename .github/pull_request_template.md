@@ -13,12 +13,9 @@
 ## Checklist
 
 - [ ] I have read the [contributing guidelines](../CONTRIBUTING.md)
-- [ ] TypeScript types are correct (`npm run typecheck` passes)
-- [ ] Tests pass (`npm test`)
-- [ ] Lint passes (`npm run lint`)
-- [ ] Build succeeds (`npm run build`)
-- [ ] If this is a breaking change, I have updated the version accordingly
-- [ ] If this changes the spec, I have updated `spec/OUI-SPEC-v0.1.md`
+- [ ] `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm test` and `pnpm packs:check` pass
+- [ ] Every changed published package has a changeset, applied with `pnpm version-packages` (a minor for a break while 0.x: see VERSIONING.md)
+- [ ] If this changes the protocol, I have updated `packages/oui-spec/spec/OUI-SPEC-v0.1.md`
 
 ## Breaking Changes
 

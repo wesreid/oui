@@ -1,13 +1,8 @@
 #!/usr/bin/env sh
 
-# Run lint-staged (format + lint staged files)
-npx lint-staged
+# Lint (and, for oui-spec, format) the staged files.
+pnpm exec lint-staged
 
-# Type-check
-npx tsc --noEmit
-
-# Test
-npx vitest run
-
-# Build (ensures dist is producible)
-npx tsup
+# Typecheck, test and build every package the change touches, and every
+# package that depends on one.
+pnpm exec turbo run typecheck test build --filter='...[HEAD]'

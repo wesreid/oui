@@ -8,7 +8,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in @oui-spec, please report it responsibly:
+If you discover a security vulnerability in `oui-spec` or any `@ouispec/*` package, please report it responsibly:
 
 1. **Do NOT** open a public GitHub issue
 2. Email security@closurestudio.com with:
@@ -23,5 +23,5 @@ We will acknowledge receipt within 48 hours and provide a detailed response with
 
 - All dependencies are audited on every CI run
 - npm provenance is enabled for published packages (supply chain attestation)
-- Package contents are verified before every publish
-- Multi-Node version testing (18, 20, 22) ensures compatibility
+- Package contents are verified before every publish (`pnpm packs:check`)
+- Every package is built and tested on Node 22, and `oui-spec` also on Node 18 and 20
