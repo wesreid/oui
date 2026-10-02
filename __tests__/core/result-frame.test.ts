@@ -238,3 +238,70 @@ describe('the size of an answer on a page with many surfaces', () => {
     runtime.dispose();
   });
 });
+
+describe('a request repeated while its answer is on the way (§7.3.7)', () => {
+  function room(options: { reanswerAfterMs?: number; accept?: () => boolean } = {}) {
+    const socket = createMockSocket();
+    const runtime = createSurfaceRuntime({ socket, announce: false, settle: FAST, ...options });
+    let runs = 0;
+    runtime.mount(studioSurface('room', 2, 1), () => ({ count: () => runs++ }));
+    // The relay's emit, asking for a receipt (§7.3.7).
+    const dispatch = (req: OUIActionRequest) =>
+      new Promise<unknown>(resolve => socket.receiveWithAck('oui:dispatch', req, resolve));
+    return { socket, runtime, runs: () => runs, dispatch };
+  }
+
+  it('acknowledges receipt, and refuses a request the client does not accept', async () => {
+    const accepting = room();
+    expect(await accepting.dispatch(request('room', 'room_action_0', {}, 'q1'))).toEqual({ ok: true });
+    const closed = room({ accept: () => false });
+    expect(await closed.dispatch(request('room', 'room_action_0', {}, 'q2'))).toEqual({
+      ok: false,
+      reason: 'this client does not accept requests now',
+    });
+    accepting.runtime.dispose();
+    closed.runtime.dispose();
+  });
+
+  it('sends one answer, however often the request is repeated while the answer is worked out or on its way', async () => {
+    const { socket, runtime, runs, dispatch } = room();
+    const req = request('room', 'room_action_0', {}, 'once');
+    await dispatch(req);
+    await dispatch(req);
+    await wait(FAST.quietMs + 60);
+    await dispatch(req);
+    await dispatch(req);
+    await wait(30);
+    expect(runs()).toBe(1);
+    expect(answers(socket)).toHaveLength(1);
+    runtime.dispose();
+  });
+
+  it('sends no copy once the receiver acknowledged the answer, however late the repeat', async () => {
+    const { socket, runtime, dispatch } = room({ reanswerAfterMs: 40 });
+    const req = request('room', 'room_action_0', {}, 'received');
+    await dispatch(req);
+    await wait(FAST.quietMs + 60);
+    answers(socket)[0].ack!({ ok: true, kept: true });
+    await wait(60);
+    await dispatch(req);
+    await wait(20);
+    expect(answers(socket)).toHaveLength(1);
+    runtime.dispose();
+  });
+
+  it('answers a repeat again once its answer went unacknowledged that long: it may have been lost', async () => {
+    const { socket, runtime, runs, dispatch } = room({ reanswerAfterMs: 40 });
+    const req = request('room', 'room_action_0', {}, 'lost');
+    await dispatch(req);
+    await wait(FAST.quietMs + 60);
+    await wait(50);
+    await dispatch(req);
+    await wait(20);
+    const sent = answers(socket);
+    expect(sent).toHaveLength(2);
+    expect(sent[1].data).toEqual(sent[0].data);
+    expect(runs()).toBe(1);
+    runtime.dispose();
+  });
+});

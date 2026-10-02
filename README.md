@@ -70,7 +70,8 @@ holds as the request's `knownSurfaces`, and the result carries `surfaces` only
 when the client's hash differs. A result the receiver refuses (too large,
 invalid) is acknowledged as refused, and the client sends it again trimmed,
 with `delivery` saying what was left out and why: the agent always learns the
-action's outcome.
+action's outcome. A request is acknowledged on receipt when the sender asks,
+and a repeat of a request whose answer is on its way gets no second copy.
 
 An async action (`async: true`) is acknowledged at once with `interim: true`,
 and answered a second time, under the same `requestId`, when its polling

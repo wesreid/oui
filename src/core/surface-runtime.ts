@@ -91,6 +91,15 @@ export interface SurfaceRuntimeOptions {
    * not checked; they come from the application itself.
    */
   accept?: (request: OUIActionRequest) => boolean;
+
+  /**
+   * A request sent again while its answer is on the way is not answered again
+   * (§7.3.7): every copy of a large answer queues on the one socket, ahead of
+   * the next request's answer. Only once the answer has gone this long without
+   * the receiver acknowledging it — lost, or a receiver that does not
+   * acknowledge — is a repeat answered again. Default 8000 ms.
+   */
+  reanswerAfterMs?: number;
 }
 
 // ─── Public types ────────────────────────────────────────────────────────────
@@ -162,6 +171,7 @@ interface Entry {
 const DEFAULT_QUIET_MS = 250;
 const DEFAULT_SETTLE_TIMEOUT_MS = 5000;
 const DEFAULT_DEDUPE_WINDOW = 500;
+const DEFAULT_REANSWER_AFTER_MS = 8000;
 const SETTLE_TICK_MS = 50;
 
 export function createSurfaceRuntime(
@@ -172,6 +182,7 @@ export function createSurfaceRuntime(
   const settleTimeoutMs =
     options.settle?.timeoutMs ?? DEFAULT_SETTLE_TIMEOUT_MS;
   const dedupeWindow = options.dedupeWindow ?? DEFAULT_DEDUPE_WINDOW;
+  const reanswerAfterMs = options.reanswerAfterMs ?? DEFAULT_REANSWER_AFTER_MS;
 
   let nextKey = 1;
   const entries: Entry[] = [];
@@ -205,6 +216,13 @@ export function createSurfaceRuntime(
   function acknowledged(requestId: string): Promise<void> {
     return ackFor(requestId).promise;
   }
+  // How each request's first answer is getting to the agent runtime: still
+  // being worked out, sent (when), or acknowledged as received. A repeat of the
+  // request is answered again only when the answer may have been lost (§7.3.7).
+  const delivery = new Map<
+    string,
+    { state: "running" | "sent" | "received"; at: number }
+  >();
   // The surfaces hash each request's first answer reported: an async action's
   // final answer repeats its surfaces only if they changed since then, since
   // the agent runtime waited for that first answer before waiting for this one.
@@ -616,24 +634,28 @@ export function createSurfaceRuntime(
    * refused and not sent again leaves the agent waiting until its deadline,
    * then reporting an action that ran as one that did not answer.
    */
-  function answer(result: OUIActionResult) {
+  function answer(result: OUIActionResult, onReceived?: () => void) {
     const steps: Array<OUIResultDelivery["omitted"]> = [
       ["surfaces", "observations"],
       ["surfaces", "observations", "data"],
     ];
     const send = (frame: OUIActionResult, step: number) => {
-      transport?.sendResult(frame, (reason) => {
+      transport?.sendResult(frame, (ack) => {
+        if (ack.ok) {
+          onReceived?.();
+          return;
+        }
         const omitted = steps[step];
         if (!omitted) {
           console.warn(
-            `[OUI] The answer to ${result.requestId} was refused even trimmed: ${reason}`,
+            `[OUI] The answer to ${result.requestId} was refused even trimmed: ${ack.reason}`,
           );
           return;
         }
         console.warn(
-          `[OUI] The answer to ${result.requestId} was refused (${reason}); sending it without ${omitted.join(", ")}`,
+          `[OUI] The answer to ${result.requestId} was refused (${ack.reason}); sending it without ${omitted.join(", ")}`,
         );
-        send(trimmed(result, reason, omitted), step + 1);
+        send(trimmed(result, ack.reason, omitted), step + 1);
       });
     };
     send(result, 0);
@@ -648,6 +670,7 @@ export function createSurfaceRuntime(
     while (results.size > dedupeWindow) {
       const oldest = results.keys().next().value as string;
       results.delete(oldest);
+      delivery.delete(oldest);
     }
     return pending;
   }
@@ -685,22 +708,41 @@ export function createSurfaceRuntime(
     transport = t;
 
     detachTransport.push(
-      t.onAction((request) => {
+      t.onAction((request, receipt) => {
         if (options.accept && !options.accept(request)) {
           console.warn(
             `[OUI] Refused a request the client does not accept: ${request.surfaceId}.${request.actionId} (${request.requestId})`,
           );
+          receipt?.({
+            ok: false,
+            reason: "this client does not accept requests now",
+          });
           return;
         }
+        // Received: the sender need not send it again (§7.3.7).
+        receipt?.({ ok: true });
+        const id = request.requestId;
+        const prior = delivery.get(id);
+        // A repeat while the answer is being worked out, or is on its way, or
+        // has arrived, gets no second copy: copies of a large answer queue on
+        // the one socket ahead of the next request's answer.
+        if (prior && prior.state !== "sent") return;
+        if (prior && Date.now() - prior.at < reanswerAfterMs) return;
+        if (!prior) delivery.set(id, { state: "running", at: Date.now() });
         void execute(request).then((result) => {
           // Answer on whichever transport is live when the result is ready: a
           // reconnect in between keeps the same socket, so this still reaches
           // the runtime that asked.
-          answer(result);
-          const ack = ackFor(request.requestId);
+          if (results.has(id))
+            delivery.set(id, { state: "sent", at: Date.now() });
+          answer(result, () => {
+            if (results.has(id))
+              delivery.set(id, { state: "received", at: Date.now() });
+          });
+          const ack = ackFor(id);
           ack.resolve();
           // Keep the gate only while a final result may still follow.
-          if (!result.interim) acks.delete(request.requestId);
+          if (!result.interim) acks.delete(id);
         });
       }),
     );
@@ -811,6 +853,7 @@ export function createSurfaceRuntime(
       listeners.clear();
       acks.clear();
       answeredHash.clear();
+      delivery.clear();
       grants.clear();
     },
   };

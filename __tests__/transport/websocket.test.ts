@@ -139,7 +139,9 @@ describe('createWebSocketTransport()', () => {
       socket._emit('oui:dispatch', { requestId: 'r-1', surfaceId: 's-1', actionId: 'do_thing', params: { key: 'val' } });
 
       expect(handler).toHaveBeenCalledOnce();
-      expect(handler).toHaveBeenCalledWith(expect.objectContaining({ requestId: 'r-1', surfaceId: 's-1', actionId: 'do_thing', params: { key: 'val' } }));
+      expect(handler.mock.calls[0][0]).toEqual(expect.objectContaining({ requestId: 'r-1', surfaceId: 's-1', actionId: 'do_thing', params: { key: 'val' } }));
+      // No receipt was asked for.
+      expect(handler.mock.calls[0][1]).toBeUndefined();
     });
 
     it('returns cleanup function that removes listener', () => {
@@ -405,19 +407,25 @@ describe('createWebSocketTransport()', () => {
 describe('a result, acknowledged (§7.3.6)', () => {
   const result = { requestId: 'r', success: true, timestamp: 1 };
 
-  it('hands the receiver an acknowledgment, and reports a refusal with its reason', () => {
+  it('hands the receiver an acknowledgment, and reports what it said: received, or refused and why', () => {
     const socket = createMockSocket();
     const transport = createWebSocketTransport(socket);
-    const refusals: string[] = [];
-    transport.sendResult(result, reason => refusals.push(reason));
+    const acks: unknown[] = [];
+    transport.sendResult(result, ack => acks.push(ack));
     const [sent] = socket._emitted;
     expect(sent.event).toBe('oui:action:result');
-    sent.ack!({ ok: true });
+    sent.ack!({ ok: true, kept: true });
     sent.ack!({ ok: false, error: 'payload larger than 524288 bytes' });
     sent.ack!({ ok: false, reason: 'not in the room' });
     sent.ack!({ ok: false });
     sent.ack!(undefined);
-    expect(refusals).toEqual(['payload larger than 524288 bytes', 'not in the room', 'refused']);
+    sent.ack!('yes');
+    expect(acks).toEqual([
+      { ok: true },
+      { ok: false, reason: 'payload larger than 524288 bytes' },
+      { ok: false, reason: 'not in the room' },
+      { ok: false, reason: 'refused' },
+    ]);
   });
 
   it('sends no acknowledgment callback when none is asked for', () => {
@@ -429,12 +437,22 @@ describe('a result, acknowledged (§7.3.6)', () => {
   it('keeps the acknowledgment of an answer queued while disconnected', () => {
     const socket = createMockSocket({ connected: false });
     const transport = createWebSocketTransport(socket);
-    const refusals: string[] = [];
-    transport.sendResult(result, reason => refusals.push(reason));
+    const acks: unknown[] = [];
+    transport.sendResult(result, ack => acks.push(ack));
     expect(socket._emitted).toHaveLength(0);
     socket._emit('connect');
     socket._emitted[0].ack!({ ok: false, error: 'too large' });
-    expect(refusals).toEqual(['too large']);
+    expect(acks).toEqual([{ ok: false, reason: 'too large' }]);
+  });
+
+  it('acknowledges receipt of a request when the sender asks, and refuses one it cannot answer', () => {
+    const socket = createMockSocket();
+    const transport = createWebSocketTransport(socket);
+    transport.onAction((_r, receipt) => receipt?.({ ok: true }));
+    const receipts: unknown[] = [];
+    socket._emit('oui:dispatch', req('s', 'a', {}), (r: unknown) => receipts.push(r));
+    socket._emit('oui:dispatch', { surfaceId: 's', actionId: 'a' }, (r: unknown) => receipts.push(r));
+    expect(receipts).toEqual([{ ok: true }, { ok: false, reason: 'a request needs requestId, surfaceId and actionId' }]);
   });
 
   it('passes on the surfaces the agent runtime holds, and nothing that is not a hash', () => {

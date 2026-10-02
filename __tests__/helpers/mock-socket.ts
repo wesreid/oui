@@ -7,6 +7,8 @@ export interface MockSocket extends SocketLike {
   emitted: Array<{ event: string; data: unknown; ack?: (response: unknown) => void }>;
   /** Deliver an event from the remote side. */
   receive(event: string, data?: unknown): void;
+  /** Deliver an event from the remote side that asks for an acknowledgment. */
+  receiveWithAck(event: string, data: unknown, ack: (response: unknown) => void): void;
   listenerCount(event?: string): number;
   disconnectCalls: number;
 }
@@ -42,6 +44,9 @@ export function createMockSocket(opts: { connected?: boolean } = {}): MockSocket
     },
     receive(event, data) {
       for (const h of [...(listeners.get(event) ?? [])]) h(data);
+    },
+    receiveWithAck(event, data, ack) {
+      for (const h of [...(listeners.get(event) ?? [])]) h(data, ack);
     },
     listenerCount(event) {
       if (event) return listeners.get(event)?.length ?? 0;

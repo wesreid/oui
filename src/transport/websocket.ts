@@ -1,4 +1,5 @@
 import type {
+  OUIAcknowledgment,
   OUITransport,
   OUITransportConfig,
   OUIActionHandler,
@@ -91,7 +92,12 @@ export function createWebSocketTransport(
     onAction(handler: OUIActionHandler) {
       return listen(
         `${ns}:dispatch`,
-        (data: Partial<OUIActionRequest> | undefined) => {
+        (data: Partial<OUIActionRequest> | undefined, ack?: unknown) => {
+          // The sender's receipt, when it asked for one (§7.3.7).
+          const receipt =
+            typeof ack === "function"
+              ? (a: OUIAcknowledgment) => (ack as (r: unknown) => void)(a)
+              : undefined;
           // A request without a requestId cannot be answered, and answering is
           // the contract. Refuse it loudly rather than run an action whose
           // result has nowhere to go.
@@ -106,41 +112,51 @@ export function createWebSocketTransport(
               "[OUI] Dropped a dispatch without requestId/surfaceId/actionId",
               data,
             );
+            receipt?.({
+              ok: false,
+              reason: "a request needs requestId, surfaceId and actionId",
+            });
             return;
           }
-          handler({
-            requestId: data.requestId,
-            surfaceId: data.surfaceId,
-            actionId: data.actionId,
-            params: data.params ?? {},
-            timestamp: data.timestamp ?? Date.now(),
-            ...(isApproval(data.approval)
-              ? {
-                  approval: {
-                    approvalId: data.approval.approvalId,
-                    argsHash: data.approval.argsHash,
-                  },
-                }
-              : {}),
-            // The surfaces the agent runtime holds, so the answer need not repeat them (§7.3.4).
-            ...(typeof data.knownSurfaces === "string" && data.knownSurfaces
-              ? { knownSurfaces: data.knownSurfaces }
-              : {}),
-          });
+          handler(
+            {
+              requestId: data.requestId,
+              surfaceId: data.surfaceId,
+              actionId: data.actionId,
+              params: data.params ?? {},
+              timestamp: data.timestamp ?? Date.now(),
+              ...(isApproval(data.approval)
+                ? {
+                    approval: {
+                      approvalId: data.approval.approvalId,
+                      argsHash: data.approval.argsHash,
+                    },
+                  }
+                : {}),
+              // The surfaces the agent runtime holds, so the answer need not repeat them (§7.3.4).
+              ...(typeof data.knownSurfaces === "string" && data.knownSurfaces
+                ? { knownSurfaces: data.knownSurfaces }
+                : {}),
+            },
+            receipt,
+          );
         },
       );
     },
 
     // ─── Result ─────────────────────────────────────────────────
-    sendResult(result: OUIActionResult, onRefused?: (reason: string) => void) {
+    sendResult(
+      result: OUIActionResult,
+      onAcknowledged?: (ack: OUIAcknowledgment) => void,
+    ) {
       // Acknowledged, so a refusal is heard rather than silent (§7.3.6).
       emit(
         `${ns}:action:result`,
         result,
-        onRefused
+        onAcknowledged
           ? (response: unknown) => {
-              const refusal = refusalOf(response);
-              if (refusal !== null) onRefused(refusal);
+              const ack = acknowledgmentOf(response);
+              if (ack) onAcknowledged(ack);
             }
           : undefined,
       );
@@ -265,18 +281,20 @@ function isApproval(value: unknown): value is OUIActionApproval {
 type Ack = (response: unknown) => void;
 
 /**
- * The reason in an acknowledgment that refuses an answer — `{ ok: false,
- * error }` or `{ ok: false, reason }` — or null for any other acknowledgment.
+ * A receiver's acknowledgment: `{ ok: true }`, or `{ ok: false, error }` /
+ * `{ ok: false, reason }` as a refusal; null for anything else.
  */
-function refusalOf(response: unknown): string | null {
+function acknowledgmentOf(response: unknown): OUIAcknowledgment | null {
   const r = response as
     { ok?: unknown; error?: unknown; reason?: unknown } | null | undefined;
-  if (!r || typeof r !== "object" || r.ok !== false) return null;
+  if (!r || typeof r !== "object") return null;
+  if (r.ok === true) return { ok: true };
+  if (r.ok !== false) return null;
   const why =
     typeof r.error === "string"
       ? r.error
       : typeof r.reason === "string"
         ? r.reason
         : "";
-  return why || "refused";
+  return { ok: false, reason: why || "refused" };
 }

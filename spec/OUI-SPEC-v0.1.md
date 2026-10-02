@@ -723,6 +723,26 @@ its deadline and reporting an action that ran as one that did not answer. So:
 - A runtime that receives a trimmed result MUST report the action's outcome as
   it happened, and SHOULD tell its agent what was left out, and why.
 
+#### 7.3.7 Receipts and Repeated Requests
+
+An agent runtime may send a request again when no answer has come, since a
+client can join late. Each copy of a request MUST NOT produce another copy of
+its answer while the first is on its way. Copies of a large answer queue on one
+connection, ahead of the next request's answer, and turn a slow answer into
+missed ones. So:
+
+- The client MAY acknowledge receipt of a request when the sender asks for an
+  acknowledgment. It acknowledges with `{ "ok": true }`, or with
+  `{ "ok": false, "reason" }` for a request it does not accept. A sender that
+  holds a receipt SHOULD wait for the answer rather than send the request
+  again, and SHOULD back off between sends while it holds none.
+- The client MUST run a request id once. It MUST NOT answer a repeat while the
+  first answer is being worked out, or once the receiver acknowledged it.
+- The client MUST NOT answer a repeat while the first answer is unacknowledged
+  and was sent less than a re-answer interval ago (default 8 s). After that
+  interval the answer may have been lost, and the client answers the repeat
+  with the same result.
+
 ### 7.4 Observation Updates
 
 #### 7.4.1 Push Update
