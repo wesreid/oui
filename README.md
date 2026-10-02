@@ -44,7 +44,7 @@ pnpm install
 pnpm build        # every package, in dependency order
 pnpm typecheck
 pnpm lint
-pnpm test         # agent-realtime's tests use REDIS_URL, or start a local redis-server
+pnpm test         # the realtime and worker tests start their own redis-server (or use REDIS_URL)
 pnpm smoke --dir /tmp/oui-smoke   # the packed tarballs, installed and used as an outside product would
 pnpm site         # the documentation site, into site/
 ```

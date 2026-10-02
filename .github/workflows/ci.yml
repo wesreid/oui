@@ -13,20 +13,6 @@ jobs:
   build:
     name: Build & Test
     runs-on: ubuntu-latest
-    # agent-realtime's tests run the real server, twice, on one Redis: UI action
-    # results and room fan-out cross instances only through it. The tests use
-    # REDIS_URL, or start a local redis-server when it is unset; neither is a
-    # skip.
-    services:
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,14 +25,20 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # The realtime server's tests, the worker's and the consumer smoke test
+      # each run real servers on Redis. Every test file starts its own
+      # redis-server (no shared Redis URL): servers that share a Redis are one
+      # cluster, so on a shared one a file's emit reached other files' sockets
+      # and its receipt counts came out wrong.
+      - name: Install redis-server
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq redis-server && redis-server --version
+
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm build
 
       - name: Test
-        env:
-          REDIS_URL: redis://localhost:6379
         run: pnpm test:ci
 
       # Every published package's tarball: name, MIT, LICENSE and README,
@@ -60,8 +52,6 @@ jobs:
       # point, the contract, the generator's command, and a whole agent turn on
       # the fixture product (scripts/consumer-smoke).
       - name: Consumer smoke test (from the packed tarballs)
-        env:
-          REDIS_URL: redis://localhost:6379
         run: pnpm smoke --dir "$RUNNER_TEMP/consumer-smoke"
 
       # A release is decided in its pull request: changesets are applied there,
