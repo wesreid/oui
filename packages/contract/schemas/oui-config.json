@@ -57,6 +57,15 @@
         "pattern": "\\S"
       }
     },
+    "mappings": {
+      "description": "Tier 2 mappings (`tier2-mapping.json`), one per third-party design system the app does not own, by path. `oui generate` emits a bound module per mapping into `<out>/bound/` (named after the package: `@mantine/core` → `mantine-core.ts`, with its control table beside it), and reads every use of a bound control as it reads a tier 1 control. On an enforced page, importing a mapped control straight from its package is an error naming the bound import. A package is in `designSystem` or mapped, never both. Default none.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "\\S"
+      }
+    },
     "apiSpec": {
       "description": "The API's OpenAPI 3 document, by module path, as the installed API client ships it (`@traidr/api-client/openapi.json`) — never a sibling checkout path, so the generator reads exactly the spec of the client version the app installs; or a path inside the app. Every `mutate` effect names one of its `operationId`s. `null`: the app declares no API, and a `mutate` effect is an error.",
       "anyOf": [

@@ -33,7 +33,7 @@ describe('the schemas are the authority', () => {
   it('generates exactly the checked-in types and schema values', () => {
     const banner =
       'Generated from schemas/*.json, the OUI integrator contract, by @ouispec/contract.\n' +
-      'Edit the schemas, then: pnpm generate (in packages/agent-sdk/oui-contract).';
+      'Edit the schemas, then: pnpm generate (in packages/contract).';
     const { types, schemas } = renderContract(onDisk, banner);
     expect(types).toBe(readFileSync(join(PKG, 'src/generated/contract.ts'), 'utf8'));
     expect(schemas).toBe(readFileSync(join(PKG, 'src/generated/schemas.ts'), 'utf8'));
@@ -198,6 +198,45 @@ describe('each schema accepts what ADR-0226 specifies', () => {
         controls: { S: { kind: 'choice', callbacks: ['onChange'], valueFrom: { arg: 0 }, controlled: 'value', options: { prop: 'data', value: 'v', title: 't' }, parts: { root: { export: 'Root' }, item: { export: 'Item' } } } },
       }),
     ).not.toEqual([]);
+  });
+
+  it('Tier2Mapping: a control under a namespace is mapped by its root alone, and may then take options from a prop', () => {
+    const radix: Tier2Mapping = {
+      package: 'radix-ui',
+      controls: {
+        Switch: { kind: 'toggle', callbacks: ['onCheckedChange'], valueFrom: { arg: 0 }, controlled: 'checked', parts: { root: { export: 'Switch.Root' } } },
+        Tabs: {
+          kind: 'tabs',
+          callbacks: ['onValueChange'],
+          valueFrom: { arg: 0 },
+          controlled: 'value',
+          parts: { root: { export: 'Tabs.Root' }, item: { export: 'Tabs.Trigger', valueProp: 'value', titleProps: ['children'] } },
+        },
+        Picker: {
+          kind: 'choice',
+          callbacks: ['onValueChange'],
+          valueFrom: { arg: 0 },
+          controlled: 'value',
+          options: { prop: 'items', value: 'id', title: 'name' },
+          parts: { root: { export: 'Picker.Root' } },
+        },
+      },
+    };
+    expect(contractProblems('tier2-mapping.json', radix)).toEqual([]);
+    // A part is an export or one member of one, never deeper.
+    expect(
+      contractProblems('tier2-mapping.json', {
+        package: 'x',
+        controls: { S: { kind: 'toggle', callbacks: ['onChange'], valueFrom: { arg: 0 }, controlled: 'on', parts: { root: { export: 'S.Root.Inner' } } } },
+      }),
+    ).not.toEqual([]);
+  });
+
+  it('OuiConfigFile: mappings are a list of paths', () => {
+    const base = { tsconfig: 'tsconfig.json', routes: 'src/routes.tsx', designSystem: [], apiSpec: null, out: 'src/agent/generated' };
+    expect(contractProblems('oui-config.json', { ...base, mappings: ['oui/mantine-core.mapping.json'] } satisfies OuiConfigFile)).toEqual([]);
+    expect(contractProblems('oui-config.json', { ...base, mappings: [''] })).not.toEqual([]);
+    expect(contractProblems('oui-config.json', { ...base, mappings: 'oui/mantine-core.mapping.json' })).not.toEqual([]);
   });
 
   it('AgentBinding: dotted lower-kebab ids, a description, and a valid effect', () => {

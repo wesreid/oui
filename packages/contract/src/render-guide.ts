@@ -135,7 +135,7 @@ export function renderGuide(docs: Readonly<Record<string, SchemaDocument>>, sect
     .join('\n\n');
   return (
     `<!-- GENERATED FILE — DO NOT EDIT. Generated from guide/*.md and schemas/*.json by @ouispec/contract (contract major ${version}).\n` +
-    `     Edit the sections or the schemas, then: pnpm generate (in packages/agent-sdk/oui-contract). -->\n\n` +
+    `     Edit the sections or the schemas, then: pnpm generate (in packages/contract). -->\n\n` +
     `${body}\n`
   );
 }

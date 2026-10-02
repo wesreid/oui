@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schemas.closurestudio.ai/oui/v1/oui-config.json",
+  "tsconfig": "tsconfig.json",
+  "routes": "src/routes.tsx",
+  "designSystem": [],
+  "mappings": ["oui/radix-ui.mapping.json"],
+  "apiSpec": null,
+  "out": "src/agent/generated"
+}

@@ -1,6 +1,6 @@
 {
   "name": "@ouispec/bindings",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Every UI capability declared once, in code (ADR-0220): the semantic binding on design-system controls, the room catalog contract, the generated manifest and knowledge, and the runtime registry that serves them as OUI surfaces",
   "homepage": "https://github.com/wesreid/oui/tree/main/packages/bindings#readme",
   "bugs": {
@@ -30,6 +30,11 @@
       "types": "./dist/oui.d.ts",
       "import": "./dist/oui.js",
       "default": "./dist/oui.js"
+    },
+    "./jsx": {
+      "types": "./dist/jsx.d.ts",
+      "import": "./dist/jsx.js",
+      "default": "./dist/jsx.js"
     }
   },
   "files": [

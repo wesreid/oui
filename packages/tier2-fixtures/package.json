@@ -1,0 +1,35 @@
+{
+  "name": "@ouispec/tier2-fixtures",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Tier 2 acceptance (ADR-0226 §2.3, W4): a Mantine app and a Radix app bound through mappings and generated wrappers, each passing `oui generate --check` and the conformance kit",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm run check:mantine && pnpm run check:radix",
+    "check:mantine": "node node_modules/@ouispec/cli/dist/cli.js generate --check --config mantine-app/oui.config.json",
+    "check:radix": "node node_modules/@ouispec/cli/dist/cli.js generate --check --config radix-app/oui.config.json",
+    "typecheck": "tsc --noEmit -p mantine-app/tsconfig.json && tsc --noEmit -p radix-app/tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
+    "clean": "true"
+  },
+  "dependencies": {
+    "@ouispec/bindings": "workspace:*",
+    "@mantine/core": "9.6.3",
+    "@mantine/hooks": "9.6.3",
+    "radix-ui": "1.6.7",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@ouispec/contract": "workspace:*",
+    "@ouispec/cli": "workspace:*",
+    "@ouispec/testing": "workspace:*",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "jsdom": "^26",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  },
+  "license": "MIT"
+}

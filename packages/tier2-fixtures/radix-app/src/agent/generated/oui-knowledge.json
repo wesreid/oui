@@ -1,0 +1,27 @@
+{
+  "buildId": "b3eb4b5645fc1e81",
+  "overview": {
+    "content": "1 more pages are reached from these or by address; the page you are on is described in full below, and moving to another page gives you its tools.\nGo to any page by its address with [app_navigate]; its path lists every page.",
+    "title": "The app’s pages"
+  },
+  "pages": [
+    {
+      "adjacent": [],
+      "detail": {
+        "content": "The Order Ticket page (/ticket).\nWhere: reached by address (/ticket) or from another page.\n\nWhat you can do here (tool in brackets):\nOn the page:\n- Account [ticket_account]\n- Confirm each fill [ticket_confirm_fill]\n- Extended hours [ticket_extended_hours]\n- Panel [ticket_panel]\n- Side [ticket_side]\n\nWhat the page reports: state (its fields, lists and unavailable controls) and problems.",
+        "title": "Order Ticket (/ticket)"
+      },
+      "recipes": [],
+      "relationships": null,
+      "routes": [
+        "/ticket"
+      ],
+      "summary": {
+        "content": "Order Ticket (/ticket): The Order Ticket page (/ticket).",
+        "title": "Order Ticket"
+      },
+      "surface": "page:OrderTicketPage"
+    }
+  ],
+  "version": 1
+}

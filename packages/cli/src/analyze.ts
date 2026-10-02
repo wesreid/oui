@@ -9,6 +9,7 @@
  * registers one or renders one of its hosts.
  */
 
+import { dirname, relative } from 'node:path';
 import ts from 'typescript';
 
 import {
@@ -17,6 +18,7 @@ import {
   INTERACTIVE_HANDLERS,
   INTERACTIVE_TAGS,
   isAgentBinding,
+  mappedOptions,
   type ActionEffect,
   type AgentBinding,
   type AnyControlKind,
@@ -41,6 +43,7 @@ import {
   type JsxOpening,
   type Source,
 } from './program.js';
+import type { LoadedMapping, Tier2PartInfo } from './tier2.js';
 
 /** A dialog on the page, whose openers are found once the whole page is read. */
 export interface DialogStep {
@@ -99,6 +102,24 @@ export interface Finding {
   message: string;
 }
 
+/** One use of a mapped control's root (ADR-0226 §2.3), and whether it shows its value. */
+export interface Tier2Found {
+  /** The mapped control's name in its mapping (`Select`). */
+  component: string;
+  /** The tag as written (`Select`, `Select.Root`). */
+  tag: string;
+  file: string;
+  line: number;
+  /** The props the use passes, as written. */
+  props: string[];
+  /** The prop that shows its value, when its mapping names one. */
+  controlled?: string;
+  /** It does not pass `controlled`. */
+  uncontrolled: boolean;
+  /** It passes props through a spread, which the build cannot read. */
+  spread: boolean;
+}
+
 export interface PageAnalysis {
   controls: FoundControl[];
   rooms: Set<LoadedCatalog>;
@@ -111,6 +132,8 @@ export interface PageAnalysis {
   unbound: Finding[];
   /** Declarations that are wrong wherever they are. */
   errors: Finding[];
+  /** Every use of a mapped control's root. */
+  tier2Uses: Tier2Found[];
 }
 
 interface PropSource {
@@ -133,17 +156,47 @@ const ITERATORS = new Set(['map', 'flatMap']);
 export class PageAnalyzer {
   /** Entry objects made once per row, by a `map` or `flatMap`. */
   private readonly rowEntries = new Set<ts.ObjectLiteralExpression>();
+  /** Every control the pages can use: the design systems' and the bound modules'. */
+  private readonly controls: Controls;
+  /** The design systems, and each bound module under its key. */
+  private readonly designSystem: readonly string[];
+  /** The packages whose tables were read, and each bound module. */
+  private readonly tablesRead: ReadonlySet<string>;
+  /** Each bound module, by its file and by its key; each mapping, by the package it maps. */
+  private readonly boundByModule: ReadonlyMap<string, LoadedMapping>;
+  private readonly boundByKey: ReadonlyMap<string, LoadedMapping>;
+  private readonly mappedByPackage: ReadonlyMap<string, LoadedMapping>;
+  /** A bound control's descriptor → its mapping and part. */
+  private readonly tier2Of = new Map<ControlDescriptor, { mapping: LoadedMapping; info: Tier2PartInfo; path: string }>();
+  /** The files whose imports this page's analysis has checked. */
+  private importsChecked = new Set<string>();
 
   constructor(
     private readonly source: Source,
-    private readonly controls: Controls,
+    controls: Controls,
     private readonly catalogs: readonly LoadedCatalog[],
-    private readonly designSystem: readonly string[],
+    designSystem: readonly string[],
     /** The design-system packages whose tables were read. */
-    private readonly tablesRead: ReadonlySet<string> = new Set(designSystem),
+    tablesRead: ReadonlySet<string> = new Set(designSystem),
     /** A package's person-only components (`oui.personOnly`), by export name, with why. */
     private readonly personOnly: (pkg: string) => ReadonlyMap<string, string> = () => new Map(),
-  ) {}
+    /** The app's tier 2 mappings, each with its bound module (ADR-0226 §2.3). */
+    mappings: readonly LoadedMapping[] = [],
+  ) {
+    const all = new Map(controls);
+    for (const mapping of mappings) {
+      for (const [path, descriptor] of mapping.descriptors) {
+        all.set(`${mapping.key}#${path}`, descriptor);
+        this.tier2Of.set(descriptor, { mapping, info: mapping.parts.get(path)!, path });
+      }
+    }
+    this.controls = all;
+    this.designSystem = [...designSystem, ...mappings.map(m => m.key)];
+    this.tablesRead = new Set([...tablesRead, ...mappings.map(m => m.key)]);
+    this.boundByModule = new Map(mappings.map(m => [m.module, m]));
+    this.boundByKey = new Map(mappings.map(m => [m.key, m]));
+    this.mappedByPackage = new Map(mappings.map(m => [m.package, m]));
+  }
 
   analyze(pageDecl: ts.Node): PageAnalysis {
     const result: PageAnalysis = {
@@ -154,7 +207,9 @@ export class PageAnalyzer {
       displays: [],
       unbound: [],
       errors: [],
+      tier2Uses: [],
     };
+    this.importsChecked = new Set();
     const seen = new Set<string>();
     this.walk(pageDecl, { reach: [], itemized: false, props: new Map(), depth: 0 }, result, seen, true);
     this.resolveOpeners(result);
@@ -242,6 +297,7 @@ export class PageAnalyzer {
 
     const component = this.componentName(decl);
     const tabs = this.boundTabs(body);
+    this.checkMappedImports(sf, out);
 
     // Rooms this component registers, itself or through the app's own hooks.
     this.findRegistrations(body, out, new Set());
@@ -314,8 +370,14 @@ export class PageAnalyzer {
     return this.catalogs.find(c => c.appModule?.file === file && c.appModule.export === symbol.name);
   }
 
-  /** The package a JSX tag or identifier is imported from, when it is a bare package specifier. */
+  /**
+   * The package a JSX tag or identifier is imported from, when it is a bare
+   * package specifier; a bound module's key (`bound:<package>`) when it comes
+   * from a tier 2 bound module, however the app imports that module.
+   */
   private importSource(node: ts.Node): string | null {
+    const bound = this.boundModuleOf(node);
+    if (bound) return bound.key;
     const id = ts.isPropertyAccessExpression(node) ? node.expression : node;
     if (!ts.isIdentifier(id)) return null;
     const symbol = this.source.checker.getSymbolAtLocation(id);
@@ -325,6 +387,141 @@ export class PageAnalyzer {
     while (n && !ts.isImportDeclaration(n)) n = n.parent;
     if (!n || !ts.isImportDeclaration(n) || !ts.isStringLiteral(n.moduleSpecifier)) return null;
     return n.moduleSpecifier.text;
+  }
+
+  /** The bound module a tag or identifier comes from, through any alias or namespace import of it. */
+  private boundModuleOf(node: ts.Node): LoadedMapping | undefined {
+    if (!this.boundByModule.size) return undefined;
+    let id: ts.Node = node;
+    while (ts.isPropertyAccessExpression(id)) id = id.expression;
+    if (!ts.isIdentifier(id)) return undefined;
+    const target = resolveSymbol(this.source.checker, id);
+    const decl = target?.valueDeclaration ?? target?.declarations?.[0];
+    return decl ? this.boundByModule.get(decl.getSourceFile().fileName) : undefined;
+  }
+
+  /** A bound tag's export path in its package (`Select.Root`), through `as` renames and namespace imports. */
+  private boundExportPath(tag: ts.JsxTagNameExpression): string {
+    const chain: string[] = [];
+    let node: ts.Node = tag;
+    while (ts.isPropertyAccessExpression(node)) {
+      chain.unshift(node.name.text);
+      node = node.expression;
+    }
+    const decl = this.source.checker.getSymbolAtLocation(node)?.declarations?.[0];
+    if (decl && ts.isNamespaceImport(decl)) return chain.join('.');
+    const head = decl && ts.isImportSpecifier(decl) ? (decl.propertyName ?? decl.name).text : node.getText();
+    return [head, ...chain].join('.');
+  }
+
+  /** The name a control is looked up by in its package's table: a bound tag's export path, or the imported name. */
+  private controlName(pkg: string, tag: ts.JsxTagNameExpression): string {
+    return this.boundByKey.has(pkg) ? this.boundExportPath(tag) : this.importedName(tag);
+  }
+
+  /**
+   * On an enforced page, a mapped control is imported from its bound module,
+   * never straight from its package (ADR-0226 §2.3, §2.5 row 6): the
+   * package's own control carries no binding. Each import that does is
+   * unbound, naming the import to use instead.
+   */
+  private checkMappedImports(sf: ts.SourceFile, out: PageAnalysis): void {
+    if (!this.mappedByPackage.size || this.importsChecked.has(sf.fileName)) return;
+    this.importsChecked.add(sf.fileName);
+    for (const statement of sf.statements) {
+      if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+      const mapping = this.mappedByPackage.get(statement.moduleSpecifier.text);
+      const bindings = statement.importClause?.namedBindings;
+      if (!mapping || !bindings || statement.importClause?.isTypeOnly) continue;
+      const names: { name: string; node: ts.Node }[] = [];
+      if (ts.isNamedImports(bindings)) {
+        for (const element of bindings.elements) {
+          const name = (element.propertyName ?? element.name).text;
+          if (!element.isTypeOnly && mapping.exports.has(name)) names.push({ name, node: element });
+        }
+      } else {
+        // `import * as M from '<package>'`: each mapped export the file reads through it.
+        const local = bindings.name.text;
+        const used = new Set<string>();
+        const visit = (n: ts.Node) => {
+          if (ts.isPropertyAccessExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === local && mapping.exports.has(n.name.text))
+            used.add(n.name.text);
+          ts.forEachChild(n, visit);
+        };
+        visit(sf);
+        for (const name of [...used].sort()) names.push({ name, node: bindings });
+      }
+      let spec = relative(dirname(sf.fileName), mapping.module).replace(/\.ts$/, '');
+      if (!spec.startsWith('.')) spec = `./${spec}`;
+      for (const { name, node } of names) {
+        out.unbound.push({
+          file: this.source.rel(sf),
+          line: sf.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+          message: `${name} is imported straight from ${mapping.package}, which ${mapping.file} maps: import it from "${spec}", whose ${name} carries the assistant’s binding`,
+        });
+      }
+    }
+  }
+
+  /** A use of a mapped control's root: what it passes, and whether that includes the prop that shows its value. */
+  private recordTier2Use(el: JsxOpening, tag: string, info: Tier2PartInfo, out: PageAnalysis): void {
+    const sf = el.getSourceFile();
+    const props = el.attributes.properties.flatMap(a => (ts.isJsxAttribute(a) ? [a.name.getText()] : []));
+    const spread = el.attributes.properties.some(a => ts.isJsxSpreadAttribute(a));
+    const controlled = info.mapping.controlled;
+    out.tier2Uses.push({
+      component: info.control,
+      tag,
+      file: this.source.rel(sf),
+      line: sf.getLineAndCharacterOfPosition(el.getStart()).line + 1,
+      props,
+      ...(controlled ? { controlled } : {}),
+      uncontrolled: !!controlled && !props.includes(controlled),
+      spread,
+    });
+  }
+
+  /**
+   * A mapped control's options: the items a compound control renders under
+   * it, or the entries of the prop its mapping names. Empty when any of them
+   * cannot be read at build time, so the schema is never narrower than the
+   * control.
+   */
+  private tier2Options(el: JsxOpening, descriptor: ControlDescriptor, mapping: LoadedMapping, info: Tier2PartInfo) {
+    const item = info.mapping.parts?.item;
+    if (!item) {
+      if (!descriptor.options) return [];
+      const value = evaluate(this.source.checker, asExpr(jsxAttribute(el, descriptor.options.prop)));
+      return value === UNKNOWN ? [] : (mappedOptions(descriptor.options, value) ?? []);
+    }
+    if (!ts.isJsxOpeningElement(el)) return [];
+    const valueProp = item.valueProp ?? 'value';
+    const titleProps = item.titleProps ?? ['children'];
+    const options: { value: string | number; title: string; disabled?: boolean }[] = [];
+    let unreadable = false;
+    const visit = (n: ts.Node) => {
+      if (unreadable) return;
+      if ((ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n)) && this.importSource(n.tagName) === mapping.key && this.boundExportPath(n.tagName) === item.export) {
+        const value = evaluate(this.source.checker, asExpr(jsxAttribute(n, valueProp)));
+        if (typeof value !== 'string' && typeof value !== 'number') {
+          unreadable = true;
+          return;
+        }
+        let title = '';
+        for (const prop of titleProps) {
+          if (prop === 'children') title = ts.isJsxOpeningElement(n) ? deepText(this.source.checker, n.parent) : '';
+          else {
+            const v = evaluate(this.source.checker, asExpr(jsxAttribute(n, prop)));
+            title = typeof v === 'string' ? v.trim() : '';
+          }
+          if (title) break;
+        }
+        options.push({ value, title: title || String(value), ...(jsxAttribute(n, 'disabled') === true ? { disabled: true } : {}) });
+      }
+      ts.forEachChild(n, visit);
+    };
+    el.parent.children.forEach(visit);
+    return unreadable ? [] : options;
   }
 
   /** The exported name a JSX tag imports from a package (through `as` renames). */
@@ -360,18 +557,24 @@ export class PageAnalyzer {
     const itemized = local.itemized ?? ctx.itemized;
 
     if (pkg && this.designSystem.includes(pkg)) {
-      const name = this.importedName(el.tagName);
+      const name = this.controlName(pkg, el.tagName);
       if (isPage && name === 'PageHeader' && out.header.title === null) {
         const title = evaluate(this.source.checker, asExpr(jsxAttribute(el, 'title')));
         out.header.title = typeof title === 'string' ? title : null;
         out.header.subtitles = stringLiterals(asExpr(jsxAttribute(el, 'subtitle')));
       }
       const descriptor = this.controls.get(`${pkg}#${name}`);
+      const bound = this.boundByKey.get(pkg);
       if (descriptor) this.control(el, descriptor, decl, component, ctx, reach, itemized, out);
+      else if (bound)
+        this.foreign(el, tagText, `the bound ${bound.package}`, out, `is not mapped in ${bound.file}: map it there`);
       else if (this.tablesRead.has(pkg))
         this.foreign(el, tagText, pkg, out, `is not in ${pkg}'s control table: bind it there`);
       return;
     }
+
+    // A mapped control imported straight from its package: its import is reported (checkMappedImports).
+    if (pkg && this.mappedByPackage.get(pkg)?.exports.has(this.importedName(el.tagName))) return;
 
     const personOnly = pkg ? this.personOnly(pkg).get(this.importedName(el.tagName)) : undefined;
     if (pkg && personOnly) {
@@ -507,7 +710,7 @@ export class PageAnalyzer {
     const visit = (n: ts.Node) => {
       if (ts.isJsxSelfClosingElement(n) || ts.isJsxOpeningElement(n)) {
         const pkg = this.importSource(n.tagName);
-        const descriptor = pkg ? this.controls.get(`${pkg}#${this.importedName(n.tagName)}`) : undefined;
+        const descriptor = pkg ? this.controls.get(`${pkg}#${this.controlName(pkg, n.tagName)}`) : undefined;
         if (descriptor?.container?.kind === 'tabs') {
           const state = asExpr(jsxAttribute(n, descriptor.container.stateProp));
           const agent = evaluate(this.source.checker, asExpr(jsxAttribute(n, 'agent')));
@@ -653,7 +856,7 @@ export class PageAnalyzer {
   ): DialogStep | null {
     const pkg = this.importSource(opening.tagName);
     if (!pkg || !this.designSystem.includes(pkg)) return null;
-    const descriptor = this.controls.get(`${pkg}#${this.importedName(opening.tagName)}`);
+    const descriptor = this.controls.get(`${pkg}#${this.controlName(pkg, opening.tagName)}`);
     if (descriptor?.container?.kind !== 'dialog') return null;
     const site = `${opening.getSourceFile().fileName}:${opening.pos}`;
     const existing = out.dialogs.find(d => d.site === site);
@@ -755,7 +958,9 @@ export class PageAnalyzer {
     const sf = el.getSourceFile();
     const resolved = (e: ts.Expression | undefined) => (e ? [this.throughProps(e, decl, ctx)] : []);
     const at = { file: this.source.rel(sf), line: sf.getLineAndCharacterOfPosition(el.getStart()).line + 1 };
-    const tag = this.importedName(el.tagName);
+    const tier2 = this.tier2Of.get(descriptor);
+    const tag = tier2 ? tier2.path : this.importedName(el.tagName);
+    if (tier2?.info.part === 'root') this.recordTier2Use(el, tag, tier2.info, out);
     // A wrapper may forward its own `agent` prop to the control it renders:
     // the binding is then declared where the wrapper is used.
     const forwarded = this.forwardedAgent(asExpr(jsxAttribute(el, 'agent')), decl, ctx);
@@ -1061,6 +1266,8 @@ export class PageAnalyzer {
     el: JsxOpening,
     descriptor: ControlDescriptor,
   ): { value: string | number; title: string; disabled?: boolean }[] {
+    const tier2 = this.tier2Of.get(descriptor);
+    if (tier2) return this.tier2Options(el, descriptor, tier2.mapping, tier2.info);
     if (!descriptor.options) return [];
     const v = evaluate(this.source.checker, asExpr(jsxAttribute(el, descriptor.options.prop)));
     if (!Array.isArray(v)) return [];
@@ -1335,6 +1542,15 @@ function firstComponentTag(node: ts.Node): string | null {
   };
   visit(node);
   return found;
+}
+
+/** An element's text, its nested elements' included (`<Item><ItemText>Cash</ItemText></Item>`). */
+function deepText(checker: ts.TypeChecker, node: ts.Node): string {
+  const parts = [jsxText(checker, node)];
+  if (ts.isJsxElement(node) || ts.isJsxFragment(node)) {
+    for (const child of node.children) if (ts.isJsxElement(child) || ts.isJsxFragment(child)) parts.push(deepText(checker, child));
+  }
+  return parts.join(' ').replace(/\s+/g, ' ').trim();
 }
 
 /** `VoiceDetailPanel` → `Voice Detail Panel`. */

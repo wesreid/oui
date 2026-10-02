@@ -1,6 +1,6 @@
 {
   "name": "@ouispec/testing",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "The OUI conformance kit (ADR-0226 §3.2): checks a design system, an app's generated manifest and a tier 2 mapping against the published contract, in the integrator's own test runner",
   "homepage": "https://github.com/wesreid/oui/tree/main/packages/testing#readme",
   "bugs": {

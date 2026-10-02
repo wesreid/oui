@@ -221,3 +221,6 @@ export function useAgentFacts(
     });
   });
 }
+
+// Tier 2 (ADR-0226 §2.3): what the bound wrappers `oui generate` emits are built from.
+export { boundCompound, boundControl, withMembers, type AgentAttribute } from './tier2-react.js';

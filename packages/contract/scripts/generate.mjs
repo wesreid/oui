@@ -29,7 +29,7 @@ const read = (dir) =>
 const schemas = Object.fromEntries(Object.entries(read('schemas')).map(([f, text]) => [f, JSON.parse(text)]));
 const banner =
   'Generated from schemas/*.json, the OUI integrator contract, by @ouispec/contract.\n' +
-  'Edit the schemas, then: pnpm generate (in packages/agent-sdk/oui-contract).';
+  'Edit the schemas, then: pnpm generate (in packages/contract).';
 const { types, schemas: values } = renderContract(schemas, banner);
 const guide = renderGuide(schemas, read('guide'));
 

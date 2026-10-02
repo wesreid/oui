@@ -1,0 +1,22 @@
+{
+  "package": "acme-kit",
+  "controls": {
+    "Picker": {
+      "kind": "choice",
+      "callbacks": ["onPick"],
+      "valueFrom": { "arg": 1 },
+      "controlled": "value",
+      "options": { "prop": "options", "value": "id", "title": "name" },
+      "titleProps": ["label"]
+    },
+    "Press": { "kind": "button", "callbacks": ["onPress"], "titleProps": ["children"] },
+    "Menu": {
+      "kind": "choice",
+      "callbacks": ["onSelect"],
+      "valueFrom": { "arg": 0 },
+      "controlled": "selected",
+      "titleProps": ["label"],
+      "parts": { "root": { "export": "Menu.Root" }, "item": { "export": "Menu.Choice", "valueProp": "id", "titleProps": ["children"] } }
+    }
+  }
+}

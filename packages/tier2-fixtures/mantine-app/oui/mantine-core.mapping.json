@@ -1,0 +1,58 @@
+{
+  "$schema": "https://schemas.closurestudio.ai/oui/v1/tier2-mapping.json",
+  "package": "@mantine/core",
+  "controls": {
+    "Button": { "kind": "button", "callbacks": ["onClick"], "titleProps": ["aria-label", "children"] },
+    "Select": {
+      "kind": "choice",
+      "callbacks": ["onChange"],
+      "valueFrom": { "arg": 0 },
+      "controlled": "value",
+      "options": { "prop": "data", "value": "value", "title": "label" },
+      "titleProps": ["label", "placeholder"]
+    },
+    "MultiSelect": {
+      "kind": "multi-choice",
+      "callbacks": ["onChange"],
+      "valueFrom": { "arg": 0 },
+      "controlled": "value",
+      "options": { "prop": "data", "value": "value", "title": "label" },
+      "titleProps": ["label", "placeholder"]
+    },
+    "TextInput": {
+      "kind": "text",
+      "callbacks": ["onChange"],
+      "valueFrom": { "arg": 0, "path": "currentTarget.value" },
+      "controlled": "value",
+      "schemaProps": { "maxLength": "maxLength" },
+      "titleProps": ["label", "placeholder"]
+    },
+    "NumberInput": {
+      "kind": "number",
+      "callbacks": ["onChange"],
+      "valueFrom": { "arg": 0 },
+      "controlled": "value",
+      "schemaProps": { "min": "min", "max": "max", "step": "step" },
+      "titleProps": ["label"]
+    },
+    "Switch": {
+      "kind": "toggle",
+      "callbacks": ["onChange"],
+      "valueFrom": { "arg": 0, "path": "currentTarget.checked" },
+      "controlled": "checked",
+      "titleProps": ["label", "aria-label"]
+    },
+    "Modal": { "kind": "dialog", "callbacks": ["onClose"], "controlled": "opened", "titleProps": ["title"] },
+    "Tabs": {
+      "kind": "tabs",
+      "callbacks": ["onChange"],
+      "valueFrom": { "arg": 0 },
+      "controlled": "value",
+      "titleProps": ["aria-label"],
+      "parts": {
+        "root": { "export": "Tabs" },
+        "item": { "export": "Tabs.Tab", "valueProp": "value", "titleProps": ["children"] }
+      }
+    }
+  }
+}

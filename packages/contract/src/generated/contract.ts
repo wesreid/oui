@@ -1,7 +1,7 @@
 // GENERATED FILE — DO NOT EDIT.
 //
 // Generated from schemas/*.json, the OUI integrator contract, by @ouispec/contract.
-// Edit the schemas, then: pnpm generate (in packages/agent-sdk/oui-contract).
+// Edit the schemas, then: pnpm generate (in packages/contract).
 
 /**
  * The contract major. A breaking change to any schema of the contract bumps it, and it is in
@@ -512,11 +512,15 @@ export interface ValueFrom {
 }
 
 /**
- * One part of a compound component (Radix `Select.Root`, `Select.Item`): the export path of
- * that part.
+ * One part of a control exported under a namespace: the export path of that part
+ * (`Select.Root`, `Select.Item`, `Tabs.Tab`). A path is an export of the package, or one member
+ * of one (one dot at most).
  */
 export interface Tier2Part {
-  /** The part's export path, dotted (`Select.Item`). */
+  /**
+   * The part's export path: an export of the package, or one member of it, dotted
+   * (`Select.Item`).
+   */
   export: string;
   /** On an item part: the prop that is the option's value. */
   valueProp?: string;
@@ -527,10 +531,18 @@ export interface Tier2Part {
   titleProps?: readonly string[];
 }
 
-/** One mapped control. */
+/**
+ * One mapped control. The bound wrapper reports the component's `disabled` prop, so a control
+ * the page disables is not offered (a disabled job control is still followed until its job
+ * settles).
+ */
 export interface Tier2Control {
   kind: AnyControlKind;
-  /** Props whose presence makes a use interactive. The first is the one a binding runs. */
+  /**
+   * Props whose presence makes a use interactive. The first is the one a binding runs: for a
+   * value, with the arguments `valueFrom` describes; for a button or a dialog, with an
+   * event-shaped argument whose `isTrusted` is false.
+   */
   callbacks: readonly string[];
   /** Required for every kind that takes a value (all but `button` and `dialog`). */
   valueFrom?: ValueFrom;
@@ -548,12 +560,14 @@ export interface Tier2Control {
   /** What the schema props are when the app leaves them out, as the component defaults them. */
   defaults?: SchemaProps;
   /**
-   * A compound component: its `root`, which takes the callbacks, and its `item`, whose rendered
-   * items are the options.
+   * A control exported under a namespace (Radix `Switch.Root`) or made of parts (Radix
+   * `Select.Root` / `Select.Item`, Mantine `Tabs` / `Tabs.Tab`): its `root`, which takes the
+   * callbacks, and, when the options are the items it renders, its `item`. The bound module
+   * keeps every other member of each namespace (`Select.Trigger`, `Tabs.List`).
    */
   parts?: {
     root: Tier2Part;
-    item: Tier2Part;
+    item?: Tier2Part;
   };
 }
 
@@ -1002,6 +1016,15 @@ export interface OuiConfigFile {
    * control is tier 2 or in a room.
    */
   designSystem: readonly string[];
+  /**
+   * Tier 2 mappings (`tier2-mapping.json`), one per third-party design system the app does not
+   * own, by path. `oui generate` emits a bound module per mapping into `<out>/bound/` (named
+   * after the package: `@mantine/core` → `mantine-core.ts`, with its control table beside it),
+   * and reads every use of a bound control as it reads a tier 1 control. On an enforced page,
+   * importing a mapped control straight from its package is an error naming the bound import. A
+   * package is in `designSystem` or mapped, never both. Default none.
+   */
+  mappings?: readonly string[];
   /**
    * The API's OpenAPI 3 document, by module path, as the installed API client ships it
    * (`@traidr/api-client/openapi.json`) — never a sibling checkout path, so the generator reads

@@ -5,7 +5,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import ts from 'typescript';
 
@@ -16,7 +16,7 @@ import {
   type OuiManifest,
 } from '@ouispec/bindings';
 
-import { PageAnalyzer, type Finding, type PageAnalysis } from './analyze.js';
+import { PageAnalyzer, type Finding, type PageAnalysis, type Tier2Found } from './analyze.js';
 import { assemble, type PageInput } from './assemble.js';
 import { CONFIG_FILE, type GeneratorConfig } from './config.js';
 import { contractFindings } from './contract.js';
@@ -32,26 +32,52 @@ import {
 } from './inputs.js';
 import { generateKnowledge } from './knowledge.js';
 import { loadSource } from './program.js';
+import { BOUND_DIR, boundModuleSource, boundTableSource, checkMappingTypes, loadMappings } from './tier2.js';
 
 export const MANIFEST_FILE = 'oui-manifest.json';
 export const KNOWLEDGE_FILE = 'oui-knowledge.json';
+
+/** One use of a mapped control, as the conformance kit's `checkTier2` takes it (`Tier2Use`). */
+export interface Tier2Use {
+  /** The mapped control's name in its mapping. */
+  component: string;
+  /** The file, relative to the app root. */
+  file: string;
+  line: number;
+  /** The props the use passes. */
+  props: string[];
+}
 
 export interface GenerateResult {
   manifest: OuiManifest;
   knowledge: GeneratedKnowledge;
   errors: Finding[];
+  /** What the build reports without failing: each uncontrolled use of a mapped control. */
+  warnings: Finding[];
+  /** Tier 2 (ADR-0226 §2.3): every use of a mapped control's root, and those that do not pass the prop that shows its value. */
+  tier2: { uses: Tier2Use[]; uncontrolled: Tier2Use[] };
   files: { path: string; content: string }[];
-  stats: { pages: number; actions: number; rooms: number; unboundPages: number };
+  /** Files in `<out>/bound/` no mapping emits any more: stale, and deleted on write. */
+  obsolete: string[];
+  stats: { pages: number; actions: number; rooms: number; unboundPages: number; boundModules: number };
 }
 
 export async function generate(config: GeneratorConfig): Promise<GenerateResult> {
-  // Only what the routes, navigation and frame reach: every page is imported from the routes file.
-  const source = loadSource(config.root, config.tsconfig, [
-    config.routes,
-    ...config.nav,
-    ...config.shell.map(s => s.module),
-  ]);
+  // The design systems' tables first: a mapping may use a kind one of them registers.
   const controls = loadControls(config);
+  const mappings = loadMappings(config);
+  // Each bound module as this run emits it, read by the program in place of what is on disk.
+  const bound = mappings.mappings.flatMap(m => [
+    { path: m.module, content: boundModuleSource(m) },
+    { path: m.table, content: boundTableSource(m) },
+  ]);
+  // Only what the routes, navigation and frame reach: every page is imported from the routes file.
+  const source = loadSource(
+    config.root,
+    config.tsconfig,
+    [config.routes, ...config.nav, ...config.shell.map(s => s.module)],
+    new Map(bound.map(f => [f.path, f.content])),
+  );
   const packageCatalogs = loadCatalogs(config);
   const catalogs = [...packageCatalogs.catalogs, ...(await loadAppCatalogs(config))];
   const api = loadApiOperations(config);
@@ -66,6 +92,7 @@ export async function generate(config: GeneratorConfig): Promise<GenerateResult>
     config.designSystem,
     controls.loaded,
     personOnlyLookup(config),
+    mappings.mappings,
   );
   const analyses = new Map<ts.Node, PageAnalysis>();
   const analyze = (decl: ts.Node) => {
@@ -121,6 +148,8 @@ export async function generate(config: GeneratorConfig): Promise<GenerateResult>
   );
   const errors = [
     ...controls.errors,
+    ...mappings.errors,
+    ...checkMappingTypes(source, mappings.mappings),
     ...packageCatalogs.errors,
     ...catalogFindings,
     ...api.errors,
@@ -156,21 +185,52 @@ export async function generate(config: GeneratorConfig): Promise<GenerateResult>
     ...contractFindings('generated-knowledge.json', knowledge, KNOWLEDGE_FILE, 'the generated knowledge'),
   );
 
+  // Every use of a mapped control, once each however many pages render it.
+  const found = new Map<string, Tier2Found>();
+  for (const analysis of analyses.values()) for (const use of analysis.tier2Uses) found.set(`${use.file}:${use.line}:${use.tag}`, use);
+  const uses = [...found.values()].sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+  const asUse = (u: Tier2Found): Tier2Use => ({ component: u.component, file: u.file, line: u.line, props: u.props });
+  const uncontrolled = uses.filter(u => u.uncontrolled);
+  const warnings = uncontrolled.map(u => ({
+    file: u.file,
+    line: u.line,
+    message:
+      `<${u.tag}> does not pass ${u.controlled}, the prop that shows its value: the assistant can set it, ` +
+      `but the control will not show what it set. Pass ${u.controlled}, kept in state.` +
+      (u.spread ? ' (A spread may carry it, but the build cannot see what a spread holds: write it out.)' : ''),
+  }));
+
+  const files = [
+    { path: join(config.out, MANIFEST_FILE), content: `${stableStringify(manifest)}\n` },
+    { path: join(config.out, KNOWLEDGE_FILE), content: `${stableStringify(knowledge)}\n` },
+    ...bound,
+  ];
+  // A bound module whose mapping is gone is stale: listed, and removed on write.
+  const boundDir = join(config.out, BOUND_DIR);
+  const emitted = new Set(files.map(f => f.path));
+  const obsolete = existsSync(boundDir)
+    ? readdirSync(boundDir)
+        .map(f => join(boundDir, f))
+        .filter(f => !emitted.has(f))
+        .sort()
+    : [];
+
   return {
     manifest,
     knowledge,
     errors: errors.sort(
       (a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.message.localeCompare(b.message),
     ),
-    files: [
-      { path: join(config.out, MANIFEST_FILE), content: `${stableStringify(manifest)}\n` },
-      { path: join(config.out, KNOWLEDGE_FILE), content: `${stableStringify(knowledge)}\n` },
-    ],
+    warnings,
+    tier2: { uses: uses.map(asUse), uncontrolled: uncontrolled.map(asUse) },
+    files,
+    obsolete,
     stats: {
       pages: assembled.pages.length,
       actions: assembled.surfaces.reduce((n, s) => n + s.actions.length, 0),
       rooms: assembled.surfaces.filter(s => s.kind === 'room').length,
       unboundPages: config.unbound.length,
+      boundModules: mappings.mappings.length,
     },
   };
 }
@@ -187,6 +247,10 @@ export function writeOrCheck(result: GenerateResult, config: GeneratorConfig, ch
       mkdirSync(join(file.path, '..'), { recursive: true });
       writeFileSync(file.path, file.content);
     }
+  }
+  for (const path of result.obsolete) {
+    if (check) stale.push(`${relative(config.root, path)} (no mapping emits it)`);
+    else rmSync(path);
   }
   return stale;
 }

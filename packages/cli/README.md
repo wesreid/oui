@@ -21,6 +21,7 @@ Required, and explicit: nothing an app depends on has a default, so a misconfigu
   "nav": ["src/nav.ts"],
   "shell": [{ "module": "src/app/AppFrame.tsx", "export": "AppFrame" }],
   "designSystem": ["@acme/ui"],
+  "mappings": ["oui/mantine-core.mapping.json"],
   "apiSpec": "@acme/api-client/openapi.json",
   "appCatalogs": [{ "module": "src/studio/catalog.ts", "export": "canvasCatalog", "hosts": ["Canvas"] }],
   "unbound": [],
@@ -38,6 +39,7 @@ Required, and explicit: nothing an app depends on has a default, so a misconfigu
 | `routeWrappers` | no | Components a route's element is wrapped in that are never the page. |
 | `nav` | no | Files whose `{ label, route, group }` object literals are the navigation. |
 | `shell` | no | The app's frame: components mounted around the pages. Each becomes a `shell:` surface. |
+| `mappings` | no | Tier 2 mappings of third-party design systems the app does not own (below). |
 | `appCatalogs` | no | Room catalogs the app declares itself. Needs Vite (below). |
 | `unbound` | no | Pages whose controls are not all bound yet. It may only shrink. |
 
@@ -52,6 +54,16 @@ Each package in `designSystem` must resolve from the app and name its control ta
 ```
 
 `closure.agentControls` is also read during the transition. A package declaring both is an error. A room package names its catalog the same way, under `oui.agentCatalog` (or `closure.agentCatalog`).
+
+## Third-party design systems (tier 2, ADR-0226 §2.3)
+
+An app on MUI, Mantine or shadcn/Radix maps that design system's controls in a JSON file per package (`tier2-mapping.json` in `@ouispec/contract`: `kind`, `callbacks`, `valueFrom`, `controlled`, `options`, `titleProps`, and `parts` for a control under a namespace or made of parts). For each mapping `oui generate` writes `<out>/bound/<package>.ts` (`@mantine/core` → `mantine-core.ts`) and its control table beside it:
+
+- one wrapper per mapped control, under the package's own export names, built from `@ouispec/bindings/react`: it accepts `agent`, registers the mapped kind with the app's own callback, returns that callback's result, reports `disabled`, and renders the component unchanged (props, ref, static members);
+- a namespace (`Select`, `Tabs`) keeps every other member (`Select.Trigger`, `Tabs.List`);
+- each export keeps the component's own type, and the module imports `@ouispec/bindings/jsx`, which adds `agent` to JSX.
+
+The app imports mapped controls from the bound module. Each use is read as a tier 1 control's: its binding, title, options (from the prop the mapping names, or from the items a compound control renders) and schema. The program reads the module as this run emits it, so a page resolves it in `--check` and on the first run. A use that does not pass the prop that shows its value (`controlled`) is printed as a warning and returned in `result.tier2.uncontrolled`, beside every use in `result.tier2.uses`, for the conformance kit's `checkTier2`.
 
 ## Routes
 
@@ -71,6 +83,9 @@ Each package in `designSystem` must resolve from the app and name its control ta
 - An effect that is not one of the vocabulary's, or a `transaction` whose `approvalMinutes` is not 1–30.
 - A control table entry of a kind the table does not register, or a registration that is not valid.
 - A room recipe naming an entry the room does not have.
+- On an enforced page, a mapped control imported straight from its package (§2.5 row 6): the error names the bound import.
+- A mapping that does not match its schema, names a package the app cannot resolve, maps a package also in `designSystem`, maps a package another mapping maps, uses a kind no design system registers, or does not fit the package's types (an export it does not have, a prop its component does not take).
+- A stale bound module or control table, or a file in `<out>/bound/` no mapping emits (`--check`; writing removes it).
 
 ## Person-only components (ADR-0228)
 

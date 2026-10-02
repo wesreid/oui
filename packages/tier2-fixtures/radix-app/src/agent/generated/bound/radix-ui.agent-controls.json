@@ -1,0 +1,54 @@
+{
+  "Checkbox": {
+    "callbacks": [
+      "onCheckedChange"
+    ],
+    "kind": "toggle",
+    "titleProps": [
+      "aria-label",
+      "name"
+    ]
+  },
+  "RadioGroup": {
+    "callbacks": [
+      "onValueChange"
+    ],
+    "kind": "choice",
+    "titleProps": [
+      "aria-label",
+      "name"
+    ]
+  },
+  "Select": {
+    "callbacks": [
+      "onValueChange"
+    ],
+    "kind": "choice",
+    "titleProps": [
+      "name"
+    ]
+  },
+  "Switch": {
+    "callbacks": [
+      "onCheckedChange"
+    ],
+    "kind": "toggle",
+    "titleProps": [
+      "aria-label",
+      "name"
+    ]
+  },
+  "Tabs": {
+    "callbacks": [
+      "onValueChange"
+    ],
+    "container": {
+      "kind": "tabs",
+      "stateProp": "value"
+    },
+    "kind": "tabs",
+    "titleProps": [
+      "aria-label"
+    ]
+  }
+}

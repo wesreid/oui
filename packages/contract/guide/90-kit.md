@@ -45,4 +45,14 @@ Each example renders a control the way a page uses it, with the kit's bindings (
 
 ### A tier 2 mapping
 
-`checkTier2({ mapping, wrappers, examples, uses, reported })` mounts each bound wrapper, runs it, and requires the app's callback to receive the value where `valueFrom` says, and its result back from `run`; and it requires every use the generator found without the `controlled` prop to be among those it reported.
+`checkTier2({ mapping, wrappers, examples, uses, reported })` mounts each bound wrapper, runs it, and requires the app's callback to receive the value where `valueFrom` says, and its result back from `run`; and it requires every use the generator found without the `controlled` prop to be among those it reported. The generator returns both lists, so the kit is fed what the build found:
+
+```ts
+const result = await generate(loadConfig('oui.config.json'));
+assertConformant(await checkTier2({
+  mapping, wrappers: await import('./src/agent/generated/bound/mantine-core'), examples,
+  uses: result.tier2.uses, reported: result.tier2.uncontrolled, wrapper: MantineProvider,
+}));
+```
+
+A compound control's wrapper is its namespace (`Select`), and its example renders the root and its items.

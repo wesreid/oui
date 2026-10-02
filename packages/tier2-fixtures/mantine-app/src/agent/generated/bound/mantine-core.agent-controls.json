@@ -1,0 +1,105 @@
+{
+  "Button": {
+    "callbacks": [
+      "onClick"
+    ],
+    "kind": "button",
+    "titleProps": [
+      "aria-label",
+      "children"
+    ]
+  },
+  "Modal": {
+    "callbacks": [
+      "onClose"
+    ],
+    "container": {
+      "kind": "dialog",
+      "stateProp": "opened"
+    },
+    "kind": "dialog",
+    "titleProps": [
+      "title"
+    ]
+  },
+  "MultiSelect": {
+    "callbacks": [
+      "onChange"
+    ],
+    "kind": "multi-choice",
+    "options": {
+      "prop": "data",
+      "title": "label",
+      "value": "value"
+    },
+    "titleProps": [
+      "label",
+      "placeholder"
+    ]
+  },
+  "NumberInput": {
+    "callbacks": [
+      "onChange"
+    ],
+    "kind": "number",
+    "schemaProps": {
+      "max": "max",
+      "min": "min",
+      "step": "step"
+    },
+    "titleProps": [
+      "label"
+    ]
+  },
+  "Select": {
+    "callbacks": [
+      "onChange"
+    ],
+    "kind": "choice",
+    "options": {
+      "prop": "data",
+      "title": "label",
+      "value": "value"
+    },
+    "titleProps": [
+      "label",
+      "placeholder"
+    ]
+  },
+  "Switch": {
+    "callbacks": [
+      "onChange"
+    ],
+    "kind": "toggle",
+    "titleProps": [
+      "label",
+      "aria-label"
+    ]
+  },
+  "Tabs": {
+    "callbacks": [
+      "onChange"
+    ],
+    "container": {
+      "kind": "tabs",
+      "stateProp": "value"
+    },
+    "kind": "tabs",
+    "titleProps": [
+      "aria-label"
+    ]
+  },
+  "TextInput": {
+    "callbacks": [
+      "onChange"
+    ],
+    "kind": "text",
+    "schemaProps": {
+      "maxLength": "maxLength"
+    },
+    "titleProps": [
+      "label",
+      "placeholder"
+    ]
+  }
+}

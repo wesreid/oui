@@ -36,6 +36,8 @@ export interface GeneratorConfig extends ConfigInjection {
   nav: readonly string[];
   out: string;
   designSystem: readonly string[];
+  /** Tier 2 mappings, each absolute (ADR-0226 §2.3). */
+  mappings: readonly string[];
   /** As written: a module path or a path relative to the root; resolved when the spec is read. */
   apiSpec: string | null;
   unbound: readonly string[];
@@ -116,6 +118,7 @@ export function resolveConfig(root: string, raw: unknown, inject: ConfigInjectio
   path('routes');
   path('out');
   strings('designSystem', 'package names');
+  strings('mappings', 'paths');
   strings('routeWrappers', 'component names');
   strings('nav', 'paths');
   strings('unbound', 'component names');
@@ -138,6 +141,7 @@ export function resolveConfig(root: string, raw: unknown, inject: ConfigInjectio
     nav: (file.nav ?? []).map(n => resolve(root, n)),
     out: resolve(root, file.out),
     designSystem: [...file.designSystem],
+    mappings: (file.mappings ?? []).map(m => resolve(root, m)),
     apiSpec: file.apiSpec,
     unbound: [...(file.unbound ?? [])].sort(),
     appCatalogs: [...(file.appCatalogs ?? [])],

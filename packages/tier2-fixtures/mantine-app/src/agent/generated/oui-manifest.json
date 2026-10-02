@@ -1,0 +1,582 @@
+{
+  "buildId": "9b3b88285d072106",
+  "surfaces": [
+    {
+      "actions": [
+        {
+          "control": "toggle",
+          "declaredIn": "src/pages/ScreenerPage.tsx",
+          "description": "Turn on or off \"Alerts\": Whether matches send price alerts.",
+          "id": "screener.alerts",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "true to turn it on, false to turn it off",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "screener_alerts",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/screener",
+              "title": "Screener"
+            }
+          ],
+          "source": "control",
+          "title": "Alerts"
+        },
+        {
+          "control": "toggle",
+          "declaredIn": "src/pages/ScreenerPage.tsx",
+          "description": "Turn on or off \"Live prices\": Whether prices update as they trade.",
+          "id": "screener.live",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "true to turn it on, false to turn it off",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "screener_live",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/screener",
+              "title": "Screener"
+            }
+          ],
+          "source": "control",
+          "title": "Live prices"
+        },
+        {
+          "control": "choice",
+          "declaredIn": "src/pages/ScreenerPage.tsx",
+          "description": "Choose \"Market\": The market the screen searches.",
+          "id": "screener.market",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The option to choose: us = United States; eu = Europe; jp = Japan",
+                "enum": [
+                  "us",
+                  "eu",
+                  "jp"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "screener_market",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/screener",
+              "title": "Screener"
+            }
+          ],
+          "source": "control",
+          "title": "Market"
+        },
+        {
+          "control": "number",
+          "declaredIn": "src/pages/ScreenerPage.tsx",
+          "description": "Set \"Minimum price\": The lowest share price a match may have, in dollars.",
+          "id": "screener.min-price",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The value, from 0 to 10000",
+                "maximum": 10000,
+                "minimum": 0,
+                "multipleOf": 1,
+                "type": "number"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "screener_min_price",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/screener",
+              "title": "Screener"
+            }
+          ],
+          "source": "control",
+          "title": "Minimum price"
+        },
+        {
+          "control": "button",
+          "declaredIn": "src/pages/ScreenerPage.tsx",
+          "description": "Press \"Run screen\": Run the screen with these criteria.",
+          "id": "screener.run",
+          "input": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "screener_run",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/screener",
+              "title": "Screener"
+            }
+          ],
+          "source": "control",
+          "title": "Run screen"
+        },
+        {
+          "control": "button",
+          "declaredIn": "src/pages/ScreenerPage.tsx",
+          "description": "Press \"Save screen\": Save these criteria as a named screen.",
+          "id": "screener.save",
+          "input": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "screener_save",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/screener",
+              "title": "Screener"
+            }
+          ],
+          "source": "control",
+          "title": "Save screen"
+        },
+        {
+          "control": "button",
+          "declaredIn": "src/pages/ScreenerPage.tsx",
+          "description": "Press \"Save\": Save the screen under this name. It is in the \"Save screen\" dialog (open it with screener_save).",
+          "id": "screener.save-confirm",
+          "input": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "screener_save_confirm",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/screener",
+              "title": "Screener"
+            },
+            {
+              "binding": "screener.save-dialog",
+              "kind": "dialog",
+              "openedBy": [
+                "screener.save"
+              ],
+              "title": "Save screen"
+            }
+          ],
+          "source": "control",
+          "title": "Save"
+        },
+        {
+          "control": "dialog",
+          "declaredIn": "src/pages/ScreenerPage.tsx",
+          "description": "Close \"Save screen\": Naming the screen to save. It is in the \"Save screen\" dialog (open it with screener_save).",
+          "id": "screener.save-dialog",
+          "input": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "screener_save_dialog",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/screener",
+              "title": "Screener"
+            },
+            {
+              "binding": "screener.save-dialog",
+              "kind": "dialog",
+              "openedBy": [
+                "screener.save"
+              ],
+              "title": "Save screen"
+            }
+          ],
+          "source": "control",
+          "title": "Save screen"
+        },
+        {
+          "control": "text",
+          "declaredIn": "src/pages/ScreenerPage.tsx",
+          "description": "Type into \"Name\": What the saved screen is called. It is in the \"Save screen\" dialog (open it with screener_save).",
+          "id": "screener.save-name",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The text to put in the field, replacing what is there",
+                "type": "string"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "screener_save_name",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/screener",
+              "title": "Screener"
+            },
+            {
+              "binding": "screener.save-dialog",
+              "kind": "dialog",
+              "openedBy": [
+                "screener.save"
+              ],
+              "title": "Save screen"
+            }
+          ],
+          "source": "control",
+          "title": "Name"
+        },
+        {
+          "control": "multi-choice",
+          "declaredIn": "src/pages/ScreenerPage.tsx",
+          "description": "Choose any of \"Sectors\": The sectors a stock must be in to match.",
+          "id": "screener.sectors",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The options to choose, replacing the ones chosen now; [] for none: tech = Technology; energy = Energy; health = Health care",
+                "items": {
+                  "enum": [
+                    "tech",
+                    "energy",
+                    "health"
+                  ],
+                  "type": "string"
+                },
+                "type": "array",
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "screener_sectors",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/screener",
+              "title": "Screener"
+            }
+          ],
+          "source": "control",
+          "title": "Sectors"
+        },
+        {
+          "control": "choice",
+          "declaredIn": "src/pages/ScreenerPage.tsx",
+          "description": "Choose \"Sort by\": How matches are ordered.",
+          "id": "screener.sort",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The option to choose: volume = Volume; change = Change",
+                "enum": [
+                  "volume",
+                  "change"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "screener_sort",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/screener",
+              "title": "Screener"
+            }
+          ],
+          "source": "control",
+          "title": "Sort by"
+        },
+        {
+          "control": "text",
+          "declaredIn": "src/pages/ScreenerPage.tsx",
+          "description": "Type into \"Symbol\": Only stocks whose ticker starts with this.",
+          "id": "screener.symbol",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The text to put in the field, replacing what is there",
+                "maxLength": 8,
+                "type": "string"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "screener_symbol",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/screener",
+              "title": "Screener"
+            }
+          ],
+          "source": "control",
+          "title": "Symbol"
+        },
+        {
+          "control": "tabs",
+          "declaredIn": "src/pages/ScreenerPage.tsx",
+          "description": "Select a tab of \"View\": What the screener shows.",
+          "id": "screener.view",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The tab to select: results = Results; history = History",
+                "enum": [
+                  "results",
+                  "history"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "screener_view",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/screener",
+              "title": "Screener"
+            }
+          ],
+          "source": "control",
+          "title": "View"
+        }
+      ],
+      "description": "The Screener page (/screener).",
+      "id": "page:ScreenerPage",
+      "kind": "page",
+      "observations": [
+        {
+          "description": "What the page shows now. values: screener.market (Market), screener.sectors (Sectors), screener.symbol (Symbol), screener.min-price (Minimum price), screener.live (Live prices), screener.alerts (Alerts), screener.sort (Sort by), screener.view (View), screener.save-name (Name).",
+          "id": "state",
+          "schema": {
+            "properties": {
+              "lists": {
+                "description": "The rows each list-row control is showing, by binding id: their ids (keys) and titles",
+                "type": "object"
+              },
+              "shown": {
+                "description": "What the page shows that is not a control, by display: its binding id, heading and facts, each as text by its label",
+                "type": "array"
+              },
+              "unavailable": {
+                "description": "Controls that cannot be used right now",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "values": {
+                "description": "Each field's current value, by binding id",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+          "id": "problems",
+          "schema": {
+            "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+            "items": {
+              "properties": {
+                "detail": {
+                  "type": "object"
+                },
+                "hides": {
+                  "description": "Ids of what is not shown because of it",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "description": "What kind of problem it is, in the page’s own vocabulary",
+                  "type": "string"
+                },
+                "message": {
+                  "description": "The words the page shows for it",
+                  "type": "string"
+                },
+                "resolve": {
+                  "description": "The action that resolves it, and the choices it offers",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "choices": {
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      ],
+      "routes": [
+        "/screener"
+      ],
+      "title": "Screener"
+    },
+    {
+      "actions": [
+        {
+          "description": "Go to a page of the app, as following a link to it does. The page’s own tools are offered once it is open.",
+          "id": "app.navigate",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "description": "The page’s address, with an id in place of each :parameter. The pages: /screener (Screener).",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "app_navigate",
+          "reach": [],
+          "source": "navigation",
+          "title": "Go to a page"
+        }
+      ],
+      "description": "Every page of the app, by its address, and the page the person is on.",
+      "id": "app:navigation",
+      "kind": "navigation",
+      "observations": [
+        {
+          "description": "The address of the page the person is on.",
+          "id": "location",
+          "schema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "description": "What stops the page at this address from opening for the person: access it needs that they do not have, a load that failed. Reported here when the page itself is not open to report it; empty otherwise.",
+          "id": "problems",
+          "schema": {
+            "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+            "items": {
+              "properties": {
+                "detail": {
+                  "type": "object"
+                },
+                "hides": {
+                  "description": "Ids of what is not shown because of it",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "description": "What kind of problem it is, in the page’s own vocabulary",
+                  "type": "string"
+                },
+                "message": {
+                  "description": "The words the page shows for it",
+                  "type": "string"
+                },
+                "resolve": {
+                  "description": "The action that resolves it, and the choices it offers",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "choices": {
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      ],
+      "routes": [
+        "/screener"
+      ],
+      "title": "Pages"
+    }
+  ],
+  "version": 1
+}

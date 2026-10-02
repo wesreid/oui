@@ -16,14 +16,41 @@ export interface Source {
   rel(file: ts.SourceFile | string): string;
 }
 
-export function loadSource(root: string, tsconfig: string, rootNames?: readonly string[]): Source {
+/**
+ * The app's program. `overlay` holds files the generator is about to emit (a
+ * tier 2 bound module), by absolute path: the program reads them as written
+ * now, not as they are on disk, so a page's imports of them resolve and type
+ * against the output of this run, in `--check` too.
+ */
+export function loadSource(
+  root: string,
+  tsconfig: string,
+  rootNames?: readonly string[],
+  overlay: ReadonlyMap<string, string> = new Map(),
+): Source {
   const read = ts.readConfigFile(tsconfig, ts.sys.readFile);
   if (read.error) throw new Error(ts.flattenDiagnosticMessageText(read.error.messageText, '\n'));
   const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, dirname(tsconfig));
+  const options = { ...parsed.options, noEmit: true };
+  const host = ts.createCompilerHost(options);
+  if (overlay.size) {
+    const dirs = new Set([...overlay.keys()].map(f => dirname(f)));
+    const { fileExists, readFile, getSourceFile, directoryExists } = host;
+    host.fileExists = file => overlay.has(file) || fileExists.call(host, file);
+    host.readFile = file => overlay.get(file) ?? readFile.call(host, file);
+    host.directoryExists = dir => dirs.has(dir) || (directoryExists ? directoryExists.call(host, dir) : ts.sys.directoryExists(dir));
+    host.getSourceFile = (file, languageVersion, onError, shouldCreate) => {
+      const text = overlay.get(file);
+      return text !== undefined
+        ? ts.createSourceFile(file, text, languageVersion, true)
+        : getSourceFile.call(host, file, languageVersion, onError, shouldCreate);
+    };
+  }
   const program = ts.createProgram({
-    rootNames: rootNames ? [...rootNames] : parsed.fileNames,
-    options: { ...parsed.options, noEmit: true },
+    rootNames: [...(rootNames ?? parsed.fileNames), ...[...overlay.keys()].filter(f => /\.[cm]?tsx?$/.test(f))],
+    options,
     projectReferences: parsed.projectReferences,
+    host,
   });
   const checker = program.getTypeChecker();
   const src = `${root}/`;

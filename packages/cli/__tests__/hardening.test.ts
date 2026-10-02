@@ -2,7 +2,8 @@
  * What fails the build (ADR-0226 §2.4, §2.5): a misconfigured or unusual app
  * is an error naming what is wrong, never a manifest with nothing in it.
  *
- * One fixture per row of §2.5 that W1 owns (row 6, tier 2 mappings, is W4),
+ * One fixture per row of §2.5 that W1 owns (row 6, tier 2 mappings, is W4's:
+ * `tier2.test.ts`),
  * and one per required setting of `oui.config.json`.
  */
 import { writeFileSync } from 'node:fs';

@@ -1,7 +1,7 @@
 // GENERATED FILE — DO NOT EDIT.
 //
 // Generated from schemas/*.json, the OUI integrator contract, by @ouispec/contract.
-// Edit the schemas, then: pnpm generate (in packages/agent-sdk/oui-contract).
+// Edit the schemas, then: pnpm generate (in packages/contract).
 
 import type { ContractSchemaDocument } from '../schema-document.js';
 
@@ -1024,13 +1024,13 @@ export const CONTRACT_SCHEMAS = {
         "additionalProperties": false
       },
       "Tier2Part": {
-        "description": "One part of a compound component (Radix `Select.Root`, `Select.Item`): the export path of that part.",
+        "description": "One part of a control exported under a namespace: the export path of that part (`Select.Root`, `Select.Item`, `Tabs.Tab`). A path is an export of the package, or one member of one (one dot at most).",
         "type": "object",
         "properties": {
           "export": {
-            "description": "The part's export path, dotted (`Select.Item`).",
+            "description": "The part's export path: an export of the package, or one member of it, dotted (`Select.Item`).",
             "type": "string",
-            "minLength": 1
+            "pattern": "^[A-Z][A-Za-z0-9]*(\\.[A-Z][A-Za-z0-9]*)?$"
           },
           "valueProp": {
             "description": "On an item part: the prop that is the option's value.",
@@ -1052,14 +1052,14 @@ export const CONTRACT_SCHEMAS = {
         "additionalProperties": false
       },
       "Tier2Control": {
-        "description": "One mapped control.",
+        "description": "One mapped control. The bound wrapper reports the component's `disabled` prop, so a control the page disables is not offered (a disabled job control is still followed until its job settles).",
         "type": "object",
         "properties": {
           "kind": {
             "$ref": "control-kind-registration.json#/$defs/AnyControlKind"
           },
           "callbacks": {
-            "description": "Props whose presence makes a use interactive. The first is the one a binding runs.",
+            "description": "Props whose presence makes a use interactive. The first is the one a binding runs: for a value, with the arguments `valueFrom` describes; for a button or a dialog, with an event-shaped argument whose `isTrusted` is false.",
             "type": "array",
             "minItems": 1,
             "items": {
@@ -1097,7 +1097,7 @@ export const CONTRACT_SCHEMAS = {
             "$ref": "control-kind-registration.json#/$defs/SchemaProps"
           },
           "parts": {
-            "description": "A compound component: its `root`, which takes the callbacks, and its `item`, whose rendered items are the options.",
+            "description": "A control exported under a namespace (Radix `Switch.Root`) or made of parts (Radix `Select.Root` / `Select.Item`, Mantine `Tabs` / `Tabs.Tab`): its `root`, which takes the callbacks, and, when the options are the items it renders, its `item`. The bound module keeps every other member of each namespace (`Select.Trigger`, `Tabs.List`).",
             "type": "object",
             "properties": {
               "root": {
@@ -1108,8 +1108,7 @@ export const CONTRACT_SCHEMAS = {
               }
             },
             "required": [
-              "root",
-              "item"
+              "root"
             ],
             "additionalProperties": false
           }
@@ -1144,7 +1143,15 @@ export const CONTRACT_SCHEMAS = {
             "if": {
               "required": [
                 "parts"
-              ]
+              ],
+              "properties": {
+                "parts": {
+                  "type": "object",
+                  "required": [
+                    "item"
+                  ]
+                }
+              }
             },
             "then": {
               "not": {
@@ -2154,6 +2161,15 @@ export const CONTRACT_SCHEMAS = {
       },
       "designSystem": {
         "description": "Design-system packages whose controls carry bindings (tier 1). Each must resolve from the app and name its control table in its `package.json` (`oui.agentControls`). `[]`: every control is tier 2 or in a room.",
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "mappings": {
+        "description": "Tier 2 mappings (`tier2-mapping.json`), one per third-party design system the app does not own, by path. `oui generate` emits a bound module per mapping into `<out>/bound/` (named after the package: `@mantine/core` → `mantine-core.ts`, with its control table beside it), and reads every use of a bound control as it reads a tier 1 control. On an enforced page, importing a mapped control straight from its package is an error naming the bound import. A package is in `designSystem` or mapped, never both. Default none.",
         "type": "array",
         "items": {
           "type": "string",

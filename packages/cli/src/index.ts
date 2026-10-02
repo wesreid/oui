@@ -14,5 +14,6 @@ export {
   type OuiConfigFile,
   type ShellEntry,
 } from './config.js';
-export { generate, writeOrCheck, MANIFEST_FILE, KNOWLEDGE_FILE, type GenerateResult } from './generate.js';
+export { generate, writeOrCheck, MANIFEST_FILE, KNOWLEDGE_FILE, type GenerateResult, type Tier2Use } from './generate.js';
+export { boundModuleSlug, BINDINGS_JSX_MODULE, BINDINGS_REACT_MODULE, BOUND_DIR } from './tier2.js';
 export type { Finding } from './analyze.js';

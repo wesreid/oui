@@ -1,0 +1,344 @@
+{
+  "buildId": "b3eb4b5645fc1e81",
+  "surfaces": [
+    {
+      "actions": [
+        {
+          "control": "choice",
+          "declaredIn": "src/pages/OrderTicketPage.tsx",
+          "description": "Choose \"Account\": The account the order trades in.",
+          "id": "ticket.account",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The option to choose: cash = Cash; margin = Margin",
+                "enum": [
+                  "cash",
+                  "margin"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "ticket_account",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/ticket",
+              "title": "Order Ticket"
+            }
+          ],
+          "source": "control",
+          "title": "Account"
+        },
+        {
+          "control": "toggle",
+          "declaredIn": "src/pages/OrderTicketPage.tsx",
+          "description": "Turn on or off \"Confirm each fill\": Whether each fill asks for confirmation.",
+          "id": "ticket.confirm-fill",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "true to turn it on, false to turn it off",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "ticket_confirm_fill",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/ticket",
+              "title": "Order Ticket"
+            }
+          ],
+          "source": "control",
+          "title": "Confirm each fill"
+        },
+        {
+          "control": "toggle",
+          "declaredIn": "src/pages/OrderTicketPage.tsx",
+          "description": "Turn on or off \"Extended hours\": Whether the order may fill outside regular trading hours.",
+          "id": "ticket.extended-hours",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "true to turn it on, false to turn it off",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "ticket_extended_hours",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/ticket",
+              "title": "Order Ticket"
+            }
+          ],
+          "source": "control",
+          "title": "Extended hours"
+        },
+        {
+          "control": "tabs",
+          "declaredIn": "src/pages/OrderTicketPage.tsx",
+          "description": "Select a tab of \"Panel\": Which part of the ticket is shown.",
+          "id": "ticket.panel",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The tab to select: ticket = Ticket; orders = Open orders",
+                "enum": [
+                  "ticket",
+                  "orders"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "ticket_panel",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/ticket",
+              "title": "Order Ticket"
+            }
+          ],
+          "source": "control",
+          "title": "Panel"
+        },
+        {
+          "control": "choice",
+          "declaredIn": "src/pages/OrderTicketPage.tsx",
+          "description": "Choose \"Side\": Whether the order buys or sells.",
+          "id": "ticket.side",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The option to choose: buy = Buy; sell = Sell",
+                "enum": [
+                  "buy",
+                  "sell"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "ticket_side",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/ticket",
+              "title": "Order Ticket"
+            }
+          ],
+          "source": "control",
+          "title": "Side"
+        }
+      ],
+      "description": "The Order Ticket page (/ticket).",
+      "id": "page:OrderTicketPage",
+      "kind": "page",
+      "observations": [
+        {
+          "description": "What the page shows now. values: ticket.account (Account), ticket.side (Side), ticket.extended-hours (Extended hours), ticket.confirm-fill (Confirm each fill), ticket.panel (Panel).",
+          "id": "state",
+          "schema": {
+            "properties": {
+              "lists": {
+                "description": "The rows each list-row control is showing, by binding id: their ids (keys) and titles",
+                "type": "object"
+              },
+              "shown": {
+                "description": "What the page shows that is not a control, by display: its binding id, heading and facts, each as text by its label",
+                "type": "array"
+              },
+              "unavailable": {
+                "description": "Controls that cannot be used right now",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "values": {
+                "description": "Each field's current value, by binding id",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+          "id": "problems",
+          "schema": {
+            "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+            "items": {
+              "properties": {
+                "detail": {
+                  "type": "object"
+                },
+                "hides": {
+                  "description": "Ids of what is not shown because of it",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "description": "What kind of problem it is, in the page’s own vocabulary",
+                  "type": "string"
+                },
+                "message": {
+                  "description": "The words the page shows for it",
+                  "type": "string"
+                },
+                "resolve": {
+                  "description": "The action that resolves it, and the choices it offers",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "choices": {
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      ],
+      "routes": [
+        "/ticket"
+      ],
+      "title": "Order Ticket"
+    },
+    {
+      "actions": [
+        {
+          "description": "Go to a page of the app, as following a link to it does. The page’s own tools are offered once it is open.",
+          "id": "app.navigate",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "description": "The page’s address, with an id in place of each :parameter. The pages: /ticket (Order Ticket).",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "app_navigate",
+          "reach": [],
+          "source": "navigation",
+          "title": "Go to a page"
+        }
+      ],
+      "description": "Every page of the app, by its address, and the page the person is on.",
+      "id": "app:navigation",
+      "kind": "navigation",
+      "observations": [
+        {
+          "description": "The address of the page the person is on.",
+          "id": "location",
+          "schema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "description": "What stops the page at this address from opening for the person: access it needs that they do not have, a load that failed. Reported here when the page itself is not open to report it; empty otherwise.",
+          "id": "problems",
+          "schema": {
+            "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+            "items": {
+              "properties": {
+                "detail": {
+                  "type": "object"
+                },
+                "hides": {
+                  "description": "Ids of what is not shown because of it",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "description": "What kind of problem it is, in the page’s own vocabulary",
+                  "type": "string"
+                },
+                "message": {
+                  "description": "The words the page shows for it",
+                  "type": "string"
+                },
+                "resolve": {
+                  "description": "The action that resolves it, and the choices it offers",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "choices": {
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      ],
+      "routes": [
+        "/ticket"
+      ],
+      "title": "Pages"
+    }
+  ],
+  "version": 1
+}
