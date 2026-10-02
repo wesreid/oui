@@ -14,22 +14,22 @@ type Listener = (...args: any[]) => void;
 function createMockSocket(opts: { connected?: boolean } = {}): SocketLike & {
   _listeners: Map<string, Listener[]>;
   _emit: (event: string, ...args: any[]) => void;
-  _emitted: Array<{ event: string; data: unknown }>;
+  _emitted: Array<{ event: string; data: unknown; ack?: Listener }>;
 } {
   const listeners = new Map<string, Listener[]>();
-  const emitted: Array<{ event: string; data: unknown }> = [];
+  const emitted: Array<{ event: string; data: unknown; ack?: Listener }> = [];
 
   const socket: SocketLike & {
     _listeners: Map<string, Listener[]>;
     _emit: (event: string, ...args: any[]) => void;
-    _emitted: Array<{ event: string; data: unknown }>;
+    _emitted: Array<{ event: string; data: unknown; ack?: Listener }>;
   } = {
     connected: opts.connected ?? true,
     _listeners: listeners,
     _emitted: emitted,
 
-    emit(event: string, data: unknown) {
-      emitted.push({ event, data });
+    emit(event: string, data: unknown, ack?: Listener) {
+      emitted.push(typeof ack === 'function' ? { event, data, ack } : { event, data });
     },
 
     on(event: string, handler: Listener) {
@@ -399,5 +399,51 @@ describe('createWebSocketTransport()', () => {
         'myapp:surface:deregister',
       ]);
     });
+  });
+});
+
+describe('a result, acknowledged (§7.3.6)', () => {
+  const result = { requestId: 'r', success: true, timestamp: 1 };
+
+  it('hands the receiver an acknowledgment, and reports a refusal with its reason', () => {
+    const socket = createMockSocket();
+    const transport = createWebSocketTransport(socket);
+    const refusals: string[] = [];
+    transport.sendResult(result, reason => refusals.push(reason));
+    const [sent] = socket._emitted;
+    expect(sent.event).toBe('oui:action:result');
+    sent.ack!({ ok: true });
+    sent.ack!({ ok: false, error: 'payload larger than 524288 bytes' });
+    sent.ack!({ ok: false, reason: 'not in the room' });
+    sent.ack!({ ok: false });
+    sent.ack!(undefined);
+    expect(refusals).toEqual(['payload larger than 524288 bytes', 'not in the room', 'refused']);
+  });
+
+  it('sends no acknowledgment callback when none is asked for', () => {
+    const socket = createMockSocket();
+    createWebSocketTransport(socket).sendResult(result);
+    expect(socket._emitted[0]).not.toHaveProperty('ack');
+  });
+
+  it('keeps the acknowledgment of an answer queued while disconnected', () => {
+    const socket = createMockSocket({ connected: false });
+    const transport = createWebSocketTransport(socket);
+    const refusals: string[] = [];
+    transport.sendResult(result, reason => refusals.push(reason));
+    expect(socket._emitted).toHaveLength(0);
+    socket._emit('connect');
+    socket._emitted[0].ack!({ ok: false, error: 'too large' });
+    expect(refusals).toEqual(['too large']);
+  });
+
+  it('passes on the surfaces the agent runtime holds, and nothing that is not a hash', () => {
+    const socket = createMockSocket();
+    const transport = createWebSocketTransport(socket);
+    const got: unknown[] = [];
+    transport.onAction(r => got.push(r.knownSurfaces));
+    socket._emit('oui:dispatch', { ...req('s', 'a', {}), knownSurfaces: 'fnv1a64:0123456789abcdef' });
+    socket._emit('oui:dispatch', { ...req('s', 'a', {}), knownSurfaces: 42 });
+    expect(got).toEqual(['fnv1a64:0123456789abcdef', undefined]);
   });
 });

@@ -4,7 +4,7 @@ type Listener = (...args: any[]) => void;
 
 export interface MockSocket extends SocketLike {
   connected: boolean;
-  emitted: Array<{ event: string; data: unknown }>;
+  emitted: Array<{ event: string; data: unknown; ack?: (response: unknown) => void }>;
   /** Deliver an event from the remote side. */
   receive(event: string, data?: unknown): void;
   listenerCount(event?: string): number;
@@ -17,8 +17,8 @@ export function createMockSocket(opts: { connected?: boolean } = {}): MockSocket
     connected: opts.connected ?? true,
     emitted: [],
     disconnectCalls: 0,
-    emit(event, data) {
-      socket.emitted.push({ event, data });
+    emit(event, data, ack?: (response: unknown) => void) {
+      socket.emitted.push(typeof ack === 'function' ? { event, data, ack } : { event, data });
     },
     on(event, handler) {
       if (!listeners.has(event)) listeners.set(event, []);

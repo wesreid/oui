@@ -220,6 +220,29 @@ export interface OUIActionRequest {
    * the tab received from the user's own confirmation, for exactly `params`.
    */
   approval?: OUIActionApproval;
+
+  /**
+   * The `surfacesHash` of the surfaces the agent runtime already holds for
+   * this client: from its snapshot, or from an earlier result. A client whose
+   * surfaces still hash to this answers without `surfaces`, so a result
+   * carries the client's surfaces only when they changed (§7.3.4).
+   */
+  knownSurfaces?: string;
+}
+
+/**
+ * Why a client's answer is shorter than the result it produced: the receiving
+ * side refused the full answer (too large, or otherwise not accepted), so the
+ * client sent it again without the parts named in `omitted`. The action's own
+ * outcome — `success`, `error`, and `data` unless omitted — is still the one
+ * that happened (§7.3.6).
+ */
+export interface OUIResultDelivery {
+  trimmed: true;
+  /** What the receiving side said when it refused the full answer. */
+  reason: string;
+  /** The fields left out of this answer. */
+  omitted: Array<"surfaces" | "observations" | "data">;
 }
 
 /**
@@ -268,6 +291,18 @@ export interface OUIActionResult {
   observations?: OUIObservationSnapshot;
 
   /**
+   * The hash of the client's surfaces once the action's effects settled
+   * (`surfacesHash`). Always present from a client that sends it; `surfaces`
+   * is then present only when this differs from the request's
+   * `knownSurfaces`, and an agent runtime that holds surfaces with this hash
+   * keeps using them.
+   */
+  surfacesHash?: string;
+
+  /** Present when this answer was trimmed to be delivered (§7.3.6). */
+  delivery?: OUIResultDelivery;
+
+  /**
    * False when the client's deadline passed before its UI settled, so
    * `surfaces` and `observations` may still be changing. Absent or true
    * otherwise.
@@ -286,6 +321,12 @@ export type OUIObservationSnapshot = Record<string, Record<string, unknown>>;
 export interface OUISurfaceSnapshot {
   surfaces: OUISurface[];
   observations: OUIObservationSnapshot;
+  /**
+   * `surfacesHash(surfaces)`: what an agent runtime sends back as a request's
+   * `knownSurfaces`, so the client's answer need not repeat surfaces the
+   * runtime already holds.
+   */
+  surfacesHash?: string;
 }
 
 /**

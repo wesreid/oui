@@ -30,8 +30,17 @@ export interface OUITransport {
 
   // ─── Result (client → runtime) ──────────────────────────────────────
 
-  /** Answer an action request (client side). */
-  sendResult(result: OUIActionResult): void;
+  /**
+   * Answer an action request (client side). `onRefused` is called with the
+   * receiving side's reason when it acknowledges the answer as refused — too
+   * large, invalid, over a rate limit — so the client can answer again in a
+   * form it accepts (§7.3.6). A receiver that does not acknowledge answers
+   * never calls it.
+   */
+  sendResult(
+    result: OUIActionResult,
+    onRefused?: (reason: string) => void,
+  ): void;
 
   /** Receive action results (runtime side). */
   onResult(handler: OUIResultHandler): () => void;

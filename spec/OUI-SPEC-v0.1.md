@@ -607,6 +607,7 @@ When the agent invokes an action, the runtime sends an `action:request`:
 - `requestId` MUST be a globally unique string. UUID v4 is RECOMMENDED.
 - `params` MUST conform to the action's declared `input` schema
 - The agent runtime SHOULD validate `params` before sending; the surface MUST validate upon receipt
+- `knownSurfaces` (OPTIONAL) is the `surfacesHash` of the client's surfaces that the agent runtime already holds, from the client's snapshot (§7.3.5) or an earlier result. A runtime that holds the client's surfaces SHOULD send it (§7.3.4).
 
 #### 7.3.2 Action Result (Success)
 
@@ -659,11 +660,29 @@ When the agent invokes an action, the runtime sends an `action:request`:
 
 A result MAY carry the client's state once the action's effects settled:
 
-| Field          | Type                                          | Description                                                   |
-| -------------- | --------------------------------------------- | ------------------------------------------------------------- |
-| `surfaces`     | `OUISurface[]`                                | Every surface active on the client after the action           |
-| `observations` | `{ [surfaceId]: { [observationId]: value } }` | The latest observation values of those surfaces               |
-| `settled`      | `boolean`                                     | `false` if the client's deadline passed before its UI settled |
+| Field          | Type                                          | Description                                                                      |
+| -------------- | --------------------------------------------- | -------------------------------------------------------------------------------- |
+| `surfaces`     | `OUISurface[]`                                | Every surface active on the client after the action, when the runtime lacks them |
+| `surfacesHash` | `string`                                      | The hash of those surfaces, always: `fnv1a64:` and 16 hex digits (see below)     |
+| `observations` | `{ [surfaceId]: { [observationId]: value } }` | The latest observation values of those surfaces                                  |
+| `settled`      | `boolean`                                     | `false` if the client's deadline passed before its UI settled                    |
+
+A client's surfaces can weigh hundreds of kilobytes (every action's schema),
+while what changed for one click is usually nothing. So the client sends
+`surfaces` only when they differ from what the agent runtime holds:
+
+- The client MUST send `surfacesHash`. It is `fnv1a64:` followed by the 64-bit
+  FNV-1a hash, in 16 lowercase hex digits, of the surfaces' JSON with every
+  object's keys sorted, taken over its UTF-16 code units.
+- The client MUST include `surfaces` when `surfacesHash` differs from the
+  request's `knownSurfaces`, or the request carried none; it MAY leave them out
+  otherwise.
+- For an async action's final result, the comparison is with the
+  `surfacesHash` of its acknowledgment, which the runtime received first.
+- A runtime that receives a result without `surfaces` MUST keep the surfaces it
+  holds under that `surfacesHash`. If it holds none under that hash, it MUST
+  treat the client's surfaces as unknown, and send no `knownSurfaces` until it
+  has them again.
 
 An action can change what the agent may do next: navigating unmounts one
 page's surfaces and mounts another's. A client that reports `surfaces` lets
@@ -678,14 +697,31 @@ regardless, with `settled: false`.
 #### 7.3.5 Client Snapshot
 
 A client MAY provide its surfaces and observations to the agent runtime as a
-snapshot (`{ surfaces, observations }`), for example with each request the
-user makes of the agent, instead of through registration events (§7.2). A
+snapshot (`{ surfaces, observations, surfacesHash }`), for example with each
+request the user makes of the agent, instead of through registration events
+(§7.2). Its `surfacesHash` is what the runtime then sends as `knownSurfaces`. A
 runtime that works from snapshots needs no registry of its own, and cannot
 hold a registration the client no longer has.
 
 A client's snapshot is authoritative for that client. A runtime MUST NOT merge
 snapshots from different clients of the same user into one capability set:
 each client can act only on what it has mounted.
+
+#### 7.3.6 A Refused Result
+
+A relay between client and runtime can refuse a result: too large, invalid, or
+over a rate limit. A result refused in silence leaves the runtime waiting out
+its deadline and reporting an action that ran as one that did not answer. So:
+
+- A receiver that refuses a result SHOULD acknowledge it as refused, with a
+  reason (`{ "ok": false, "error": "<reason>" }` on a Socket.IO
+  acknowledgment).
+- A client whose result is refused MUST send it again, trimmed, with
+  `delivery: { trimmed: true, reason, omitted }`. It first leaves out
+  `surfaces` and `observations`, and then also `data`. The action's outcome
+  (`success`, `error`) is never trimmed.
+- A runtime that receives a trimmed result MUST report the action's outcome as
+  it happened, and SHOULD tell its agent what was left out, and why.
 
 ### 7.4 Observation Updates
 

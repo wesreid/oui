@@ -26,6 +26,7 @@ import type {
   OUIActionRequest,
   OUIActionResult,
   OUIApprovalGrant,
+  OUIResultDelivery,
   OUISurface,
   OUISurfaceSnapshot,
   OUIObservationSnapshot,
@@ -35,6 +36,7 @@ import {
   argsHash,
   requiresApproval,
 } from "../spec/approval.js";
+import { surfacesHash } from "../spec/surfaces-hash.js";
 import type { OUITransport, OUITransportConfig } from "../transport/types.js";
 import {
   createWebSocketTransport,
@@ -203,6 +205,10 @@ export function createSurfaceRuntime(
   function acknowledged(requestId: string): Promise<void> {
     return ackFor(requestId).promise;
   }
+  // The surfaces hash each request's first answer reported: an async action's
+  // final answer repeats its surfaces only if they changed since then, since
+  // the agent runtime waited for that first answer before waiting for this one.
+  const answeredHash = new Map<string, string>();
   let lastChangeAt = Date.now();
   // Approvals the user gave in this tab, by approval id, until used or expired.
   const grants = new Map<string, OUIApprovalGrant>();
@@ -370,17 +376,20 @@ export function createSurfaceRuntime(
       // The acknowledgment goes first: a job can finish before the UI settles.
       await acknowledged(requestId);
       const snap = snapshot();
-      transport?.sendResult({
+      const known = answeredHash.get(requestId);
+      answer({
         requestId,
         success,
         ...(data !== undefined ? { data: toJsonSafe(data) } : {}),
         ...(error ? { error } : {}),
         interim: false,
         timestamp: Date.now(),
-        surfaces: snap.surfaces,
+        ...(snap.surfacesHash !== known ? { surfaces: snap.surfaces } : {}),
         observations: snap.observations,
+        surfacesHash: snap.surfacesHash,
       });
       acks.delete(requestId);
+      answeredHash.delete(requestId);
     };
 
     // The observation id is the one surfaces have always published under.
@@ -576,6 +585,7 @@ export function createSurfaceRuntime(
 
     const settled = await waitUntilSettled(startedAt);
     const snap = snapshot();
+    if (interim) answeredHash.set(request.requestId, snap.surfacesHash!);
 
     return {
       requestId: request.requestId,
@@ -587,10 +597,46 @@ export function createSurfaceRuntime(
       ...(interim ? { interim: true } : {}),
       durationMs: Date.now() - startedAt,
       timestamp: Date.now(),
-      surfaces: snap.surfaces,
+      // Only what the agent runtime does not already hold (§7.3.4).
+      ...(snap.surfacesHash !== request.knownSurfaces
+        ? { surfaces: snap.surfaces }
+        : {}),
       observations: snap.observations,
+      surfacesHash: snap.surfacesHash,
       settled,
     };
+  }
+
+  // ─── Answering ────────────────────────────────────────────────────────────
+
+  /**
+   * Send an answer, and if the receiving side refuses it, send it again
+   * trimmed, saying why (§7.3.6): first without the page's surfaces and
+   * observations, then without the action's data too. An answer that is
+   * refused and not sent again leaves the agent waiting until its deadline,
+   * then reporting an action that ran as one that did not answer.
+   */
+  function answer(result: OUIActionResult) {
+    const steps: Array<OUIResultDelivery["omitted"]> = [
+      ["surfaces", "observations"],
+      ["surfaces", "observations", "data"],
+    ];
+    const send = (frame: OUIActionResult, step: number) => {
+      transport?.sendResult(frame, (reason) => {
+        const omitted = steps[step];
+        if (!omitted) {
+          console.warn(
+            `[OUI] The answer to ${result.requestId} was refused even trimmed: ${reason}`,
+          );
+          return;
+        }
+        console.warn(
+          `[OUI] The answer to ${result.requestId} was refused (${reason}); sending it without ${omitted.join(", ")}`,
+        );
+        send(trimmed(result, reason, omitted), step + 1);
+      });
+    };
+    send(result, 0);
   }
 
   function execute(request: OUIActionRequest): Promise<OUIActionResult> {
@@ -617,7 +663,11 @@ export function createSurfaceRuntime(
       if (values && values.size > 0)
         obs[e.surface.id] = Object.fromEntries(values);
     }
-    return { surfaces, observations: obs };
+    return {
+      surfaces,
+      observations: obs,
+      surfacesHash: surfacesHash(surfaces),
+    };
   }
 
   // ─── Transport ────────────────────────────────────────────────────────────
@@ -646,7 +696,7 @@ export function createSurfaceRuntime(
           // Answer on whichever transport is live when the result is ready: a
           // reconnect in between keeps the same socket, so this still reaches
           // the runtime that asked.
-          transport?.sendResult(result);
+          answer(result);
           const ack = ackFor(request.requestId);
           ack.resolve();
           // Keep the gate only while a final result may still follow.
@@ -760,12 +810,25 @@ export function createSurfaceRuntime(
       holds.clear();
       listeners.clear();
       acks.clear();
+      answeredHash.clear();
       grants.clear();
     },
   };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** `result` without the fields `omitted` names, saying so and why (§7.3.6). */
+function trimmed(
+  result: OUIActionResult,
+  reason: string,
+  omitted: OUIResultDelivery["omitted"],
+): OUIActionResult {
+  const out: OUIActionResult = { ...result };
+  for (const field of omitted) delete out[field];
+  out.delivery = { trimmed: true, reason, omitted: [...omitted] };
+  return out;
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
