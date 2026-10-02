@@ -1,114 +1,53 @@
 {
-  "name": "oui-spec",
-  "version": "0.6.0",
-  "description": "OUI \u2014 The OpenUI Specification. A machine-readable contract for agent-controllable user interfaces.",
-  "main": "dist/index.cjs",
-  "module": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
-    },
-    "./spec": {
-      "types": "./dist/spec/index.d.ts",
-      "import": "./dist/spec/index.js",
-      "require": "./dist/spec/index.cjs"
-    },
-    "./core": {
-      "types": "./dist/core/index.d.ts",
-      "import": "./dist/core/index.js",
-      "require": "./dist/core/index.cjs"
-    },
-    "./react": {
-      "types": "./dist/react/index.d.ts",
-      "import": "./dist/react/index.js",
-      "require": "./dist/react/index.cjs"
-    },
-    "./transport": {
-      "types": "./dist/transport/index.d.ts",
-      "import": "./dist/transport/index.js",
-      "require": "./dist/transport/index.cjs"
-    },
-    "./approval-vectors.json": "./spec/approval-vectors.json"
-  },
-  "typesVersions": {
-    "*": {
-      "spec": [
-        "dist/spec/index.d.ts"
-      ],
-      "core": [
-        "dist/core/index.d.ts"
-      ],
-      "react": [
-        "dist/react/index.d.ts"
-      ],
-      "transport": [
-        "dist/transport/index.d.ts"
-      ]
-    }
-  },
-  "files": [
-    "dist",
-    "spec"
-  ],
+  "name": "oui-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "OUI: the open contract for agent-controllable user interfaces. The oui-spec runtime, the @ouispec contract, generator and conformance kit, and the @ouispec agent SDK.",
   "license": "MIT",
-  "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/wesreid/oui.git"
+    "url": "git+https://github.com/wesreid/oui.git"
   },
-  "keywords": [
-    "oui",
-    "openui",
-    "ai",
-    "agent",
-    "ui",
-    "specification",
-    "protocol"
-  ],
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "build": "tsup",
-    "typecheck": "tsc --noEmit && npm run typecheck:contract",
-    "lint": "eslint src",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "prepare": "husky",
-    "prepublishOnly": "npm run build",
-    "typecheck:contract": "tsc --noEmit --strict --target ES2022 --module ESNext --moduleResolution bundler __tests__/create-oui.compile.test-d.ts"
-  },
-  "peerDependencies": {
-    "react": ">=18.0.0"
-  },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    }
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "eslint . --max-warnings 0",
+    "test": "turbo run test",
+    "test:ci": "turbo run test --concurrency=2",
+    "clean": "turbo run clean",
+    "changeset": "changeset",
+    "version-packages": "changeset version && pnpm install --lockfile-only",
+    "release:check": "node scripts/release-check.mjs",
+    "packs:check": "node scripts/verify-packs.mjs",
+    "site": "node scripts/build-site.mjs",
+    "prepare": "husky"
   },
   "devDependencies": {
-    "@testing-library/react": "^16.3.3",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.3.0",
-    "@typescript-eslint/eslint-plugin": "^8.0.0",
-    "@typescript-eslint/parser": "^8.0.0",
-    "eslint": "^9.0.0",
+    "@changesets/cli": "^2.27.0",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.10.0",
+    "globals": "^17.12.0",
     "husky": "^9.1.7",
-    "jsdom": "^26.1.0",
     "lint-staged": "^16.4.0",
+    "marked": "^16.0.0",
     "prettier": "^3.9.6",
-    "react": "^19.0.0",
-    "react-dom": "^19.3.0",
-    "tsup": "^8.4.0",
-    "typescript": "^5.8.0",
-    "vitest": "^3.0.0"
+    "turbo": "^2.3.0",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.69.0"
   },
   "lint-staged": {
-    "src/**/*.{ts,tsx}": [
-      "eslint --fix",
+    "packages/oui-spec/src/**/*.{ts,tsx}": [
+      "eslint --fix --max-warnings 0",
       "prettier --write"
     ],
-    "*.{json,md}": [
+    "packages/*/src/**/*.{ts,tsx}": [
+      "eslint --max-warnings 0"
+    ],
+    "packages/oui-spec/**/*.{json,md}": [
       "prettier --write"
     ]
   }

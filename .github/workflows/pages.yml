@@ -1,0 +1,70 @@
+name: Documentation site
+
+# The site generated from the repository's Markdown and schemas
+# (`pnpm site`), published to GitHub Pages from main. CI builds it on every
+# pull request; this publishes it once Pages is set to deploy from Actions
+# (Settings → Pages → Source: GitHub Actions). Until then the job builds the
+# site, says why it did not publish, and passes.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read
+    outputs:
+      enabled: ${{ steps.pages.outputs.enabled }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm site
+
+      - name: Is Pages set to deploy from Actions?
+        id: pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(gh api "repos/${{ github.repository }}/pages" --jq .build_type 2>/dev/null)" = "workflow" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::GitHub Pages is not set to deploy from Actions, so the site was built and not published"
+          fi
+
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.pages.outputs.enabled == 'true'
+        with:
+          path: site
+
+  deploy:
+    name: Publish the site
+    needs: build
+    if: needs.build.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

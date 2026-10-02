@@ -10,58 +10,94 @@ permissions:
   contents: read
 
 jobs:
-  quality:
-    name: Quality Gate
+  build:
+    name: Build & Test
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [18, 20, 22]
+    # agent-realtime's tests run the real server, twice, on one Redis: UI action
+    # results and room fan-out cross instances only through it. The tests use
+    # REDIS_URL, or start a local redis-server when it is unset; neither is a
+    # skip.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
-          cache: 'npm'
+          node-version: 22
+          cache: pnpm
 
-      - run: npm ci
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Lint
-        run: npm run lint
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm build
 
       - name: Test
-        run: npm test
+        env:
+          REDIS_URL: redis://localhost:6379
+        run: pnpm test:ci
 
-      - name: Build
-        run: npm run build
+      # Every published package's tarball: name, MIT, LICENSE and README,
+      # repository and directory (what provenance is checked against), public
+      # access with provenance, every entry point present, still 0.x.
+      - name: Package contents
+        run: pnpm packs:check
 
-      - name: Verify package contents
+      # A release is decided in its pull request: changesets are applied there,
+      # and a package whose shipped source changed has a new version.
+      - name: Release check
         run: |
-          npm pack --dry-run 2>&1 | tee pack-output.txt
-          # Ensure dist exists and has expected entry points
-          test -f dist/index.js || (echo "Missing dist/index.js" && exit 1)
-          test -f dist/index.cjs || (echo "Missing dist/index.cjs" && exit 1)
-          test -f dist/index.d.ts || (echo "Missing dist/index.d.ts" && exit 1)
-          test -f dist/spec/index.js || (echo "Missing dist/spec/index.js" && exit 1)
-          test -f dist/core/index.js || (echo "Missing dist/core/index.js" && exit 1)
-          test -f dist/react/index.js || (echo "Missing dist/react/index.js" && exit 1)
-          test -f dist/transport/index.js || (echo "Missing dist/transport/index.js" && exit 1)
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+            pnpm release:check --base "origin/${{ github.base_ref }}"
+          else
+            pnpm release:check
+          fi
+
+      - name: Documentation site
+        run: pnpm site
+
+  # oui-spec runs in browsers and in any Node a product's server uses, so its
+  # own suite also runs on the oldest Node it supports.
+  oui-spec-node:
+    name: oui-spec on Node ${{ matrix.node-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18, 20]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter oui-spec...
+      - run: pnpm --filter oui-spec typecheck
+      - run: pnpm --filter oui-spec test
+      - run: pnpm --filter oui-spec build
 
   audit:
     name: Security Audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'npm'
-
-      - run: npm ci
-
-      - name: npm audit
-        run: npm audit --production --audit-level=moderate
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --prod --audit-level=moderate

@@ -1,0 +1,110 @@
+{
+  "name": "oui-spec",
+  "version": "0.6.1",
+  "description": "OUI — The OpenUI Specification. A machine-readable contract for agent-controllable user interfaces.",
+  "keywords": [
+    "oui",
+    "openui",
+    "ai",
+    "agent",
+    "ui",
+    "specification",
+    "protocol"
+  ],
+  "homepage": "https://github.com/wesreid/oui/tree/main/packages/oui-spec#readme",
+  "bugs": {
+    "url": "https://github.com/wesreid/oui/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wesreid/oui.git",
+    "directory": "packages/oui-spec"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./spec": {
+      "types": "./dist/spec/index.d.ts",
+      "import": "./dist/spec/index.js",
+      "require": "./dist/spec/index.cjs"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js",
+      "require": "./dist/core/index.cjs"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js",
+      "require": "./dist/react/index.cjs"
+    },
+    "./transport": {
+      "types": "./dist/transport/index.d.ts",
+      "import": "./dist/transport/index.js",
+      "require": "./dist/transport/index.cjs"
+    },
+    "./approval-vectors.json": "./spec/approval-vectors.json"
+  },
+  "typesVersions": {
+    "*": {
+      "spec": [
+        "dist/spec/index.d.ts"
+      ],
+      "core": [
+        "dist/core/index.d.ts"
+      ],
+      "react": [
+        "dist/react/index.d.ts"
+      ],
+      "transport": [
+        "dist/transport/index.d.ts"
+      ]
+    }
+  },
+  "files": [
+    "dist",
+    "spec"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit && npm run typecheck:contract",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build",
+    "typecheck:contract": "tsc --noEmit --strict --target ES2022 --module ESNext --moduleResolution bundler __tests__/create-oui.compile.test-d.ts",
+    "clean": "rm -rf dist"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.3",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.3.0",
+    "jsdom": "^26.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.3.0",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
