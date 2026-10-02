@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schemas.closurestudio.ai/oui/v1/tier2-mapping.json",
+  "package": "third-party",
+  "controls": {
+    "ThirdSelect": {
+      "kind": "choice",
+      "callbacks": ["onChange"],
+      "valueFrom": { "arg": 1 },
+      "controlled": "value",
+      "options": { "prop": "data", "value": "value", "title": "label" },
+      "titleProps": ["label"]
+    },
+    "ThirdButton": { "kind": "button", "callbacks": ["onClick"], "titleProps": ["children"] }
+  }
+}

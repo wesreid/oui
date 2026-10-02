@@ -1,0 +1,455 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.closurestudio.ai/oui/v1/room-catalog-data.json",
+  "title": "RoomCatalogData",
+  "description": "A room catalog as plain data (ADR-0220 §2.3, tier 3 of ADR-0226): what a room with its own editing model — a canvas, a chart, a timeline, a player — declares about everything a person can do in it, so the assistant's actions and knowledge are generated from the room's code. Every declaration, none of the functions: a room's package writes it as `agent-catalog.json` (named in `package.json` under `oui.agentCatalog`) so a build-time generator reads the catalog without loading React or the room's code; an app's own catalog is read through the app's Vite config.\n\n- **actions**: its operations, each carried out through the room's own reducer and commands, with a JSON schema for the input;\n- **fields**: its inspector's fields, each with its value's schema, unit, range, its animation where the room has a timeline, and which kinds of thing it applies to;\n- **commands**: its keymap, each command with its keys and what it does;\n- **observations**: what the host reports about the room's state, including the problems it has drawing it.\n\nA room derives each action's input from the schema its reducer already validates with (`z.toJSONSchema`) and re-checks input with the same schema before applying it.",
+  "type": "object",
+  "properties": {
+    "room": {
+      "description": "The room's id: the surface id its assistant surface is published under (`room:<id>`).",
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "description": "What the room is for, in one or two sentences.",
+      "type": "string",
+      "minLength": 1
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RoomActionData"
+      }
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RoomFieldData"
+      }
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RoomCommand"
+      }
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RoomObservation"
+      }
+    },
+    "problems": {
+      "description": "The kinds of problem it reports, in its own vocabulary. Default: the generic `problems` schema.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RoomProblemKind"
+      }
+    },
+    "recipes": {
+      "description": "Tasks its tools carry out together, which only the room knows.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RoomRecipe"
+      }
+    }
+  },
+  "required": [
+    "room",
+    "title",
+    "description",
+    "actions",
+    "fields",
+    "commands",
+    "observations"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "RoomEntryInfo": {
+      "description": "What every catalog entry says about itself. Knowledge is generated from these words alone.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Stable, kebab-case, unique among the room's entries of its kind.",
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "description": "What the UI calls it: a button's label, a field's label, a command's name.",
+          "type": "string"
+        },
+        "description": {
+          "description": "What it does, in a sentence or two, in the room's own terms.",
+          "type": "string"
+        },
+        "control": {
+          "description": "Where a person does it: the tool, panel, button, key or gesture.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "description",
+        "control"
+      ]
+    },
+    "RoomActionData": {
+      "description": "One operation of the room, without its `run`.",
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/RoomEntryInfo"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "action"
+            },
+            "input": {
+              "description": "An object schema: a tool's input is one, never a union at its top level. Its property descriptions are the parameters' documentation.",
+              "$ref": "json-schema.json"
+            },
+            "effect": {
+              "description": "What it changes: the document (`edit`), the selection, the view, files, backend data, a job, a transaction.",
+              "$ref": "action-effect.json"
+            },
+            "destructive": {
+              "description": "It removes or replaces something the person made; running it needs the person's approval (ADR-0228).",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "input",
+            "effect"
+          ]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "RoomSection": {
+      "description": "Which inspector section a field is in, as the inspector titles it.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ],
+      "additionalProperties": false
+    },
+    "RoomFieldAnimation": {
+      "description": "A field's animation, in a room with a timeline. Animation is a capability, not a requirement (ADR-0226 §2.6).",
+      "type": "object",
+      "properties": {
+        "keyframeable": {
+          "description": "Set at the playhead, it is a keyframe there when the property is animated.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "keyframeable"
+      ],
+      "additionalProperties": false
+    },
+    "RoomFieldData": {
+      "description": "One inspector field, without its `read` and `write`: what it shows for the selection, and what setting it does.",
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/RoomEntryInfo"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "field"
+            },
+            "section": {
+              "$ref": "#/$defs/RoomSection"
+            },
+            "appliesTo": {
+              "description": "The kinds of thing it applies to, in the room's vocabulary (`text`, `shape`, `artboard`…).",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "value": {
+              "description": "The value's schema: its type, range (`minimum`/`maximum`), options (`enum`) and unit (`x-unit`).",
+              "$ref": "json-schema.json"
+            },
+            "animation": {
+              "description": "How it animates, in a room with a timeline. A room without one leaves it out.",
+              "$ref": "#/$defs/RoomFieldAnimation"
+            },
+            "keyframeable": {
+              "description": "Deprecated since oui-bindings 0.8: `animation: { keyframeable }`. Read for one minor.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "section",
+            "appliesTo",
+            "value"
+          ]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "RoomCommand": {
+      "description": "One keymap command: what its key does.",
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/RoomEntryInfo"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "command"
+            },
+            "group": {
+              "description": "The group the room lists it under: tools, objects, edit, view.",
+              "type": "string"
+            },
+            "keys": {
+              "description": "Its keys as a person reads them (`⇧⌘G`). Empty when it has none.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "status": {
+              "description": "`reserved`: its key is kept for a feature that is not built; it does nothing. Never offered.",
+              "enum": [
+                "available",
+                "reserved"
+              ]
+            },
+            "options": {
+              "description": "Options the command takes beyond the selection (a nudge's direction).",
+              "$ref": "json-schema.json"
+            }
+          },
+          "required": [
+            "kind",
+            "group",
+            "keys",
+            "status"
+          ]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "RoomObservation": {
+      "description": "Something the room reports about its state: the document, what is selected, or the problems it has drawing it. The host pushes the value; the catalog declares what it means.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "schema": {
+          "$ref": "json-schema.json"
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "schema"
+      ],
+      "additionalProperties": false
+    },
+    "RoomProblemKind": {
+      "description": "One kind of problem a room or page reports, in its own vocabulary (`missing-font`, `order-rejected`): the kind, and what it means.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "description"
+      ],
+      "additionalProperties": false
+    },
+    "RoomRecipe": {
+      "description": "A task the room's own tools carry out together, declared by the room because only it knows the task (animating a property, placing an order). The generator turns it into a knowledge recipe and ends it with reading what the room reports.\n\nIn `name`, `trigger` and each step, `{room}` is the room's title, and these name the tool that does a step, checked against the catalog when the knowledge is generated:\n- `{action:<id>}`: the action's tool;\n- `{command:<id>}`: the command, run with the `run-command` action;\n- `{field:<id>}`: the field, set with the `set-properties` action;\n- `{keyframeable}`: the ids of the fields that animate.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trigger": {
+          "type": "string",
+          "minLength": 1
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "trigger",
+        "steps"
+      ],
+      "additionalProperties": false
+    },
+    "RoomProblem": {
+      "description": "A problem a room or page has drawing or reading what the person is working on: a face it cannot load, text it therefore does not draw, an asset that failed, something an import could not reproduce. Reported in a `problems` observation, so an assistant sees what the person sees in the banners.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "`missing-font`, `font-error`, `unsupported-import`, `asset-failed`, `access-required`…",
+          "type": "string"
+        },
+        "message": {
+          "description": "The room's own words for it, as its banner says it.",
+          "type": "string"
+        },
+        "hides": {
+          "description": "Ids of the things not drawn because of it.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "resolve": {
+          "description": "How the person resolves it in the room: an action of this catalog, and the choices it offers.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string"
+            },
+            "choices": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "additionalProperties": false
+        },
+        "detail": {
+          "description": "Anything else that names the problem precisely (the face, the element).",
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "kind",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "RoomResult": {
+      "description": "What running a catalog entry or a bound control did: its data, or why it could not be done, in words a person would read. `pending` says the work outlives the call: a job was started and is done only when its completion arrives (an action whose effect is `job` or `transaction`). Every binding's `run` returns what the consumer's callback returned (ADR-0226 §2.2 rule 3, #209), so a handler's `{ ok, pending: { jobId } }` reaches the runtime.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": true
+            },
+            "data": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "pending": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "jobId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ok"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": false
+            },
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ok",
+            "code",
+            "message"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "AgentCatalogManifestEntry": {
+      "description": "Where a room package names its catalog, under `oui.agentCatalog` in its `package.json` (`closure.agentCatalog` is read during the transition). `hosts` are the exported components that mount the room (and register it); a page that renders one has the room's surface.\n\n```json\n\"oui\": { \"agentCatalog\": { \"path\": \"./dist/agent-catalog.json\", \"hosts\": [\"VectorStudioRoom\"] } }\n```",
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "$comment": "ts: string[]"
+        }
+      },
+      "required": [
+        "path",
+        "hosts"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

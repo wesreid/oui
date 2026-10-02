@@ -1,0 +1,61 @@
+{
+  "name": "@ouispec/cli",
+  "version": "0.0.0",
+  "description": "The assistant's surfaces and knowledge, generated from a UI's code (ADR-0220): a deterministic TypeScript-AST pass over routes, page component trees, design-system bindings, room catalogs and the API's OpenAPI operations — `oui generate [--check]` (also `closure-oui`)",
+  "homepage": "https://github.com/wesreid/oui/tree/main/packages/cli#readme",
+  "bugs": {
+    "url": "https://github.com/wesreid/oui/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wesreid/oui.git",
+    "directory": "packages/cli"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "closure-oui": "./dist/cli.js",
+    "oui": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "README.md",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "peerDependencies": {
+    "vite": ">=6.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@ouispec/bindings": "workspace:^",
+    "@ouispec/contract": "workspace:^",
+    "typescript": "^5.8.0"
+  },
+  "devDependencies": {
+    "@ouispec/agent-react": "workspace:*",
+    "@types/node": "^22.0.0",
+    "vite": "^7.3.2",
+    "vitest": "^3.2.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

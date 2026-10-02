@@ -1,0 +1,93 @@
+export type {
+  AgentDomain,
+  AgentEntity,
+  AgentEntityProperty,
+  AgentEntityRelation,
+  AgentEntityDisplay,
+  AgentEntityQuery,
+  AgentIntent,
+  AgentIntentParameter,
+  AgentIntentPrecondition,
+  AgentIntentOutcome,
+  AgentIntentExecution,
+  AgentIntentSubscription,
+  AgentRelationship,
+  AgentWorkflow,
+  AgentWorkflowStep,
+} from './schema-types.js';
+
+export type {
+  AgentClientConfig,
+  AgentRealtimeConfig,
+  SocketLike,
+  AgentMessageContext,
+  AgentConversationSummary,
+  AgentConversationScope,
+  AgentConversationMatch,
+  AgentConversationFilter,
+  AgentConversationChanges,
+  AgentStoredMessage,
+  AgentStoredConversation,
+} from './client-config.js';
+
+export type {
+  AgentApiSurface,
+  EntityFilter,
+  EntityMutation,
+  IntentResult,
+  ViewAnnotationState,
+  NavigationState,
+  SessionApiSurface,
+  LearningApiSurface,
+  TrajectoryRecord,
+  FeedbackRecord,
+  EntityInstance,
+} from './api-surface.js';
+
+export type {
+  LLMAdapter,
+  ChatRequest,
+  ChatMessage,
+  ChatChunk,
+  ToolDefinition,
+  ToolCall,
+  ToolResult,
+} from './llm-types.js';
+
+export type {
+  SchemaRegistry,
+  CompiledDomain,
+  CompiledEntity,
+  CompiledIntent,
+  EntityGraph,
+  EntityNode,
+  EntityEdge,
+} from './registry-types.js';
+
+export type {
+  AgentManifest,
+  AgentAuthority,
+  AgentIdentityConfig,
+  AgentRuntimeConfig,
+  AgentFeatures,
+  LLMProviderConfig,
+  ServiceType,
+  ServiceDefinition,
+  ServiceConfig,
+  ServiceAuth,
+  ServiceExport,
+  ServiceMethod,
+  ServiceMethodParam,
+  ServiceMethodReturn,
+  ServiceEvent,
+  ServiceEventPayloadField,
+  ExecutionBinding,
+  SubscriptionBinding,
+  QueryBinding,
+  QueryMethods,
+  ServiceInstance,
+  ServiceModuleInstance,
+  ServiceRegistryConfig,
+  ResolvedService,
+  TemplateContext,
+} from './service-types.js';

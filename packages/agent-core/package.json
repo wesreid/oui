@@ -1,0 +1,53 @@
+{
+  "name": "@ouispec/agent-core",
+  "version": "0.0.0",
+  "description": "Schema types, entity graph, intent resolution, and protocol definitions for the agent SDK",
+  "homepage": "https://github.com/wesreid/oui/tree/main/packages/agent-core#readme",
+  "bugs": {
+    "url": "https://github.com/wesreid/oui/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wesreid/oui.git",
+    "directory": "packages/agent-core"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "browser": "./dist/browser.js",
+      "import": "./dist/index.js"
+    },
+    "./approval-vectors.json": "./dist/approval-vectors.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node -e \"require('node:fs').copyFileSync(require.resolve('oui-spec/approval-vectors.json'), 'dist/approval-vectors.json')\"",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@ouispec/agent-events": "workspace:^",
+    "@ouispec/contract": "workspace:^",
+    "ajv": "^8.17.0",
+    "oui-spec": "workspace:^",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "browser": "./dist/browser.js"
+}

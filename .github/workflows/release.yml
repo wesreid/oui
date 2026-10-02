@@ -59,6 +59,10 @@ jobs:
           REDIS_URL: redis://localhost:6379
         run: pnpm test:ci
       - run: pnpm packs:check
+      - name: Consumer smoke test (from the packed tarballs)
+        env:
+          REDIS_URL: redis://localhost:6379
+        run: pnpm smoke --dir "$RUNNER_TEMP/consumer-smoke"
       - run: pnpm release:check
 
   publish:
@@ -112,6 +116,7 @@ jobs:
         run: |
           [ -s new-tags.txt ] || { echo "nothing was published"; exit 0; }
           while read -r tag; do
+            git rev-parse -q --verify "refs/tags/$tag" >/dev/null || git tag "$tag" "$GITHUB_SHA"
             git push origin "refs/tags/$tag"
             name="${tag%@*}"; version="${tag##*@}"
             dir=$(node --input-type=module -e "const {publishedPackages}=await import('./scripts/workspace.mjs');process.stdout.write(publishedPackages().find(p=>p.pkg.name===process.argv[1]).dir)" "$name")
@@ -120,3 +125,39 @@ jobs:
             gh release create "$tag" --title "$tag" --notes-file notes.md --verify-tag \
               $( [[ "$version" == *-* ]] && echo --prerelease )
           done < new-tags.txt
+
+  # What was just published, as anyone gets it: this job has no secrets and no
+  # registry but the public one. It installs the tagged versions from
+  # registry.npmjs.org into an empty directory and runs the consumer smoke
+  # test there.
+  prove:
+    name: Install from public npm and run
+    needs: publish
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install from registry.npmjs.org and run
+        env:
+          REDIS_URL: redis://localhost:6379
+        run: |
+          # A version can take a moment to be served after it is published.
+          for attempt in 1 2 3 4 5; do
+            rm -rf "$RUNNER_TEMP/public-install"
+            if node scripts/consumer-smoke/run.mjs --dir "$RUNNER_TEMP/public-install" --from registry; then exit 0; fi
+            echo "attempt $attempt failed; waiting before trying again"
+            sleep 30
+          done
+          exit 1

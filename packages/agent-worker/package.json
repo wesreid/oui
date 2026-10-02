@@ -1,0 +1,78 @@
+{
+  "name": "@ouispec/agent-worker",
+  "version": "0.0.0",
+  "description": "The agent runtime — any `ai` model, UI actions answered by the client, streaming and tool loops; one core on Lambda + SQS or in a container",
+  "homepage": "https://github.com/wesreid/oui/tree/main/packages/agent-worker#readme",
+  "bugs": {
+    "url": "https://github.com/wesreid/oui/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wesreid/oui.git",
+    "directory": "packages/agent-worker"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./lambda": {
+      "types": "./dist/lambda/handler.d.ts",
+      "import": "./dist/lambda/handler.js"
+    },
+    "./container": {
+      "types": "./dist/container/server.d.ts",
+      "import": "./dist/container/server.js"
+    },
+    "./openapi": {
+      "types": "./dist/openapi/index.d.ts",
+      "import": "./dist/openapi/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rm -rf dist",
+    "eval:live": "vitest run --config vitest.live.config.ts",
+    "record:fixture-turn": "vitest run --config vitest.record.config.ts"
+  },
+  "dependencies": {
+    "@ouispec/agent-core": "workspace:^",
+    "@ouispec/agent-events": "workspace:^",
+    "@ouispec/bindings": "workspace:^",
+    "ai": "^7.0.58",
+    "ajv": "^8.17.0",
+    "ajv-formats": "^3.0.1",
+    "oui-spec": "workspace:^",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "@ai-sdk/amazon-bedrock": "^5.0.50",
+    "@ai-sdk/openai": "4.0.36",
+    "@ouispec/agent-realtime": "workspace:*",
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^22.0.0",
+    "aws-lambda": "^1.0.7",
+    "socket.io-client": "^4.7.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0",
+    "zod": "^4.4.3"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

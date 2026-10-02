@@ -11,7 +11,7 @@ pnpm changeset            # which packages, patch or minor (see VERSIONING.md), 
 pnpm version-packages     # bumps the versions, writes each CHANGELOG.md entry, updates the lockfile
 ```
 
-Commit the result. CI fails a pull request that leaves a changeset unapplied, changes a package's shipped source without a new version, or moves a version backwards (`pnpm release:check`), and checks every tarball's contents (`pnpm packs:check`). So `main` always holds exactly the versions the next release publishes.
+Commit the result. CI fails a pull request that leaves a changeset unapplied, changes a package's shipped source without a new version, or moves a version backwards (`pnpm release:check`), checks every tarball's contents (`pnpm packs:check`), and installs the packed tarballs into an empty directory and uses them as an outside product would (`pnpm smoke`). So `main` always holds exactly the versions the next release publishes.
 
 ## 2. On main: tag the release
 
@@ -25,7 +25,8 @@ The tag names when, not what. [`release.yml`](.github/workflows/release.yml) the
 1. refuses a tag that isn't on a commit of `main`;
 2. runs the whole build, the tests, the package check and the release check on the tagged commit;
 3. publishes every package whose version isn't on npm yet (`changeset publish`), with provenance, using the repository secret `OUISPEC_SCOPE_TOKEN` in the `npm-publish` environment;
-4. pushes a tag per published version (`<name>@<version>`) and opens a GitHub release with its changelog entry.
+4. pushes a tag per published version (`<name>@<version>`) and opens a GitHub release with its changelog entry;
+5. proves the release: a job with no secrets installs the published versions from registry.npmjs.org into an empty directory and runs the consumer smoke test there (`scripts/consumer-smoke`: every entry point, the contract, the generator's command, and a whole agent turn on a fixture product).
 
 A version already on npm is skipped, so tagging again after a partial failure publishes only what is missing.
 

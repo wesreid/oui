@@ -1,0 +1,8 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Trading API", "version": "1" },
+  "paths": {
+    "/api/orders": { "post": { "operationId": "placeOrder", "summary": "Place an order" } },
+    "/api/watchlist": { "put": { "operationId": "updateWatchlist", "summary": "Replace the watchlist" } }
+  }
+}

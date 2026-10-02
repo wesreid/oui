@@ -1,0 +1,65 @@
+{
+  "name": "@ouispec/agent-events",
+  "version": "0.0.0",
+  "description": "Event contracts the product declares (ADR-0227 §2.4): each event's payload schema, rooms, correlation and job role; the catalog the realtime server, the worker's async tools and the UI's job tracker follow; the platform's own turn events; payload validation and TypeScript generation",
+  "homepage": "https://github.com/wesreid/oui/tree/main/packages/agent-events#readme",
+  "bugs": {
+    "url": "https://github.com/wesreid/oui/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wesreid/oui.git",
+    "directory": "packages/agent-events"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "agent-sdk-events": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./validate": {
+      "types": "./dist/validate.d.ts",
+      "import": "./dist/validate.js",
+      "default": "./dist/validate.js"
+    },
+    "./codegen": {
+      "types": "./dist/codegen.d.ts",
+      "import": "./dist/codegen.js",
+      "default": "./dist/codegen.js"
+    },
+    "./schema.json": "./dist/event-declarations.v1.schema.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/write-schema.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@ouispec/contract": "workspace:^",
+    "ajv": "^8.17.0",
+    "ajv-formats": "^3.0.1",
+    "oui-spec": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

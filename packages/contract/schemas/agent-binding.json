@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.closurestudio.ai/oui/v1/agent-binding.json",
+  "title": "AgentBinding",
+  "description": "The semantic binding a design-system control carries (ADR-0220 §2.2): what the control means, in the user's terms, declared where the page uses it, as its `agent` prop.\n\nIt uses a room catalog entry's vocabulary (id, title and description; `ActionEffect`; `destructive`), so to the generator a page control and a room entry look the same. What is never written: the input schema, which is derived from the control's own props, and where the control is, which the generator derives from the page's component tree.\n\n**Every value is a build-time constant** (#203). The generator reads bindings from source without running it, so each value is a literal, a `const` it can follow, a property of a constant object, a template literal or `+` over those, or a single-literal type read through the type checker. A value built by a call (`t('save')`, `format(...)`) is refused, naming the binding. A field's build-time `hint` and `placeholder` are added to its tool description the same way.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "description": "Stable, globally unique, dotted and lower-kebab: `voices.library`, `voices.detail.engine`. The first segment is the area. The tool name is the id with `.` and `-` as `_`, at most 64 characters.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)+$"
+    },
+    "title": { "description": "Defaults to the control's visible label or aria-label.", "type": "string" },
+    "description": { "description": "What using it does, for someone who cannot see the screen.", "type": "string", "minLength": 1 },
+    "effect": {
+      "description": "What using it does: what reach paths, data and verification are derived from (ADR-0226 §2.6).",
+      "$ref": "action-effect.json"
+    },
+    "destructive": {
+      "description": "It removes or replaces something the person made; running it needs the person's approval (ADR-0228).",
+      "type": "boolean"
+    },
+    "confirm": {
+      "description": "It changes what the person is working in (their account, project or role) rather than their work; the assistant asks before using it.",
+      "type": "boolean"
+    },
+    "item": { "description": "Set when the control is one of a list's rows: which row.", "$ref": "#/$defs/AgentItem" }
+  },
+  "required": ["id", "description"],
+  "additionalProperties": false,
+  "$defs": {
+    "AgentItem": {
+      "description": "One of several of the same control rendered from a list: which one it is.",
+      "type": "object",
+      "properties": {
+        "key": { "description": "The id of what the row shows (a voice id, a project id).", "type": "string" },
+        "title": { "description": "What the row is called on screen (the voice's name).", "type": "string" },
+        "description": {
+          "description": "What this row is, when the rows' meanings are only known at run time (a model's parameters, from its manifest). Shown with the row in the page state.",
+          "type": "string"
+        }
+      },
+      "required": ["key", "title"],
+      "additionalProperties": false
+    },
+    "NonAgentBinding": {
+      "description": "On a control the assistant must never operate — purely decorative, or chrome that duplicates a bound control. The reason is required and is reviewed like any other declaration.",
+      "type": "object",
+      "properties": { "nonAgent": { "type": "string", "minLength": 1 } },
+      "required": ["nonAgent"],
+      "additionalProperties": false
+    },
+    "AgentProp": {
+      "description": "The `agent` prop of a single-purpose control.",
+      "anyOf": [{ "$ref": "#" }, { "$ref": "#/$defs/NonAgentBinding" }]
+    }
+  }
+}

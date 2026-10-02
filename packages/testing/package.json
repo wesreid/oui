@@ -1,0 +1,60 @@
+{
+  "name": "@ouispec/testing",
+  "version": "0.0.0",
+  "description": "The OUI conformance kit (ADR-0226 §3.2): checks a design system, an app's generated manifest and a tier 2 mapping against the published contract, in the integrator's own test runner",
+  "homepage": "https://github.com/wesreid/oui/tree/main/packages/testing#readme",
+  "bugs": {
+    "url": "https://github.com/wesreid/oui/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wesreid/oui.git",
+    "directory": "packages/testing"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "README.md",
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "peerDependencies": {
+    "@ouispec/bindings": ">=0.1.0 <1.0.0",
+    "react": "^18.3.0 || ^19.0.0",
+    "react-dom": "^18.3.0 || ^19.0.0"
+  },
+  "dependencies": {
+    "@ouispec/contract": "workspace:^",
+    "typescript": "^5.8.0"
+  },
+  "devDependencies": {
+    "@ouispec/bindings": "workspace:*",
+    "@ouispec/cli": "workspace:*",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "jsdom": "^26",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "vitest": "^3.2.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

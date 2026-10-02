@@ -1,0 +1,7 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Fixture API without deletes", "version": "1" },
+  "paths": {
+    "/api/v1/voices": { "get": { "operationId": "listVoices", "summary": "List the voices" } }
+  }
+}
