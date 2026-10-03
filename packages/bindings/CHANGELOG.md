@@ -1,5 +1,11 @@
 # @ouispec/bindings
 
+## 0.2.3
+
+### Patch Changes
+
+- A colour control that offers mesh gradients says so in its schema. With `'mesh-gradient'` among a `color` control's `paintKinds`, the derived input schema accepts `{ kind: 'mesh-gradient', rows, columns, points }`: a grid of (rows + 1) × (columns + 1) points, each placed as fractions of the painted shape with a CSS colour, an optional opacity and optional `left`, `right`, `up` and `down` handles that bend the grid lines leaving it. A mesh has no stops, so it is no longer listed among the stop gradients' kinds. Controls that do not offer the kind are unchanged.
+
 ## 0.2.2
 
 ### Patch Changes
