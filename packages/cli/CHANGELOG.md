@@ -12,7 +12,7 @@
   - An entity is read as the character it shows (`Use the character&apos;s own` is "Use the character's own").
   - Text that is only a symbol (`&times;`, `★`) gives no label, so the control's `aria-label` or its binding's `title` names it.
 
-  Titles in a generated manifest change where they were wrong; regenerate and review the diff.
+  **What to do when you take this version.** Your first build on it changes the generated titles that were wrong, so `oui generate --check` fails until you regenerate: run `oui generate`, review the diff (titles only; no id, input or schema changes), and commit the generated files in the same change that takes the version.
 
 ## 0.2.0
 
