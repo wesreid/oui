@@ -276,6 +276,36 @@ describe('running an action from the index', () => {
     expect(jsonBytes(page.answers[1])).toBeLessThan(4 * 1024);
   });
 
+  // oui-spec 0.8 halves an entry's hash and drops its `definitionBytes`. During a rollout the tab is
+  // still on 0.7: the worker reads the hash only as a string to compare, so the older entry works as it is.
+  it('takes an index from a tab on oui-spec 0.7: a 16-digit hash and a definitionBytes it ignores', async () => {
+    const page = studio();
+    const saw: Array<Record<string, unknown>> = [];
+    model = calls([act('studio_layer_add', { name: 'Title' }), act('studio_layer_add', { name: 'Subtitle' })], saw);
+    const input = turn(page);
+    const snapshot = input.context!.oui as { index: Array<{ index: Array<Record<string, unknown>> }> };
+    for (const surface of snapshot.index) {
+      surface.index = surface.index.map((entry) => ({
+        ...entry,
+        definitionHash: `${String(entry.definitionHash)}${String(entry.definitionHash)}`,
+        definitionBytes: 1234,
+      }));
+    }
+    expect(snapshot.index[0].index[0].definitionHash).toMatch(/^[0-9a-f]{16}$/);
+
+    const { runAgentTurn } = await import('../orchestrator.js');
+    await runAgentTurn(config(page.channel), input);
+
+    // The definition is fetched once and kept for the second call: the entry's hash, at either length, is its key.
+    expect(page.sent.map((r) => [r.surfaceId, r.actionId])).toEqual([
+      ['oui', 'describe'],
+      ['room:studio', 'studio_layer_add'],
+      ['room:studio', 'studio_layer_add'],
+    ]);
+    expect(page.ran.map((r) => r.params)).toEqual([{ name: 'Title' }, { name: 'Subtitle' }]);
+    expect(saw.every((answer) => !('error' in answer))).toBe(true);
+  });
+
   it('refuses an input the definition does not allow, saying what the action takes, and never sends it', async () => {
     const page = studio();
     const saw: Array<Record<string, unknown>> = [];

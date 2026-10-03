@@ -24,7 +24,7 @@ import {
   OUI_RUNTIME_SURFACE,
 } from "../../src/spec/index-form.js";
 import { atPointer, fitObservations } from "../../src/spec/fit.js";
-import { surfacesHash } from "../../src/spec/surfaces-hash.js";
+import { fnv1a64, sortedJson, surfacesHash } from "../../src/spec/surfaces-hash.js";
 import type {
   JSONSchema,
   OUIAction,
@@ -254,11 +254,15 @@ describe("an action’s index entry", () => {
       description: "Adds an effect to a layer.",
       effect: "edit",
       input: "one of 60 shapes by effect",
-      definitionHash: expect.stringMatching(/^[0-9a-f]{16}$/),
-      definitionBytes: jsonBytes(JSON.parse(JSON.stringify(action))),
+      // 32 bits: it is only ever compared with this action's own earlier hash.
+      definitionHash: expect.stringMatching(/^[0-9a-f]{8}$/),
     });
-    expect(entry.definitionBytes).toBeGreaterThan(90_000);
-    expect(jsonBytes(entry)).toBeLessThan(512);
+    // The entry stands for a definition of 90 KB, and says nothing of its size: a reader asks for it.
+    expect(jsonBytes(JSON.parse(JSON.stringify(action)))).toBeGreaterThan(90_000);
+    expect(entry).not.toHaveProperty("definitionBytes");
+    expect(jsonBytes(entry)).toBeLessThan(200);
+    // The first 32 bits of the definition's 64-bit hash.
+    expect(fnv1a64(sortedJson(JSON.parse(JSON.stringify(action)))).startsWith(entry.definitionHash)).toBe(true);
     // The hash is the definition's: any change to it is another hash.
     const changed = {
       ...JSON.parse(JSON.stringify(action)),

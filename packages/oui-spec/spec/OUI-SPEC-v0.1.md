@@ -777,8 +777,7 @@ interface OUIActionIndexEntry {
   estimatedDuration?: string;
   maxDurationMs?: number; // an async action's polling limit
   input: string; // what it takes, in one line, at most 120 characters
-  definitionHash: string; // 64-bit FNV-1a of the definition's sorted-key JSON, 16 hex digits
-  definitionBytes: number; // the definition's size as JSON
+  definitionHash: string; // the first 32 bits of the 64-bit FNV-1a of the definition's sorted-key JSON, 8 hex digits
 }
 ```
 
@@ -794,6 +793,11 @@ interface OUIActionIndexEntry {
   same index.
 - An agent runtime fetches an action's definition when it needs it (§7.3.10),
   and MAY keep it until the entry's `definitionHash` changes.
+- `definitionHash` is opaque to an agent runtime: it compares an action's hash
+  only with that action's earlier one, as strings, and MUST accept a hash of any
+  length (an entry made before 0.8 carries 16 hex digits and a `definitionBytes`
+  field, which a runtime ignores). `surfacesHash` stays 64 bits: it is compared
+  across the whole page.
 
 #### 7.3.9 Fitting a Frame
 

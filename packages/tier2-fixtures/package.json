@@ -1,6 +1,6 @@
 {
   "name": "@ouispec/tier2-fixtures",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": true,
   "description": "Tier 2 acceptance (ADR-0226 §2.3, W4): a Mantine app and a Radix app bound through mappings and generated wrappers, each passing `oui generate --check` and the conformance kit",
   "type": "module",
