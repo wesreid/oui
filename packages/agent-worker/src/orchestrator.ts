@@ -45,7 +45,15 @@ import { createTurnLedger } from './turn-ledger.js';
 import { DEFAULT_PAGE_STATE_CHARS, observationSchemas, observationsText } from './ui/observations.js';
 import { approvalRequirement, APPROVAL_TOOL_NOTE, type ApprovalRequirement } from './approvals/requirement.js';
 import { buildApprovalPreview, declaredTitle } from './approvals/preview.js';
-import { ranNote, refusedNote, resolveContinuation, unavailableNote } from './approvals/continuation.js';
+import {
+  approvalMarker,
+  markedResult,
+  notRunResult,
+  ranNote,
+  refusedNote,
+  resolveContinuation,
+  unavailableNote,
+} from './approvals/continuation.js';
 
 const DEFAULT_MAX_ROUNDS = 12;
 const DEFAULT_MAX_TOKENS = 4096;
@@ -796,28 +804,60 @@ export async function runAgentTurn(
       userId: input.userId,
       conversationId: input.conversationId,
     });
+    /** The tool name of the call the model made that waited on this approval, when the history still holds it. */
+    const askedAs = (approvalId: string): string | null => {
+      for (const m of input.history ?? []) {
+        if (m.role !== 'assistant') continue;
+        const call = m.tool_calls?.find((tc) => tc.id === approvalId);
+        if (call) return call.function?.name ?? (call as unknown as { name?: string }).name ?? 'unknown';
+      }
+      return null;
+    };
+    /**
+     * A call that will never run says so as its stored result, in place of
+     * "waiting for approval", so a later turn reads how it ended.
+     */
+    const settledNotRun = (approvalId: string, note: string, content: string) => {
+      const name = askedAs(approvalId);
+      return name
+        ? {
+            note,
+            outcome: { role: 'tool' as const, content, tool_call_id: approvalId, name },
+            messages: [],
+            persisted: [{ role: 'tool' as const, content, toolCallId: approvalId, name }],
+          }
+        : { note, outcome: null, messages: [], persisted: [] };
+    };
     if (outcome.kind === 'note') {
       log('info', 'agent:tool', 'Approval continuation ran nothing', { turnId, approvalId: continuation.approvalId, decision: continuation.decision });
-      return { note: outcome.note, outcome: null, messages: [], persisted: [] };
+      if (!outcome.settled) return { note: outcome.note, outcome: null, messages: [], persisted: [] };
+      return settledNotRun(continuation.approvalId, outcome.note, notRunResult(approvalMarker(outcome.settled, false)));
     }
     const { call } = outcome;
     const tool = callableTools().find((t) => t.name === call.tool);
     if (!tool) {
       log('warn', 'agent:tool', 'Approved call is not available this turn; it was not run', { turnId, approvalId: call.approvalId, toolName: call.tool });
-      return { note: unavailableNote(call.tool), outcome: null, messages: [], persisted: [] };
+      return settledNotRun(
+        call.approvalId,
+        unavailableNote(call.tool),
+        notRunResult(approvalMarker('approved', false), 'It is not available where they are now.'),
+      );
     }
     const uiSlot = tool.kind === 'ui' ? uiSequence.reserve() : undefined;
-    const { text, ran } = await executeCall(tool, call.args, call.approvalId, uiSlot, {
+    const executed = await executeCall(tool, call.args, call.approvalId, uiSlot, {
       approvalId: call.approvalId,
       argsHash: call.argsHash,
     }).finally(() => uiSlot?.release());
+    const { ran } = executed;
+    // The result says it was approved by the person and run once (or not run), for this turn and every later one.
+    const text = markedResult(executed.text, approvalMarker('approved', ran));
     const { title } = declaredTitle(tool);
     // The model sees the call as it would have made it: a UI action through `ui_act`.
     const called =
       tool.kind === 'ui'
         ? { name: UI_ACT_TOOL, input: { action: tool.name, input: call.args } }
         : { name: tool.name, input: call.args };
-    const refusal = ran ? null : (JSON.parse(text) as { error?: string }).error ?? 'it was refused';
+    const refusal = ran ? null : (JSON.parse(executed.text) as { error?: string }).error ?? 'it was refused';
     // The call the model made, which answered "waiting for approval": its id is the approval's.
     const asked = (input.history ?? []).some(
       (m) => m.role === 'assistant' && m.tool_calls?.some((tc) => tc.id === call.approvalId),

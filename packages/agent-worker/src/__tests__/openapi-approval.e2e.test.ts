@@ -82,6 +82,14 @@ describe('a generated transaction', () => {
     ]);
     // The model reads the API's answer: the order it placed.
     expect(JSON.parse(t2.persisted[0].messages[0].content!)).toEqual({
+      // And that the user approved it and it ran once, for this turn and every later one.
+      approval: {
+        decided: 'approved',
+        by: 'user',
+        at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+        ran: true,
+        summary: 'Approved by the user on the approval card, and run once.',
+      },
       id: expect.stringMatching(/^o-\d+$/),
       symbol: 'ACME',
       side: 'buy',

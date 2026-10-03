@@ -8,7 +8,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { ApprovalRedeemResult, ApprovalStatus } from '@ouispec/agent-core';
 import { approvalRequirement, APPROVAL_TOOL_NOTE } from '../approvals/requirement.js';
 import { buildApprovalPreview } from '../approvals/preview.js';
-import { resolveContinuation } from '../approvals/continuation.js';
+import { approvalMarker, markedResult, notRunResult, resolveContinuation } from '../approvals/continuation.js';
 import { createHttpApprovalStoreClient, type ApprovalStoreClient } from '../approvals/client.js';
 import { payloadRefusal } from '../runtime/turn-runner.js';
 import { buildUITools } from '../ui/ui-tools.js';
@@ -152,9 +152,72 @@ describe('the turn after a decision', () => {
       { approvalId: 'a', decision: 'decline' },
       turn,
     );
-    expect(declined).toEqual({ kind: 'note', note: expect.stringMatching(/The user declined "Place an order" .* did not run/) });
+    // A decline settles the call: its stored result will say so.
+    expect(declined).toEqual({
+      kind: 'note',
+      settled: 'declined',
+      note: expect.stringMatching(/The user declined "Place an order" .* did not run/),
+    });
     const claimed = await resolveContinuation(store({}), { approvalId: 'a', decision: 'decline' }, turn);
-    expect(claimed).toEqual({ kind: 'note', note: expect.stringMatching(/did not approve the action, so it did not run/) });
+    expect(claimed).toEqual({
+      kind: 'note',
+      settled: 'declined',
+      note: expect.stringMatching(/did not approve the action, so it did not run/),
+    });
+  });
+
+  it('settles a call whose approval expired, and no other refusal', async () => {
+    const refused = (reason: 'expired' | 'used' | 'invalid' | 'unknown') =>
+      resolveContinuation(store({ redeem: async () => ({ ok: false, reason, error: reason }) }), { approvalId: 'a', decision: 'approve', token: 't' }, turn);
+    expect(await refused('expired')).toMatchObject({ kind: 'note', settled: 'expired', note: expect.stringMatching(/expired/) });
+    // An approval already used ran its call: that result stands. The others say nothing of the call.
+    for (const reason of ['used', 'invalid', 'unknown'] as const) expect(await refused(reason)).not.toHaveProperty('settled');
+  });
+});
+
+describe('what a stored result says of its approval', () => {
+  const at = new Date('2026-10-03T14:08:24.000Z');
+
+  it('approved and run once, said first in the result', () => {
+    const marker = approvalMarker('approved', true, at);
+    expect(marker).toEqual({
+      decided: 'approved',
+      by: 'user',
+      at: '2026-10-03T14:08:24.000Z',
+      ran: true,
+      summary: 'Approved by the user on the approval card, and run once.',
+    });
+    const marked = markedResult(JSON.stringify({ result: { version: 4 } }), marker);
+    expect(JSON.parse(marked)).toEqual({ approval: marker, result: { version: 4 } });
+    expect(marked.indexOf('"approval"')).toBe(1);
+  });
+
+  it('approved and refused when it ran', () => {
+    expect(approvalMarker('approved', false, at)).toMatchObject({
+      decided: 'approved',
+      by: 'user',
+      ran: false,
+      summary: 'Approved by the user on the approval card, but it did not run.',
+    });
+  });
+
+  it('keeps a result that is not an object beside the marker', () => {
+    const marker = approvalMarker('approved', true, at);
+    expect(JSON.parse(markedResult('Bought 5 ACME.', marker))).toEqual({ approval: marker, result: 'Bought 5 ACME.' });
+    expect(JSON.parse(markedResult('[1,2]', marker))).toEqual({ approval: marker, result: [1, 2] });
+  });
+
+  it('declined, and expired: not run, and nobody decided an expiry', () => {
+    const declined = JSON.parse(notRunResult(approvalMarker('declined', false, at)));
+    expect(declined).toEqual({
+      approval: { decided: 'declined', by: 'user', at: at.toISOString(), ran: false, summary: 'Declined by the user on the approval card. It was not run.' },
+      success: false,
+      notRun: true,
+      message: 'Declined by the user on the approval card. It was not run. Do not run it again unless the user asks for it again.',
+    });
+    const expired = JSON.parse(notRunResult(approvalMarker('expired', false, at)));
+    expect(expired.approval).toEqual({ decided: 'expired', at: at.toISOString(), ran: false, summary: 'The approval expired before it was used. It was not run.' });
+    expect(expired).toMatchObject({ success: false, notRun: true });
   });
 });
 
