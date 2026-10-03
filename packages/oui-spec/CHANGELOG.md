@@ -1,5 +1,15 @@
 # oui-spec
 
+## 0.7.1
+
+### Patch Changes
+
+- A result's observations are the page after the action, for a slow action too.
+
+  - **What was wrong:** the runtime answers once the page has been quiet for `quietMs`, and it measured that from when the request arrived. A handler that awaits its own work first (a save, a restore over the network) returns later than that, so the page had already "been quiet" and the answer was taken at once, before the UI rendered what the handler had just changed. The result said the restore worked; the observations beside it showed the page before it.
+  - **Now:** quiet, and the settle timeout, are measured from when the handler returned.
+  - **Tests:** a handler that waits four quiet windows and then changes an observation is answered with the changed observation; a handler slower than the settle timeout still gets the whole timeout afterwards.
+
 ## 0.7.0
 
 ### Minor Changes
