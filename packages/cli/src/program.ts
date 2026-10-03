@@ -248,27 +248,84 @@ export function hasJsxAttribute(el: JsxOpening, name: string): boolean {
   return el.attributes.properties.some(a => ts.isJsxAttribute(a) && a.name.getText() === name);
 }
 
+const NAMED_ENTITIES: Readonly<Record<string, string>> = {
+  amp: '&',
+  apos: "'",
+  quot: '"',
+  lt: '<',
+  gt: '>',
+  nbsp: ' ',
+  times: '×',
+  hellip: '…',
+  mdash: '—',
+  ndash: '–',
+  rsquo: '’',
+  lsquo: '‘',
+  rdquo: '”',
+  ldquo: '“',
+  middot: '·',
+  bull: '•',
+  rarr: '→',
+  larr: '←',
+  check: '✓',
+};
+
+/** JSX text as it is shown: `Use the character&apos;s own` is "Use the character's own". An entity not known is kept as written. */
+export function decodeEntities(text: string): string {
+  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, body: string) => {
+    if (body[0] === '#') {
+      const code = body[1].toLowerCase() === 'x' ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+      return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
+    }
+    return NAMED_ENTITIES[body.toLowerCase()] ?? whole;
+  });
+}
+
+/**
+ * The string literals an expression can show as text, last alternative last.
+ * JSX inside it is not entered: `{busy ? <Spinner className="animate-spin" /> : 'Save'}`
+ * shows "Save", and the icon's class name is not a word of the label.
+ */
+function shownLiterals(expr: ts.Node): string[] {
+  const out: string[] = [];
+  const visit = (n: ts.Node) => {
+    if (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n) || ts.isJsxFragment(n)) return;
+    if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) {
+      const parent = n.parent;
+      if (parent && ts.isBinaryExpression(parent) && isComparison(parent.operatorToken.kind)) return;
+      out.push(n.text);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(expr);
+  return out;
+}
+
 /**
  * The label a JSX element's own children show: its direct text, and for an
  * expression that is not static (`{busy ? 'Saving…' : 'Save'}`) its resting
- * label, the last alternative. Nested elements (icons, badges) are not read:
- * their text is not the control's name.
+ * label, the last alternative. Nested elements (icons, badges) are not read,
+ * in the children or inside an expression: their text and their attributes
+ * are not the control's name. Text that is only a symbol (`&times;`, `★`)
+ * names nothing, and gives no label: the control's `aria-label` or its
+ * binding's `title` names it.
  */
 export function jsxText(checker: ts.TypeChecker, node: ts.Node): string {
   const parts: string[] = [];
   const children = ts.isJsxElement(node) ? node.children : ts.isJsxFragment(node) ? node.children : [];
   for (const n of children) {
-    if (ts.isJsxText(n)) parts.push(n.text);
+    if (ts.isJsxText(n)) parts.push(decodeEntities(n.text));
     else if (ts.isJsxExpression(n) && n.expression) {
       const v = evaluate(checker, n.expression);
       if (typeof v === 'string' || typeof v === 'number') parts.push(String(v));
       else {
-        const literals = stringLiterals(n.expression);
+        const literals = shownLiterals(n.expression);
         if (literals.length) parts.push(literals[literals.length - 1]);
       }
     } else if (ts.isJsxFragment(n)) parts.push(jsxText(checker, n));
   }
-  return parts.join(' ').replace(/\s+/g, ' ').trim();
+  const text = parts.join(' ').replace(/\s+/g, ' ').trim();
+  return /[\p{L}\p{N}]/u.test(text) ? text : '';
 }
 
 /** `voices.detail.preview-save-sound` → `Preview save sound`: a name when the code gives none. */

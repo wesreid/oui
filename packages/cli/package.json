@@ -1,6 +1,6 @@
 {
   "name": "@ouispec/cli",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "description": "The assistant's surfaces and knowledge, generated from a UI's code (ADR-0220): a deterministic TypeScript-AST pass over routes, page component trees, design-system bindings, room catalogs and the API's OpenAPI operations — `oui generate [--check]` (also `closure-oui`)",
   "homepage": "https://github.com/wesreid/oui/tree/main/packages/cli#readme",
   "bugs": {
