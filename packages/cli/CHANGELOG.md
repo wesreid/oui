@@ -1,5 +1,19 @@
 # @ouispec/cli
 
+## 0.2.3
+
+### Patch Changes
+
+- A control's label is read from its own text, never from a nested element's attributes.
+
+  The generator names an action by the control's label. Reading a label from children that hold an expression (`{busy ? <Loader className="animate-spin" /> : null} Render WAV`), it took every string literal inside the expression, the nested element's `className` and `data-testid` included, so actions were titled "animate-spin Render WAV", "text-[10px] shrink-0" or "character-create-persona-path". Thirty actions of one app were named that way, and an assistant does not choose an action it cannot name.
+
+  - JSX inside an expression is not entered: the label is the text the control itself shows.
+  - An entity is read as the character it shows (`Use the character&apos;s own` is "Use the character's own").
+  - Text that is only a symbol (`&times;`, `★`) gives no label, so the control's `aria-label` or its binding's `title` names it.
+
+  Titles in a generated manifest change where they were wrong; regenerate and review the diff.
+
 ## 0.2.0
 
 ### Minor Changes
