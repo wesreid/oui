@@ -18,6 +18,7 @@ import {
   jsonBytes,
   summarizeInput,
   surfaceIndex,
+  withoutTitleLeadIn,
   INDEX_DESCRIPTION_CHARS,
   INDEX_INPUT_CHARS,
   OUI_RUNTIME_SURFACE,
@@ -201,6 +202,46 @@ describe("an action’s index entry", () => {
     );
     expect(firstSentence("x".repeat(500)).length).toBe(INDEX_DESCRIPTION_CHARS);
     expect(firstSentence("x".repeat(500)).endsWith("…")).toBe(true);
+  });
+
+  it("leaves out an opening that only repeats the title, which the entry already carries", () => {
+    // A room's action, and each way a control's description leads in to its quoted title.
+    expect(withoutTitleLeadIn("Add artboard: Adds an artboard beside the others.", "Add artboard")).toBe(
+      "Adds an artboard beside the others.",
+    );
+    expect(withoutTitleLeadIn('Press "Save": Saves the project.', "Save")).toBe("Saves the project.");
+    expect(withoutTitleLeadIn('Type into "Search assets...": Show only what matches.', "Search assets...")).toBe(
+      "Show only what matches.",
+    );
+    expect(withoutTitleLeadIn('Turn on or off "Enabled": Whether the mask applies.', "Enabled")).toBe(
+      "Whether the mask applies.",
+    );
+    expect(withoutTitleLeadIn('Choose the face of "Font":\n The face the text is set in.', "Font")).toBe(
+      "The face the text is set in.",
+    );
+
+    // What is not such an opening is kept: no title, another title, the title later in a sentence,
+    // a description that is only its title, and a lead-in that is a sentence of its own.
+    const kept = [
+      ["Saves the project.", undefined],
+      ["Saves the project.", "Save"],
+      ['Press "Save As": Saves a copy.', "Save"],
+      ['Saves the project. Press "Save": again to overwrite.', "Save"],
+      ["Save: ", "Save"],
+      ['It is done. "Save": Saves.', "Save"],
+    ] as const;
+    for (const [description, title] of kept) {
+      expect(withoutTitleLeadIn(description, title)).toBe(description.trim());
+    }
+
+    const entry = indexEntry({
+      id: "editor_save",
+      title: "Save",
+      description: 'Press "Save": Saves the project. It is in the File menu.',
+      input: { type: "object", properties: {} },
+      handler: "save",
+    } as unknown as OUIAction);
+    expect(entry).toMatchObject({ title: "Save", description: "Saves the project." });
   });
 
   it("carries what choosing the action needs, and names its definition without carrying it", () => {

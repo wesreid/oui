@@ -191,6 +191,46 @@ export function summarizeInput(schema: JSONSchema | undefined): string {
   return clip(parts.join(", "), INDEX_INPUT_CHARS);
 }
 
+/** The longest lead-in before a quoted title that is still a lead-in ("Turn on or off", "Choose the face of"). */
+const TITLE_LEAD_IN_CHARS = 32;
+
+/**
+ * A description without the opening that only repeats the action's title.
+ *
+ * An entry carries the title beside the description, and descriptions are
+ * commonly written to stand alone: `Add artboard: Adds an artboard…`, or, for
+ * a control, `Press "Save": Saves the project`. In an index that names the
+ * title twice for every action, and an index is hundreds of actions. So an
+ * opening of the title followed by ": ", or of a short lead-in, the title in
+ * double quotes and ": ", is left out: what the entry keeps is what the title
+ * does not already say. A description that does not open that way is kept as
+ * it is, and one that is only its title is kept too.
+ */
+export function withoutTitleLeadIn(
+  description: string,
+  title: string | undefined,
+): string {
+  const line = description.replace(/\s+/g, " ").trim();
+  if (!title) return line;
+  const name = title.replace(/\s+/g, " ").trim();
+  if (!name) return line;
+  let rest: string | undefined;
+  if (line.startsWith(`${name}: `)) rest = line.slice(name.length + 2);
+  else {
+    const quoted = `"${name}": `;
+    const at = line.indexOf(quoted);
+    // A lead-in is a few words with no sentence in them: "Press", "Type into", "Turn on or off".
+    if (
+      at >= 0 &&
+      at <= TITLE_LEAD_IN_CHARS &&
+      !/[.:!?"]/.test(line.slice(0, at))
+    )
+      rest = line.slice(at + quoted.length);
+  }
+  const kept = rest?.trim();
+  return kept ? kept : line;
+}
+
 /** The hash of an action's definition, as an index entry's `definitionHash` carries it. */
 export function definitionHash(action: OUIAction): string {
   return fnv1a64(sortedJson(action));
@@ -201,7 +241,9 @@ export function indexEntry(action: OUIAction): OUIActionIndexEntry {
   return {
     id: action.id,
     ...(action.title ? { title: action.title } : {}),
-    description: firstSentence(action.description),
+    description: firstSentence(
+      withoutTitleLeadIn(action.description, action.title),
+    ),
     ...(action.effect !== undefined ? { effect: action.effect } : {}),
     ...(action.confirm ? { confirm: true } : {}),
     ...(action.async ? { async: true } : {}),
