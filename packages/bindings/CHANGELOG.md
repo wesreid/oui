@@ -1,5 +1,11 @@
 # @ouispec/bindings
 
+## 0.2.2
+
+### Patch Changes
+
+- The room readers' descriptions open with a short sentence. An index carries an action's first sentence (up to 160 characters), and `inspect` and `query` opened with sentences of 155 and 246 characters, in every room that declares lists. They now open with "Reads everything about the things named, as they are now." and "Lists the rows of one of the room's lists, to find a thing by its name."; the rest of each description is unchanged in substance and is read through the action's definition.
+
 ## 0.2.1
 
 ### Patch Changes
