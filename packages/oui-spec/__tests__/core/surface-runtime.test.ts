@@ -101,6 +101,68 @@ describe('createSurfaceRuntime', () => {
     expect(result.error).toMatchObject({ code: 'ACTION_EXECUTION_ERROR', message: 'router exploded' });
   });
 
+  it('answers with the page after a slow action’s change: quiet is measured from when the handler returned', async () => {
+    // A restore: the handler awaits the network for longer than the quiet window, then changes
+    // the page, which the UI renders a moment later. Measured from the request's arrival, the page
+    // had already been "quiet" throughout, and the answer carried the observation before the change.
+    const runtime = createSurfaceRuntime({ announce: false, settle: FAST });
+    const doc = defineSurface<{ restore: () => Promise<void> }>({
+      id: 'doc',
+      name: 'Document',
+      description: 'a document',
+      actions: [
+        {
+          id: 'restore',
+          description: 'restore a version',
+          input: { type: 'object' },
+          handler: async (_params, ctx) => {
+            await ctx.restore();
+            return { success: true, data: { fill: 'red' } };
+          },
+        },
+      ],
+    });
+    const mounted = runtime.mount(doc, () => ({
+      restore: async () => {
+        await wait(FAST.quietMs * 4); // the network
+        setTimeout(() => mounted.pushObservation('document', { fill: 'red' }), 5); // the render after it
+      },
+    }));
+    mounted.pushObservation('document', { fill: 'purple' });
+    await wait(FAST.quietMs + 10);
+
+    const result = await runtime.execute(request('doc', 'restore'));
+
+    expect(result).toMatchObject({ success: true, data: { fill: 'red' }, settled: true });
+    expect(result.observations).toEqual({ doc: { document: { fill: 'red' } } });
+  });
+
+  it('gives a slow action the whole settle timeout after it returns', async () => {
+    const runtime = createSurfaceRuntime({ announce: false, settle: FAST });
+    let release = () => {};
+    const slow = defineSurface({
+      id: 'slow',
+      name: 'Slow',
+      description: 'slow',
+      actions: [
+        {
+          id: 'save',
+          description: 'save',
+          input: { type: 'object' },
+          handler: async () => {
+            await wait(FAST.timeoutMs + 50); // longer than the settle timeout itself
+            release = runtime.hold();
+            setTimeout(() => release(), 60); // the app's own work after it, shorter than the timeout
+            return { success: true };
+          },
+        },
+      ],
+    });
+    runtime.mount(slow, () => ({}));
+    const result = await runtime.execute(request('slow', 'save'));
+    expect(result.settled).toBe(true);
+  });
+
   it('waits for an open hold, and answers settled:false when the deadline passes first', async () => {
     const runtime = createSurfaceRuntime({ announce: false, settle: FAST });
     runtime.mount(shell, () => ({ go: () => {} }));

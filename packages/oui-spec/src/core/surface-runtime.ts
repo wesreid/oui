@@ -600,6 +600,19 @@ export function createSurfaceRuntime(
 
   // ─── Settling ─────────────────────────────────────────────────────────────
 
+  /**
+   * Wait until the page has been quiet for `quietMs` since `since`, with no
+   * hold open; false when `settleTimeoutMs` passes first.
+   *
+   * `since` is when the handler RETURNED, not when the request arrived. A
+   * handler that awaits its own work — a save, a restore over the network —
+   * and only then changes the page returns later than `quietMs` after it
+   * started; measured from the start, the page had already "been quiet" for
+   * the whole of that wait, so the answer was taken at once, before the UI had
+   * rendered the change the handler had just made. The result said the
+   * restore had worked and the observations beside it still showed the page
+   * before it (dev, 2026-10-03).
+   */
   async function waitUntilSettled(since: number): Promise<boolean> {
     const deadline = since + settleTimeoutMs;
     for (;;) {
@@ -671,7 +684,8 @@ export function createSurfaceRuntime(
       }
     }
 
-    const settled = await waitUntilSettled(startedAt);
+    // From now: the handler has returned, and what it changed is still to render.
+    const settled = await waitUntilSettled(Date.now());
     const answered = frame(
       {
         requestId: request.requestId,
