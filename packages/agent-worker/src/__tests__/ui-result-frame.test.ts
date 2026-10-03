@@ -12,9 +12,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { createSurfaceRuntime, defineSurface } from 'oui-spec/core';
 import type { OUIActionRequest, OUIActionResult, OUISurface } from 'oui-spec/spec';
 import { buildUITools } from '../ui/ui-tools.js';
+import { pageOf } from './support/page.js';
 import { createUISequence } from '../ui/ui-sequence.js';
 import type { UIActionChannel } from '../ui/channel.js';
-import { readClientSnapshot } from '../ui/snapshot.js';
+import { readClientPage } from '../ui/snapshot.js';
+import type { PageSurface } from '../ui/page-index.js';
 
 const ctx = (toolCallId: string) => ({ userId: 'u', accountId: 'a', turnId: 't', conversationId: 'c', toolCallId, socketRoom: 'room' });
 
@@ -52,31 +54,35 @@ function tab() {
 
 function tools(channel: UIActionChannel, surfaces: OUISurface[], hash?: string) {
   const sequence = createUISequence();
-  sequence.record(surfaces, hash);
+  sequence.record(pageOf(surfaces), hash);
   const results: OUIActionResult[] = [];
-  const built = buildUITools(surfaces, {
+  const pages: Array<readonly PageSurface[] | undefined> = [];
+  const built = buildUITools(pageOf(surfaces), {
     channel,
     resultTimeoutMs: 5_000,
-    currentSurfaces: () => surfaces,
+    currentPage: () => pageOf(surfaces),
     sequence,
-    onResult: (r) => void results.push(r),
+    onResult: (r, page) => {
+      results.push(r);
+      pages.push(page);
+    },
   });
   const byName = (name: string) => built.tools.find((t) => t.name === name)!;
-  return { byName, results, sequence };
+  return { byName, results, pages, sequence };
 }
 
 describe('the surfaces an answer stands for', () => {
   it('names the hash it holds, and takes an answer without surfaces as the page it holds', async () => {
     const { runtime, channel, sent, raw } = tab();
     const snap = runtime.snapshot();
-    const { byName, results } = tools(channel, snap.surfaces, snap.surfacesHash);
+    const { byName, pages } = tools(channel, snap.surfaces, snap.surfacesHash);
 
     const out = await byName('editor_add_guide').execute({}, ctx('c1'));
     expect(sent[0].knownSurfaces).toBe(snap.surfacesHash);
     expect(raw[0]).not.toHaveProperty('surfaces');
     expect(out).toMatchObject({ success: true, data: { result: { guide: 'g1' }, page: { surfaces: ['Editor'] } } });
-    // The orchestrator still sees the page's surfaces on every answer.
-    expect(results[0].surfaces).toEqual(snap.surfaces);
+    // The orchestrator still gets the page the answer stands for, on every answer.
+    expect(pages[0]).toEqual(pageOf(snap.surfaces));
   });
 
   it('takes the new surfaces from an action that changed the page, and names their hash next', async () => {
@@ -106,10 +112,10 @@ describe('the surfaces an answer stands for', () => {
 
   it('reads the hash the client sent with its snapshot', () => {
     const surfaces: OUISurface[] = [{ id: 's', name: 'S', description: 's', actions: [] }];
-    expect(readClientSnapshot({ oui: { surfaces, observations: {}, surfacesHash: 'fnv1a64:0123456789abcdef' } })).toMatchObject({
+    expect(readClientPage({ oui: { surfaces, observations: {}, surfacesHash: 'fnv1a64:0123456789abcdef' } })).toMatchObject({
       surfacesHash: 'fnv1a64:0123456789abcdef',
     });
-    expect(readClientSnapshot({ oui: { surfaces, observations: {} } })).not.toHaveProperty('surfacesHash');
+    expect(readClientPage({ oui: { surfaces, observations: {} } })).not.toHaveProperty('surfacesHash');
   });
 });
 
@@ -133,7 +139,9 @@ describe('an answer the relay refused, sent again trimmed', () => {
     expect(out.data).toMatchObject({ result: { guide: 'g1' }, page: { surfaces: ['S'] } });
     const note = (out.data as { delivery: string }).delivery;
     expect(note).toContain('payload larger than 524288 bytes');
-    expect(note).toContain("the page's observations");
+    expect(note).toContain('the page’s state');
+    // Without the page's state the worker cannot see the page: it says to read it first (ADR-0245 §2.5).
+    expect(note).toContain('You cannot see the page now');
     expect(note).toMatch(/outcome here is what happened/);
   });
 });

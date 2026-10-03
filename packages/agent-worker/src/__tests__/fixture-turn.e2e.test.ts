@@ -66,9 +66,10 @@ describe.each(providers.map((make) => [make().name, make] as const))('on %s', (_
     expect(provider.requests).toHaveLength(2);
     const first = JSON.stringify(provider.requests[0]);
     const second = JSON.stringify(provider.requests[1]);
-    // The host's prompt and the page's own tool, in the provider's format.
+    // The host's prompt, the three UI tools in the provider's format, and the page's index on the message.
     expect(first).toContain('Desk, a reporting product');
-    expect(first).toContain('navigate');
+    for (const tool of ['ui_act', 'ui_describe', 'ui_read']) expect(first).toContain(`"${tool}"`);
+    expect(first).toContain('- navigate: ');
     // The knowledge the tab sent for its page, rendered by the SDK after the
     // host's prompt (the host's callback never sees it): the app's map, the
     // page in full, the page it leads to, and the recipe the UI implies.
@@ -99,7 +100,10 @@ describe.each(providers.map((make) => [make().name, make] as const))('on %s', (_
     expect(turnId).toBe(run.outcome.turnId);
     expect(conversationId).toBe('conv-fx-1');
     const call = messages.find((m) => m.role === 'assistant' && m.toolCalls?.length);
-    expect(call?.toolCalls).toEqual([{ id: provider.expected.toolCallId, name: 'navigate', arguments: { path: '/reports' } }]);
+    // The model runs the page's action through `ui_act`, and that is the call the product keeps.
+    expect(call?.toolCalls).toEqual([
+      { id: provider.expected.toolCallId, name: 'ui_act', arguments: { action: 'navigate', input: { path: '/reports' } } },
+    ]);
     const toolResult = messages.find((m) => m.role === 'tool' && m.toolCallId === provider.expected.toolCallId);
     expect(JSON.parse(toolResult!.content!)).toMatchObject({ result: { navigatedTo: '/reports' } });
     expect(messages.filter((m) => m.role === 'assistant').at(-1)?.content).toBe(provider.expected.reply);

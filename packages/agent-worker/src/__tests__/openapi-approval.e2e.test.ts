@@ -81,7 +81,7 @@ describe('a generated transaction', () => {
       expect.objectContaining({ caller: FIXTURE_TURN.userId, body: order, headers: expect.objectContaining({ 'x-desk-agent': expect.any(String) }) }),
     ]);
     // The model reads the API's answer: the order it placed.
-    expect(JSON.parse(t2.persisted[0].messages[1].content!)).toEqual({
+    expect(JSON.parse(t2.persisted[0].messages[0].content!)).toEqual({
       id: expect.stringMatching(/^o-\d+$/),
       symbol: 'ACME',
       side: 'buy',

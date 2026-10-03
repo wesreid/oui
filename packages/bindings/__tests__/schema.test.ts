@@ -84,6 +84,26 @@ describe('deriveInputSchema', () => {
     expect(gradient?.anyOf).toHaveLength(3);
   });
 
+  it('accepts a pattern paint where the colour control offers patterns, naming the document’s by id (ADR-0247)', () => {
+    const value = deriveInputSchema('color', {
+      paintKinds: ['solid', 'pattern'],
+      options: [
+        { value: 'dots', title: 'Dots' },
+        { value: 'stripes', title: 'Stripes' },
+      ],
+    }).properties?.value;
+    // A CSS colour, or a pattern paint: no stop gradient, which was not offered.
+    expect(value?.anyOf).toHaveLength(2);
+    const pattern = value?.anyOf?.[1];
+    expect(pattern?.properties?.kind).toEqual({ type: 'string', enum: ['pattern'] });
+    expect(pattern?.properties?.pattern).toEqual({ type: 'string', enum: ['dots', 'stripes'] });
+    expect(pattern?.description).toContain('"dots" is Dots');
+    expect(pattern?.required).toEqual(['kind', 'pattern']);
+    // Without patterns to name, any id may be given; the control refuses one it does not have.
+    const open = deriveInputSchema('color', { paintKinds: ['pattern'] }).properties?.value;
+    expect(open?.anyOf?.[1]?.properties?.pattern).toEqual({ type: 'string' });
+  });
+
   it('adds the row a list control is one of', () => {
     const schema = deriveInputSchema('button', {}, { itemized: true, items: [{ key: 'v1', title: 'Ava' }] });
     expect(schema.properties?.item).toMatchObject({ type: 'string', enum: ['v1'] });

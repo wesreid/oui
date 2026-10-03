@@ -149,6 +149,8 @@ describe('the broken fixtures fail each rule once', () => {
       'callbacks-accounted',
       'run-returns-result',
       'actions-mounted',
+      'lists-readable',
+      'within-budgets',
       'tier2-forwards-value',
       'tier2-reports-uncontrolled',
     ]);

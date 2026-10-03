@@ -78,7 +78,8 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
 
   const maxRounds = config.maxRounds ?? 12;
   const maxTokens = config.maxTokens ?? 4096;
-  const temperature = config.temperature ?? 0.3;
+  // Left undefined when not set, so the orchestrator's default applies; null (send none) is passed through.
+  const temperature = config.temperature;
   const toolTimeoutMs = config.toolTimeoutMs ?? 30_000;
   const turnDeadlineMs = config.turnDeadlineMs ?? 840_000;
   const retries = config.retries ?? 3;
@@ -167,6 +168,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
               channel: uiChannel,
               resultTimeoutMs: config.uiActions?.resultTimeoutMs,
               maxObservationChars: config.uiActions?.maxObservationChars,
+              maxIndexChars: config.uiActions?.maxIndexChars,
             },
           },
           turnInput,

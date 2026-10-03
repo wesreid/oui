@@ -188,7 +188,7 @@ export const CATALOG: RoomCatalogData = {
       control: 'Timeline',
       section: { id: 'time', title: 'Time' },
       appliesTo: ['document'],
-      value: { type: 'number', minimum: 0 },
+      value: { type: 'number', minimum: 0, 'x-unit': 's' },
       keyframeable: false,
     },
   ],

@@ -51,8 +51,10 @@ describe('the page state over budget', () => {
     const shortened = (values['shell:StudioShell'] as { state: { lists: Record<string, unknown[]> } }).state.lists[
       'shell.project.choose'
     ];
-    expect(shortened).toHaveLength(MAX_LIST_ROWS + 1);
-    expect(shortened.at(-1)).toBe(`… and ${180 - MAX_LIST_ROWS} more`);
+    // Every row it keeps still names its project; the rest are counted, with how to reach them (ADR-0244 §2.1).
+    expect(shortened).toHaveLength(40 + 1);
+    expect(shortened.slice(0, 40)).toEqual(projects.slice(0, 40).map(({ key, title }) => ({ key, title })));
+    expect(shortened.at(-1)).toBe('… and 140 more rows, not listed to fit the page state; name a row by its title');
   });
 
   it('when lists shortened to 20 rows still do not fit, shortens them further before cutting anything', () => {

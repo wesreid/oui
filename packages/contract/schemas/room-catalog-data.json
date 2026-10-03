@@ -374,6 +374,35 @@
       ],
       "additionalProperties": false
     },
+    "RoomChangedRow": {
+      "description": "One row an action changed: which list it is in, what addresses it, and everything about it now.",
+      "type": "object",
+      "properties": {
+        "list": {
+          "description": "The list it is a row of: `<observation id>/<list property>`, or `<observation id>` when the observation itself is the list.",
+          "type": "string",
+          "minLength": 1
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "detail": {
+          "description": "Everything about the row now, as `inspect` returns it. Left out when the row was removed, and when an edit changed more rows than a result reports in full: `inspect` reads those.",
+          "type": "object",
+          "additionalProperties": true
+        },
+        "removed": {
+          "description": "The edit removed the row: nothing addresses it any more.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "list",
+        "ref"
+      ],
+      "additionalProperties": false
+    },
     "RoomResult": {
       "description": "What running a catalog entry or a bound control did: its data, or why it could not be done, in words a person would read. `pending` says the work outlives the call: a job was started and is done only when its completion arrives (an action whose effect is `job` or `transaction`). Every binding's `run` returns what the consumer's callback returned (ADR-0226 §2.2 rule 3, #209), so a handler's `{ ok, pending: { jobId } }` reaches the runtime.",
       "oneOf": [
@@ -398,6 +427,13 @@
                 "jobId"
               ],
               "additionalProperties": false
+            },
+            "changed": {
+              "description": "The rows it changed, added or removed, each as its list's reader reports it now (ADR-0244 §2.5): what the assistant checks its edit against, and the rows the page state keeps whole.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/RoomChangedRow"
+              }
             }
           },
           "required": [

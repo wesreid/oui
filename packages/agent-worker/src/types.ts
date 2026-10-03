@@ -30,7 +30,12 @@ export interface AgentWorkerConfig {
   promptCacheBreakpoint?: ProviderOptions;
   maxToolRounds?: number;
   maxTokens?: number;
-  temperature?: number;
+  /**
+   * The sampling temperature. Default 0.3. `null` sends none: for a model that
+   * does not take one (Claude Sonnet 5.5 on Bedrock refuses a request that
+   * names it), the model's own sampling is used.
+   */
+  temperature?: number | null;
   toolTimeoutMs?: number;
   turnDeadlineMs?: number;
   retries?: number;
@@ -57,8 +62,10 @@ export interface AgentWorkerConfig {
     channel: UIActionChannel;
     /** How long a UI tool waits for the client's answer. Default 20 s. */
     resultTimeoutMs?: number;
-    /** Largest page-state payload given to the model, in characters. Default 6000. */
+    /** Largest page-state payload given to the model, in characters. Default 12000 (`DEFAULT_PAGE_STATE_CHARS`). */
     maxObservationChars?: number;
+    /** Largest index of the page's actions given to the model, in characters. Default 60000 (`DEFAULT_INDEX_CHARS`). */
+    maxIndexChars?: number;
   };
 }
 

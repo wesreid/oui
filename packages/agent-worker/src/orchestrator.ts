@@ -21,20 +21,31 @@
 import { streamText, dynamicTool, jsonSchema, isStepCount, hasToolCall } from 'ai';
 import type { ModelMessage, AssistantModelMessage, ToolModelMessage, TextPart, ToolCallPart } from 'ai';
 import { AGENT_SOCKET_EVENTS, argsHash, type ApprovalContinuation, type ApprovalRequiredEvent } from '@ouispec/agent-core';
-import type { OUISurface, OUISurfaceSnapshot } from 'oui-spec/spec';
 import type { AgentWorkerConfig, AgentTurnInput, AgentTurnResult, TurnMessage, TurnHistoryMessage } from './types.js';
 import type { RegisteredTool, ToolExecutionContext, ToolExecutionResult } from './tools/types.js';
 import { defaultTurnPolicy } from './turn-policy.js';
 import { evaluateToolPolicySafe } from './authz/tool-policy.js';
 import { createToolInputValidator } from './tools/input-validation.js';
-import { readClientSnapshot, capabilityFingerprint, withoutClientUI } from './ui/snapshot.js';
+import { readClientPage, withoutClientUI, type ClientPage } from './ui/snapshot.js';
 import { readClientKnowledge, withClientKnowledge } from './ui/knowledge.js';
-import { buildUITools } from './ui/ui-tools.js';
+import { withClock } from './prompt/clock.js';
+import {
+  buildUITools,
+  createPageSight,
+  DefinitionUnavailable,
+  fitNotes,
+  UI_ACT_TOOL,
+  UI_DESCRIBE_TOOL,
+  UI_READ_TOOL,
+} from './ui/ui-tools.js';
+import { DEFAULT_INDEX_CHARS, indexText, pageFingerprint, type HeldDefinitions, type PageSurface } from './ui/page-index.js';
+import { describeSchema } from './ui/outline.js';
 import { createUISequence, type UISlot } from './ui/ui-sequence.js';
-import { observationsText } from './ui/observations.js';
+import { createTurnLedger } from './turn-ledger.js';
+import { DEFAULT_PAGE_STATE_CHARS, observationSchemas, observationsText } from './ui/observations.js';
 import { approvalRequirement, APPROVAL_TOOL_NOTE, type ApprovalRequirement } from './approvals/requirement.js';
 import { buildApprovalPreview, declaredTitle } from './approvals/preview.js';
-import { approvalNote, ranNote, resolveContinuation, unavailableNote } from './approvals/continuation.js';
+import { ranNote, refusedNote, resolveContinuation, unavailableNote } from './approvals/continuation.js';
 
 const DEFAULT_MAX_ROUNDS = 12;
 const DEFAULT_MAX_TOKENS = 4096;
@@ -43,7 +54,6 @@ const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
 const DEFAULT_UI_RESULT_TIMEOUT_MS = 20_000;
 /** Time left, before the turn's deadline, for the model to answer after waiting on a UI action's work. */
 const UI_ANSWER_MARGIN_MS = 45_000;
-const DEFAULT_PAGE_STATE_CHARS = 6_000;
 
 /**
  * Tools that hand the turn back to the user. The turn stops after any of them:
@@ -86,7 +96,8 @@ export async function runAgentTurn(
 ): Promise<AgentTurnResult> {
   const maxRounds = config.maxToolRounds ?? DEFAULT_MAX_ROUNDS;
   const maxTokens = config.maxTokens ?? DEFAULT_MAX_TOKENS;
-  const temperature = config.temperature ?? DEFAULT_TEMPERATURE;
+  // null: the model takes no temperature, so none is sent.
+  const temperature = config.temperature === null ? undefined : config.temperature ?? DEFAULT_TEMPERATURE;
   const toolTimeoutMs = config.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
   const turnDeadlineMs = config.turnDeadlineMs ?? 240_000; // 4 min, below the 5 min Lambda ceiling
   const retries = config.retries ?? 3;
@@ -111,31 +122,36 @@ export async function runAgentTurn(
   // ─── The client's UI (ADR-0209 D1) ─────────────────────────────────────────
   // The turn carries the surfaces of the client that sent it. They are the only
   // source of UI tools, so the tools always describe the page the user is on.
-  const snapshot = readClientSnapshot(input.context ?? null);
-  if (snapshot && !config.ui) {
+  const client = readClientPage(input.context ?? null);
+  if (client && !config.ui) {
     throw new Error(
       '[agent-sdk] The turn carries UI surfaces but the worker has no UI action channel (config.ui): ' +
         'its UI actions could be sent but never answered.',
     );
   }
-  let currentSurfaces: OUISurface[] = snapshot?.surfaces ?? [];
-  // The turn's UI actions run one at a time, in the order the model called them,
-  // across every rebuild of the UI tools (ui-sequence.ts).
+  // What the page offers, in index (ADR-0245 §2.1): kept current by every answer.
+  let currentPage: PageSurface[] = client?.page ?? [];
+  // The turn's UI actions run one at a time, in the order the model called them (ui-sequence.ts).
   const uiSequence = createUISequence();
-  // The page's surfaces as the turn's snapshot gave them, under the client's hash for them.
-  if (snapshot) uiSequence.record(snapshot.surfaces, snapshot.surfacesHash);
-  // Set when an answer shows the page now offers different actions; the
-  // current segment then ends and the next is built from these.
-  let pendingSurfaces: OUISurface[] | null = null;
+  // The page as the turn's snapshot gave it, under the client's hash for it.
+  if (client) uiSequence.record(client.page, client.surfacesHash);
+  // The definitions the turn holds: those a client sent, and those fetched since.
+  const heldDefinitions: HeldDefinitions = client?.held ?? new Map();
+  // Whether the page can be seen (ADR-0245 §2.5): nothing that changes it runs while it cannot.
+  const sight = createPageSight();
+  const uiCounts = { describes: 0, reads: 0, acts: 0 };
 
   // The knowledge the client sent for its page goes after the host's prompt.
   const knowledge = readClientKnowledge(input.context ?? null);
 
   log('info', 'agent:ui', 'UI surfaces for this turn', {
     turnId,
-    clientSentSnapshot: snapshot !== null,
-    surfaceIds: currentSurfaces.map((s) => s.id),
-    actionCount: currentSurfaces.reduce((n, s) => n + s.actions.length, 0),
+    clientSentSnapshot: client !== null,
+    surfaceIds: currentPage.map((s) => s.id),
+    actionCount: currentPage.reduce((n, s) => n + s.index.length, 0),
+    // A client that sent definitions (oui-spec before 0.7, or `form: "full"`) is still read as an index.
+    form: client ? (client.held.size > 0 ? 'full' : 'index') : 'none',
+    ...(client?.fit?.observations?.length ? { snapshotFitted: client.fit.observations.length } : {}),
     knowledgeEntries: knowledge?.entries.length ?? 0,
     knowledgeWorkflows: knowledge?.workflows.length ?? 0,
   });
@@ -191,6 +207,8 @@ export async function runAgentTurn(
   // Track tool executions for emit events and persistence.
   // We capture toolCallId from the execute options (2nd argument).
   const executedToolResults: Array<{ toolCallId: string; toolName: string; result: string }> = [];
+  // The pictures results came with, by call: given to the model with that call's result (ui/answer-image.ts).
+  const answerImages = new Map<string, { mediaType: string; base64: string }>();
 
   // Per-tool invocation quotas — mandatory for side-effecting tools.
   // Quota is per-turn, held in this closure — never module scope. It spans
@@ -198,6 +216,10 @@ export async function runAgentTurn(
   const toolInvocationCounts = new Map<string, number>();
   const DEFAULT_TOOL_QUOTA = 12; // matches maxRounds
   const SIDE_EFFECT_TOOL_QUOTA = 2;
+
+  // What each call of the turn did: said back to the model before every step
+  // after one did not succeed, so its reply matches it (ADR-0244 §2.5).
+  const ledger = createTurnLedger();
 
   // ─── Approvals (ADR-0228) ──────────────────────────────────────────────────
   // The first call in a turn that needs the user's approval stops the turn:
@@ -207,16 +229,16 @@ export async function runAgentTurn(
 
   // jsonSchema() carries no validator, so a call's arguments are whatever the
   // model produced. Each tool's declared schema is compiled once per turn.
-  const validators = new WeakMap<RegisteredTool, ReturnType<typeof createToolInputValidator>>();
-  const validatorFor = (t: RegisteredTool) => {
-    let v = validators.get(t);
+  const validators = new WeakMap<object, ReturnType<typeof createToolInputValidator>>();
+  const validatorFor = (schema: Record<string, unknown>) => {
+    let v = validators.get(schema);
     if (!v) {
       // The schema the tool DECLARED, not the model-facing stand-in: a strict
       // empty schema only gives the model a valid schema for a tool that
       // declared no properties, and enforcing it would reject input such a
       // tool has always received.
-      v = createToolInputValidator(t.inputSchema as Record<string, unknown> | undefined);
-      validators.set(t, v);
+      v = createToolInputValidator(schema);
+      validators.set(schema, v);
     }
     return v;
   };
@@ -235,27 +257,91 @@ export async function runAgentTurn(
   ): Promise<CallOutcome> => {
     const startMs = Date.now();
     const isUI = t.kind === 'ui';
+
+    /**
+     * A call refused before its tool ran: invalid input, over its quota, or
+     * denied by policy. The model gets the reason; so does the client, as a
+     * call that started and failed, so a session's record holds every call
+     * the model made with its arguments (ADR-0244 §2.7).
+     */
+    const refused = async (payload: { error: string } & Record<string, unknown>, given: unknown): Promise<CallOutcome> => {
+      ledger.record({ tool: t.name, ok: false, error: payload.error });
+      const now = Date.now();
+      await config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TOOL_CALL_STARTED, {
+        turnId,
+        toolUseId,
+        name: t.name,
+        input: given,
+        timestamp: now,
+      });
+      await config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TOOL_CALL_COMPLETE, {
+        turnId,
+        toolUseId,
+        name: t.name,
+        result: { error: payload.error, refused: true },
+        success: false,
+        durationMs: 0,
+        timestamp: now,
+      });
+      return notRun({ success: false, ...payload });
+    };
     // A UI tool waits for the client's answer, which has its own deadline, and
     // then for the outcome of work it started, until uiWaitDeadline.
     const timeoutMs = isUI
       ? Math.max(toolTimeoutMs, uiResultTimeoutMs + 5_000, uiWaitDeadline() - Date.now() + uiResultTimeoutMs + 5_000)
       : toolTimeoutMs;
 
+    // ── No changes while blind (ADR-0245 §2.5) ──
+    // After an answer that came without the page's state, or no answer, only
+    // reading runs until a read shows the page again. A change called then is
+    // refused here, before its definition is fetched or policy is asked; one
+    // called in the same response as the action that blinded the turn is
+    // refused in its place in the UI order (ui-tools.ts).
+    const reads = isUI && t.effect === 'view';
+    if (isUI && !reads) {
+      const refusal = sight.refuseChange();
+      if (refusal) {
+        log('warn', 'agent:ui', 'UI action refused: the page cannot be seen', { turnId, toolName: t.name, stopped: refusal.stopped });
+        return refused({ error: refusal.error, notRun: true, ...(refusal.stopped ? { uiStopped: true } : { blind: true }) }, rawArgs);
+      }
+    }
+
     // ── Input validation ──
     // Before quota and policy: an invalid call consumes no quota and never
     // reaches the host. The model gets the errors so it can correct the call.
-    const validation = validatorFor(t)(rawArgs);
+    // A UI action's schema is its definition's, fetched from the page when the
+    // action is first used (ADR-0245 §2.1).
+    let schema = (t.inputSchema ?? {}) as Record<string, unknown>;
+    if (t.resolveInputSchema) {
+      try {
+        schema = await t.resolveInputSchema({ ...toolCtx, toolCallId: toolUseId });
+      } catch (err) {
+        if (!(err instanceof DefinitionUnavailable)) throw err;
+        return refused({ error: err.message, notRun: true }, rawArgs);
+      }
+    }
+    const validation = validatorFor(schema)(rawArgs);
     if (!validation.ok) {
       log('warn', 'agent:tool', 'Tool call rejected: invalid input', {
         turnId,
         toolName: t.name,
         errors: validation.errors,
       });
-      return notRun({
-        success: false,
-        error: `Invalid input for "${t.name}": ${validation.errors.join('; ')}`,
-        invalidInput: true,
-      });
+      // A UI action's input was written from its line in the index or from an
+      // outline: say what it takes, so the next call is right.
+      const takes = isUI ? describeSchema(schema) : null;
+      return refused(
+        {
+          error: `Invalid input for "${t.name}": ${validation.errors.join('; ')}`,
+          invalidInput: true,
+          ...(takes && !('error' in takes)
+            ? takes.whole
+              ? { takes: JSON.parse(takes.text) as unknown }
+              : { takesInOutline: takes.text, openAPart: `${UI_DESCRIBE_TOOL} with this action and a path` }
+            : {}),
+        },
+        rawArgs,
+      );
     }
     const args = validation.value;
 
@@ -263,14 +349,18 @@ export async function runAgentTurn(
     // UI actions run as the user in their own session (ADR-0182 §3), so the
     // backend side-effect cap does not apply to them (ADR-0209 D5).
     const currentCount = toolInvocationCounts.get(t.name) ?? 0;
-    const isSideEffecting = (t.inputSchema as Record<string, unknown>)?.sideEffects !== false; // fail-closed: undefined = side-effecting
-    const quota = !isUI && isSideEffecting ? SIDE_EFFECT_TOOL_QUOTA : DEFAULT_TOOL_QUOTA;
+    const isSideEffecting = schema.sideEffects !== false; // fail-closed: undefined = side-effecting
+    // A UI action that only reads (a room's inspect and query, ADR-0244 §2.2)
+    // changes nothing however often it is called: the turn's step limit bounds it.
+    const quota = reads ? Infinity : !isUI && isSideEffecting ? SIDE_EFFECT_TOOL_QUOTA : DEFAULT_TOOL_QUOTA;
     if (currentCount >= quota) {
-      return notRun({
-        success: false,
-        error: `Tool "${t.name}" has reached its maximum invocation quota of ${quota} for this turn. Please proceed without calling it again.`,
-        quotaExceeded: true,
-      });
+      return refused(
+        {
+          error: `Tool "${t.name}" has reached its maximum invocation quota of ${quota} for this turn. Please proceed without calling it again.`,
+          quotaExceeded: true,
+        },
+        args,
+      );
     }
     toolInvocationCounts.set(t.name, currentCount + 1);
 
@@ -292,11 +382,7 @@ export async function runAgentTurn(
       });
 
       if (decision.action === 'deny') {
-        return notRun({
-          success: false,
-          error: decision.reason,
-          policyDenied: true,
-        });
+        return refused({ error: decision.reason, policyDenied: true }, args);
       }
       policyRequiresApproval = decision.action === 'require_approval';
     }
@@ -305,17 +391,20 @@ export async function runAgentTurn(
     // Checked and set with no await in between, so of the calls in one
     // response exactly the first that needs approval stops the turn.
     if (approvalHold && !approved) {
-      return notRun({
-        success: false,
-        notRun: true,
-        error:
-          `Not run: this turn is waiting for the user's approval of "${approvalHold.title}". ` +
-          'Nothing else runs until they decide; ask again afterwards if it is still needed.',
-      });
+      const error =
+        `Not run: this turn is waiting for the user's approval of "${approvalHold.title}". ` +
+        'Nothing else runs until they decide; ask again afterwards if it is still needed.';
+      ledger.record({ tool: t.name, ok: false, error });
+      return notRun({ success: false, notRun: true, error });
     }
     if ((requirement.required || policyRequiresApproval) && !approved) {
+      ledger.record({ tool: t.name, ok: false, error: 'Not run: it waits for the user’s approval on the card' });
       return { text: await requestApproval(t, args, toolUseId, requirement), ran: false };
     }
+
+    if (t.name === UI_DESCRIBE_TOOL) uiCounts.describes++;
+    else if (t.name === UI_READ_TOOL) uiCounts.reads++;
+    else if (isUI) uiCounts.acts++;
 
     log('info', 'agent:tool', 'Tool call started', {
       turnId,
@@ -386,7 +475,33 @@ export async function runAgentTurn(
       timestamp: Date.now(),
     });
 
+    ledger.record({
+      tool: t.name,
+      ok: resultSuccess,
+      ...(resultSuccess ? {} : { error: isWrapped && result.error ? result.error : 'it did not succeed' }),
+    });
+
+    // A picture in the result is the model's to look at with this call's
+    // result, and nothing else's: it is not in the text above, the event or the record.
+    if (isWrapped && result.image) answerImages.set(toolUseId, result.image);
     return { text: JSON.stringify(modelPayload ?? { error: 'no result' }), ran: true };
+  };
+
+  /**
+   * A call's result as the model is given it: its text, and the picture the
+   * result came with, as an image part of the same tool result.
+   */
+  const toModelOutput = ({ toolCallId, output }: { toolCallId: string; output: unknown }) => {
+    const text = typeof output === 'string' ? output : JSON.stringify(output ?? null);
+    const image = answerImages.get(toolCallId);
+    if (!image) return { type: 'text' as const, value: text };
+    return {
+      type: 'content' as const,
+      value: [
+        { type: 'text' as const, text },
+        { type: 'file' as const, mediaType: image.mediaType, data: { type: 'data' as const, data: image.base64 } },
+      ],
+    };
   };
 
   /**
@@ -492,64 +607,177 @@ export async function runAgentTurn(
       description,
       inputSchema: jsonSchema(rawSchema),
       execute,
+      toModelOutput,
     });
   }
 
-  // The tools for the current surfaces: the host's tools plus one UI tool per
-  // mounted action. A UI action keeps its name over a host tool of the same
-  // name (ADR-0209 D6): for a UI-only agent, the page is the authority.
-  function currentTools(): RegisteredTool[] {
-    const hostTools = config.tools.tools;
-    let uiTools: RegisteredTool[] = [];
-    if (config.ui && currentSurfaces.length > 0) {
-      const built = buildUITools(currentSurfaces, {
-        channel: config.ui.channel,
-        resultTimeoutMs: uiResultTimeoutMs,
-        maxObservationChars: config.ui.maxObservationChars,
-        waitDeadline: uiWaitDeadline,
-        currentSurfaces: () => currentSurfaces,
-        sequence: uiSequence,
-        onResult: (answer) => {
-          if (!answer.surfaces) return;
-          if (capabilityFingerprint(answer.surfaces) !== capabilityFingerprint(currentSurfaces)) {
-            pendingSurfaces = answer.surfaces;
-          }
-        },
+  // The turn's UI tools for the page as it is now (ADR-0245 §2.2). One tool
+  // per action is built, and none of them is given to the model: `ui_act` runs
+  // them, so validation, quota, policy and approval see the action itself.
+  // Rebuilt only when what the page offers changes.
+  type CurrentUI = {
+    fingerprint: string;
+    actions: Map<string, RegisteredTool>;
+    describe: RegisteredTool;
+    read: RegisteredTool;
+  };
+  let builtUI: CurrentUI | null = null;
+  function currentUI(): CurrentUI | null {
+    if (!config.ui || currentPage.length === 0) return null;
+    const fingerprint = pageFingerprint(currentPage);
+    if (builtUI?.fingerprint === fingerprint) return builtUI;
+    const built = buildUITools(currentPage, {
+      channel: config.ui.channel,
+      resultTimeoutMs: uiResultTimeoutMs,
+      maxObservationChars: config.ui.maxObservationChars,
+      waitDeadline: uiWaitDeadline,
+      currentPage: () => currentPage,
+      sequence: uiSequence,
+      held: heldDefinitions,
+      sight,
+      log: (level, message, data) => log(level, 'agent:ui', message, { turnId, ...data }),
+      onResult: (_answer, page) => {
+        // The page the answer stands for is the page from now on: the next
+        // call is looked up in it, and the model was told what changed.
+        if (page && pageFingerprint(page) !== pageFingerprint(currentPage)) {
+          log('info', 'agent:ui', 'The page changed; the turn continues with what it now offers', {
+            turnId,
+            from: currentPage.map((s) => s.id),
+            to: page.map((s) => s.id),
+          });
+          currentPage = [...page];
+        }
+      },
+    });
+    for (const c of built.collisions) {
+      log('error', 'agent:ui', 'Two mounted surfaces declare the same action id; the first keeps it', {
+        turnId,
+        ...c,
       });
-      uiTools = built.tools;
-      for (const c of built.collisions) {
-        log('error', 'agent:ui', 'Two mounted surfaces declare the same action id; the first keeps it', {
-          turnId,
-          ...c,
-        });
-      }
     }
+    builtUI = {
+      fingerprint,
+      actions: new Map(built.tools.map((t) => [t.name, t])),
+      describe: built.describe,
+      read: built.read,
+    };
+    return builtUI;
+  }
 
-    const uiNames = new Set(uiTools.map((t) => t.name));
-    const withheld = hostTools.filter((t) => uiNames.has(t.name)).map((t) => t.name);
+  // The host's tools the model is given. A host tool with a UI tool's name, or
+  // with the id of an action of the page, is withheld (ADR-0209 D6): for a
+  // UI-only agent, the page is the authority.
+  function hostTools(ui: CurrentUI | null): RegisteredTool[] {
+    if (!ui) return config.tools.tools;
+    const taken = (name: string) => ui.actions.has(name) || name === UI_ACT_TOOL || name === UI_DESCRIBE_TOOL || name === UI_READ_TOOL;
+    const withheld = config.tools.tools.filter((t) => taken(t.name)).map((t) => t.name);
     if (withheld.length > 0) {
-      log('error', 'agent:ui', 'UI action ids collide with host tools; the host tools are withheld this turn', {
+      log('error', 'agent:ui', 'Host tools collide with UI tools or action ids; the host tools are withheld this turn', {
         turnId,
         withheld,
       });
     }
-    return [...hostTools.filter((t) => !uiNames.has(t.name)), ...uiTools];
+    return config.tools.tools.filter((t) => !taken(t.name));
+  }
+
+  /** Every tool a call can name: the host's, and the page's actions. What an approved call is looked up in. */
+  function callableTools(): RegisteredTool[] {
+    const ui = currentUI();
+    return [...hostTools(ui), ...(ui ? [...ui.actions.values()] : [])];
+  }
+
+  // What the turn policy constrained this step to, in terms of the page's
+  // actions (set in prepareStep): `ui_act` enforces it, since the model's own
+  // tool list only knows `ui_act`.
+  let stepActions: { only: ReadonlySet<string> | null; forced: string | null } = { only: null, forced: null };
+
+  /**
+   * `ui_act`: runs one action of the page. The action's own tool goes through
+   * `executeCall`, so the call is validated against the action's definition,
+   * counted, judged by policy and approved as the action it is.
+   */
+  function actAiTool(): AiTool {
+    return dynamicTool({
+      description:
+        'Runs one action of the user’s page, as the user would. `action` is an action id from the page’s index; `input` is what it takes. ' +
+        'The index line says what an action takes in outline: when that is not enough to write its input, call ' +
+        `${UI_DESCRIBE_TOOL} first. The answer says what happened, what the page now offers where that changed, and what it shows.`,
+      inputSchema: jsonSchema({
+        type: 'object',
+        properties: {
+          action: { type: 'string', description: 'The action’s id, exactly as the page’s index gives it.' },
+          input: { type: 'object', description: 'The action’s input. Leave out for an action that takes nothing.' },
+        },
+        required: ['action'],
+        additionalProperties: false,
+      }),
+      execute: async (rawArgs: unknown, options: { toolCallId?: string } | undefined): Promise<string> => {
+        const toolUseId = options?.toolCallId ?? `tool_${Date.now()}`;
+        const { action, input: actionInput } = (rawArgs ?? {}) as { action?: unknown; input?: unknown };
+        // Taken as the call arrives, like any UI call (ui-sequence.ts), and
+        // given up if it never reaches the page.
+        const uiSlot = uiSequence.reserve();
+        const notAnAction = (error: string): string => {
+          uiSlot.release();
+          ledger.record({ tool: typeof action === 'string' && action ? action : UI_ACT_TOOL, ok: false, error });
+          const text = JSON.stringify({ success: false, notRun: true, error });
+          executedToolResults.push({ toolCallId: toolUseId, toolName: UI_ACT_TOOL, result: text });
+          return text;
+        };
+        if (typeof action !== 'string' || !action) return notAnAction(`${UI_ACT_TOOL} needs "action": an action id from the page's index.`);
+        if (stepActions.forced && action !== stepActions.forced) {
+          return notAnAction(`This step runs "${stepActions.forced}" and nothing else: call ${UI_ACT_TOOL} with that action.`);
+        }
+        if (stepActions.only && !stepActions.only.has(action)) {
+          return notAnAction(`"${action}" is not available at this step.`);
+        }
+        // Looked up in the page as it is now: an earlier action of this response may have changed it.
+        const ui = currentUI();
+        const tool = ui?.actions.get(action);
+        if (!tool) {
+          const ids = ui ? [...ui.actions.keys()] : [];
+          const near = ids.filter((id) => id.includes(action) || action.includes(id)).slice(0, 8);
+          return notAnAction(
+            `"${action}" is not an action of the page as it is now.` +
+              (near.length ? ` Did you mean: ${near.join(', ')}?` : ' Read the page’s index for what it offers; an action is named by its id there.'),
+          );
+        }
+        const { text } = await executeCall(tool, actionInput ?? {}, toolUseId, uiSlot).finally(() => uiSlot.release());
+        executedToolResults.push({ toolCallId: toolUseId, toolName: UI_ACT_TOOL, result: text });
+        return text;
+      },
+      toModelOutput,
+    });
   }
 
   function assembleTools(): Record<string, AiTool> {
+    const ui = currentUI();
     const tools: Record<string, AiTool> = {};
-    for (const t of currentTools()) tools[t.name] = toAiTool(t);
+    for (const t of hostTools(ui)) tools[t.name] = toAiTool(t);
+    if (ui) {
+      tools[UI_ACT_TOOL] = actAiTool();
+      tools[UI_DESCRIBE_TOOL] = toAiTool(ui.describe);
+      tools[UI_READ_TOOL] = toAiTool(ui.read);
+    }
     return tools;
   }
 
   /**
    * The turn after the user's decision on an approval card (ADR-0228 §2.2.5):
    * redeem the token and run exactly the stored call, or learn that they
-   * declined. What happened goes to the model as an `<approval>` note, and a
-   * call that was run as a tool call and its result, which are persisted too.
+   * declined. What happened goes to the model as an `<approval>` note.
+   *
+   * A call that was run is ONE call to the model: its outcome becomes the
+   * result of the call the model made, in place of "waiting for approval"
+   * (`outcome`, which `convertHistoryToCoreMessages` puts there), and is
+   * persisted as a result of that same call id, so later turns read it the
+   * same way. Only when that call is no longer in the history the model is
+   * given does the outcome follow the user's message as a call of its own.
    */
   async function continueApproval(continuation: ApprovalContinuation): Promise<{
     note: string;
+    /** The approved call's outcome, as the result of the call already in the history. */
+    outcome: TurnHistoryMessage | null;
     messages: ModelMessage[];
     persisted: TurnMessage[];
   }> {
@@ -559,36 +787,49 @@ export async function runAgentTurn(
     });
     if (outcome.kind === 'note') {
       log('info', 'agent:tool', 'Approval continuation ran nothing', { turnId, approvalId: continuation.approvalId, decision: continuation.decision });
-      return { note: outcome.note, messages: [], persisted: [] };
+      return { note: outcome.note, outcome: null, messages: [], persisted: [] };
     }
     const { call } = outcome;
-    const tool = currentTools().find((t) => t.name === call.tool);
+    const tool = callableTools().find((t) => t.name === call.tool);
     if (!tool) {
       log('warn', 'agent:tool', 'Approved call is not available this turn; it was not run', { turnId, approvalId: call.approvalId, toolName: call.tool });
-      return { note: unavailableNote(call.tool), messages: [], persisted: [] };
+      return { note: unavailableNote(call.tool), outcome: null, messages: [], persisted: [] };
     }
     const uiSlot = tool.kind === 'ui' ? uiSequence.reserve() : undefined;
     const { text, ran } = await executeCall(tool, call.args, call.approvalId, uiSlot, {
       approvalId: call.approvalId,
       argsHash: call.argsHash,
     }).finally(() => uiSlot?.release());
-    // An approved action that changed the page: the turn starts on the new one.
-    if (pendingSurfaces) {
-      currentSurfaces = pendingSurfaces;
-      pendingSurfaces = null;
-    }
     const { title } = declaredTitle(tool);
-    const callId = `${call.approvalId}-approved`;
+    // The model sees the call as it would have made it: a UI action through `ui_act`.
+    const called =
+      tool.kind === 'ui'
+        ? { name: UI_ACT_TOOL, input: { action: tool.name, input: call.args } }
+        : { name: tool.name, input: call.args };
     const refusal = ran ? null : (JSON.parse(text) as { error?: string }).error ?? 'it was refused';
+    // The call the model made, which answered "waiting for approval": its id is the approval's.
+    const asked = (input.history ?? []).some(
+      (m) => m.role === 'assistant' && m.tool_calls?.some((tc) => tc.id === call.approvalId),
+    );
+    if (asked) {
+      return {
+        note: ran ? ranNote(title, 'replaced') : refusedNote(title, refusal!),
+        outcome: { role: 'tool', content: text, tool_call_id: call.approvalId, name: called.name },
+        messages: [],
+        persisted: [{ role: 'tool', content: text, toolCallId: call.approvalId, name: called.name }],
+      };
+    }
+    const callId = `${call.approvalId}-approved`;
     return {
-      note: ran ? ranNote(title) : approvalNote(`The user approved "${title}" on the approval card, but it did not run: ${refusal}`),
+      note: ran ? ranNote(title, 'follows') : refusedNote(title, refusal!),
+      outcome: null,
       messages: [
-        { role: 'assistant', content: [{ type: 'tool-call', toolCallId: callId, toolName: tool.name, input: call.args }] },
-        { role: 'tool', content: [{ type: 'tool-result', toolCallId: callId, toolName: tool.name, output: { type: 'text', value: text } }] },
+        { role: 'assistant', content: [{ type: 'tool-call', toolCallId: callId, toolName: called.name, input: called.input }] },
+        { role: 'tool', content: [{ type: 'tool-result', toolCallId: callId, toolName: called.name, output: { type: 'text', value: text } }] },
       ],
       persisted: [
-        { role: 'assistant', content: null, toolCalls: [{ id: callId, name: tool.name, arguments: call.args }] },
-        { role: 'tool', content: text, toolCallId: callId, name: tool.name },
+        { role: 'assistant', content: null, toolCalls: [{ id: callId, name: called.name, arguments: called.input }] },
+        { role: 'tool', content: text, toolCallId: callId, name: called.name },
       ],
     };
   }
@@ -657,12 +898,24 @@ export async function runAgentTurn(
   // Convert history to AI SDK CoreMessage format. The page the user is on
   // travels with their message, not in the system prompt: it changes on every
   // page, and in the system prompt it would invalidate the cached prefix. An
-  // approved call that ran follows the user's message, as the call it was.
+  // approved call that ran is the result of the call the model made (see
+  // continueApproval).
+  // The date and time on the user's clock travel with their message too: a
+  // model has no clock, and the changing minute must stay out of the cached
+  // system prompt (prompt/clock.ts).
   const messages: ModelMessage[] = [
-    ...withPageState(
-      convertHistoryToCoreMessages(input.history ?? [], [input.content, continued?.note].filter(Boolean).join('\n\n')),
-      snapshot,
-      config.ui?.maxObservationChars ?? DEFAULT_PAGE_STATE_CHARS,
+    ...withClock(
+      withPageState(
+        convertHistoryToCoreMessages(
+          // An approved call's outcome is a later result of the call already in the history: it takes that call's place.
+          continued?.outcome ? [...(input.history ?? []), continued.outcome] : (input.history ?? []),
+          [input.content, continued?.note].filter(Boolean).join('\n\n'),
+        ),
+        client,
+        config.ui?.maxObservationChars ?? DEFAULT_PAGE_STATE_CHARS,
+        config.ui?.maxIndexChars ?? DEFAULT_INDEX_CHARS,
+      ),
+      input.context ?? null,
     ),
     ...(continued?.messages ?? []),
   ];
@@ -723,28 +976,62 @@ export async function runAgentTurn(
         ...USER_INPUT_TOOLS.map((name) => hasToolCall(name)),
         // A call is waiting for the user's approval: the turn ends here (ADR-0228).
         () => approvalHold !== null,
-        // The page now offers different actions: end this segment so the next
-        // one is built from them (ADR-0209 D3).
-        () => pendingSurfaces !== null,
       ],
-      temperature,
+      ...(temperature !== undefined ? { temperature } : {}),
       telemetry: {
         isEnabled: true,
         functionId: `agent-turn:${turnId}`,
       },
       prepareStep: async ({ steps }) => {
-        const { note, ...constraints } = await turnPolicy.prepareStep({
+        // The policy speaks of the page's actions by their ids, as it always
+        // has: a `ui_act` call is shown to it as the action it ran, and the
+        // actions are among the tool names it may choose from.
+        const actionIds = [...(currentUI()?.actions.keys() ?? [])];
+        const { note, ...policy } = await turnPolicy.prepareStep({
           // The policy counts steps across the whole turn, not per segment.
-          steps: [...previousSteps, ...steps],
+          steps: [...previousSteps, ...steps].map((step) => ({
+            toolCalls: (step.toolCalls as Array<{ toolName: string; input?: unknown }> | undefined)?.map((tc) => ({
+              toolName:
+                tc.toolName === UI_ACT_TOOL && typeof (tc.input as { action?: unknown } | undefined)?.action === 'string'
+                  ? (tc.input as { action: string }).action
+                  : tc.toolName,
+            })),
+          })),
           turnClass,
-          allToolNames: Object.keys(aiTools),
+          allToolNames: [...Object.keys(aiTools), ...actionIds],
         });
+        // What it constrained, in the model's terms: an action is run through
+        // `ui_act`, which holds the step to the actions the policy allowed.
+        const isAction = (name: string) => actionIds.includes(name);
+        const forced = typeof policy.toolChoice === 'object' && isAction(policy.toolChoice.toolName) ? policy.toolChoice.toolName : null;
+        const allowed = policy.activeTools?.filter(isAction);
+        stepActions = {
+          forced,
+          only: allowed && allowed.length < actionIds.length ? new Set(allowed) : null,
+        };
+        const constraints = {
+          ...(policy.toolChoice ? { toolChoice: forced ? ({ type: 'tool', toolName: UI_ACT_TOOL } as const) : policy.toolChoice } : {}),
+          ...(policy.activeTools
+            ? {
+                activeTools: [
+                  ...policy.activeTools.filter((n) => !isAction(n)),
+                  ...(allowed && allowed.length > 0 && !policy.activeTools.includes(UI_ACT_TOOL) ? [UI_ACT_TOOL] : []),
+                ],
+              }
+            : {}),
+        };
         // The policy's note goes after the system prompt, for this step only.
         // ai carries an instructions override forward to later steps, so a step
         // without a note sets the plain instructions back.
+        // So does the turn's record, once a call has not succeeded.
+        const notes = [note, forced ? `This step: call ${UI_ACT_TOOL} with action "${forced}".` : null, ledger.note()].filter(
+          (n): n is string => !!n,
+        );
         return {
           ...constraints,
-          instructions: note ? [instructions, { role: 'system' as const, content: note }] : instructions,
+          instructions: notes.length
+            ? [instructions, ...notes.map((content) => ({ role: 'system' as const, content }))]
+            : instructions,
         };
       },
       onStepEnd: async ({ text, toolCalls }) => {
@@ -782,25 +1069,8 @@ export async function runAgentTurn(
     responseMessageCount += response.messages.length;
     conversation = [...conversation, ...response.messages];
 
-    const askedUser = steps.some((s: { toolCalls?: Array<{ toolName: string }> }) =>
-      s.toolCalls?.some((tc) => (USER_INPUT_TOOLS as readonly string[]).includes(tc.toolName)),
-    );
-    const next = pendingSurfaces as OUISurface[] | null;
-    if (next && !askedUser && !approvalHold && allSteps.length < maxRounds) {
-      log('info', 'agent:ui', 'The page changed; continuing the turn with its actions', {
-        turnId,
-        from: currentSurfaces.map((s) => s.id),
-        to: next.map((s) => s.id),
-      });
-      currentSurfaces = next;
-      pendingSurfaces = null;
-      continue;
-    }
-    if (next) {
-      // The turn ends here anyway; the next turn starts from the client's new snapshot.
-      currentSurfaces = next;
-      pendingSurfaces = null;
-    }
+    // The model's tools no longer change with the page (ADR-0245 §2.2): what
+    // the page offers reaches it in each answer, so the turn runs as one segment.
     break;
   }
 
@@ -852,6 +1122,8 @@ export async function runAgentTurn(
     promptTokens: usage.promptTokens,
     cacheReadTokens: usage.cacheReadTokens,
     cacheWriteTokens: usage.cacheWriteTokens,
+    // How the page was worked (ADR-0245 §2.6).
+    ...(client ? { ui: { ...uiCounts, blindRefusals: sight.refusals(), definitionsHeld: heldDefinitions.size, stopped: sight.stopped() } } : {}),
   });
 
   await config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TURN_COMPLETE, {
@@ -888,24 +1160,29 @@ export async function runAgentTurn(
 }
 
 /**
- * Put the client's page state on the user's message: which surfaces are
- * mounted and their latest observations. The model reads it as part of what
- * the user said, where it is true for this message only.
+ * Put the client's page on the user's message: what it offers, as an index of
+ * its actions, and its latest observations. The model reads it as part of what
+ * the user said, where it is true for this message only. The index has its own
+ * budget, so it never crowds the page's state out (ADR-0245 §2.2).
  */
 function withPageState(
   messages: ModelMessage[],
-  snapshot: OUISurfaceSnapshot | null,
+  client: ClientPage | null,
   maxChars: number,
+  maxIndexChars: number,
 ): ModelMessage[] {
-  if (!snapshot || snapshot.surfaces.length === 0) return messages;
+  if (!client || client.page.length === 0) return messages;
   const last = messages[messages.length - 1];
   if (!last || last.role !== 'user') return messages;
 
-  const observations = observationsText(snapshot.observations, maxChars);
+  const observations = observationsText(client.observations, maxChars, { schemas: observationSchemas(client.page) });
+  const notShown = client.fit?.observations?.length ? fitNotes(client.fit.observations) : [];
   const pageState = [
     '<page_state>',
-    `The user's screen offers: ${snapshot.surfaces.map((s) => `${s.name} (${s.id})`).join(', ')}.`,
+    `The user's screen offers these surfaces and actions. Run an action with ${UI_ACT_TOOL}; ${UI_DESCRIBE_TOOL} says what one takes.`,
+    indexText(client.page, maxIndexChars),
     `Current values: ${observations}`,
+    ...(notShown.length ? [`Not shown: ${notShown.join(' ')}`] : []),
     '</page_state>',
   ].join('\n');
 
@@ -931,6 +1208,17 @@ function convertHistoryToCoreMessages(history: TurnHistoryMessage[], currentCont
   // AND all tool call IDs from assistant messages (to validate results)
   const answeredToolCallIds = new Set<string>();
   const knownToolCallIds = new Set<string>();
+  // A call has one result. A call that waited for the user's approval has two
+  // rows in the store — "waiting for approval", then what the approved run
+  // returned (continueApproval) — and the model is given the later one, where
+  // the first stands: straight after the call.
+  const firstResultAt = new Map<string, number>();
+  const lastResult = new Map<string, string>();
+  history.forEach((msg, idx) => {
+    if (msg.role !== 'tool' || !msg.tool_call_id) return;
+    if (!firstResultAt.has(msg.tool_call_id)) firstResultAt.set(msg.tool_call_id, idx);
+    lastResult.set(msg.tool_call_id, msg.content);
+  });
   for (const msg of history) {
     if (msg.role === 'tool' && msg.tool_call_id) {
       answeredToolCallIds.add(msg.tool_call_id);
@@ -1038,8 +1326,11 @@ function convertHistoryToCoreMessages(history: TurnHistoryMessage[], currentCont
         name: msg.name,
       });
 
+      // A later result of the same call was put where the first stood.
+      if (firstResultAt.get(msg.tool_call_id) !== idx) continue;
+
       // Tool result output must use discriminated format: { type: 'text', value: string }
-      const outputValue = msg.content || 'acknowledged';
+      const outputValue = lastResult.get(msg.tool_call_id) || 'acknowledged';
       messages.push({
         role: 'tool' as const,
         content: [{

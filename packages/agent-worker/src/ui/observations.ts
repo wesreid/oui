@@ -59,7 +59,16 @@ function withoutKeptWhole(observations: OUIObservationSnapshot): OUIObservationS
   );
 }
 
-/** Rows past this in any list are summed up as "… and N more" at the first step of fitting an over-budget page state. */
+/**
+ * The largest page state the model is given when the host sets none
+ * (`ui.maxObservationChars`): the user's message's, and each UI action's
+ * answer's. About 3,000 tokens: room for a document of a hundred rows as index
+ * rows with the few being worked on whole (ADR-0244 §2.1). It was 6,000, which
+ * a board of six artboards filled.
+ */
+export const DEFAULT_PAGE_STATE_CHARS = 12_000;
+
+/** Rows past this in any list are given as index rows at the first step of fitting an over-budget page state. */
 export const MAX_LIST_ROWS = 20;
 
 /**
@@ -68,8 +77,28 @@ export const MAX_LIST_ROWS = 20;
  */
 export const WHOLE_LIST_ROWS = 5;
 
-/** How far long lists are shortened, step by step; 0 gives only how many rows there are. */
-const LIST_STEPS = [MAX_LIST_ROWS, 10, WHOLE_LIST_ROWS, 0] as const;
+/**
+ * One step of fitting: how many rows of a long list are kept whole, and how
+ * many of the rest are kept as index rows (ADR-0244 §2.1). Rows are cut to
+ * their index before any is dropped, so the model can still name every row;
+ * only when the index itself does not fit is it shortened, and then it says
+ * how the rest are read.
+ */
+interface ListStep {
+  whole: number;
+  index: number;
+}
+
+const LIST_STEPS: readonly ListStep[] = [
+  { whole: MAX_LIST_ROWS, index: Infinity },
+  { whole: 10, index: Infinity },
+  { whole: WHOLE_LIST_ROWS, index: Infinity },
+  { whole: 0, index: Infinity },
+  { whole: 0, index: 100 },
+  { whole: 0, index: 40 },
+  { whole: 0, index: 12 },
+  { whole: 0, index: 0 },
+];
 
 /**
  * What a page state reports that is never shortened: its fields, what is
@@ -92,21 +121,93 @@ function surfaceRank(surfaceId: string, acting: string | undefined): number {
   return 3;
 }
 
-/** A row the person has chosen (a selected card, the variant in use): kept however short its list gets. */
-const isChosen = (row: unknown) =>
-  row !== null && typeof row === 'object' && (row as { value?: unknown }).value === true;
+/** The annotation of an observation's schema that declares a list of addressable rows (oui-contract `x-rows`). */
+interface RowListDeclaration {
+  ref: string;
+  title: string;
+  index?: readonly string[];
+  selection?: string;
+}
 
-/** A list shortened to `limit` rows plus the chosen ones and how many more; only a count at 0. */
-function shortenRows(rows: unknown[], limit: number): unknown[] {
-  if (rows.length <= Math.max(limit, WHOLE_LIST_ROWS)) return rows;
-  if (limit === 0) {
-    const chosen = rows.filter(isChosen);
-    const count = `${rows.length - chosen.length}${chosen.length ? ' more' : ''} rows`;
-    return [...chosen, `${count}, not listed to fit the page state; name a row by its title`];
+/** A schema node, as far as fitting reads it. */
+interface SchemaNode {
+  properties?: Record<string, SchemaNode>;
+  items?: SchemaNode;
+  'x-rows'?: RowListDeclaration;
+}
+
+/** Each surface's observation schemas, by surface id then observation id: where the row lists are declared. */
+export type ObservationSchemas = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+
+/** The observation schemas of a turn's surfaces, for fitting their page state. */
+export function observationSchemas(
+  surfaces: readonly { id: string; observations?: readonly { id: string; schema?: unknown }[] }[],
+): ObservationSchemas {
+  return Object.fromEntries(
+    surfaces.map((s) => [s.id, Object.fromEntries((s.observations ?? []).map((o) => [o.id, o.schema]))]),
+  );
+}
+
+/** How a list's rows are indexed and which of them are chosen; null for a list of anything else. */
+interface RowShape {
+  /** A row cut to what names it. */
+  index(row: Record<string, unknown>): Record<string, unknown>;
+  chosen(row: unknown): boolean;
+  /** How the rows an index leaves out are read. */
+  rest: string;
+}
+
+/** A page list's row (oui-bindings `PageStateRow`): addressed by its key, called by its title, chosen when its value is true. */
+const PAGE_ROW: RowShape = {
+  index: (row) => ({ key: row.key, title: row.title }),
+  chosen: (row) => row !== null && typeof row === 'object' && (row as { value?: unknown }).value === true,
+  rest: 'name a row by its title',
+};
+
+const isPageRow = (row: unknown) =>
+  row !== null &&
+  typeof row === 'object' &&
+  typeof (row as { key?: unknown }).key === 'string' &&
+  typeof (row as { title?: unknown }).title === 'string';
+
+/** A declared list's rows: addressed and called by the properties it names, chosen when selected or just changed. */
+function declaredShape(declaration: RowListDeclaration, chosenRefs: ReadonlySet<string>): RowShape {
+  const kept = [declaration.ref, declaration.title, ...(declaration.index ?? [])];
+  return {
+    index: (row) => Object.fromEntries(kept.filter((key) => row[key] !== undefined).map((key) => [key, row[key]])),
+    chosen: (row) =>
+      row !== null && typeof row === 'object' && chosenRefs.has(String((row as Record<string, unknown>)[declaration.ref])),
+    rest: 'read them with this surface’s query tool, or one with its inspect tool',
+  };
+}
+
+/** A row the person has chosen (a selected card, the variant in use): kept however short its list gets. */
+const isChosenValue = PAGE_ROW.chosen;
+
+/**
+ * A list fitted to a step: the first `whole` rows and the chosen ones whole,
+ * up to `index` of the rest as index rows, and how many are left out with how
+ * to read them. A list whose rows cannot be indexed keeps only how many more
+ * there are.
+ */
+function shortenRows(rows: unknown[], step: ListStep, shape: RowShape | null): unknown[] {
+  if (rows.length <= Math.max(step.whole, WHOLE_LIST_ROWS)) return rows;
+  const chosen = shape?.chosen ?? isChosenValue;
+  const whole: unknown[] = [];
+  const rest: unknown[] = [];
+  rows.forEach((row, i) => (i < step.whole || chosen(row) ? whole : rest).push(row));
+  if (!shape) {
+    if (step.whole === 0) {
+      const count = `${rest.length}${whole.length ? ' more' : ''} rows`;
+      return [...whole, `${count}, not listed to fit the page state; name a row by its title`];
+    }
+    return [...whole, `… and ${rest.length} more`];
   }
-  const kept = rows.slice(0, limit);
-  const chosen = rows.slice(limit).filter(isChosen);
-  return [...kept, ...chosen, `… and ${rows.length - kept.length - chosen.length} more`];
+  const indexed = rest.slice(0, step.index).map((row) => shape.index(row as Record<string, unknown>));
+  const left = rest.length - indexed.length;
+  if (left === 0) return [...whole, ...indexed];
+  const count = whole.length + indexed.length > 0 ? `… and ${left} more rows` : `${left} rows`;
+  return [...whole, ...indexed, `${count}, not listed to fit the page state; ${shape.rest}`];
 }
 
 /**
@@ -114,7 +215,7 @@ function shortenRows(rows: unknown[], limit: number): unknown[] {
  * card) are shortened like the list; the page's own facts, such as those of the
  * item open in a detail panel, are kept whole.
  */
-function shortenShown(shown: unknown[], limit: number): unknown[] {
+function shortenShown(shown: unknown[], step: ListStep): unknown[] {
   const perList = new Map<string, unknown[]>();
   const own: unknown[] = [];
   for (const entry of shown) {
@@ -125,24 +226,43 @@ function shortenShown(shown: unknown[], limit: number): unknown[] {
       perList.set(id, [...(perList.get(id) ?? []), entry]);
     }
   }
-  return [...own, ...[...perList.values()].flatMap((rows) => shortenRows(rows, limit))];
+  return [...own, ...[...perList.values()].flatMap((rows) => shortenRows(rows, { whole: step.whole, index: 0 }, null))];
+}
+
+/** What fitting a value needs beside the step: its schema, and the rows an action just changed. */
+interface FitContext {
+  step: ListStep;
+  changed: ReadonlySet<string>;
+}
+
+/** How a list's rows are indexed: as its schema declares, as a page list's rows are, or not at all. */
+function shapeOf(rows: unknown[], schema: SchemaNode | undefined, selected: readonly string[], ctx: FitContext): RowShape | null {
+  const declaration = schema?.['x-rows'];
+  if (declaration) return declaredShape(declaration, new Set([...selected, ...ctx.changed]));
+  return rows.length > 0 && rows.every(isPageRow) ? PAGE_ROW : null;
 }
 
 /**
- * The value with every long list shortened to `limit` (see shortenRows); fields,
+ * The value with every long list fitted to the step (see shortenRows); fields,
  * what is unavailable or busy, and the page's own facts are left whole.
  */
-function compactValue(value: unknown, limit: number): unknown {
+function compactValue(value: unknown, schema: SchemaNode | undefined, ctx: FitContext, selected: readonly string[] = []): unknown {
   if (Array.isArray(value)) {
-    const rows = value.map((v) => compactValue(v, limit));
-    return shortenRows(rows, limit);
+    const shape = shapeOf(value, schema, selected, ctx);
+    // A row kept whole has its own lists fitted; a row cut to its index does not need them.
+    const given = new Set(value);
+    return shortenRows(value, ctx.step, shape).map((row) => (given.has(row) ? compactValue(row, schema?.items, ctx) : row));
   }
   if (value !== null && typeof value === 'object') {
+    const object = value as Record<string, unknown>;
     return Object.fromEntries(
-      Object.entries(value).map(([key, v]) => {
+      Object.entries(object).map(([key, v]) => {
         if (FIELD_KEYS.has(key)) return [key, v];
-        if (key === 'shown' && Array.isArray(v)) return [key, shortenShown(v, limit)];
-        return [key, compactValue(v, limit)];
+        if (key === 'shown' && Array.isArray(v)) return [key, shortenShown(v, ctx.step)];
+        const child = schema?.properties?.[key];
+        const selection = child?.['x-rows']?.selection;
+        const chosen = selection && Array.isArray(object[selection]) ? (object[selection] as unknown[]).map(String) : [];
+        return [key, compactValue(v, child, ctx, chosen)];
       }),
     );
   }
@@ -151,8 +271,8 @@ function compactValue(value: unknown, limit: number): unknown {
 
 interface Fitted {
   values: Record<string, unknown>;
-  /** The shortest list step used on any surface, when lists were shortened. */
-  listStep?: number;
+  /** The last step used on the surfaces other than the acting one, when lists were shortened. */
+  listStep?: ListStep;
   /** Surfaces left out to fit, least important first. */
   omitted: string[];
   fits: boolean;
@@ -160,35 +280,56 @@ interface Fitted {
 
 const size = (value: unknown) => JSON.stringify(value).length;
 
+/** What fitting reads beside the observations: where the row lists are declared, and the rows an action just changed. */
+export interface FitOptions {
+  schemas?: ObservationSchemas;
+  /** Refs of the rows the answered action changed: kept whole, like the selection. */
+  changed?: readonly string[];
+}
+
 /**
  * The page state over budget, fitted step by step, cutting the least important
- * first. The surfaces are ordered by rank. Then long lists are shortened (20
- * rows, 10, 5, then only a count), on every other surface a step before the
- * surface the action acted on. Lists of five rows or fewer, every field, what is
- * unavailable or busy, the page's own facts and chosen rows are never shortened,
- * so the item open in a detail panel stays whole beside a long list. Then whole
- * surfaces are left out, the shells first, never the acting one. Only if that
- * still does not fit is the rest cut.
+ * first. The surfaces are ordered by rank. Then long lists are shortened: 20
+ * rows kept whole, then 10, 5, then none, the rest cut to index rows (what
+ * each is addressed and called by); then the index itself, to 100 rows, 40, 12
+ * and none, saying how the rest are read. Every other surface is a step ahead of
+ * the surface the action acted on. Lists of five rows or fewer, every field,
+ * what is unavailable or busy, the page's own facts and chosen rows are never
+ * shortened, so the item open in a detail panel and the layer just changed
+ * stay whole beside a long list. Then whole surfaces are left out, the shells
+ * first, never the acting one. Only if that still does not fit is the rest cut.
  */
-function fitted(observations: OUIObservationSnapshot, maxChars: number, acting: string | undefined): Fitted {
+function fitted(
+  observations: OUIObservationSnapshot,
+  maxChars: number,
+  acting: string | undefined,
+  options: FitOptions,
+): Fitted {
   const base = Object.fromEntries(
     Object.entries(withoutKeptWhole(observations)).sort(([a], [b]) => surfaceRank(a, acting) - surfaceRank(b, acting)),
   ) as Record<string, unknown>;
   const actingPresent = acting !== undefined && acting in base;
+  const changed = new Set(options.changed ?? []);
 
-  // Each step is (others' limit, the acting surface's limit): the acting one lags a step behind.
-  const steps: Array<[number, number]> = [];
-  LIST_STEPS.forEach((limit, i) => {
-    if (actingPresent && i > 0) steps.push([limit, LIST_STEPS[i - 1]]);
-    steps.push([limit, limit]);
+  // Each step is (others' step, the acting surface's step): the acting one lags a step behind.
+  const steps: Array<[ListStep, ListStep]> = [];
+  LIST_STEPS.forEach((step, i) => {
+    if (actingPresent && i > 0) steps.push([step, LIST_STEPS[i - 1]]);
+    steps.push([step, step]);
   });
 
-  let values = base;
-  let listStep: number | undefined;
-  for (const [others, own] of steps) {
-    values = Object.fromEntries(
-      Object.entries(base).map(([id, v]) => [id, compactValue(v, id === acting ? own : others)]),
+  const fit = (surfaceId: string, value: unknown, step: ListStep) =>
+    Object.fromEntries(
+      Object.entries((value ?? {}) as Record<string, unknown>).map(([observationId, v]) => [
+        observationId,
+        compactValue(v, options.schemas?.[surfaceId]?.[observationId] as SchemaNode | undefined, { step, changed }),
+      ]),
     );
+
+  let values = base;
+  let listStep: ListStep | undefined;
+  for (const [others, own] of steps) {
+    values = Object.fromEntries(Object.entries(base).map(([id, v]) => [id, fit(id, v, id === acting ? own : others)]));
     listStep = others;
     if (size(values) <= maxChars) return { values, listStep, omitted: [], fits: true };
   }
@@ -208,12 +349,17 @@ function fitted(observations: OUIObservationSnapshot, maxChars: number, acting: 
 
 /** What fitting did, in words. */
 function fitSummary(fit: Fitted, maxChars: number, whole: string[], acted: boolean): string {
+  const step = fit.listStep;
   const lists =
-    fit.listStep === undefined
+    step === undefined
       ? ''
-      : fit.listStep === 0
-      ? `lists longer than ${WHOLE_LIST_ROWS} rows are given as a count`
-      : `long lists are shortened, to as few as ${Math.max(fit.listStep, WHOLE_LIST_ROWS)} rows, with how many more`;
+      : step.whole > 0
+      ? `long lists keep their first ${Math.max(step.whole, WHOLE_LIST_ROWS)} rows whole and the rest as index rows (what each is addressed and called by)`
+      : step.index > 0
+      ? `rows of lists longer than ${WHOLE_LIST_ROWS} are given as index rows (what each is addressed and called by)${
+          Number.isFinite(step.index) ? `, the first ${step.index} of them` : ''
+        }`
+      : `lists longer than ${WHOLE_LIST_ROWS} rows are given as a count, with how to read them`;
   const parts = [
     lists,
     'fields, the page’s own facts and chosen rows are kept whole',
@@ -229,19 +375,20 @@ function fitSummary(fit: Fitted, maxChars: number, whole: string[], acted: boole
 /**
  * The observations as the model receives them: whole when they fit. Over
  * budget, every surface's problems and job statuses are kept whole; the rest is
- * fitted (see fitted): long lists shortened first, the page it acted on first
- * and kept whole, and only if that still does not fit is the rest cut, saying so.
+ * fitted (see fitted): long lists cut to index rows first, the page it acted on
+ * first and kept whole, and only if that still does not fit is the rest cut, saying so.
  */
 export function boundObservations(
   observations: OUIObservationSnapshot,
   maxChars: number,
   actingSurfaceId?: string,
+  options: FitOptions = {},
 ): unknown {
   const json = JSON.stringify(observations);
   if (json.length <= maxChars) return observations;
   const problems = surfaceProblems(observations);
   const jobs = jobStatuses(observations);
-  const fit = fitted(observations, maxChars, actingSurfaceId);
+  const fit = fitted(observations, maxChars, actingSurfaceId, options);
   const whole = [problems ? 'every surface’s problems' : '', jobs ? 'every job’s status' : ''].filter(Boolean);
   return {
     truncated: true,
@@ -253,12 +400,12 @@ export function boundObservations(
 }
 
 /** The same, as the text of a `<page_state>` block. */
-export function observationsText(observations: OUIObservationSnapshot, maxChars: number): string {
+export function observationsText(observations: OUIObservationSnapshot, maxChars: number, options: FitOptions = {}): string {
   const json = JSON.stringify(observations);
   if (json.length <= maxChars) return json;
   const problems = surfaceProblems(observations);
   const jobs = jobStatuses(observations);
-  const fit = fitted(observations, maxChars, undefined);
+  const fit = fitted(observations, maxChars, undefined, options);
   const rest = JSON.stringify(fit.values);
   const head =
     (problems ? `Problems (in full): ${JSON.stringify(problems)}\n` : '') +

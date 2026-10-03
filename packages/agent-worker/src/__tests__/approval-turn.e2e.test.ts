@@ -53,7 +53,7 @@ describe.each<HostAdapter>(['lambda', 'container'])('on the %s adapter', (adapte
     const turn = (n: number) => `appr-${adapter}-${n}`;
 
     // ── Turn 1: the model sends the report. The turn stops at the preview. ──
-    const m1 = respondingOpenAI((_req, i) => (i === 0 ? { toolCalls: [{ id: 'call_send_1', name: 'reports_send', args: cfo }] } : undefined));
+    const m1 = respondingOpenAI((_req, i) => (i === 0 ? { toolCalls: [{ id: 'call_send_1', name: 'ui_act', args: { action: 'reports_send', input: cfo } }] } : undefined));
     const t1 = await runFixtureTurn(product, {
       adapter,
       model: m1.model,
@@ -65,9 +65,12 @@ describe.each<HostAdapter>(['lambda', 'container'])('on the %s adapter', (adapte
     expect(t1.outcome.status).toBe('completed');
     expect(m1.requests).toHaveLength(1); // no round after the call: the turn ended
 
-    const offered = m1.requests[0].tools?.find((t) => t.function.name === 'reports_send')?.function.description ?? '';
-    expect(offered).toMatch(/approval card/i);
-    expect(offered).not.toMatch(/Confirm with the user/);
+    // The model is given three UI tools, never one per action, and the page's
+    // index says which actions need approval: the card is the confirmation.
+    expect(m1.requests[0].tools?.map((t) => t.function.name).sort()).toEqual(['ui_act', 'ui_describe', 'ui_read']);
+    const offered = read(m1.requests).split('\n').find((line) => line.startsWith('- reports_send: ')) ?? '';
+    expect(offered).toMatch(/needs approval/);
+    expect(said(m1.requests)).not.toMatch(/Confirm with the user/);
 
     const [preview] = approvalEvents(tab.turnEvents(turn(1)));
     expect(preview).toMatchObject({
@@ -94,7 +97,7 @@ describe.each<HostAdapter>(['lambda', 'container'])('on the %s adapter', (adapte
     expect(tab.dispatches.filter((d) => d.actionId === 'reports_send')).toEqual([]);
 
     const [persisted1] = t1.persisted;
-    expect(persisted1.messages[0].toolCalls).toEqual([{ id: 'call_send_1', name: 'reports_send', arguments: cfo }]);
+    expect(persisted1.messages[0].toolCalls).toEqual([{ id: 'call_send_1', name: 'ui_act', arguments: { action: 'reports_send', input: cfo } }]);
     expect(JSON.parse(persisted1.messages[1].content!)).toMatchObject({ awaitingApproval: true, approvalId: 'call_send_1' });
     expect(await product.internal(`/internal/approvals/call_send_1?userId=${FIXTURE_TURN.userId}`)).toMatchObject({
       status: 200,
@@ -129,19 +132,36 @@ describe.each<HostAdapter>(['lambda', 'container'])('on the %s adapter', (adapte
     expect(m2.requests).toHaveLength(1);
     expect(read(m2.requests)).toContain('"sent":true');
     expect(read(m2.requests)).toMatch(/approved "Send a report"/);
+    // The approved run is persisted as the result of the call the model made: no second call.
     expect(t2.persisted[0].messages).toEqual([
-      { role: 'assistant', content: null, toolCalls: [{ id: 'call_send_1-approved', name: 'reports_send', arguments: cfo }] },
-      expect.objectContaining({ role: 'tool', toolCallId: 'call_send_1-approved', name: 'reports_send' }),
+      expect.objectContaining({ role: 'tool', toolCallId: 'call_send_1', name: 'ui_act' }),
       { role: 'assistant', content: 'Sent the Q3 report to cfo@desk.example.' },
     ]);
-    expect(JSON.parse(t2.persisted[0].messages[1].content!)).toMatchObject({ result: { sent: true, to: 'cfo@desk.example' } });
+    expect(JSON.parse(t2.persisted[0].messages[0].content!)).toMatchObject({ result: { sent: true } });
+
+    // ── What the model is given: ONE call, with ONE result ────────────────
+    // Shown a second call beside its own, the assistant warned of a duplicate (dev, 2026-10-03).
+    const given = m2.requests[0].messages as Array<{ role: string; content?: unknown; tool_call_id?: string; tool_calls?: Array<{ id: string }> }>;
+    const calls = given.flatMap((m) => m.tool_calls ?? []).map((c) => c.id);
+    expect(calls).toEqual(['call_send_1']);
+    const results = given.filter((m) => m.role === 'tool');
+    expect(results.map((m) => m.tool_call_id)).toEqual(['call_send_1']);
+    // Its result is the approved run's, where "waiting for approval" stood: straight after the call.
+    expect(String(results[0].content)).toContain('"sent":true');
+    expect(read(m2.requests)).not.toContain('awaitingApproval');
+    expect(read(m2.requests)).not.toContain('-approved');
+    expect(given.indexOf(results[0])).toBe(given.findIndex((m) => m.tool_calls?.length) + 1);
+    // The note says so, on the user's message, which is last.
+    expect(given[given.length - 1].role).toBe('user');
+    expect(read(m2.requests)).toMatch(/it is one call, run once/);
+    expect(JSON.parse(t2.persisted[0].messages[0].content!)).toMatchObject({ result: { sent: true, to: 'cfo@desk.example' } });
     expect(tab.turnEvents(turn(2)).map((e) => e.event)).toEqual(
       expect.arrayContaining([AGENT_SOCKET_EVENTS.TOOL_CALL_STARTED, AGENT_SOCKET_EVENTS.TOOL_CALL_COMPLETE]),
     );
     expect((await product.internal(`/internal/approvals/call_send_1?userId=${FIXTURE_TURN.userId}`)).status).toBe(404);
 
     // ── Turn 3: other arguments are a new call, and need their own approval ─
-    const m3 = respondingOpenAI((_req, i) => (i === 0 ? { toolCalls: [{ id: 'call_send_2', name: 'reports_send', args: ceo }] } : undefined));
+    const m3 = respondingOpenAI((_req, i) => (i === 0 ? { toolCalls: [{ id: 'call_send_2', name: 'ui_act', args: { action: 'reports_send', input: ceo } }] } : undefined));
     const t3 = await runFixtureTurn(product, {
       adapter,
       model: m3.model,
@@ -218,7 +238,7 @@ describe.each<HostAdapter>(['lambda', 'container'])('on the %s adapter', (adapte
     const conversation = new FixtureConversation();
     const turn = (n: number) => `late-join-${adapter}-${n}`;
     const id = `call_send_late_${adapter}`;
-    const m1 = respondingOpenAI((_req, i) => (i === 0 ? { toolCalls: [{ id, name: 'reports_send', args: cfo }] } : undefined));
+    const m1 = respondingOpenAI((_req, i) => (i === 0 ? { toolCalls: [{ id, name: 'ui_act', args: { action: 'reports_send', input: cfo } }] } : undefined));
     const t1 = await runFixtureTurn(product, {
       adapter,
       model: m1.model,
@@ -242,7 +262,7 @@ describe.each<HostAdapter>(['lambda', 'container'])('on the %s adapter', (adapte
     expect(t2.outcome.status).toBe('completed');
     expect(t1.tab.dispatches.filter((d) => d.requestId === id)).not.toHaveLength(0);
     expect(read(m2.requests)).toContain('"sent":true');
-    expect(JSON.parse(t2.persisted[0].messages[1].content!)).toMatchObject({ result: { sent: true } });
+    expect(JSON.parse(t2.persisted[0].messages[0].content!)).toMatchObject({ result: { sent: true } });
   }, 30_000);
 
   it('an expired approval runs nothing, and the model is told why', async () => {

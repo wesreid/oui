@@ -14,6 +14,10 @@ export const CONFORMANCE_RULES = {
   'callbacks-accounted': 'Every export that takes a callback is in the table, or excluded with a reason.',
   'run-returns-result': 'Every binding’s `run` returns its callback’s result, and a job control reports `pending.jobId`.',
   'actions-mounted': 'Every generated manifest action has a mounted handler on the page that offers it.',
+  'lists-readable':
+    'Every list a room reports is declared with how its rows are addressed, and its `query` and `inspect` return what the room holds (ADR-0244 §2.2).',
+  'within-budgets':
+    'Every action’s index entry and definition, and every surface’s index, is within the size the assistant’s transport carries (ADR-0245 §2.6).',
   'tier2-forwards-value': 'Every tier 2 wrapper forwards `valueFrom` correctly.',
   'tier2-reports-uncontrolled': 'Every use of a mapped control that does not pass its `controlled` prop is reported.',
 } as const;

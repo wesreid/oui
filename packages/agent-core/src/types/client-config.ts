@@ -24,6 +24,12 @@ export interface AgentMessageContext {
   currentPath?: string;
   visibleAnnotations?: ViewAnnotationState[];
   metadata?: Record<string, unknown>;
+  /**
+   * The user's IANA time zone as their browser reports it ("Europe/Paris").
+   * The worker tells the model today's date and the time in this zone, so
+   * "today" and "yesterday" are the user's days, not the server's.
+   */
+  timeZone?: string;
 }
 
 /**

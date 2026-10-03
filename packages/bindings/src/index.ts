@@ -16,6 +16,7 @@
 export * from './json-schema.js';
 export * from './effect.js';
 export * from './room.js';
+export * from './readers.js';
 export * from './binding.js';
 export * from './controls.js';
 export * from './manifest.js';
@@ -23,6 +24,7 @@ export * from './registry.js';
 export * from './interactive.js';
 export * from './package-declaration.js';
 export * from './tier2.js';
+export * from './budgets.js';
 
 // The rest of the contract an integrator builds against: the tier 2 mapping,
 // a package's `oui` declarations, and `oui.config.json`.

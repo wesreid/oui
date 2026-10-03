@@ -30,10 +30,16 @@ function Probe() {
   return null;
 }
 
+/** What each turn was sent with. */
+const sent: Array<{ content: string; context?: { timeZone?: string; currentPath?: string } }> = [];
+
 function config(): AgentClientConfig {
   return {
     createConversation: async () => ({ conversationId: 'conv-1' }),
-    sendMessage: async () => ({ turnId: 'turn-1', socketRoom: 'agent:turn:turn-1', roomToken: 'tok-1' }),
+    sendMessage: async (request) => {
+      sent.push(request as (typeof sent)[number]);
+      return { turnId: 'turn-1', socketRoom: 'agent:turn:turn-1', roomToken: 'tok-1' };
+    },
     realtime: { url: 'wss://rt', getToken: () => 'jwt' },
   };
 }
@@ -116,5 +122,23 @@ describe('AgentProvider turn rooms', () => {
       await agent.sendMessage('something else');
     });
     expect(agent.presentedOptions).toBeNull();
+  });
+});
+
+describe('AgentProvider turn context', () => {
+  it('sends the user’s time zone with every turn, as their browser resolves it', async () => {
+    sent.length = 0;
+    const resolved = vi
+      .spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions')
+      .mockReturnValue({ timeZone: 'Pacific/Auckland' } as Intl.ResolvedDateTimeFormatOptions);
+    try {
+      await act(async () => {
+        await agent.sendMessage('what day is it?');
+      });
+    } finally {
+      resolved.mockRestore();
+    }
+    expect(sent).toHaveLength(1);
+    expect(sent[0].context?.timeZone).toBe('Pacific/Auckland');
   });
 });

@@ -1,4 +1,4 @@
-import type { AgentStoredMessage } from '@ouispec/agent-core';
+import { displayedToolCall, type AgentStoredMessage } from '@ouispec/agent-core';
 import type { AgentMessage } from './types.js';
 
 /** A stored tool result as the live stream carried it: parsed JSON when it is JSON. */
@@ -16,7 +16,8 @@ function parseResult(content: string | null): unknown {
  *
  * - a user or assistant message with text becomes that message;
  * - each tool an assistant message called becomes a completed tool message,
- *   in call order, as `intent_call` added it live;
+ *   in call order, as `intent_call` added it live: a UI action run through
+ *   `ui_act` is shown as that action, as the live stream named it;
  * - a stored `tool` message fills in its call's result (by `toolCallId`, else
  *   the next call without one), so a `present_options` choice renders again.
  *
@@ -34,12 +35,13 @@ export function storedToAgentMessages(stored: readonly AgentStoredMessage[]): Ag
         messages.push({ id: m.id, role: m.role === 'user' ? 'user' : 'assistant', content: m.content, timestamp });
       }
       for (const call of m.toolCalls ?? []) {
+        const shown = displayedToolCall(call);
         const toolMessage: AgentMessage = {
           id: `tool_${call.id}`,
           role: 'tool',
           content: null,
           timestamp,
-          toolCall: { id: call.id, name: call.name, status: 'complete' },
+          toolCall: { id: call.id, name: shown.name, ...(shown.arguments ? { arguments: shown.arguments } : {}), status: 'complete' },
         };
         messages.push(toolMessage);
         awaitingResult.push(toolMessage);

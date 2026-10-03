@@ -9,7 +9,8 @@ import type { AgentWorkerConfig, AgentTurnInput } from '../types.js';
 import type { RegisteredTool } from '../tools/types.js';
 import { createToolRegistry } from '../tools/types.js';
 import type { UIActionChannel } from '../ui/channel.js';
-import { readClientSnapshot, withoutClientSnapshot } from '../ui/snapshot.js';
+import { readClientPage, withoutClientSnapshot } from '../ui/snapshot.js';
+import { pageOf } from './support/page.js';
 
 // ─── Mock the `ai` module ────────────────────────────────────────────────────
 
@@ -109,7 +110,7 @@ beforeEach(() => {
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('UI tools from the client snapshot', () => {
-  it('gives the model one tool per mounted action, and the UI action wins a name over a host tool', async () => {
+  it('gives the model three UI tools whatever the page offers, and the page wins an action id over a host tool', async () => {
     const hostNavigate: RegisteredTool = {
       name: 'navigate',
       description: 'host navigate',
@@ -123,10 +124,15 @@ describe('UI tools from the client snapshot', () => {
     const { runAgentTurn } = await import('../orchestrator.js');
     await runAgentTurn(makeConfig(channel, [hostNavigate]), makeInput([shell, projects]));
 
+    // The model's tools do not grow with the page: it gets the index on the
+    // message, and three tools to work it with (ADR-0245 §2.2).
     const tools = seenOpts[0].tools;
-    expect(Object.keys(tools).sort()).toEqual(['navigate', 'projects_create']);
-    expect(tools.navigate.description).toContain('[UI · App Shell]');
-    expect(errors.mock.calls.some((c) => String(c[0]).includes('collide with host tools'))).toBe(true);
+    expect(Object.keys(tools).sort()).toEqual(['ui_act', 'ui_describe', 'ui_read']);
+    const message = String(seenOpts[0].messages.at(-1)!.content);
+    expect(message).toContain('- navigate: Go to a page (takes path: string)');
+    expect(message).toContain('- projects_create: Create a project (takes nothing)');
+    // The host's `navigate` would be a second thing with the action's id: withheld.
+    expect(errors.mock.calls.some((c) => String(c[0]).includes('Host tools collide with UI tools or action ids'))).toBe(true);
     errors.mockRestore();
   });
 
@@ -180,8 +186,8 @@ describe('a UI action is answered', () => {
     let modelSaw = '';
     segmentImpls = [
       async (opts) => {
-        modelSaw = await opts.tools.navigate.execute({ path: '/media-projects' }, { toolCallId: 'call-1' });
-        return [{ text: 'done', toolCalls: [{ toolName: 'navigate', toolCallId: 'call-1' }] }];
+        modelSaw = await opts.tools.ui_act.execute({ action: 'navigate', input: { path: '/media-projects' } }, { toolCallId: 'call-1' });
+        return [{ text: 'done', toolCalls: [{ toolName: 'ui_act', toolCallId: 'call-1' }] }];
       },
     ];
 
@@ -209,8 +215,8 @@ describe('a UI action is answered', () => {
     let modelSaw = '';
     segmentImpls = [
       async (opts) => {
-        modelSaw = await opts.tools.navigate.execute({ path: '/productions/new' }, { toolCallId: 'call-2' });
-        return [{ text: '', toolCalls: [{ toolName: 'navigate', toolCallId: 'call-2' }] }];
+        modelSaw = await opts.tools.ui_act.execute({ action: 'navigate', input: { path: '/productions/new' } }, { toolCallId: 'call-2' });
+        return [{ text: '', toolCalls: [{ toolName: 'ui_act', toolCallId: 'call-2' }] }];
       },
     ];
     const { runAgentTurn } = await import('../orchestrator.js');
@@ -226,8 +232,8 @@ describe('a UI action is answered', () => {
     let modelSaw = '';
     segmentImpls = [
       async (opts) => {
-        modelSaw = await opts.tools.navigate.execute({ path: '/x' }, { toolCallId: 'call-3' });
-        return [{ text: '', toolCalls: [{ toolName: 'navigate', toolCallId: 'call-3' }] }];
+        modelSaw = await opts.tools.ui_act.execute({ action: 'navigate', input: { path: '/x' } }, { toolCallId: 'call-3' });
+        return [{ text: '', toolCalls: [{ toolName: 'ui_act', toolCallId: 'call-3' }] }];
       },
     ];
     const { runAgentTurn } = await import('../orchestrator.js');
@@ -240,7 +246,7 @@ describe('a UI action is answered', () => {
     const outputs: string[] = [];
     segmentImpls = [
       async (opts) => {
-        for (let i = 0; i < 4; i++) outputs.push(await opts.tools.navigate.execute({ path: `/p${i}` }, { toolCallId: `q-${i}` }));
+        for (let i = 0; i < 4; i++) outputs.push(await opts.tools.ui_act.execute({ action: 'navigate', input: { path: `/p${i}` } }, { toolCallId: `q-${i}` }));
         return [{ text: '', toolCalls: [] }];
       },
     ];
@@ -250,9 +256,9 @@ describe('a UI action is answered', () => {
   });
 });
 
-describe('the tool set follows the page', () => {
-  it('after a navigation that changes the page, continues the same turn with the new page\'s tools', async () => {
-    const { channel } = makeChannel((req) => ({
+describe('the index follows the page', () => {
+  it('after a navigation that changes the page, the answer carries the new page\'s index and the turn carries on in it', async () => {
+    const { channel, dispatched } = makeChannel((req) => ({
       requestId: req.requestId,
       success: true,
       data: { navigatedTo: '/media-projects' },
@@ -260,38 +266,60 @@ describe('the tool set follows the page', () => {
       surfaces: [shell, projects],
     }));
     let modelSawNav = '';
+    let modelSawCreate = '';
     let stopAfterNav: boolean[] = [];
     segmentImpls = [
       async (opts) => {
-        modelSawNav = await opts.tools.navigate.execute({ path: '/media-projects' }, { toolCallId: 'nav' });
+        modelSawNav = await opts.tools.ui_act.execute({ action: 'navigate', input: { path: '/media-projects' } }, { toolCallId: 'nav' });
         stopAfterNav = opts.stopWhen.filter((c): c is () => boolean => typeof c === 'function').map((c) => c());
-        return [{ text: 'On it.', toolCalls: [{ toolName: 'navigate', toolCallId: 'nav' }] }];
-      },
-      async (opts) => {
-        await opts.tools.projects_create.execute({}, { toolCallId: 'create' });
-        return [{ text: 'Created.', toolCalls: [{ toolName: 'projects_create', toolCallId: 'create' }] }];
+        // The same response carries on: the action is looked up in the page as it is now.
+        modelSawCreate = await opts.tools.ui_act.execute({ action: 'projects_create', input: {} }, { toolCallId: 'create' });
+        return [
+          { text: 'On it.', toolCalls: [{ toolName: 'ui_act', toolCallId: 'nav' }] },
+          { text: 'Created.', toolCalls: [{ toolName: 'ui_act', toolCallId: 'create' }] },
+        ];
       },
     ];
 
     const { runAgentTurn } = await import('../orchestrator.js');
     const result = await runAgentTurn(makeConfig(channel), makeInput([shell, home]));
 
-    expect(stopAfterNav).toContain(true);
-    expect(JSON.parse(modelSawNav).page.toolsAdded).toEqual(['projects_create']);
-    expect(seenOpts).toHaveLength(2);
-    expect(Object.keys(seenOpts[1].tools).sort()).toEqual(['navigate', 'projects_create']);
-    // The second segment continues the conversation, including the first segment's response.
-    expect(seenOpts[1].messages.length).toBeGreaterThan(seenOpts[0].messages.length);
+    // The model's tools did not change, so nothing stops the turn for a new set of them.
+    expect(stopAfterNav).not.toContain(true);
+    expect(seenOpts).toHaveLength(1);
+    const nav = JSON.parse(modelSawNav);
+    expect(nav.page.nowOffers).toContain('Projects (projects-library): projects');
+    expect(nav.page.nowOffers).toContain('- projects_create: Create a project (takes nothing)');
+    expect(nav.page.noLongerOnScreen).toEqual(['Home']);
+    expect(JSON.parse(modelSawCreate)).toMatchObject({ page: { surfaces: ['App Shell', 'Projects'] } });
+    expect(dispatched.map((d) => d.request.actionId)).toEqual(['navigate', 'projects_create']);
     expect(result.rounds).toBe(2);
-    expect(result.newMessages.filter((m) => m.role === 'tool').map((m) => m.name)).toEqual(['navigate', 'projects_create']);
+    expect(result.newMessages.filter((m) => m.role === 'tool').map((m) => m.name)).toEqual(['ui_act', 'ui_act']);
   });
 
-  it('does not start a new segment when the page did not change', async () => {
+  it('refuses an action the page does not offer, naming what is near', async () => {
+    const { channel, dispatched } = makeChannel(() => null);
+    let modelSaw = '';
+    segmentImpls = [
+      async (opts) => {
+        modelSaw = await opts.tools.ui_act.execute({ action: 'projects', input: {} }, { toolCallId: 'x' });
+        return [{ text: '', toolCalls: [{ toolName: 'ui_act', toolCallId: 'x' }] }];
+      },
+    ];
+    const { runAgentTurn } = await import('../orchestrator.js');
+    await runAgentTurn(makeConfig(channel), makeInput([shell, projects]));
+    expect(JSON.parse(modelSaw)).toMatchObject({ success: false, notRun: true });
+    expect(modelSaw).toContain('is not an action of the page as it is now');
+    expect(modelSaw).toContain('projects_create');
+    expect(dispatched).toEqual([]);
+  });
+
+  it('names nothing new when the page did not change', async () => {
     const { channel } = makeChannel((req) => ({ requestId: req.requestId, success: true, timestamp: 1, surfaces: [shell, home] }));
     segmentImpls = [
       async (opts) => {
-        await opts.tools.navigate.execute({ path: '/home' }, { toolCallId: 'n' });
-        return [{ text: 'Already here.', toolCalls: [{ toolName: 'navigate', toolCallId: 'n' }] }];
+        await opts.tools.ui_act.execute({ action: 'navigate', input: { path: '/home' } }, { toolCallId: 'n' });
+        return [{ text: 'Already here.', toolCalls: [{ toolName: 'ui_act', toolCallId: 'n' }] }];
       },
     ];
     const { runAgentTurn } = await import('../orchestrator.js');
@@ -302,10 +330,19 @@ describe('the tool set follows the page', () => {
 
 describe('the client snapshot', () => {
   it('is read from context.oui, and a malformed one is an error rather than "no UI"', () => {
-    expect(readClientSnapshot({ currentPath: '/x' })).toBeNull();
-    expect(readClientSnapshot({ oui: { surfaces: [shell] } })).toEqual({ surfaces: [shell], observations: {} });
-    expect(() => readClientSnapshot({ oui: { surfaces: [{ id: 'x' }] } })).toThrow(/not an OUI surface manifest/);
-    expect(() => readClientSnapshot({ oui: 'nope' })).toThrow(/must be an object/);
+    expect(readClientPage({ currentPath: '/x' })).toBeNull();
+    // A client that sends definitions gives the same page as one that sends an index, and its definitions with it.
+    const full = readClientPage({ oui: { surfaces: [shell] } })!;
+    expect(full.page).toEqual(pageOf([shell]));
+    expect(full.observations).toEqual({});
+    expect([...full.held.values()]).toEqual(shell.actions);
+    const indexed = readClientPage({ oui: { index: pageOf([shell]) } })!;
+    expect(indexed.page).toEqual(full.page);
+    expect(indexed.held.size).toBe(0);
+    expect(() => readClientPage({ oui: { surfaces: [{ id: 'x' }] } })).toThrow(/not an OUI surface manifest/);
+    expect(() => readClientPage({ oui: { index: [{ id: 'x' }] } })).toThrow(/not an OUI surface index/);
+    expect(() => readClientPage({ oui: {} })).toThrow(/as index\[\] or surfaces\[\]/);
+    expect(() => readClientPage({ oui: 'nope' })).toThrow(/must be an object/);
   });
 
   it('is removed from the context that prompts render', () => {

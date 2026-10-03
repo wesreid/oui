@@ -20,6 +20,7 @@ export type {
   AgentMessage,
   AgentToolCallState,
   AgentDebugState,
+  AgentSessionRecord,
   DebugLogEntry,
   DebugLogLevel,
   DebugLogNamespace,

@@ -77,20 +77,30 @@ describe('the UI rules', () => {
     expect(rules).toMatch(
       /Never tell the user that something worked, is visible or renders unless the page state confirms it/
     );
-    expect(rules).toMatch(/fix it with the page's own tools, or tell the user plainly/);
+    expect(rules).toMatch(/fix it with the page's own actions, or tell the user plainly/);
     expect(rules).toMatch(/Importing a raw file is for the user's own files/);
   });
 
-  it('have the model offer only next steps its current tools can carry out, and say plainly when none can', () => {
+  it('have the model offer only next steps the page can carry out, and say plainly when none can', () => {
     expect(rules).toMatch(
-      /Only suggest a next step, or offer it as an option, when a tool in your current list can carry it out/
+      /Only suggest a next step, or offer it as an option, when an action in the page's index or a tool in your list can carry it out/
     );
     expect(rules).toMatch(/Never offer something no tool can do/);
     expect(rules).toMatch(
-      /When the user asks for something no tool can do, your reply opens with that: the first sentence says it cannot be done here, with no praise or preamble before it, and comes before any tool call/
+      /When the user asks for something no tool can do, your reply opens with that: the first sentence says it cannot be done here, with no praise or preamble before it, and comes before any action that changes the page/
     );
     expect(rules).toMatch(/Build a substitute only after the user says yes to it, and call it a substitute/);
-    expect(rules).toMatch(/no tool's description names, even if other tools could imitate it/);
+    expect(rules).toMatch(/no action's description names, even if other actions could imitate it/);
+    // A kind an action takes is in its description, not in the index: it is looked up before it is called impossible.
+    expect(rules).toMatch(/Look them up with ui_describe before you decide/);
+  });
+
+  it('have the model work from the index, describe before it guesses, and never change a page it cannot see', () => {
+    expect(rules).toMatch(/Run an action with ui_act: its id exactly as the index gives it/);
+    expect(rules).toMatch(/Otherwise call ui_describe first/);
+    expect(rules).toMatch(/Never guess a part you have not opened/);
+    expect(rules).toMatch(/Never change the page to find out what it shows/);
+    expect(rules).toMatch(/nothing that changes the page will run until you have read it/);
   });
 
   it('name no tool, route or page', () => {

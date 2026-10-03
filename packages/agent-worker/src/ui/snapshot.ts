@@ -6,43 +6,80 @@
  * The worker builds the turn's UI tools from it and from nothing else, so the
  * tools always describe the client that sent the turn.
  */
-import type { OUISurface, OUISurfaceSnapshot } from 'oui-spec/spec';
+import type { OUIFit, OUIObservationSnapshot, OUISurface } from 'oui-spec/spec';
 import { CLIENT_KNOWLEDGE_KEY } from './knowledge.js';
+import {
+  isFullSurface,
+  isSurfaceIndex,
+  pageFingerprint,
+  pageFromIndex,
+  pageFromSurfaces,
+  type HeldDefinitions,
+  type PageSurface,
+} from './page-index.js';
 
 /** The context key a UI client uses for its snapshot. */
 export const CLIENT_SNAPSHOT_KEY = 'oui';
 
+/** The client's page as the turn carried it. */
+export interface ClientPage {
+  /** What the page offers, in index (ADR-0245 §2.1), whichever form the client sent. */
+  page: PageSurface[];
+  observations: OUIObservationSnapshot;
+  /** The client's hash of what it sent, which the worker sends back as `knownSurfaces`. */
+  surfacesHash?: string;
+  /** What the client shortened so its snapshot fits (oui-spec §7.3.9). */
+  fit?: OUIFit;
+  /** The definitions a client that sent them came with: describing those actions needs no request. */
+  held: HeldDefinitions;
+}
+
 /**
- * Read and validate the snapshot from a turn's context. Returns null when the
- * turn carries none (a client with no UI), and throws when it carries one that
- * is malformed: a broken snapshot is a client bug that must not quietly turn
- * into "this client has no UI".
+ * Read and validate the client's page from a turn's context. Returns null when
+ * the turn carries none (a client with no UI), and throws when it carries one
+ * that is malformed: a broken snapshot is a client bug that must not quietly
+ * turn into "this client has no UI".
+ *
+ * A client sends its surfaces as `index` (oui-spec §7.3.8) or, before 0.7 or
+ * when made to, as `surfaces` with every definition. Both give the same page.
  */
-export function readClientSnapshot(context: Record<string, unknown> | null | undefined): OUISurfaceSnapshot | null {
+export function readClientPage(context: Record<string, unknown> | null | undefined): ClientPage | null {
   const raw = context?.[CLIENT_SNAPSHOT_KEY];
   if (raw === undefined || raw === null) return null;
   if (typeof raw !== 'object') {
     throw new Error(`[agent-sdk] context.${CLIENT_SNAPSHOT_KEY} must be an object`);
   }
-  const { surfaces, observations, surfacesHash } = raw as Record<string, unknown>;
-  if (!Array.isArray(surfaces)) {
-    throw new Error(`[agent-sdk] context.${CLIENT_SNAPSHOT_KEY}.surfaces must be an array`);
-  }
-  for (const [i, s] of surfaces.entries()) {
-    if (!isSurface(s)) {
-      throw new Error(
-        `[agent-sdk] context.${CLIENT_SNAPSHOT_KEY}.surfaces[${i}] is not an OUI surface manifest (id, name, description, actions[])`,
-      );
+  const { surfaces, index, observations, surfacesHash, fit } = raw as Record<string, unknown>;
+  const held: HeldDefinitions = new Map();
+  let page: PageSurface[];
+  if (Array.isArray(index)) {
+    for (const [i, s] of index.entries()) {
+      if (!isSurfaceIndex(s)) {
+        throw new Error(
+          `[agent-sdk] context.${CLIENT_SNAPSHOT_KEY}.index[${i}] is not an OUI surface index (id, name, description, index[])`,
+        );
+      }
     }
+    page = pageFromIndex(index);
+  } else if (Array.isArray(surfaces)) {
+    for (const [i, s] of surfaces.entries()) {
+      if (!isFullSurface(s)) {
+        throw new Error(
+          `[agent-sdk] context.${CLIENT_SNAPSHOT_KEY}.surfaces[${i}] is not an OUI surface manifest (id, name, description, actions[])`,
+        );
+      }
+    }
+    page = pageFromSurfaces(surfaces as OUISurface[], held);
+  } else {
+    throw new Error(`[agent-sdk] context.${CLIENT_SNAPSHOT_KEY} must carry its surfaces as index[] or surfaces[]`);
   }
   return {
-    surfaces: surfaces as OUISurface[],
+    page,
     observations:
-      observations && typeof observations === 'object'
-        ? (observations as OUISurfaceSnapshot['observations'])
-        : {},
-    // The hash the worker sends back as `knownSurfaces` (oui-spec 0.6), when the client sent one.
+      observations && typeof observations === 'object' ? (observations as OUIObservationSnapshot) : {},
     ...(typeof surfacesHash === 'string' && surfacesHash ? { surfacesHash } : {}),
+    ...(fit && typeof fit === 'object' ? { fit: fit as OUIFit } : {}),
+    held,
   };
 }
 
@@ -72,31 +109,5 @@ function omitKeys(
   return Object.fromEntries(Object.entries(context).filter(([k]) => !keys.includes(k)));
 }
 
-/**
- * A stable fingerprint of what the client can do: its surface ids and each
- * surface's action ids. Two snapshots with the same fingerprint give the
- * model the same tools.
- */
-export function capabilityFingerprint(surfaces: readonly OUISurface[]): string {
-  return surfaces
-    .map((s) => `${s.id}(${s.actions.map((a) => a.id).join(',')})`)
-    .join('|');
-}
-
-function isSurface(value: unknown): value is OUISurface {
-  if (!value || typeof value !== 'object') return false;
-  const s = value as Record<string, unknown>;
-  return (
-    typeof s.id === 'string' &&
-    typeof s.name === 'string' &&
-    typeof s.description === 'string' &&
-    Array.isArray(s.actions) &&
-    s.actions.every(
-      (a) =>
-        !!a &&
-        typeof a === 'object' &&
-        typeof (a as Record<string, unknown>).id === 'string' &&
-        typeof (a as Record<string, unknown>).description === 'string',
-    )
-  );
-}
+/** A stable fingerprint of what the page offers: two pages with the same one give the model the same index. */
+export const capabilityFingerprint = pageFingerprint;

@@ -277,7 +277,7 @@ describe('generate', () => {
           title: 'Add points',
           description: 'Adds points.',
           control: 'The Pen tool',
-          input: { type: 'array' as const, items: { type: 'number' as const } },
+          input: { type: 'array' as const, items: { type: 'number' as const, 'x-unit': 'px' } },
           effect: 'edit' as const,
         },
       ],

@@ -386,7 +386,59 @@ A catalog in the app itself is listed in `oui.config.json` under `appCatalogs`; 
 > | `trigger` | string | yes |  |
 > | `steps` | string[] | yes |  |
 
-Every input, value and observation schema, here and in tier 1, is written in the same subset of JSON Schema, which is what assistant tool inputs are written in; `x-unit` names a number's unit.
+### Lists, and reading them
+
+A room that holds things its actions address — a document's layers, a ledger's positions — declares each list once, and everything that reads it is built from that declaration:
+
+```ts
+const POSITIONS: RoomList<LedgerContext> = {
+  id: 'ledger/positions',                              // <observation id>/<list property>
+  title: 'Positions',
+  rows: { ref: 'id', title: 'symbol', index: ['side'], selection: 'selection' },
+  list: ctx => ctx.positions().map(row),               // each row as the observation reports it
+  detail: (ctx, id) => everythingAbout(ctx, id),       // all its panels show
+};
+
+const catalog: RoomCatalog<LedgerContext> = {
+  …,
+  actions: [...actions, ...roomReaders({ title: 'Ledger' }, [POSITIONS])],
+  observations: [{ id: 'ledger', description: '…', schema: { type: 'object', properties: {
+    selection: { type: 'array', items: { type: 'string' } },
+    positions: { type: 'array', 'x-rows': POSITIONS.rows, items: { type: 'object', properties: { id: …, symbol: …, side: … } } },
+  } } }],
+};
+```
+
+- **`x-rows`** on the list in the observation's schema says how a row is addressed (`ref`), what a person calls it (`title`), and what an index row keeps. A list too long for the page state is cut to index rows, never to a count; the selected rows, and the rows an action just changed, stay whole.
+- **`roomReaders`** makes the room's `inspect` (everything about the rows named) and `query` (a list's rows, narrowed by an indexed property or by name, a page at a time). Both only read.
+- **`x-ref`** on an input that takes a row (`{ type: 'string', ...refTo(POSITIONS) }`) names the list it addresses. The runtime then takes a row's exact name where its id is expected, when one row has it, and refuses an ambiguous one with the ids it could mean.
+- **`changed`** on an action's result reports the rows it changed, added or removed, each as `inspect` would return it now (`changedRows(lists, ctx, refs)`), so the assistant checks an edit against what the room holds, not against what it meant to do.
+
+The generator refuses a catalog whose observation lists things with an `id` and no `x-rows`, a list without its readers, and an `x-ref` to a list the room does not declare.
+
+> **Schema:** [`json-schema.json#/$defs/RowList`](schemas/json-schema.json) · `https://schemas.closurestudio.ai/oui/v1/json-schema.json#/$defs/RowList` · TypeScript: `RowList` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `ref` | string | yes | The property of a row that actions address it by (`id`). |
+> | `title` | string | yes | The property of a row a person calls it by (`name`). |
+> | `index` | string[] |  | The other properties an index row keeps: the few that tell rows apart (a layer's kind, the artboard it is on). |
+> | `selection` | string |  | The property beside the list, in the same object, that holds the refs of the rows the person has selected. |
+
+> **Schema:** [`room-catalog-data.json#/$defs/RoomChangedRow`](schemas/room-catalog-data.json) · `https://schemas.closurestudio.ai/oui/v1/room-catalog-data.json#/$defs/RoomChangedRow` · TypeScript: `RoomChangedRow` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `list` | string | yes | The list it is a row of: `<observation id>/<list property>`, or `<observation id>` when the observation itself is the list. |
+> | `ref` | string | yes |  |
+> | `detail` | object |  | Everything about the row now, as `inspect` returns it. |
+> | `removed` | boolean |  | The edit removed the row: nothing addresses it any more. |
+
+### What a number is measured in
+
+`x-unit` names a number's unit (`px`, `%`, `°`, `s`); `x-space` names the frame a length, a point or a fraction is measured in, in the room's own words (`artboard`, `canvas`, `artboard-fraction`). A value that moves something else when it changes says so in its description: an assistant sets a value it has not seen explained by guessing, and a guess about a frame of reference is how a layer leaves the page.
+
+Every input, value and observation schema, here and in tier 1, is written in the same subset of JSON Schema, which is what assistant tool inputs are written in; `x-unit` names a number's unit, `x-space` the frame it is measured in, and `x-rows` and `x-ref` the lists of addressable rows and the inputs that address them.
 
 > **Schema:** [`json-schema.json`](schemas/json-schema.json) · `https://schemas.closurestudio.ai/oui/v1/json-schema.json` · TypeScript: `JsonSchema` from `@ouispec/contract`
 >
@@ -414,6 +466,9 @@ Every input, value and observation schema, here and in tier 1, is written in the
 > | `anyOf` | JsonSchema[] |  |  |
 > | `default` | unknown |  |  |
 > | `x-unit` | string |  | The unit a number is in: `px`, `%`, `°`. |
+> | `x-space` | string |  | The frame a length, a point or a fraction is measured in, in the room's own words: `artboard` (from its top left), `canvas`, `layer` (the layer's own content), `artboard-fraction` (0–1 of the artboard's width and height). |
+> | `x-rows` | RowList |  | On an array of objects in an observation: the list is a collection the assistant addresses rows of (a document's layers, its artboards). |
+> | `x-ref` | string[] |  | On a string (or the items of an array of strings) in an action's input: the value addresses a row of one of the surface's `x-rows` lists, each named `<observation id>/<list property>`, or `<observation id>` when the observation itself is the list. |
 > | `x-enum-omitted` | number |  | How many allowed values a shortened `enum` leaves out. |
 
 ## `oui.config.json`
@@ -527,7 +582,7 @@ import { createBindingRegistry } from '@ouispec/bindings';
 import { connectBindings } from '@ouispec/bindings/oui';
 import manifest from './agent/generated/oui-manifest.json';
 
-export const runtime = createSurfaceRuntime({ announce: false, accept: () => assistantTurnInProgress() });
+export const runtime = createSurfaceRuntime({ form: 'index', announce: false, accept: () => assistantTurnInProgress() });
 export const registry = createBindingRegistry();
 
 connectBindings({
@@ -542,9 +597,26 @@ connectBindings({
 
 Wrap the app in `<AgentBindingProvider registry={registry}>` (from `@ouispec/bindings/react`) so every bound control registers into it. Send `runtime.snapshot()` as the message context with every turn, and pass `runtime.grantApproval` to the agent client as `grantApproval` (see approvals).
 
+- `form: 'index'` sends the page's actions as an index and not as definitions (below). It needs an agent worker that reads the index (`agent-sdk-worker` 9 or later). Leave it out for an older worker.
 - `accept` refuses any action request that arrives while the assistant has no turn in progress in this tab.
 - A disabled control is not offered, except while a job it started is still running, or for a moment after its own press disabled it (it is reported busy, not gone).
 - A control the build does not declare, or a live schema wider than the declared one, is reported through `onDefect`; the conformance kit keeps both from shipping.
+
+### What travels, and what does not
+
+A page's action definitions weigh what its whole catalogue weighs. On a studio page that is several hundred kilobytes: more than one socket frame carries, and far more than a model should read on every call. So definitions do not travel unless they are asked for:
+
+- **The snapshot and every answer carry an index of the page's actions.** Each entry has the action's id, title, the first sentence of its description, its effect, and one line saying what it takes ("none", "value: number 0–100 px", "one of 60 shapes by effect"). The line is derived from the action's input schema by rule.
+- **The assistant fetches a definition when it needs one.** The surface runtime answers `oui.describe` itself, with the action's live definition, including options the page loaded at run time.
+- **The assistant has three UI tools, whatever the page offers:**
+  - `ui_act` runs one action by its id.
+  - `ui_describe` says what actions take. A large input comes back as an outline, and one part of it is opened by path.
+  - `ui_read` reads part of the page's state.
+- **The page's index is in the page state the model reads,** with its own budget, so the assistant's context stays about the same size however many actions the app has.
+- **Every answer is fitted to a byte budget before it is sent** (480 KB by default, 256 KB for a snapshot). The action's own result is kept whole. Long lists in the page's state are cut first, and the answer says where, so the assistant can read the rest with `ui_read` or a room's `query`.
+- **The assistant never changes a page it cannot see.** After an answer that arrived without the page's state, or no answer, the worker runs only reads until one succeeds. After two refused changes in a row, the assistant stops and tells the person what it could not confirm.
+
+Nothing here is written per feature: the index, the outlines and the fitting are computed from the declarations.
 
 ## Work that outlives the call: the job effect
 
@@ -676,6 +748,8 @@ The card takes no `agent` prop, and a package that ships its own card declares i
 | `callbacks-accounted` | Every export that takes a callback is in the table, or excluded with a reason. |
 | `run-returns-result` | Every binding's `run` returns its callback's result, and a job control reports `pending.jobId`. |
 | `actions-mounted` | Every generated manifest action has a mounted handler on the page that offers it. |
+| `lists-readable` | Every list a room reports is declared with how its rows are addressed, and its `query` and `inspect` return what the room holds. |
+| `within-budgets` | Every action's index entry and definition, and every surface's index, is within the size the assistant's transport carries. |
 | `tier2-forwards-value` | Every tier 2 wrapper forwards `valueFrom` correctly. |
 | `tier2-reports-uncontrolled` | Every use of a mapped control that does not pass its `controlled` prop is reported. |
 
@@ -709,6 +783,42 @@ Each example renders a control the way a page uses it, with the kit's bindings (
 ### An app
 
 `checkApp({ name, manifest, pages })` mounts each surface's page (several states if needed) and requires a handler for every action the generated manifest declares on it.
+
+### A room
+
+```ts
+it('lets the assistant read what the room holds', async () => {
+  const room = mountLedgerWithPositions();
+  assertConformant(
+    await checkRoom({
+      name: '@acme/ledger',
+      catalog: catalogData(ledgerCatalog),
+      run: (id, input) => room.controller.run(id, input),
+      observations: { ledger: room.observation() },
+    }),
+  );
+});
+```
+
+The room is checked holding something to read: the kit queries every declared list, compares it row for row with what the room reports, and inspects a row of each.
+
+### Sizes
+
+`oui generate` fails a build that offers the assistant more than its transport carries, naming the action or surface:
+
+| Budget | Limit |
+|---|---|
+| One action's index entry | 512 bytes |
+| One action's definition | 256 KB |
+| One surface's index | 128 KB |
+
+`checkBudgets({ name, manifest, budgets })` runs the same check in your own tests, against your own limits when your transport carries less:
+
+```ts
+assertConformant(checkBudgets({ name: 'desk', manifest, budgets: { surfaceIndexBytes: 64 * 1024 } }));
+```
+
+An action over its definition budget usually inlines a catalogue. Split the action, or expose the catalogue as a reader (`query`) the assistant asks.
 
 ### A tier 2 mapping
 

@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createSurfaceRuntime, defineSurface } from 'oui-spec/core';
 import type { OUIActionRequest, OUIActionResult } from 'oui-spec/spec';
 import { buildUITools, FIRST_RESEND_AFTER_MS, MAX_RESEND_AFTER_MS, RECEIVED_RESEND_AFTER_MS } from '../ui/ui-tools.js';
+import { pageOf } from './support/page.js';
 import type { UIActionChannel } from '../ui/channel.js';
 
 describe('sending a UI request again', () => {
@@ -39,7 +40,7 @@ describe('sending a UI request again', () => {
           return answers.get(requestId) ?? null;
         },
       };
-      const [tool] = buildUITools([surface.toManifest()], { channel, resultTimeoutMs: 10_000, currentSurfaces: () => [], onResult: () => {} }).tools;
+      const [tool] = buildUITools(pageOf([surface.toManifest()]), { channel, resultTimeoutMs: 10_000, currentPage: () => pageOf([]), onResult: () => {} }).tools;
       const pending = tool.execute({ to: 'cfo' }, { userId: 'u', accountId: 'a', turnId: 't', conversationId: 'c', toolCallId: 'call_1', socketRoom: 'room' });
       await vi.advanceTimersByTimeAsync(FIRST_RESEND_AFTER_MS / 2);
       joined = true;
@@ -65,8 +66,8 @@ describe('sending a UI request again', () => {
         },
       };
       const [tool] = buildUITools(
-        [{ id: 's', name: 'S', description: 's', actions: [{ id: 'a', description: 'a', input: { type: 'object' } }] }],
-        { channel, resultTimeoutMs: 5_000, currentSurfaces: () => [], onResult: () => {} },
+        pageOf([{ id: 's', name: 'S', description: 's', actions: [{ id: 'a', description: 'a', input: { type: 'object' } }] }]),
+        { channel, resultTimeoutMs: 5_000, currentPage: () => pageOf([]), onResult: () => {} },
       ).tools;
       const pending = tool.execute({}, { userId: 'u', accountId: 'a', turnId: 't', conversationId: 'c', toolCallId: 'call_2', socketRoom: 'room' });
       await vi.advanceTimersByTimeAsync(6_000);
@@ -95,7 +96,7 @@ describe('sending a UI request again', () => {
         },
       };
       vi.setSystemTime(0);
-      const [tool] = buildUITools(surfaces, { channel, resultTimeoutMs: 20_000, currentSurfaces: () => [], onResult: () => {} }).tools;
+      const [tool] = buildUITools(pageOf(surfaces), { channel, resultTimeoutMs: 20_000, currentPage: () => pageOf([]), onResult: () => {} }).tools;
       const pending = tool.execute({}, ctx('slow'));
       await vi.advanceTimersByTimeAsync(8_000);
       expect(await pending).toMatchObject({ success: true });
@@ -116,7 +117,7 @@ describe('sending a UI request again', () => {
           return null;
         },
       };
-      const [tool] = buildUITools(surfaces, { channel, resultTimeoutMs: 20_000, currentSurfaces: () => [], onResult: () => {} }).tools;
+      const [tool] = buildUITools(pageOf(surfaces), { channel, resultTimeoutMs: 20_000, currentPage: () => pageOf([]), onResult: () => {} }).tools;
       const pending = tool.execute({}, ctx('lost'));
       await vi.advanceTimersByTimeAsync(21_000);
       const result = await pending;
@@ -140,7 +141,7 @@ describe('sending a UI request again', () => {
           return null;
         },
       };
-      const [tool] = buildUITools(surfaces, { channel, resultTimeoutMs: 20_000, currentSurfaces: () => [], onResult: () => {} }).tools;
+      const [tool] = buildUITools(pageOf(surfaces), { channel, resultTimeoutMs: 20_000, currentPage: () => pageOf([]), onResult: () => {} }).tools;
       const pending = tool.execute({}, ctx('nobody'));
       await vi.advanceTimersByTimeAsync(21_000);
       const result = await pending;

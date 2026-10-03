@@ -93,9 +93,9 @@ export interface OpenAIScript {
   reply: string;
 }
 
-/** The fixture turn: `navigate` to the reports page, then say so. */
+/** The fixture turn: run the page's `navigate` action to the reports page, then say so. */
 export const NAVIGATE_SCRIPT: OpenAIScript = {
-  toolCall: { id: 'call_nav_1', name: 'navigate', arguments: { path: '/reports' } },
+  toolCall: { id: 'call_nav_1', name: 'ui_act', arguments: { action: 'navigate', input: { path: '/reports' } } },
   reply: 'Your reports are open.',
 };
 

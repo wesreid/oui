@@ -36,6 +36,7 @@ export type {
   AgentCatalogManifestEntry,
   RoomActionData,
   RoomCatalogData,
+  RoomChangedRow,
   RoomCommand,
   RoomEntryInfo,
   RoomFieldAnimation,

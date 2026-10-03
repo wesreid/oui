@@ -72,7 +72,13 @@ export const reportsSurface: OUISurface = {
   name: 'Reports',
   description: 'Saved reports',
   actions: [{ id: 'reports_export', description: 'Export a report', input: { type: 'object', properties: {} } }, sendReportAction],
+  observations: [{ id: 'reports', description: 'The saved reports, newest first', schema: { type: 'array' } }],
 };
+/** What the Reports page shows: it reports this as its `reports` observation while it is open. */
+export const SAVED_REPORTS = [
+  { id: 'q3', title: 'Q3 results' },
+  { id: 'q2', title: 'Q2 results' },
+];
 
 /** What each page offers once the tab is on it. */
 const PAGES: Record<string, OUISurface[]> = {
@@ -199,6 +205,8 @@ async function openTab(server: RealtimeServerInstance, session: string, firstTur
     if (!surfaces) throw new Error(`the fixture has no page ${path}`);
     for (const m of mounted) m.unmount();
     mounted = surfaces.map((surface) => runtime.mount(withHandlers(surface, show), () => ({})));
+    // A page reports what it shows, as a real one does.
+    mounted.find((m) => m.surfaceId === reportsSurface.id)?.pushObservation('reports', SAVED_REPORTS);
     shownPath = path;
   };
   show('/inbox');

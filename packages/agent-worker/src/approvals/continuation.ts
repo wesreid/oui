@@ -27,8 +27,34 @@ const WHY_NOT: Record<ApprovalRefusalReason, string> = {
 
 export const approvalNote = (text: string) => `<approval>${text}</approval>`;
 
-export function ranNote(title: string): string {
-  return approvalNote(`The user approved "${title}" on the approval card, and it was run once, with the arguments they approved. Its result follows: report what it says, including a failure.`);
+/**
+ * Where the model finds the approved call's outcome (the duplicate-call
+ * confusion, dev 2026-10-03: shown a second call beside the one it had made,
+ * the assistant warned of a duplicate save):
+ * - `replaced`: the outcome is now the result of the call the model itself
+ *   made, in place of "waiting for approval". One call, one result.
+ * - `follows`: that call is no longer in the history the model is given, so
+ *   the outcome follows the user's message as a call of its own, and the note
+ *   says it is the same call.
+ */
+export type ApprovedResultPlace = 'replaced' | 'follows';
+
+const WHERE: Record<ApprovedResultPlace, string> = {
+  replaced:
+    'Its result is now the result of that call, above, in place of "waiting for approval": it is one call, run once. ' +
+    'Report what the result says, including a failure, and do not call it again.',
+  follows:
+    'Its result follows, as the call you asked for earlier: it is that same call, now approved and run once, not a second call. ' +
+    'Report what the result says, including a failure, and do not call it again.',
+};
+
+export function ranNote(title: string, place: ApprovedResultPlace): string {
+  return approvalNote(`The user approved "${title}" on the approval card, and it was run once, with the arguments they approved. ${WHERE[place]}`);
+}
+
+/** Approved, and refused when it ran: said in the note, and in the call's result too. */
+export function refusedNote(title: string, refusal: string): string {
+  return approvalNote(`The user approved "${title}" on the approval card, but it did not run: ${refusal}`);
 }
 
 export function unavailableNote(title: string): string {

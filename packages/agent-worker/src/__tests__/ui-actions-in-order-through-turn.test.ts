@@ -118,7 +118,7 @@ function callAll(order: Array<[string, Record<string, unknown>]>, results: Recor
   segment = async (opts) => {
     await Promise.all(
       order.map(async ([toolName, args], i) => {
-        results[toolName] = await opts.tools[toolName].execute(args, { toolCallId: `call-${i}` });
+        results[toolName] = await opts.tools.ui_act.execute({ action: toolName, input: args }, { toolCallId: `call-${i}` });
       }),
     );
   };

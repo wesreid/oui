@@ -117,8 +117,8 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
   /** Max tokens per model response. Default: 4096 */
   maxTokens?: number;
 
-  /** Temperature. Default: 0.3 */
-  temperature?: number;
+  /** Temperature. Default: 0.3. `null` sends none, for a model that does not take one. */
+  temperature?: number | null;
 
   /** Per-tool execution timeout in ms. Default: 30000 */
   toolTimeoutMs?: number;
@@ -164,8 +164,10 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
     channel?: UIActionChannel;
     /** How long a UI tool waits for the client's answer. Default 20 s. */
     resultTimeoutMs?: number;
-    /** Largest page-state payload given to the model, in characters. Default 6000. */
+    /** Largest page-state payload given to the model, in characters. Default 12000 (`DEFAULT_PAGE_STATE_CHARS`). */
     maxObservationChars?: number;
+    /** Longest the page's index is in the model's context, in characters, before its furthest surfaces are listed by action id only. Default 60000 (`DEFAULT_INDEX_CHARS`, ADR-0245). */
+    maxIndexChars?: number;
   };
 
   /**

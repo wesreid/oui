@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { OUIAction, OUIActionResult, OUISurface } from "oui-spec/spec";
 
 import { buildUITools } from "../ui/ui-tools.js";
+import { pageOf } from "./support/page.js";
 import type { UIActionChannel } from "../ui/channel.js";
 
 const generate: OUIAction = {
@@ -65,10 +66,10 @@ function run(
   action: OUIAction,
   waitDeadline?: () => number
 ) {
-  const { tools } = buildUITools([page], {
+  const { tools } = buildUITools(pageOf([page]), {
     channel: ch,
     resultTimeoutMs: 1000,
-    currentSurfaces: () => [page],
+    currentPage: () => pageOf([page]),
     onResult: () => {},
     ...(waitDeadline ? { waitDeadline } : {}),
   });

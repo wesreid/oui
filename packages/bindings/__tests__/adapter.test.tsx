@@ -523,3 +523,43 @@ describe('page problems', () => {
     expect(listener).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('connectBindings on a runtime in index form (ADR-0245 §2.1)', () => {
+  it('offers the mounted controls as index entries, and describes one as the page has it now', async () => {
+    const registry = createBindingRegistry();
+    const runtime = createSurfaceRuntime({ form: 'index', announce: false, settle: { quietMs: 5, timeoutMs: 200 } });
+    disconnect = connectBindings({ registry, runtime, manifest });
+    render(
+      <AgentBindingProvider registry={registry}>
+        <Tabs agent={{ id: 'voices.library', description: 'Which library' }} value="user" onChange={() => {}} />
+        <Row id="v1" name="Ava" onOpen={() => {}} />
+        <Row id="v2" name="Ben" onOpen={() => {}} />
+      </AgentBindingProvider>,
+    );
+    await flush();
+
+    const snap = runtime.snapshot();
+    expect(snap).not.toHaveProperty('surfaces');
+    const page = snap.index.find(s => s.id === 'page:VoicesPage')!;
+    expect(page.index.map(a => [a.id, a.title, a.input])).toEqual([
+      ['voices_library', 'Library', 'value: user|account'],
+      ['voices_open', 'Open', 'item: v1|v2'],
+    ]);
+    // No definition travels with the snapshot: only what choosing an action needs.
+    expect(JSON.stringify(snap.index)).not.toContain('"properties"');
+    // The page's state travels as before.
+    expect(snap.observations['page:VoicesPage'].state).toMatchObject({ values: { 'voices.library': 'user' } });
+
+    // The definition, when asked for: narrowed to the rows on screen, as the tool validates it.
+    const described = await runtime.execute({
+      requestId: 'd1',
+      surfaceId: 'oui',
+      actionId: 'describe',
+      params: { actions: [{ surface: 'page:VoicesPage', action: 'voices_open' }] },
+      timestamp: 0,
+    });
+    const [{ action }] = (described.data as { definitions: Array<{ action: { id: string; input: { properties?: Record<string, { enum?: unknown[] }> } } }> }).definitions;
+    expect(action.id).toBe('voices_open');
+    expect(action.input.properties?.item?.enum).toEqual(['v1', 'v2']);
+  });
+});
