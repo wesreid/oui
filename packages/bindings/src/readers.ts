@@ -233,8 +233,9 @@ export function roomReaders<Ctx>(room: { title: string }, lists: readonly RoomLi
     id: ROOM_INSPECT_ID,
     title: 'Inspect',
     description:
-      `Reads everything the ${room.title} holds about the things named — all that its panels show for each, as it is now — ` +
-      `without changing or selecting anything. Give each by its id, or by its exact name when only one thing has it. ` +
+      // The first sentence is what an index carries of this (oui-spec §7.3.8): it is kept short.
+      `Reads everything about the things named, as they are now. It is all that the ${room.title}’s panels show for each, ` +
+      `and it changes and selects nothing. Give each by its id, or by its exact name when only one thing has it. ` +
       `Its lists: ${named}. Use it to find out what something is before changing it, and to check an edit did what was meant.`,
     control: 'Selecting the thing and reading its panels',
     effect: 'view',
@@ -281,8 +282,9 @@ export function roomReaders<Ctx>(room: { title: string }, lists: readonly RoomLi
     id: ROOM_QUERY_ID,
     title: 'Query',
     description:
-      `Lists the rows of one of the ${room.title}’s lists — ${named} — each with its id, its name and what tells rows apart, ` +
-      `without changing or selecting anything. Narrow it with \`where\` (a row property and the value it must have) and ` +
+      // The first sentence is what an index carries of this (oui-spec §7.3.8): it is kept short.
+      `Lists the rows of one of the ${room.title}’s lists, to find a thing by its name. Its lists: ${named}. Each row has ` +
+      `its id, its name and what tells rows apart, and nothing is changed or selected. Narrow it with \`where\` (a row property and the value it must have) and ` +
       `\`title_contains\`; ask for more of each row with \`fields\`; read on from where a page ended with \`after\`. ` +
       `Use it to find a thing by its name or by what it is on, however large the document is.`,
     control: 'Reading the room’s lists (its Layers panel)',

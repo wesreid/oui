@@ -231,9 +231,22 @@ export function withoutTitleLeadIn(
   return kept ? kept : line;
 }
 
-/** The hash of an action's definition, as an index entry's `definitionHash` carries it. */
+/** The hex digits an entry's `definitionHash` has: 32 bits. */
+export const DEFINITION_HASH_HEX = 8;
+
+/**
+ * The hash of an action's definition, as an index entry's `definitionHash`
+ * carries it: the first 32 bits of the 64-bit FNV-1a of its sorted-key JSON.
+ *
+ * It answers one question, for one action: has this action's definition
+ * changed since it was fetched? It is only ever compared with the same
+ * action's earlier hash, so 32 bits are enough (a change goes unseen once in
+ * 2^32, and costs one stale definition until the next change), and an index of
+ * hundreds of actions carries half the digits. The hash of a whole page
+ * (`surfacesHash`) is compared across everything on it, and stays 64 bits.
+ */
 export function definitionHash(action: OUIAction): string {
-  return fnv1a64(sortedJson(action));
+  return fnv1a64(sortedJson(action)).slice(0, DEFINITION_HASH_HEX);
 }
 
 /** An action's index entry (§7.3.8). */
@@ -255,7 +268,6 @@ export function indexEntry(action: OUIAction): OUIActionIndexEntry {
       : {}),
     input: summarizeInput(action.input),
     definitionHash: definitionHash(action),
-    definitionBytes: jsonBytes(action),
   };
 }
 

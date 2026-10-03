@@ -221,10 +221,12 @@ export interface OUIActionIndexEntry {
   maxDurationMs?: number;
   /** What it takes, in one line (`summarizeInput`): "none", "value: number 0–100", "clipId, start?, +4 more". */
   input: string;
-  /** A hash of the full definition: a fetched definition is good until this changes. */
+  /**
+   * A hash of the full definition: a fetched definition is good until this
+   * changes. Opaque to a reader, which only compares it with the same action's
+   * earlier one: 8 hex digits since 0.8, 16 before.
+   */
   definitionHash: string;
-  /** The full definition's size in bytes of JSON, so a reader knows to ask for it in outline. */
-  definitionBytes: number;
 }
 
 /** A surface as a snapshot and an answer carry it in index form: its actions as index entries. */

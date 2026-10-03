@@ -1134,7 +1134,20 @@ export async function runAgentTurn(
     cacheReadTokens: usage.cacheReadTokens,
     cacheWriteTokens: usage.cacheWriteTokens,
     // How the page was worked (ADR-0245 §2.6).
-    ...(client ? { ui: { ...uiCounts, blindRefusals: sight.refusals(), definitionsHeld: heldDefinitions.size, stopped: sight.stopped() } } : {}),
+    ...(client
+      ? {
+          ui: {
+            ...uiCounts,
+            blindRefusals: sight.refusals(),
+            definitionsHeld: heldDefinitions.size,
+            stopped: sight.stopped(),
+            // What bounds the model: the page's index as it reads it, against the most it is given
+            // before the furthest surfaces are listed by id only.
+            indexChars: indexText(client.page, Infinity).length,
+            maxIndexChars: config.ui?.maxIndexChars ?? DEFAULT_INDEX_CHARS,
+          },
+        }
+      : {}),
   });
 
   await config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TURN_COMPLETE, {
