@@ -14,8 +14,17 @@
 
 /** A schema's JSON up to this many characters is returned whole. */
 export const WHOLE_SCHEMA_CHARS = 4_000;
-/** The most lines an outline lists of one object's properties or one union's members. */
+/**
+ * A part asked for by its path is returned whole up to this many characters.
+ * The model named the part because an outline abbreviated it: answering with
+ * another abbreviation leaves it nothing to open. A command list of 48 came
+ * back as its first 12 twice, and the command the task needed was never seen.
+ */
+export const WHOLE_PART_CHARS = 12_000;
+/** The most rows one answer lists of an object's properties, a union's members or an enumeration's values. */
 const OUTLINE_ROWS = 80;
+/** An enumeration's line names this many values; a longer one is opened by its path. */
+const ENUM_LINE_VALUES = 12;
 /** The longest description kept on an outline line. */
 const LINE_DESCRIPTION_CHARS = 110;
 
@@ -67,8 +76,8 @@ function typeLine(schema: Schema): string {
   if (constant !== undefined && !Array.isArray(schema.enum)) return JSON.stringify(constant);
   if (Array.isArray(schema.enum)) {
     const values = schema.enum as unknown[];
-    const shown = values.slice(0, 12).map((v) => JSON.stringify(v)).join(' | ');
-    return values.length > 12 ? `${shown} | … (${values.length} values)` : shown;
+    const shown = values.slice(0, ENUM_LINE_VALUES).map((v) => JSON.stringify(v)).join(' | ');
+    return values.length > ENUM_LINE_VALUES ? `${shown} | … (${values.length} values)` : shown;
   }
   const union = unionOf(schema);
   if (union) {
@@ -98,9 +107,14 @@ function typeLine(schema: Schema): string {
   return type || 'any';
 }
 
+/** The values of an enumeration too long for its line. */
+const longEnumOf = (schema: Schema): unknown[] | null =>
+  Array.isArray(schema.enum) && schema.enum.length > ENUM_LINE_VALUES ? (schema.enum as unknown[]) : null;
+
 /** Whether a property's schema holds more than its line shows. */
 function opens(schema: Schema): boolean {
   if (unionOf(schema)) return true;
+  if (longEnumOf(schema)) return true;
   if (Object.keys(propertiesOf(schema)).length > 0) return true;
   return isSchema(schema.items) && opens(schema.items);
 }
@@ -167,26 +181,33 @@ function propertyLine(name: string, schema: Schema, required: boolean, path: str
   return `- ${name}${required ? ' (required)' : ''}: ${typeLine(schema)}${annotations(schema)}${description}${more}`;
 }
 
-/** A schema's outline: what it is, then its properties or its union's members, a line each. */
-function outlineLines(schema: Schema, path: string): string[] {
-  const lines: string[] = [];
-  const head = [typeLine(schema) + annotations(schema), typeof schema.description === 'string' ? clip(schema.description, 300) : '']
+/** A schema's outline in two parts: what it is, and its rows (properties, a union's members, or an enumeration's values), a line each. */
+function outlineOf(schema: Schema, path: string): { head: string[]; rows: string[]; what: string } {
+  const longEnum = longEnumOf(schema);
+  const head = [
+    // An enumeration listed below is not also cut short on its head line.
+    (longEnum ? `one of ${longEnum.length} values` : typeLine(schema)) + annotations(schema),
+    typeof schema.description === 'string' ? clip(schema.description, longEnum ? 2_000 : 300) : '',
+  ]
     .filter(Boolean)
     .join(' — ');
-  lines.push(head);
 
   const union = unionOf(schema);
   if (union) {
     const by = discriminatorOf(union);
-    lines.push(by ? `Members, by ${by} (open one with path "${join(path, `${by}=<value>`)}"):` : `Members (open one with path "${join(path, '#<n>')}"):`);
-    union.slice(0, OUTLINE_ROWS).forEach((member, i) => {
-      const label = by ? String(constantOf(propertiesOf(member)[by])) : `#${i + 1}`;
-      const title = typeof member.title === 'string' ? member.title : typeof member.description === 'string' ? member.description : '';
-      const fields = Object.keys(propertiesOf(member)).filter((n) => n !== by);
-      lines.push(`- ${label}${title ? ` — ${clip(title, LINE_DESCRIPTION_CHARS)}` : ''}${fields.length ? ` (${fields.length} more fields)` : ''}`);
-    });
-    if (union.length > OUTLINE_ROWS) lines.push(`- … and ${union.length - OUTLINE_ROWS} more`);
-    return lines;
+    return {
+      head: [
+        head,
+        by ? `Members, by ${by} (open one with path "${join(path, `${by}=<value>`)}"):` : `Members (open one with path "${join(path, '#<n>')}"):`,
+      ],
+      rows: union.map((member, i) => {
+        const label = by ? String(constantOf(propertiesOf(member)[by])) : `#${i + 1}`;
+        const title = typeof member.title === 'string' ? member.title : typeof member.description === 'string' ? member.description : '';
+        const fields = Object.keys(propertiesOf(member)).filter((n) => n !== by);
+        return `- ${label}${title ? ` — ${clip(title, LINE_DESCRIPTION_CHARS)}` : ''}${fields.length ? ` (${fields.length} more fields)` : ''}`;
+      }),
+      what: 'members',
+    };
   }
 
   const properties = propertiesOf(schema);
@@ -194,15 +215,19 @@ function outlineLines(schema: Schema, path: string): string[] {
   if (names.length > 0) {
     const required = new Set(Array.isArray(schema.required) ? (schema.required as string[]) : []);
     const ordered = [...names.filter((n) => required.has(n)), ...names.filter((n) => !required.has(n))];
-    lines.push(`Properties (${names.length}):`);
-    for (const name of ordered.slice(0, OUTLINE_ROWS)) lines.push(propertyLine(name, properties[name], required.has(name), path));
-    if (ordered.length > OUTLINE_ROWS) {
-      lines.push(`- … and ${ordered.length - OUTLINE_ROWS} more: ${clip(ordered.slice(OUTLINE_ROWS).join(', '), 1_200)}`);
-    }
-  } else if (isSchema(schema.items) && opens(schema.items)) {
-    lines.push(`Each item (open with path "${join(path, '[]')}"): ${typeLine(schema.items)}`);
+    return {
+      head: [head, `Properties (${names.length}):`],
+      rows: ordered.map((name) => propertyLine(name, properties[name], required.has(name), path)),
+      what: 'properties',
+    };
   }
-  return lines;
+  if (longEnum) {
+    return { head: [head, 'Values:'], rows: longEnum.map((value) => `- ${JSON.stringify(value)}`), what: 'values' };
+  }
+  if (isSchema(schema.items) && opens(schema.items)) {
+    return { head: [head, `Each item (open with path "${join(path, '[]')}"): ${typeLine(schema.items)}`], rows: [], what: 'rows' };
+  }
+  return { head: [head], rows: [], what: 'rows' };
 }
 
 export interface SchemaView {
@@ -213,27 +238,37 @@ export interface SchemaView {
 }
 
 /**
- * What an action takes, or the part of it `path` names: whole when its JSON is
- * at most `maxChars` characters, otherwise in outline, saying how to open each
- * part that holds more.
+ * What an action takes, or the part of it `path` names.
+ *
+ * Whole when its JSON is small enough: `maxChars` for an action's whole input,
+ * and the larger `WHOLE_PART_CHARS` for a part asked for by its path, which
+ * the model named because an outline had cut it short. Otherwise in outline:
+ * what it is, then its rows — properties, a union's members, an enumeration's
+ * values — as many as the size holds from row `from`, saying how many there
+ * are and where the next begin. No row is dropped without the answer saying
+ * how to read it.
  */
 export function describeSchema(
   schema: Record<string, unknown> | undefined,
-  options: { path?: string; maxChars?: number } = {},
+  options: { path?: string; maxChars?: number; from?: number } = {},
 ): SchemaView | { error: string } {
-  const maxChars = options.maxChars ?? WHOLE_SCHEMA_CHARS;
   const path = options.path ?? '';
+  const maxChars = options.maxChars ?? WHOLE_SCHEMA_CHARS;
   const found = schemaAt(schema ?? { type: 'object', properties: {} }, path);
   if ('error' in found) return found;
+  const from = Math.max(1, Math.floor(options.from ?? 1));
   const json = JSON.stringify(found.schema);
-  if (json.length <= maxChars) return { text: json, whole: true };
-  let lines = outlineLines(found.schema, path);
-  // An outline is itself held to the size: rows are dropped from the end, and said so.
-  let dropped = 0;
-  while (lines.join('\n').length > maxChars && lines.length > 3) {
-    lines = lines.slice(0, -1);
-    dropped++;
+  if (from === 1 && json.length <= (path ? Math.max(maxChars, WHOLE_PART_CHARS) : maxChars)) return { text: json, whole: true };
+
+  const { head, rows, what } = outlineOf(found.schema, path);
+  if (from > Math.max(rows.length, 1)) {
+    return { error: `${path ? `"${path}"` : 'The input'} has ${rows.length} ${what}: there is none at ${from}` };
   }
-  if (dropped > 0) lines.push(`- … and ${dropped} more, not listed: open a part by its path to read it`);
-  return { text: lines.join('\n'), whole: false };
+  // The rows that fit from `from`: at least one, at most a page, within the size.
+  const paging = (to: number) =>
+    from === 1 && to === rows.length ? '' : `\n${what[0].toUpperCase()}${what.slice(1)} ${from}–${to} of ${rows.length}.${to < rows.length ? ` For the next, call again with from: ${to + 1}.` : ''}`;
+  let to = Math.min(rows.length, from - 1 + OUTLINE_ROWS);
+  const text = (end: number) => [...head, ...rows.slice(from - 1, end)].join('\n') + paging(end);
+  while (to > from && text(to).length > maxChars) to--;
+  return { text: text(to), whole: false };
 }

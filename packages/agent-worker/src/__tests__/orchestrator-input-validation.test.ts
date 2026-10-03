@@ -117,6 +117,36 @@ describe('orchestrator tool input validation', () => {
     expect(tool.execute).not.toHaveBeenCalled();
   });
 
+  it('runs a call whose list arrived as JSON text with the list, and tells the model so with the result', async () => {
+    const execute = vi.fn(async (input: Record<string, unknown>) => ({ success: true, data: { moved: input.ids } }));
+    const tool: RegisteredTool = {
+      name: 'move-layers',
+      description: 'Moves layers.',
+      inputSchema: {
+        type: 'object',
+        required: ['ids'],
+        additionalProperties: false,
+        properties: { ids: { type: 'array', items: { type: 'string' } }, dx: { type: 'number' } },
+      },
+      execute,
+    };
+    const [asText, asList] = await runCalls(
+      [tool],
+      [
+        { tool: 'move-layers', args: { ids: '["a","b"]', dx: 10 } },
+        { tool: 'move-layers', args: { ids: ['c'] } },
+      ],
+    );
+    expect(execute.mock.calls[0][0]).toEqual({ ids: ['a', 'b'], dx: 10 });
+    expect(asText).toEqual({
+      moved: ['a', 'b'],
+      inputNote:
+        '"ids" arrived as JSON text and was read as the list or object it spells. Send a list or an object as itself, not inside a string.',
+    });
+    // A call sent properly carries no note.
+    expect(asList).toEqual({ moved: ['c'] });
+  });
+
   it('does not consult the policy for an invalid call', async () => {
     const tool = updateTool();
     const evaluate = vi.fn(async () => ({ action: 'allow' as const }));

@@ -30,7 +30,16 @@ const addFormats: FormatsPlugin =
 const NON_VALIDATION_KEYS = ['sideEffects', '$schema', '$id'] as const;
 
 export type ToolInputValidation =
-  | { ok: true; value: Record<string, unknown> }
+  | {
+      ok: true;
+      value: Record<string, unknown>;
+      /**
+       * Properties that arrived as JSON text and were read as the list or
+       * object the text holds, because the schema takes one there. The caller
+       * tells the model, so it sends the value itself next time.
+       */
+      coerced?: string[];
+    }
   | { ok: false; errors: string[] };
 
 export type ToolInputValidator = (input: unknown) => ToolInputValidation;
@@ -48,6 +57,50 @@ function describeError(error: ErrorObject): string {
     return `${at} is missing required property "${String(params.missingProperty)}"`;
   }
   return `${at} ${error.message ?? 'is invalid'}`;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value);
+
+/** Whether a property's schema takes a list or an object, and so never a string that only spells one. */
+function takesStructure(schema: unknown): boolean {
+  if (!isRecord(schema)) return false;
+  const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+  if (types.includes('string')) return false;
+  if (types.includes('array') || types.includes('object')) return true;
+  if (isRecord(schema.items) || isRecord(schema.properties)) return true;
+  const members = (schema.oneOf ?? schema.anyOf) as unknown;
+  return Array.isArray(members) && members.length > 0 && members.every(takesStructure);
+}
+
+/**
+ * `value` with each property that the schema takes as a list or an object, and
+ * that arrived as a string of JSON spelling one, replaced by what the string
+ * holds. Models do this under load: `"ids": "[\"a\",\"b\"]"` for `"ids": ["a","b"]`
+ * (three calls of one session, each refused and retried). Only such a property
+ * is read this way: a string where the schema takes a string is left alone.
+ */
+function structuresFromText(
+  value: Record<string, unknown>,
+  properties: Record<string, unknown>,
+): { value: Record<string, unknown>; coerced: string[] } {
+  const out: Record<string, unknown> = { ...value };
+  const coerced: string[] = [];
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry !== 'string' || !takesStructure(properties[key])) continue;
+    const text = entry.trim();
+    if (!text.startsWith('[') && !text.startsWith('{')) continue;
+    try {
+      const read: unknown = JSON.parse(text);
+      if (read && typeof read === 'object') {
+        out[key] = read;
+        coerced.push(key);
+      }
+    } catch {
+      // Not JSON: the validator says what is wrong with it as it is.
+    }
+  }
+  return { value: out, coerced };
 }
 
 /**
@@ -85,6 +138,10 @@ export function createToolInputValidator(
       value[key] = entry;
     }
     if (validate(value)) return { ok: true, value };
-    return { ok: false, errors: (validate.errors ?? []).map(describeError) };
+    const errors = (validate.errors ?? []).map(describeError);
+    // A list or an object sent as JSON text is read as what it spells, when that makes the input valid.
+    const read = structuresFromText(value, isRecord(schema.properties) ? schema.properties : {});
+    if (read.coerced.length > 0 && validate(read.value)) return { ok: true, value: read.value, coerced: read.coerced };
+    return { ok: false, errors };
   };
 }
