@@ -1,5 +1,15 @@
 # oui-spec
 
+## 0.7.2
+
+### Patch Changes
+
+- An index entry's description no longer repeats the action's title.
+
+  Descriptions are commonly written to stand alone (`Add artboard: Adds an artboard…`; for a control, `Press "Save": Saves the project`), and an entry carries the title beside the description, so an index named every title twice. `indexEntry` now leaves out an opening of the title and ": ", or of a short lead-in, the quoted title and ": " (`withoutTitleLeadIn`). On a page of 447 actions the index went from 132.8 KB to 124.9 KB, and each line the model reads is shorter by its title.
+
+  An action's definition is unchanged, and so is its `definitionHash`: only the entry's `description` differs. A client and a runtime on different patch versions agree on every hash.
+
 ## 0.7.1
 
 ### Patch Changes

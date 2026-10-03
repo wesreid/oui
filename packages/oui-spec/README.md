@@ -66,7 +66,7 @@ on the page it just left.
 
 Action definitions are heavy (every action's schema: several hundred KB on a
 studio page), so a client does not send them. It sends an **index**: one entry
-per action, with its title, the first sentence of its description, its effect
+per action, with its title, the first sentence of its description (less an opening that repeats the title), its effect
 and a one-line summary of what it takes. An agent runtime fetches the
 definition it needs with the runtime's own `oui.describe`, and reads state that
 did not fit with `oui.read`. This is the index form: pass `form: "index"` to

@@ -770,7 +770,7 @@ interface OUISurfaceIndex {
 interface OUIActionIndexEntry {
   id: string;
   title?: string;
-  description: string; // the first sentence, at most 160 characters
+  description: string; // the first sentence, at most 160 characters, without an opening that only repeats the title (`Title: …`, `Press "Title": …`)
   effect?: OUIEffectKind;
   confirm?: boolean;
   async?: boolean;
