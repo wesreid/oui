@@ -104,6 +104,25 @@ describe('deriveInputSchema', () => {
     expect(open?.anyOf?.[1]?.properties?.pattern).toEqual({ type: 'string' });
   });
 
+  it('accepts a mesh gradient where the colour control offers one: a grid of placed, coloured points', () => {
+    const value = deriveInputSchema('color', { paintKinds: ['solid', 'linear-gradient', 'mesh-gradient'] }).properties?.value;
+    // A CSS colour, a stop gradient, or a mesh: a mesh has no stops, so it is not among the stop gradients' kinds.
+    expect(value?.anyOf).toHaveLength(3);
+    expect(value?.anyOf?.[1]?.properties?.kind).toEqual({ type: 'string', enum: ['linear-gradient'] });
+    const mesh = value?.anyOf?.[2];
+    expect(mesh?.properties?.kind).toEqual({ type: 'string', enum: ['mesh-gradient'] });
+    expect(mesh?.required).toEqual(['kind', 'rows', 'columns', 'points']);
+    expect(mesh?.properties?.rows).toEqual({ type: 'integer', minimum: 1, maximum: 24 });
+    expect(mesh?.properties?.columns).toEqual({ type: 'integer', minimum: 1, maximum: 24 });
+    const point = mesh?.properties?.points?.items;
+    expect(mesh?.properties?.points?.minItems).toBe(4);
+    expect(point?.required).toEqual(['at', 'color']);
+    expect(Object.keys(point?.properties ?? {})).toEqual(['at', 'color', 'opacity', 'left', 'right', 'up', 'down']);
+    // Alone, it is the only paint beside a plain colour.
+    const only = deriveInputSchema('color', { paintKinds: ['mesh-gradient'] }).properties?.value;
+    expect(only?.anyOf).toHaveLength(2);
+  });
+
   it('adds the row a list control is one of', () => {
     const schema = deriveInputSchema('button', {}, { itemized: true, items: [{ key: 'v1', title: 'Ava' }] });
     expect(schema.properties?.item).toMatchObject({ type: 'string', enum: ['v1'] });

@@ -162,7 +162,7 @@ export function deriveValueSchema(kind: AnyControlKind, props: SchemaProps = {})
         description: 'A CSS colour, e.g. "#eb0a1e" or "rgba(0,0,0,0.5)"',
       };
       const variants: JsonSchema[] = [css];
-      const stopKinds = gradients.filter(k => k !== 'freeform-gradient' && k !== 'pattern');
+      const stopKinds = gradients.filter(k => k !== 'freeform-gradient' && k !== 'pattern' && k !== 'mesh-gradient');
       if (stopKinds.length) {
         variants.push({
           type: 'object',
@@ -213,6 +213,44 @@ export function deriveValueSchema(kind: AnyControlKind, props: SchemaProps = {})
             lines: { type: 'array', items: { type: 'array', items: { type: 'integer', minimum: 0 }, minItems: 2 } },
           },
           required: ['kind', 'points'],
+        });
+      }
+      if (gradients.includes('mesh-gradient')) {
+        const place: JsonSchema = { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 };
+        const handle = (toward: string): JsonSchema => ({
+          ...place,
+          description: `The grid line leaving the point ${toward}: an offset from the point to that line’s control point, in the same fractions. Absent: straight to the neighbour.`,
+        });
+        variants.push({
+          type: 'object',
+          description:
+            'A mesh gradient: a grid of points over the painted shape, a colour at each, the colour blending across every cell. ' +
+            '`rows` and `columns` count the cells; `points` holds (rows + 1) × (columns + 1) points, row by row from the top, ' +
+            'each row left to right. Each point is placed as fractions of the painted shape ([0, 0] its top left, [1, 1] its ' +
+            'bottom right) and may bend the grid lines that leave it with `left`, `right`, `up` and `down`.',
+          properties: {
+            kind: { type: 'string', enum: ['mesh-gradient'] },
+            rows: { type: 'integer', minimum: 1, maximum: 24 },
+            columns: { type: 'integer', minimum: 1, maximum: 24 },
+            points: {
+              type: 'array',
+              minItems: 4,
+              items: {
+                type: 'object',
+                properties: {
+                  at: place,
+                  color: css,
+                  opacity: { type: 'number', minimum: 0, maximum: 1 },
+                  left: handle('to the left'),
+                  right: handle('to the right'),
+                  up: handle('upward'),
+                  down: handle('downward'),
+                },
+                required: ['at', 'color'],
+              },
+            },
+          },
+          required: ['kind', 'rows', 'columns', 'points'],
         });
       }
       if (gradients.includes('pattern')) {
