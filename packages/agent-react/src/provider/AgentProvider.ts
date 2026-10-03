@@ -231,8 +231,37 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     return () => document.removeEventListener('keydown', handler);
   }, [shortcutKey]);
 
+  // --- Which turn is the tab's ---
+  // A turn's end ends the tab's turn only when it is the turn the tab is
+  // running. A turn that stops for the person's approval sends its completion
+  // a moment after the card appears; a person who approves at once has started
+  // the continuation by then. Applied blindly, that late completion switched
+  // `isStreaming` off for the whole continuation, and a host that accepts the
+  // assistant's requests only while a turn is in progress refused every one of
+  // them (dev, 2026-10-03: "the page did not answer", and the approved action
+  // never ran).
+  //
+  // - `turnId`: the turn the tab is running, once its start request has
+  //   returned; null when it runs none.
+  // - `starting`: a start is in flight, so the tab's turn has no id yet. An
+  //   end that arrives now is neither applied nor dropped: it is held
+  //   (`heldEndsRef`) and judged against the id once it is known.
+  const liveTurnRef = useRef<{ starting: boolean; turnId: string | null }>({ starting: false, turnId: null });
+  const turnStartsRef = useRef(0);
+  const heldEndsRef = useRef<AgentProtocolEvent[]>([]);
+  /** Whether an end of turn `turnId` is the end of the turn the tab is running. */
+  const endsLiveTurn = (turnId: string | undefined): boolean => {
+    const live = liveTurnRef.current.turnId;
+    return live === null || turnId === undefined || turnId === live;
+  };
+
   // --- Protocol event handler ---
   const handleProtocolEvent = useCallback((event: AgentProtocolEvent) => {
+    if ((event.type === 'done' || event.type === 'error') && liveTurnRef.current.starting) {
+      // The tab's turn has no id yet: whose end this is cannot be told until it has.
+      heldEndsRef.current.push(event);
+      return;
+    }
     addDebugLog('event', 'agent:protocol', `${event.type}`, event);
     configRef.current.onEvent?.(event);
 
@@ -318,6 +347,17 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
       }
 
       case 'done':
+        if (!endsLiveTurn(event.turnId)) {
+          // An earlier turn's completion, arriving after the next turn was started: that turn's own
+          // message is finished, and nothing of the turn in progress is touched — not its streaming
+          // state, its id, its room or its text.
+          const earlier = `msg_${event.turnId}`;
+          setMessages(prev => prev.map(m => (m.id === earlier && m.isStreaming ? { ...m, isStreaming: false } : m)));
+          addDebugLog('info', 'agent:state', 'An earlier turn completed after the next one started; the turn in progress continues', {
+            turnId: event.turnId,
+          });
+          break;
+        }
         // Finalize all streaming messages. Drop any assistant streaming bubble
         // that ended up truly empty (e.g. token_clear wiped it and no text was
         // re-emitted). Preserve tool messages (which legitimately have null content).
@@ -338,6 +378,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
         });
         setIsStreaming(false);
         setCurrentTurnId(null);
+        liveTurnRef.current = { starting: false, turnId: null };
         activeRoomRef.current = null;
         if (unsubscribeRef.current) {
           unsubscribeRef.current();
@@ -346,6 +387,16 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
         break;
 
       case 'error':
+        if (!endsLiveTurn(event.turnId)) {
+          // An earlier turn's failure, arriving after the next turn was started: it is said, and the
+          // turn in progress goes on.
+          const earlier = `msg_${event.turnId}`;
+          setMessages(prev => [
+            ...prev.map(m => (m.id === earlier && m.isStreaming ? { ...m, isStreaming: false } : m)),
+            { id: `err_${Date.now()}`, role: 'assistant' as const, content: event.message || 'An error occurred.', timestamp: Date.now() },
+          ]);
+          break;
+        }
         streamBufferRef.current = '';
         roundPrefixRef.current = '';
         setMessages(prev => {
@@ -362,6 +413,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
         });
         setIsStreaming(false);
         setCurrentTurnId(null);
+        liveTurnRef.current = { starting: false, turnId: null };
         activeRoomRef.current = null;
         if (unsubscribeRef.current) {
           unsubscribeRef.current();
@@ -484,6 +536,10 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     // Any choice still on screen belongs to the previous turn.
     setPresentedOptions(null);
     setIsStreaming(true);
+    // From here the tab's turn is this one, though it has no id until the request returns: the end
+    // of any earlier turn no longer ends it.
+    const started = ++turnStartsRef.current;
+    liveTurnRef.current = { starting: true, turnId: null };
     streamBufferRef.current = '';
 
     try {
@@ -509,14 +565,31 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
       });
       addDebugLog('info', 'agent:state', 'Streaming started', { turnId });
       setCurrentTurnId(turnId);
+      if (turnStartsRef.current === started) {
+        liveTurnRef.current = { starting: false, turnId };
+        // The ends that arrived while this turn had no id: each is now this turn's, or an earlier one's.
+        for (const held of heldEndsRef.current.splice(0)) handleProtocolEvent(held);
+      }
 
-      if (unsubscribeRef.current) unsubscribeRef.current();
-      unsubscribeRef.current = subscribeToRoom(socketRoom, turnId, roomToken);
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+        unsubscribeRef.current = null;
+      }
+      // A turn whose own end was among those held is over already: there is nothing left to listen for.
+      if (liveTurnRef.current.turnId === turnId) {
+        unsubscribeRef.current = subscribeToRoom(socketRoom, turnId, roomToken);
+      }
 
       return { turnId };
     } catch (err) {
       addDebugLog('error', 'agent:api', `Send failed: ${err instanceof Error ? err.message : String(err)}`, { error: err });
-      setIsStreaming(false);
+      // Unless a later start has taken over, the tab has no turn now, and an end held meanwhile was
+      // the earlier turn's.
+      if (turnStartsRef.current === started) {
+        liveTurnRef.current = { starting: false, turnId: null };
+        for (const held of heldEndsRef.current.splice(0)) handleProtocolEvent(held);
+        setIsStreaming(false);
+      }
       setMessages(prev => [...prev, {
         id: `err_${Date.now()}`,
         role: 'assistant' as const,
@@ -525,7 +598,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
       }]);
       return { turnId: '' };
     }
-  }, [collectContext, subscribeToRoom, addDebugLog, setActiveConversation]);
+  }, [collectContext, subscribeToRoom, addDebugLog, setActiveConversation, handleProtocolEvent]);
 
   const sendMessage = useCallback((content: string, attachments?: File[]) => startTurn(content, attachments), [startTurn]);
 
@@ -594,6 +667,10 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     streamBufferRef.current = '';
     roundPrefixRef.current = '';
     setCurrentTurnId(null);
+    // No turn is the tab's now; a start still in flight is no longer waited on.
+    turnStartsRef.current += 1;
+    liveTurnRef.current = { starting: false, turnId: null };
+    heldEndsRef.current = [];
   }, []);
 
   /**

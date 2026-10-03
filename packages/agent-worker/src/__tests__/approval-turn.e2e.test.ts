@@ -155,6 +155,10 @@ describe.each<HostAdapter>(['lambda', 'container'])('on the %s adapter', (adapte
     expect(given[given.length - 1].role).toBe('user');
     expect(read(m2.requests)).toMatch(/it is one call, run once/);
     expect(JSON.parse(t2.persisted[0].messages[0].content!)).toMatchObject({ result: { sent: true, to: 'cfo@desk.example' } });
+    // The result says how the call came to run, to the model now and in the stored row for every later turn.
+    const approved = { decided: 'approved', by: 'user', ran: true, summary: 'Approved by the user on the approval card, and run once.' };
+    expect(JSON.parse(String(results[0].content))).toMatchObject({ approval: approved });
+    expect(JSON.parse(t2.persisted[0].messages[0].content!)).toMatchObject({ approval: approved });
     expect(tab.turnEvents(turn(2)).map((e) => e.event)).toEqual(
       expect.arrayContaining([AGENT_SOCKET_EVENTS.TOOL_CALL_STARTED, AGENT_SOCKET_EVENTS.TOOL_CALL_COMPLETE]),
     );
@@ -208,6 +212,14 @@ describe.each<HostAdapter>(['lambda', 'container'])('on the %s adapter', (adapte
     });
     expect(t5.outcome.status).toBe('completed');
     expect(read(m5.requests)).toMatch(/declined "Send a report".*did not run/);
+    // The declined call's stored result says so, in place of "waiting for approval": no later turn finds it waiting.
+    const declined = { decided: 'declined', by: 'user', ran: false, summary: 'Declined by the user on the approval card. It was not run.' };
+    expect(t5.persisted[0].messages[0]).toMatchObject({ role: 'tool', toolCallId: 'call_send_2' });
+    expect(JSON.parse(t5.persisted[0].messages[0].content!)).toMatchObject({ approval: declined, success: false, notRun: true });
+    const given5 = m5.requests[0].messages as Array<{ role: string; content?: unknown; tool_call_id?: string }>;
+    const second = given5.filter((m) => m.role === 'tool' && m.tool_call_id === 'call_send_2');
+    expect(second).toHaveLength(1);
+    expect(JSON.parse(String(second[0].content))).toMatchObject({ approval: declined, notRun: true });
     expect(tab.dispatches.filter((d) => d.actionId === 'reports_send')).toHaveLength(1);
     expect(await product.internal(`/internal/approvals/call_send_2?userId=${FIXTURE_TURN.userId}`)).toMatchObject({
       body: { status: 'declined' },

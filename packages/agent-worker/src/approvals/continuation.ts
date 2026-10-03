@@ -11,8 +11,69 @@ import type { ApprovalStoreClient } from './client.js';
 export type ContinuationOutcome =
   /** Approved and redeemed: run this call, exactly. */
   | { kind: 'run'; call: ApprovedCall }
-  /** Nothing runs; the model is told why. */
-  | { kind: 'note'; note: string };
+  /**
+   * Nothing runs; the model is told why. `settled`: the person's decision, or
+   * the approval's expiry, ended the call for good, so the call's stored result
+   * says so in place of "waiting for approval".
+   */
+  | { kind: 'note'; note: string; settled?: Exclude<ApprovalDecided, 'approved'> };
+
+/** How a call that waited for approval ended. */
+export type ApprovalDecided = 'approved' | 'declined' | 'expired';
+
+/**
+ * What a stored result says of the approval its call waited for, so that no
+ * later turn has to guess (dev, 2026-10-03: with "waiting for approval"
+ * replaced by the plain result, the assistant on the next turn could no longer
+ * tell the person had approved anything, and took back having said so).
+ */
+export interface ApprovalMarker {
+  decided: ApprovalDecided;
+  /** Who decided: the person, on the approval card. Absent for an expiry, which nobody decided. */
+  by?: 'user';
+  /** When the worker learned of it, ISO 8601. */
+  at: string;
+  /** Whether the call ran: once, when approved and not refused; never otherwise. */
+  ran: boolean;
+  /** The same, in words: what the model reads. */
+  summary: string;
+}
+
+const SUMMARY = {
+  approvedRan: 'Approved by the user on the approval card, and run once.',
+  approvedNotRun: 'Approved by the user on the approval card, but it did not run.',
+  declined: 'Declined by the user on the approval card. It was not run.',
+  expired: 'The approval expired before it was used. It was not run.',
+} as const;
+
+export function approvalMarker(decided: ApprovalDecided, ran: boolean, now: Date = new Date()): ApprovalMarker {
+  const summary =
+    decided === 'approved' ? (ran ? SUMMARY.approvedRan : SUMMARY.approvedNotRun) : decided === 'declined' ? SUMMARY.declined : SUMMARY.expired;
+  return { decided, ...(decided === 'expired' ? {} : { by: 'user' as const }), at: now.toISOString(), ran: decided === 'approved' && ran, summary };
+}
+
+/** A call's result with its approval said first: an object gains `approval`; anything else is put beside it as `result`. */
+export function markedResult(text: string, marker: ApprovalMarker): string {
+  let value: unknown = text;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    // Not JSON: kept as the text it is.
+  }
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? JSON.stringify({ approval: marker, ...(value as Record<string, unknown>) })
+    : JSON.stringify({ approval: marker, result: value });
+}
+
+/** The stored result of a call that will never run: declined, expired, or approved where it could not run. */
+export function notRunResult(marker: ApprovalMarker, why?: string): string {
+  return JSON.stringify({
+    approval: marker,
+    success: false,
+    notRun: true,
+    message: `${marker.summary}${why ? ` ${why}` : ''} Do not run it again unless the user asks for it again.`,
+  });
+}
 
 const WHY_NOT: Record<ApprovalRefusalReason, string> = {
   used: 'this approval has already been used',
@@ -73,6 +134,7 @@ export async function resolveContinuation(
     const what = status?.title ? `"${status.title}"` : 'the action';
     return {
       kind: 'note',
+      settled: 'declined',
       note:
         status?.status === 'declined'
           ? approvalNote(`The user declined ${what} on the approval card, so it did not run. Do not run it again unless they ask for it again.`)
@@ -87,7 +149,12 @@ export async function resolveContinuation(
     return { kind: 'note', note: approvalNote('An approval arrived, but the approved action did not run: the approval could not be checked.') };
   }
   if (!redeemed.ok) {
-    return { kind: 'note', note: approvalNote(`An approval arrived, but the approved action did not run: ${WHY_NOT[redeemed.reason]}.`) };
+    return {
+      kind: 'note',
+      note: approvalNote(`An approval arrived, but the approved action did not run: ${WHY_NOT[redeemed.reason]}.`),
+      // Only an expiry ends the call: an approval already used ran it, and the other refusals say nothing of the call itself.
+      ...(redeemed.reason === 'expired' ? { settled: 'expired' as const } : {}),
+    };
   }
   return { kind: 'run', call: redeemed.call };
 }
