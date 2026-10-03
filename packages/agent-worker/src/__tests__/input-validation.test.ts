@@ -86,6 +86,50 @@ describe('createToolInputValidator', () => {
     expect(validate(null)).toEqual({ ok: false, errors: ['(input) must be an object'] });
   });
 
+  // ADR-0248 §2.9: three calls of one session sent a list or an object as JSON text, and were refused.
+  describe('a list or an object sent as JSON text', () => {
+    const setProperties = createToolInputValidator({
+      type: 'object',
+      required: ['ids', 'values'],
+      additionalProperties: false,
+      properties: {
+        ids: { type: 'array', items: { type: 'string' }, minItems: 1 },
+        values: { type: 'object', properties: { x: { type: 'number' } }, additionalProperties: false },
+        fill: { oneOf: [{ type: 'object', properties: { kind: { const: 'solid' } } }, { type: 'array', items: { type: 'object' } }] },
+        note: { type: 'string' },
+        label: { type: ['string', 'array'] },
+      },
+    });
+
+    it('is read as what it spells, and the validator says which properties were', () => {
+      expect(setProperties({ ids: '["layer-1","layer-2"]', values: ' {"x": 120} ', fill: '{"kind":"solid"}' })).toEqual({
+        ok: true,
+        value: { ids: ['layer-1', 'layer-2'], values: { x: 120 }, fill: { kind: 'solid' } },
+        coerced: ['ids', 'values', 'fill'],
+      });
+    });
+
+    it('is still refused when what it spells is not valid either, with the error of the input as it was sent', () => {
+      expect(setProperties({ ids: '[]', values: '{"x":1}' })).toEqual({
+        ok: false,
+        errors: ['/ids must be array', '/values must be object'],
+      });
+      expect(setProperties({ ids: '["a"', values: {} })).toEqual({ ok: false, errors: ['/ids must be array'] });
+    });
+
+    it('leaves a string alone where the schema takes a string, even one that spells a list', () => {
+      expect(setProperties({ ids: ['a'], values: {}, note: '["not","a","list"]', label: '["x"]' })).toEqual({
+        ok: true,
+        value: { ids: ['a'], values: {}, note: '["not","a","list"]', label: '["x"]' },
+      });
+    });
+
+    it('reports nothing coerced for input that was valid as sent', () => {
+      const result = setProperties({ ids: ['a'], values: { x: 1 } });
+      expect(result).toEqual({ ok: true, value: { ids: ['a'], values: { x: 1 } } });
+    });
+  });
+
   it('fails closed when the schema itself cannot be compiled', () => {
     const broken = createToolInputValidator({ type: 'object', properties: { a: { type: 'not-a-type' } } });
     const result = broken({ a: 'x' });

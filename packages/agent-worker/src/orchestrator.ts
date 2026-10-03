@@ -344,6 +344,8 @@ export async function runAgentTurn(
       );
     }
     const args = validation.value;
+    // Told to the model with the result, so it sends the value itself next time (below).
+    const readFromText = validation.coerced ?? [];
 
     // ── Quota enforcement ──
     // UI actions run as the user in their own session (ADR-0182 §3), so the
@@ -453,9 +455,18 @@ export async function runAgentTurn(
     const resultSuccess = isWrapped ? result.success : true;
     // A failed call that still carries data (a UI action's page state) must
     // not lose its error message on the way to the model.
-    const modelPayload = isWrapped && !result.success && result.data !== undefined && result.error
+    const payload = isWrapped && !result.success && result.data !== undefined && result.error
       ? { error: result.error, ...(result.data as Record<string, unknown>) }
       : resultData;
+    const modelPayload =
+      readFromText.length > 0 && payload && typeof payload === 'object' && !Array.isArray(payload)
+        ? {
+            ...(payload as Record<string, unknown>),
+            inputNote:
+              `${readFromText.map((k) => `"${k}"`).join(', ')} arrived as JSON text and ${readFromText.length === 1 ? 'was' : 'were'} read as the ` +
+              'list or object it spells. Send a list or an object as itself, not inside a string.',
+          }
+        : payload;
 
     log('info', 'agent:tool', 'Tool call completed', {
       turnId,

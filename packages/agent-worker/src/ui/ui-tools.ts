@@ -339,6 +339,7 @@ function describeTool(shared: Shared): RegisteredTool {
     description:
       'Says what actions of the page take: each action’s full description and its input, as a JSON Schema when it is small, ' +
       'or in outline when it is large. An outline names how to open each part: call again with that one action and `path`. ' +
+      'A part opened by its path is given whole; a list too long for one answer says how many rows it has and where the next begin (`from`). ' +
       `Describe an action before the first time you use it, unless its line in the index already says everything it takes. Up to ${MAX_DESCRIBED_ACTIONS} actions a call.`,
     inputSchema: {
       type: 'object',
@@ -356,6 +357,11 @@ function describeTool(shared: Shared): RegisteredTool {
             'With one action: the part of its input to open, as an outline named it. A property ("style.fill"), ' +
             'a union member ("effect=glow"), a list’s items ("stops.[]").',
         },
+        from: {
+          type: 'integer',
+          minimum: 1,
+          description: 'With one action: the row to start at, when an answer said its rows continue ("call again with from: 81").',
+        },
       },
       required: ['actions'],
       additionalProperties: false,
@@ -364,8 +370,9 @@ function describeTool(shared: Shared): RegisteredTool {
     async execute(input, ctx) {
       const ids = input.actions as string[];
       const path = typeof input.path === 'string' ? input.path : '';
-      if (path && ids.length !== 1) {
-        return { success: false, error: 'A path opens part of one action’s input: name one action with it.' };
+      const from = typeof input.from === 'number' ? input.from : undefined;
+      if ((path || from) && ids.length !== 1) {
+        return { success: false, error: 'A path or a row to start at reads part of one action’s input: name one action with it.' };
       }
       const offered = new Map(pageActions(shared.deps.currentPage()).actions.map((a) => [a.entry.id, a]));
       const wanted = ids.flatMap((id) => offered.get(id) ?? []);
@@ -383,7 +390,7 @@ function describeTool(shared: Shared): RegisteredTool {
           unknown.push(action.entry.id);
           return [];
         }
-        const view = describeSchema(definition.input as Record<string, unknown> | undefined, { path });
+        const view = describeSchema(definition.input as Record<string, unknown> | undefined, { path, from });
         return [
           {
             action: definition.id,
