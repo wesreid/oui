@@ -1,6 +1,6 @@
 {
   "name": "@ouispec/agent-react",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "React bindings — view annotations, execution engine, agent UI components",
   "homepage": "https://github.com/wesreid/oui/tree/main/packages/agent-react#readme",
   "bugs": {
