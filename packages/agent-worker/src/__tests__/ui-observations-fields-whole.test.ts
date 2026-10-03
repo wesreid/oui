@@ -160,7 +160,7 @@ describe('the page state over budget, with a big list and an open detail panel',
     expect(page.lists['voices.open']).toEqual(['140 rows, not listed to fit the page state; name a row by its title']);
     expect(page.lists['voices.select']).toEqual([
       { ...OPEN, value: true },
-      '139 more rows, not listed to fit the page state; name a row by its title',
+      '… and 139 more rows, not listed to fit the page state; name a row by its title',
     ]);
   });
 

@@ -17,6 +17,28 @@ export type AgentSocketEventName = (typeof AGENT_SOCKET_EVENTS)[keyof typeof AGE
 
 export const ALL_AGENT_SOCKET_EVENTS: AgentSocketEventName[] = Object.values(AGENT_SOCKET_EVENTS);
 
+/**
+ * The tools an agent works a client's UI with (ADR-0245 §2.2): the model runs
+ * one action of the page through `act`, and learns what actions take and
+ * reads the page through the other two. A stored `act` call names the action
+ * in its arguments (`{ action, input }`).
+ */
+export const AGENT_UI_TOOLS = { act: 'ui_act', describe: 'ui_describe', read: 'ui_read' } as const;
+
+/**
+ * A tool call as a person should see it: an `act` call is the action it ran,
+ * with that action's input; any other call is itself.
+ */
+export function displayedToolCall(call: { name: string; arguments?: Record<string, unknown> }): {
+  name: string;
+  arguments?: Record<string, unknown>;
+} {
+  const action = call.arguments?.action;
+  if (call.name !== AGENT_UI_TOOLS.act || typeof action !== 'string' || !action) return call;
+  const input = call.arguments?.input;
+  return { name: action, ...(input && typeof input === 'object' ? { arguments: input as Record<string, unknown> } : {}) };
+}
+
 export type AgentProtocolEvent =
   | TokenEvent
   | TokenClearEvent

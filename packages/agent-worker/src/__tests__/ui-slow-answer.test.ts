@@ -17,6 +17,7 @@ import { createSurfaceRuntime, defineSurface } from 'oui-spec/core';
 import type { SocketLike } from 'oui-spec/transport';
 import type { OUIActionRequest, OUIActionResult } from 'oui-spec/spec';
 import { buildUITools } from '../ui/ui-tools.js';
+import { pageOf } from './support/page.js';
 import { createUISequence } from '../ui/ui-sequence.js';
 import type { UIActionChannel } from '../ui/channel.js';
 
@@ -123,11 +124,11 @@ describe('two actions in a row, the first answer slow (dev, 09:11Z)', () => {
       };
       const snap = runtime.snapshot();
       const sequence = createUISequence();
-      sequence.record(snap.surfaces, snap.surfacesHash);
-      const { tools } = buildUITools(snap.surfaces, {
+      sequence.record(pageOf(snap.surfaces), snap.surfacesHash);
+      const { tools } = buildUITools(pageOf(snap.surfaces), {
         channel,
         resultTimeoutMs: 20_000,
-        currentSurfaces: () => snap.surfaces,
+        currentPage: () => pageOf(snap.surfaces),
         sequence,
         onResult: () => {},
       });

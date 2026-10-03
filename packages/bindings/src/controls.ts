@@ -162,12 +162,15 @@ export function deriveValueSchema(kind: AnyControlKind, props: SchemaProps = {})
         description: 'A CSS colour, e.g. "#eb0a1e" or "rgba(0,0,0,0.5)"',
       };
       const variants: JsonSchema[] = [css];
-      if (gradients.length) {
+      const stopKinds = gradients.filter(k => k !== 'freeform-gradient' && k !== 'pattern');
+      if (stopKinds.length) {
         variants.push({
           type: 'object',
-          description: `A gradient paint: kind ${gradients.join(' or ')}, its stops from offset 0 to 1, and for a linear gradient its angle in degrees`,
+          description:
+            `A gradient paint: kind ${stopKinds.join(' or ')}, its stops from offset 0 to 1, and its angle in degrees ` +
+            '(a linear gradient’s direction; an angular gradient’s start, clockwise from the right, -90 the top)',
           properties: {
-            kind: { type: 'string', enum: gradients },
+            kind: { type: 'string', enum: stopKinds },
             angle: { type: 'number', 'x-unit': '°' },
             stops: {
               type: 'array',
@@ -183,6 +186,53 @@ export function deriveValueSchema(kind: AnyControlKind, props: SchemaProps = {})
             },
           },
           required: ['kind', 'stops'],
+        });
+      }
+      if (gradients.includes('freeform-gradient')) {
+        variants.push({
+          type: 'object',
+          description:
+            'A freeform gradient: colours at points, blending smoothly between them. Each point is placed as fractions ' +
+            'of the painted shape ([0, 0] its top left, [1, 1] its bottom right), with a CSS colour and a spread (how far ' +
+            'its colour reaches against the others’; 1 the default). `lines` optionally chains point indices into curves the colour runs along.',
+          properties: {
+            kind: { type: 'string', enum: ['freeform-gradient'] },
+            points: {
+              type: 'array',
+              minItems: 1,
+              items: {
+                type: 'object',
+                properties: {
+                  at: { type: 'array', items: { type: 'number', minimum: 0, maximum: 1 }, minItems: 2, maxItems: 2 },
+                  color: css,
+                  spread: { type: 'number', minimum: 0.01 },
+                },
+                required: ['at', 'color'],
+              },
+            },
+            lines: { type: 'array', items: { type: 'array', items: { type: 'integer', minimum: 0 }, minItems: 2 } },
+          },
+          required: ['kind', 'points'],
+        });
+      }
+      if (gradients.includes('pattern')) {
+        // The document's patterns are the control's options: one is named by its id (ADR-0247 §2.2).
+        const patterns = (props.options ?? []).filter(o => !o.disabled);
+        variants.push({
+          type: 'object',
+          description:
+            'A pattern paint: one of the document’s patterns repeated across what is painted, by its id' +
+            (patterns.length ? ` (${patterns.map(o => `${JSON.stringify(o.value)} is ${o.title}`).join('; ')})` : '') +
+            ', with its scale as a percentage of the tile, its rotation in degrees clockwise, and where its first tile sits',
+          properties: {
+            kind: { type: 'string', enum: ['pattern'] },
+            pattern: { type: 'string', ...(patterns.length ? { enum: patterns.map(o => String(o.value)) } : {}) },
+            scale: { type: 'number', minimum: 1, 'x-unit': '%' },
+            rotation: { type: 'number', 'x-unit': '°' },
+            offset: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
+            opacity: { type: 'number', minimum: 0, maximum: 1 },
+          },
+          required: ['kind', 'pattern'],
         });
       }
       if (props.allowNone) variants.push({ type: 'null', description: 'No paint' });

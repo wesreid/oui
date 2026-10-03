@@ -13,6 +13,7 @@ import {
   type ActionDefinition,
   type ActionHandlerResult,
   type MountedSurface,
+  type SurfaceForm,
   type SurfaceRuntime,
 } from 'oui-spec/core';
 
@@ -29,6 +30,7 @@ import {
 } from './manifest.js';
 import type { BindingRegistry, ControlRegistration, RoomRegistration } from './registry.js';
 import type { JobOutcome } from '@ouispec/contract';
+import { addressesRows, observationLookup, resolveInputRefs } from './readers.js';
 import { PROBLEMS_OBSERVATION_ID, type RoomResult } from './room.js';
 
 /** The id of a page or shared surface's observation of what it shows. */
@@ -42,7 +44,8 @@ export type BindingDefect =
 
 export interface ConnectBindingsOptions {
   registry: BindingRegistry;
-  runtime: SurfaceRuntime;
+  /** The tab's surface runtime, in either form (oui-spec §7.3.8). */
+  runtime: SurfaceRuntime<SurfaceForm>;
   manifest: OuiManifest;
   onDefect?: (defect: BindingDefect) => void;
   /**
@@ -251,8 +254,10 @@ export function connectBindings({
         continue;
       }
       const entry = want(surface);
+      // What the room last reported: where a name given for an id is looked up.
+      const reported = () => registry.rooms().find(r => r.registration === registration)?.observations ?? {};
       for (const action of surface.actions) {
-        const def = roomAction(action, registration, runs);
+        const def = roomAction(action, registration, runs, surface, reported);
         if (def) entry.actions.push(def);
       }
     }
@@ -580,6 +585,8 @@ function roomAction(
   action: ManifestAction,
   registration: RoomRegistration,
   runs: JobRuns,
+  surface: ManifestSurface,
+  reported: () => Readonly<Record<string, unknown>>,
 ): ActionDefinition<null> | null {
   if (action.source !== 'room-action') return null;
   const entryId = action.id.split('/').pop()!;
@@ -587,6 +594,7 @@ function roomAction(
   if (!entry) return null;
   const job = settlement(action);
   const timeoutMs = job?.timeoutMs ?? DEFAULT_JOB_TIMEOUT_MS;
+  const addresses = addressesRows(action.input);
   return {
     id: action.name,
     description: action.description,
@@ -596,7 +604,12 @@ function roomAction(
     ...settlingDefinition(job, timeoutMs, runs),
     handler: async params => {
       try {
-        const result = await registration.run(entry.id, params);
+        // A name given where a row's id is taken is the row's id, when one row has it (ADR-0244 §2.2).
+        const resolved = addresses
+          ? resolveInputRefs(action.input, params, observationLookup(surface.observations, reported()))
+          : { input: params };
+        if ('error' in resolved) return toHandlerResult(resolved.error);
+        const result = await registration.run(entry.id, resolved.input as Record<string, unknown>);
         return job ? settlingResult(action.id, result, timeoutMs, runs) : toHandlerResult(result);
       } catch (err) {
         return fail('FAILED', err instanceof Error ? err.message : String(err));
@@ -639,6 +652,8 @@ function fail(code: string, message: string): ActionHandlerResult {
 function toHandlerResult(result: RoomResult): ActionHandlerResult {
   if (!result.ok) return fail(result.code, result.message);
   // Work that outlives the call is started, not done: say so, so it is never reported finished.
-  const data = result.pending ? { ...result.data, status: 'started', jobId: result.pending.jobId } : result.data;
+  const started = result.pending ? { ...result.data, status: 'started', jobId: result.pending.jobId } : result.data;
+  // What it changed, as it is now: what the assistant checks its edit against (ADR-0244 §2.5).
+  const data = result.changed?.length ? { ...started, changed: result.changed } : started;
   return { success: true, ...(data ? { data } : {}) };
 }

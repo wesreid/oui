@@ -10,6 +10,7 @@ import { APPROVAL_DECIDE_EVENT } from '@ouispec/agent-core';
 import type { AgentProtocolEvent } from '@ouispec/agent-core';
 import { ALL_AGENT_SOCKET_EVENTS, parseSocketEvent } from '@ouispec/agent-core';
 import type { SocketLike } from '@ouispec/agent-core';
+import { browserTimeZone } from './time-zone.js';
 import { createSocketIOSocket } from './socketio.js';
 import type {
   AgentConversationChanges,
@@ -29,6 +30,7 @@ import type {
 import { ApprovalDecisionContext, approvalRefusalText, type ApprovalDecisionState } from '../approvals/decision.js';
 import { annotationRegistry } from '../annotations/singleton.js';
 import { storedToAgentMessages } from './stored-messages.js';
+import { SDK_PACKAGE, SDK_VERSION } from '../version.js';
 
 const AgentContext = createContext<AgentContextValue | null>(null);
 
@@ -285,7 +287,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
           role: 'tool' as const,
           content: null,
           timestamp: Date.now(),
-          toolCall: { id: event.id, name: event.intentId, status: 'running' as const },
+          toolCall: { id: event.id, name: event.intentId, arguments: event.parameters, status: 'running' as const },
         }]);
         break;
 
@@ -445,9 +447,12 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   // Collect context from visible annotations and current route
   const collectContext = useCallback((): AgentMessageContext => {
     const annotations = annotationRegistry.getVisibleAnnotations();
+    const timeZone = browserTimeZone();
     return {
       currentPath: typeof window !== 'undefined' ? window.location.pathname : undefined,
       visibleAnnotations: annotations,
+      // The user's clock: the worker names today's date in this zone on every turn.
+      ...(timeZone ? { timeZone } : {}),
     };
   }, []);
 
@@ -748,10 +753,11 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     if (removingOpen && conversationIdRef.current === open) resetToNewConversation();
   }, [addDebugLog, resetToNewConversation, setListed]);
 
-  const exportSession = useCallback(() => {
-    const session = {
+  const sessionRecord = useCallback(() => {
+    return {
       exportedAt: new Date().toISOString(),
-      sdkVersion: '0.2.14',
+      sdk: SDK_PACKAGE,
+      sdkVersion: SDK_VERSION,
       session: {
         conversationId,
         currentTurnId,
@@ -778,8 +784,10 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
         realtimeUrl: config.realtime.url,
       },
     };
+  }, [conversationId, currentTurnId, connected, isStreaming, messages, debugEnabled, debugLogs, config.realtime.url]);
 
-    const blob = new Blob([JSON.stringify(session, null, 2)], { type: 'application/json' });
+  const exportSession = useCallback(() => {
+    const blob = new Blob([JSON.stringify(sessionRecord(), null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -789,7 +797,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [conversationId, currentTurnId, connected, isStreaming, messages, debugEnabled, debugLogs, config.realtime.url]);
+  }, [conversationId, sessionRecord]);
 
   const debugState: AgentDebugState = {
     enabled: debugEnabled,
@@ -797,6 +805,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     logs: debugLogs,
     clearLogs: clearDebugLogs,
     namespaces: ALL_DEBUG_NAMESPACES,
+    sessionRecord,
     exportSession,
   };
 

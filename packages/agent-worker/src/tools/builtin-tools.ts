@@ -30,7 +30,12 @@ function loadInteractionTools(): RegisteredTool[] {
       inputSchema: {
         type: 'object',
         properties: {
-          prompt: { type: 'string', description: 'Question or prompt for the user' },
+          context: {
+            type: 'string',
+            description:
+              'What the user needs to know before choosing, in one or two sentences: what you found or did, or what cannot be done here and why. Shown above the question.',
+          },
+          prompt: { type: 'string', description: 'The question itself.' },
           options: {
             type: 'array',
             items: {
@@ -46,12 +51,15 @@ function loadInteractionTools(): RegisteredTool[] {
           style: { type: 'string', enum: ['buttons', 'list', 'cards'], description: 'Presentation style', default: 'buttons' },
           allowCustom: { type: 'boolean', description: 'Allow custom user input', default: false },
         },
-        required: ['prompt', 'options'],
+        required: ['context', 'prompt', 'options'],
       },
       async execute(input) {
+        // The user sees only the card, so it carries why it is asked: a question
+        // offering substitutes never stands without saying what could not be done.
+        const context = typeof input.context === 'string' ? input.context.trim() : '';
         return {
           __present_options: true,
-          prompt: input.prompt,
+          prompt: context ? `${context}\n\n${String(input.prompt ?? '')}` : input.prompt,
           options: input.options,
           style: input.style ?? 'buttons',
           ...(input.allowCustom ? { allowCustom: input.allowCustom } : {}),
@@ -62,7 +70,7 @@ function loadInteractionTools(): RegisteredTool[] {
       name: 'confirm_action',
       description:
         'Ask the user a quick yes-or-no before something significant that needs no approval ("Ready to generate?"). ' +
-        'Never use it for a tool marked "Needs the user\'s approval": call that tool directly, and its approval card asks. ' +
+        'Never use it for a tool marked "Needs the user\'s approval", or an action of the page marked "needs approval": run that directly, and its approval card asks. ' +
         'An answer here never approves anything. Returns true (confirmed) or false (cancelled).',
       inputSchema: {
         type: 'object',

@@ -5,6 +5,7 @@
  */
 
 import {
+  manifestBudgetProblems,
   bindingIdProblem,
   controlVerb,
   deriveInputSchema,
@@ -18,6 +19,8 @@ import {
   problemsSchema,
   ROOM_RUN_COMMAND_ID,
   ROOM_SET_PROPERTIES_ID,
+  roomListProblems,
+  roomMeasureProblems,
   routeMatcher,
   toolInputProblems,
   toolName,
@@ -338,6 +341,13 @@ export function assemble(
         uniqueErrors.push({ file: a.declaredIn ?? s.id, line: 0, message: `${a.id} (tool ${a.name}): ${problem}` });
       }
     }
+  }
+
+  // What the build offers fits what carries it (ADR-0245 §2.6): an index
+  // entry, a definition and a surface's index each have a size they must stay
+  // under, or the page that mounts them cannot be sent to the assistant.
+  for (const problem of manifestBudgetProblems({ surfaces })) {
+    uniqueErrors.push({ file: problem.declaredIn ?? problem.surface, line: 0, message: problem.message });
   }
 
   return { surfaces, pages: metas, frames, errors: uniqueErrors };
@@ -664,6 +674,10 @@ function catalogProblems(
       out.push({ file: pkg, line: 0, message: `${catalog.room} action ${a.id}${joined(problem)}` });
   }
   for (const message of recipeProblems(catalog)) out.push({ file: pkg, line: 0, message });
+  // Its lists are readable and its inputs address lists it has (ADR-0244 §2.2).
+  for (const message of roomListProblems(catalog)) out.push({ file: pkg, line: 0, message });
+  // Every number it takes says its unit (ADR-0244 §2.3).
+  for (const message of roomMeasureProblems(catalog)) out.push({ file: pkg, line: 0, message });
   const ids = new Set(catalog.actions.map(a => a.id));
   if (catalog.fields.length && !ids.has(ROOM_SET_PROPERTIES_ID)) {
     out.push({

@@ -30,6 +30,14 @@ export interface RegisteredTool {
   destructive?: boolean;
   description: string;
   inputSchema: Record<string, unknown>;
+  /**
+   * The schema a call's input is checked against, when it is not known until
+   * the tool is used: a UI action's definition is fetched from the page then
+   * (ADR-0245 §2.1). Called once per call, before validation; `inputSchema`
+   * only stands in for it. A rejection is told to the model as the reason the
+   * call did not run.
+   */
+  resolveInputSchema?: (ctx: ToolExecutionContext) => Promise<Record<string, unknown>>;
   execute: (input: Record<string, unknown>, ctx: ToolExecutionContext) => Promise<ToolExecutionResult>;
   /** Its name as a person reads it, for the approval card. Default: `name`. */
   title?: string;
@@ -78,6 +86,12 @@ export interface ToolExecutionResult {
   success: boolean;
   data?: unknown;
   error?: string;
+  /**
+   * A picture the model is given beside the result's text, as an image part
+   * of the tool result. It is given once and stored nowhere: `data` says what
+   * the picture is.
+   */
+  image?: { mediaType: string; base64: string };
 }
 
 export interface ToolRegistry {

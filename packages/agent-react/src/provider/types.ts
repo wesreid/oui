@@ -13,6 +13,8 @@ import type {
 export interface AgentToolCallState {
   id: string;
   name: string;
+  /** What the assistant called it with: a session's record can be replayed from it (ADR-0244 §2.7). */
+  arguments?: Record<string, unknown>;
   status: 'running' | 'complete' | 'error';
   result?: unknown;
 }
@@ -58,11 +60,43 @@ export interface AgentDebugState {
   clearLogs: () => void;
   namespaces: DebugLogNamespace[];
   /**
+   * The session as its export holds it: every message, each call the
+   * assistant made with its arguments and outcome, the debug logs, the
+   * connection state, and the package and version that wrote it. What a host
+   * attaches to a bug report, and what `exportSession` downloads.
+   */
+  sessionRecord: () => AgentSessionRecord;
+  /**
    * Export the full agent session state as a downloadable JSON file.
    * Includes messages, debug logs, connection state, and metadata.
    * Useful for sharing with engineering when debugging agent behavior.
    */
   exportSession: () => void;
+}
+
+/** A session as it is exported (ADR-0244 §2.7). */
+export interface AgentSessionRecord {
+  exportedAt: string;
+  /** The package that wrote it, and its version. */
+  sdk: string;
+  sdkVersion: string;
+  session: {
+    conversationId: string | null;
+    currentTurnId: string | null;
+    connected: boolean;
+    isStreaming: boolean;
+    messageCount: number;
+    messages: Array<{
+      id: string;
+      role: AgentMessage['role'];
+      content: string | null;
+      timestamp: string;
+      isStreaming?: boolean;
+      toolCall?: AgentToolCallState;
+    }>;
+  };
+  debug: { enabled: boolean; logCount: number; logs: DebugLogEntry[] };
+  environment: { userAgent: string; url: string; realtimeUrl: string };
 }
 
 /**

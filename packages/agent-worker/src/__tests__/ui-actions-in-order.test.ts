@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 import type { OUIActionRequest, OUIActionResult, OUISurface } from 'oui-spec/spec';
 import type { UIActionChannel } from '../ui/channel.js';
 import { buildUITools } from '../ui/ui-tools.js';
+import { pageOf } from './support/page.js';
 import { createUISequence } from '../ui/ui-sequence.js';
 import type { ToolExecutionContext } from '../tools/types.js';
 
@@ -56,10 +57,10 @@ const ctx = (id: string) =>
   ({ toolCallId: id, socketRoom: 'agent:turn:t1', userId: 'u1', accountId: 'a1', turnId: 't1' }) as ToolExecutionContext;
 
 function tools(channel: UIActionChannel, sequence = createUISequence()) {
-  const built = buildUITools([FORM], {
+  const built = buildUITools(pageOf([FORM]), {
     channel,
     resultTimeoutMs: 5_000,
-    currentSurfaces: () => [FORM],
+    currentPage: () => pageOf([FORM]),
     onResult: () => {},
     sequence,
   });
@@ -127,8 +128,11 @@ describe('UI actions called in one response', () => {
       t.fill_title.execute({}, ctx('c1')),
       t.press_add.execute({}, ctx('c2')),
     ]);
-    // The first action changed the page, and says so; the second starts from that page and adds nothing new.
-    expect((first.data as { page: { toolsAdded?: string[] } }).page.toolsAdded).toEqual(['delete']);
-    expect((second.data as { page: { toolsAdded?: string[] } }).page.toolsAdded).toBeUndefined();
+    // The first action changed the page, and its answer carries the new page's index; the second starts from that page and adds nothing new.
+    type Page = { page: { nowOffers?: string; noLongerOnScreen?: string[]; actionsAdded?: string[] } };
+    expect((first.data as Page).page.nowOffers).toContain('- delete: ');
+    expect((first.data as Page).page.noLongerOnScreen).toEqual(['Form']);
+    expect((second.data as Page).page.nowOffers).toBeUndefined();
+    expect((second.data as Page).page.actionsAdded).toBeUndefined();
   });
 });

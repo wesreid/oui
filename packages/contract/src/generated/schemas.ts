@@ -11,7 +11,7 @@ export const CONTRACT_SCHEMAS = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://schemas.closurestudio.ai/oui/v1/json-schema.json",
     "title": "JsonSchema",
-    "description": "The subset of JSON Schema (draft 2020-12) every capability declares its input and values in. It is what assistant tool inputs are written in, so a declared or derived schema is used as is. `x-unit` names the unit a number is in: `px`, `%`, `°`.",
+    "description": "The subset of JSON Schema (draft 2020-12) every capability declares its input and values in. It is what assistant tool inputs are written in, so a declared or derived schema is used as is. `x-unit` names the unit a number is in: `px`, `%`, `°`; `x-space` names the frame it is measured in; `x-rows` and `x-ref` say which lists hold addressable rows and which inputs address them.",
     "type": "object",
     "properties": {
       "type": {
@@ -140,12 +140,61 @@ export const CONTRACT_SCHEMAS = {
         "description": "The unit a number is in: `px`, `%`, `°`.",
         "type": "string"
       },
+      "x-space": {
+        "description": "The frame a length, a point or a fraction is measured in, in the room's own words: `artboard` (from its top left), `canvas`, `layer` (the layer's own content), `artboard-fraction` (0–1 of the artboard's width and height). A room names its spaces in its description or a recipe (ADR-0244 §2.3).",
+        "type": "string"
+      },
+      "x-rows": {
+        "description": "On an array of objects in an observation: the list is a collection the assistant addresses rows of (a document's layers, its artboards). It names the property each row is addressed by and the one a person calls it by, so a list too long for the page state keeps an index of every row instead of a count, and a title given where an id is expected resolves to its row (ADR-0244 §2.1, §2.2).",
+        "$ref": "#/$defs/RowList"
+      },
+      "x-ref": {
+        "description": "On a string (or the items of an array of strings) in an action's input: the value addresses a row of one of the surface's `x-rows` lists, each named `<observation id>/<list property>`, or `<observation id>` when the observation itself is the list. The row's id, or its exact title when one row has it (ADR-0244 §2.2).",
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        },
+        "minItems": 1
+      },
       "x-enum-omitted": {
         "description": "How many allowed values a shortened `enum` leaves out. Only in the page state, where a row's options are summarised; a tool's input schema always lists every value.",
         "type": "number"
       }
     },
     "$defs": {
+      "RowList": {
+        "description": "How the rows of a list are addressed and indexed.",
+        "type": "object",
+        "properties": {
+          "ref": {
+            "description": "The property of a row that actions address it by (`id`).",
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "description": "The property of a row a person calls it by (`name`).",
+            "type": "string",
+            "minLength": 1
+          },
+          "index": {
+            "description": "The other properties an index row keeps: the few that tell rows apart (a layer's kind, the artboard it is on).",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "selection": {
+            "description": "The property beside the list, in the same object, that holds the refs of the rows the person has selected. Selected rows are kept whole however short the list gets.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "title"
+        ],
+        "additionalProperties": false
+      },
       "JsonSchemaType": {
         "description": "A JSON Schema type name.",
         "enum": [
@@ -1541,6 +1590,35 @@ export const CONTRACT_SCHEMAS = {
         ],
         "additionalProperties": false
       },
+      "RoomChangedRow": {
+        "description": "One row an action changed: which list it is in, what addresses it, and everything about it now.",
+        "type": "object",
+        "properties": {
+          "list": {
+            "description": "The list it is a row of: `<observation id>/<list property>`, or `<observation id>` when the observation itself is the list.",
+            "type": "string",
+            "minLength": 1
+          },
+          "ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "detail": {
+            "description": "Everything about the row now, as `inspect` returns it. Left out when the row was removed, and when an edit changed more rows than a result reports in full: `inspect` reads those.",
+            "type": "object",
+            "additionalProperties": true
+          },
+          "removed": {
+            "description": "The edit removed the row: nothing addresses it any more.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "list",
+          "ref"
+        ],
+        "additionalProperties": false
+      },
       "RoomResult": {
         "description": "What running a catalog entry or a bound control did: its data, or why it could not be done, in words a person would read. `pending` says the work outlives the call: a job was started and is done only when its completion arrives (an action whose effect is `job` or `transaction`). Every binding's `run` returns what the consumer's callback returned (ADR-0226 §2.2 rule 3, #209), so a handler's `{ ok, pending: { jobId } }` reaches the runtime.",
         "oneOf": [
@@ -1565,6 +1643,13 @@ export const CONTRACT_SCHEMAS = {
                   "jobId"
                 ],
                 "additionalProperties": false
+              },
+              "changed": {
+                "description": "The rows it changed, added or removed, each as its list's reader reports it now (ADR-0244 §2.5): what the assistant checks its edit against, and the rows the page state keeps whole.",
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/RoomChangedRow"
+                }
               }
             },
             "required": [
@@ -3173,6 +3258,7 @@ export type ContractSchemaFile = keyof typeof CONTRACT_SCHEMAS;
  */
 export const CONTRACT_TYPES = {
   JsonSchema: 'json-schema.json',
+  RowList: 'json-schema.json#/$defs/RowList',
   JsonSchemaType: 'json-schema.json#/$defs/JsonSchemaType',
   ActionEffect: 'action-effect.json',
   SimpleEffect: 'action-effect.json#/$defs/SimpleEffect',
@@ -3216,6 +3302,7 @@ export const CONTRACT_TYPES = {
   RoomProblemKind: 'room-catalog-data.json#/$defs/RoomProblemKind',
   RoomRecipe: 'room-catalog-data.json#/$defs/RoomRecipe',
   RoomProblem: 'room-catalog-data.json#/$defs/RoomProblem',
+  RoomChangedRow: 'room-catalog-data.json#/$defs/RoomChangedRow',
   RoomResult: 'room-catalog-data.json#/$defs/RoomResult',
   AgentCatalogManifestEntry: 'room-catalog-data.json#/$defs/AgentCatalogManifestEntry',
   OuiManifest: 'oui-manifest.json',

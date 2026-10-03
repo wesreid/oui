@@ -17,6 +17,7 @@ import { createToolRegistry, type RegisteredTool } from '../tools/types.js';
 import { loadBuiltinTools } from '../tools/builtin-tools.js';
 import { getToolStrategyRules, getUIControlRules } from '../prompt/index.js';
 import { respondingOpenAI } from './support/replay.js';
+import { pageOf } from './support/page.js';
 
 const tool = (over: Partial<RegisteredTool> = {}): RegisteredTool => ({
   name: 'orders_place',
@@ -87,11 +88,11 @@ describe("the approval card's words", () => {
 
 describe('a UI action as a tool', () => {
   const channel = { dispatch: vi.fn(), awaitResult: vi.fn() };
-  const deps = { channel, resultTimeoutMs: 1000, currentSurfaces: () => [], onResult: () => {} };
+  const deps = { channel, resultTimeoutMs: 1000, currentPage: () => [], onResult: () => {} };
 
   it('carries its title, effect and destructiveness from the declaration, and no "confirm first" sentence', () => {
     const { tools } = buildUITools(
-      [
+      pageOf([
         {
           id: 'assets',
           name: 'Assets',
@@ -101,7 +102,7 @@ describe('a UI action as a tool', () => {
             { id: 'assets_publish', title: 'Publish', description: 'Publishes it.', effect: { kind: 'transaction' }, input: { type: 'object' } } as never,
           ],
         },
-      ],
+      ]),
       deps,
     );
     const [del, publish] = tools;

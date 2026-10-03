@@ -20,12 +20,12 @@
  * One sequence per turn, shared by every set of UI tools built during it (the
  * tools are rebuilt when the page changes). Host tools are not queued.
  *
- * The sequence also holds the page's surfaces, by their hash (oui-spec 0.6):
- * a request says which surfaces the worker holds (`knownSurfaces`), and the
- * tab's answer then carries surfaces only when they changed. An answer
- * without them is resolved here, from the hash it reports.
+ * The sequence also holds what the page offers, by the client's hash of it
+ * (oui-spec §7.3.4): a request says which the worker holds (`knownSurfaces`),
+ * and the tab's answer then carries it only when it changed. An answer without
+ * it is resolved here, from the hash it reports.
  */
-import type { OUISurface } from 'oui-spec/spec';
+import type { PageSurface } from './page-index.js';
 
 /** One place in a turn's UI order, taken when the call arrived. */
 export interface UISlot {
@@ -50,7 +50,7 @@ export interface UISequence {
   /** Take the next place and run a UI action in it: `reserve().run(step)`. */
   run<T>(step: () => Promise<T>): Promise<T>;
   /** The surfaces on screen after the last answered action, or null before any has answered. */
-  latestSurfaces(): readonly OUISurface[] | null;
+  latestSurfaces(): readonly PageSurface[] | null;
   /**
    * The hash of the surfaces the worker holds for the page — the snapshot's,
    * or the last answer's — sent as a request's `knownSurfaces`; null when the
@@ -62,13 +62,13 @@ export interface UISequence {
    * the hash it reports, else undefined (an answer from a tab that sends
    * neither, or a hash the worker never held).
    */
-  resolve(answer: { surfaces?: OUISurface[]; surfacesHash?: string }): OUISurface[] | undefined;
+  resolve(answer: { page?: PageSurface[]; surfacesHash?: string }): PageSurface[] | undefined;
   /**
    * Record the surfaces an answer (or the turn's snapshot) reported, with
    * their hash. An answer whose surfaces cannot be resolved makes the page's
    * surfaces unknown: the next request names none, and the tab sends them.
    */
-  record(surfaces: readonly OUISurface[] | undefined, hash?: string): void;
+  record(surfaces: readonly PageSurface[] | undefined, hash?: string): void;
 }
 
 /** How many surface sets the sequence keeps by hash: the page, and the few it was just on. */
@@ -76,11 +76,11 @@ const HELD_SURFACE_SETS = 8;
 
 export function createUISequence(): UISequence {
   let tail: Promise<void> = Promise.resolve();
-  let latest: readonly OUISurface[] | null = null;
+  let latest: readonly PageSurface[] | null = null;
   let latestHash: string | null = null;
   // Surface sets by hash, oldest first, at most HELD_SURFACE_SETS.
-  const held = new Map<string, OUISurface[]>();
-  const hold = (hash: string, surfaces: OUISurface[]) => {
+  const held = new Map<string, PageSurface[]>();
+  const hold = (hash: string, surfaces: PageSurface[]) => {
     held.delete(hash);
     held.set(hash, surfaces);
     while (held.size > HELD_SURFACE_SETS) held.delete(held.keys().next().value as string);
@@ -119,7 +119,7 @@ export function createUISequence(): UISequence {
     latestSurfaces: () => latest,
     knownHash: () => latestHash,
     resolve(answer) {
-      if (answer.surfaces) return answer.surfaces;
+      if (answer.page) return answer.page;
       return answer.surfacesHash ? held.get(answer.surfacesHash) : undefined;
     },
     record(surfaces, hash) {

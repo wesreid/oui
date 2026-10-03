@@ -271,6 +271,149 @@ describe('what the contract refuses', () => {
   });
 });
 
+describe('what a build may offer the assistant, by size (ADR-0245 §2.6)', () => {
+  it('fails an action whose definition one answer cannot carry, and one whose index entry is over its line, each by name', async () => {
+    const symbols = Array.from({ length: 40_000 }, (_, i) => `SYM-${String(i).padStart(6, '0')}`);
+    const room = {
+      ...LEDGER,
+      actions: LEDGER.actions.map(a =>
+        a.id === 'select-position'
+          ? {
+              ...a,
+              // A whole catalogue inlined into one action: 40,000 symbols.
+              input: { type: 'object' as const, properties: { id: { type: 'string' as const }, symbol: { enum: symbols } }, required: ['id'] },
+            }
+          : a.id === LEDGER.actions[0].id
+            ? { ...a, title: 'T'.repeat(600) }
+            : a,
+      ),
+    };
+    const r = await generate(contractConfig({}, [room as never]));
+    const messages = r.errors.map(e => e.message);
+    expect(messages).toContainEqual(
+      expect.stringMatching(
+        /^ledger\/action\/select-position: its definition is \d+\.\d KB, over the 256\.0 KB one answer carries\. Split the action, or move what it lists into a reader the assistant queries\.$/,
+      ),
+    );
+    expect(messages).toContainEqual(
+      expect.stringMatching(new RegExp(`^ledger/action/${LEDGER.actions[0].id}: its index entry is \\d+ bytes, over 512\\. Shorten its id or its title\\.$`)),
+    );
+  });
+
+  it('passes the room as it is', async () => {
+    const r = await generate(contractConfig());
+    expect(r.errors.filter(e => /over the|is over|over 512/.test(e.message))).toEqual([]);
+  });
+});
+
+describe('what a room’s numbers are measured in (ADR-0244 §2.3)', () => {
+  it('fails a field and an action input that take a number without saying its unit, and not an integer or a unit given on the array', async () => {
+    const room = {
+      ...LEDGER,
+      fields: [
+        ...LEDGER.fields,
+        { ...LEDGER.fields[0], id: 'take-profit', title: 'Take profit', value: { type: 'number' as const, minimum: 0 } },
+        { ...LEDGER.fields[0], id: 'lots', title: 'Lots', value: { type: 'integer' as const, minimum: 1 } },
+      ],
+      actions: LEDGER.actions.map(a =>
+        a.id === 'select-position'
+          ? {
+              ...a,
+              input: {
+                type: 'object' as const,
+                properties: {
+                  id: { type: 'string' as const },
+                  at: { type: 'array' as const, items: { type: 'number' as const }, 'x-unit': 'px' },
+                  band: { type: 'object' as const, properties: { low: { type: 'number' as const }, high: { type: 'number' as const, 'x-unit': 'USD' } } },
+                },
+                required: ['id'],
+              },
+            }
+          : a,
+      ),
+    };
+    const r = await generate(contractConfig({}, [room as never]));
+    expect(r.errors.map(e => e.message)).toEqual([
+      'ledger action select-position: band.low is a number with no unit (x-unit)',
+      'ledger field take-profit is a number with no unit (x-unit)',
+    ]);
+  });
+});
+
+describe('a room’s lists (ADR-0244 §2.2)', () => {
+  const POSITIONS = {
+    id: 'positions',
+    description: 'Every open position.',
+    schema: {
+      type: 'array' as const,
+      items: { type: 'object' as const, properties: { id: { type: 'string' as const }, symbol: { type: 'string' as const } } },
+    },
+  };
+  const READERS = ['inspect', 'query'].map(id => ({
+    kind: 'action' as const,
+    id,
+    title: id,
+    description: `Reads positions (${id}).`,
+    control: 'The positions table',
+    input: { type: 'object' as const, properties: {} },
+    effect: 'view' as const,
+  }));
+  const withList = (rows?: object, actions = LEDGER.actions) => ({
+    ...LEDGER,
+    actions,
+    observations: [{ ...POSITIONS, schema: { ...POSITIONS.schema, ...(rows ? { 'x-rows': rows } : {}) } }],
+  });
+
+  it('fails a list of things with ids that does not say how its rows are addressed', async () => {
+    const r = await generate(contractConfig({}, [withList() as never]));
+    expect(r.errors.map(e => e.message)).toEqual([
+      'ledger’s list positions holds things with an id, but does not declare how its rows are addressed and called (x-rows): ' +
+        'a list too long for the page state would be cut to a count',
+    ]);
+  });
+
+  it('fails a room that declares a list and no readers for it', async () => {
+    const r = await generate(contractConfig({}, [withList({ ref: 'id', title: 'symbol' }) as never]));
+    expect(r.errors.map(e => e.message)).toEqual([
+      'ledger declares lists (positions) but no "inspect" action to read them: build its readers with roomReaders',
+      'ledger declares lists (positions) but no "query" action to read them: build its readers with roomReaders',
+    ]);
+  });
+
+  it('fails an index property a row does not have, and an input that addresses a list the room does not have', async () => {
+    const actions = [
+      ...LEDGER.actions.map(a =>
+        a.id === 'select-position'
+          ? { ...a, input: { ...a.input, properties: { id: { type: 'string' as const, 'x-ref': ['orders'] } } } }
+          : a,
+      ),
+      ...READERS,
+    ];
+    const r = await generate(contractConfig({}, [withList({ ref: 'id', title: 'name' }, actions as never) as never]));
+    expect(r.errors.map(e => e.message)).toEqual([
+      'ledger action select-position: id addresses orders, which is not a list the room declares',
+      'ledger’s list positions indexes rows by name, which a row does not have',
+    ]);
+  });
+
+  it('passes a declared list with its readers, and the manifest carries the declaration to the tab', async () => {
+    const actions = [
+      ...LEDGER.actions.map(a =>
+        a.id === 'select-position'
+          ? { ...a, input: { ...a.input, properties: { id: { type: 'string' as const, 'x-ref': ['positions'] } } } }
+          : a,
+      ),
+      ...READERS,
+    ];
+    const r = await generate(contractConfig({}, [withList({ ref: 'id', title: 'symbol' }, actions as never) as never]));
+    expect(r.errors).toEqual([]);
+    const room = r.manifest.surfaces.find(s => s.id === 'room:ledger')!;
+    expect(room.observations.find(o => o.id === 'positions')!.schema['x-rows']).toEqual({ ref: 'id', title: 'symbol' });
+    expect(room.actions.find(a => a.id === 'ledger/action/select-position')!.input.properties!.id['x-ref']).toEqual(['positions']);
+    expect(room.actions.map(a => a.id)).toEqual(expect.arrayContaining(['ledger/action/inspect', 'ledger/action/query']));
+  });
+});
+
 describe('the neutral CLI', () => {
   it('is installed as oui, beside closure-oui', () => {
     const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8')) as { bin: Record<string, string> };
