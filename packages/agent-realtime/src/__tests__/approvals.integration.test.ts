@@ -18,7 +18,9 @@ import {
   type PendingApprovalInput,
 } from '@ouispec/agent-core';
 import { createRealtimeServer, type RealtimeServerInstance } from '../server.js';
+import { Redis } from 'ioredis';
 import { createApprovalTokenSigner } from '../approvals/token.js';
+import { createApprovalStore } from '../approvals/store.js';
 import type { RealtimeServerConfig } from '../types.js';
 import { startTestRedis, type TestRedis } from '../testing/index.js';
 import { fixtureRoomPolicy, recordingLogger, TEST_APPROVAL_KEY, TEST_TOKEN_SECRET } from './fixtures.js';
@@ -281,6 +283,95 @@ describe('declining', () => {
     expect(status.status).toBe(200);
     expect(status.body).toMatchObject({ approvalId: p.approvalId, status: 'declined', tool: 'orders_place', title: 'Place an order' });
     expect((await internal(b, `/internal/approvals/${p.approvalId}?userId=u2`)).status).toBe(404);
+  });
+});
+
+describe('an approval nobody decided: settled by a later turn', () => {
+  const owner = { userId: 'u1', conversationId: 'conv-1' };
+  const settle = (server: RealtimeServerInstance, id: string, body: Record<string, unknown> = owner) =>
+    internal(server, `/internal/approvals/${id}/settle`, { body });
+  /** Past an approval's expiry, on Redis's clock: its keys have lapsed. */
+  const expired = async () => {
+    const p = await stored({ expiresAt: Date.now() + 1_200 });
+    await new Promise((r) => setTimeout(r, 1_500));
+    return p;
+  };
+
+  it('says it expired undecided to two turns asking together, and gives the claim to exactly one', async () => {
+    const p = await expired();
+    const [first, second] = await Promise.all([settle(a, p.approvalId), settle(b, p.approvalId)]);
+    expect([first.status, second.status]).toEqual([200, 200]);
+    expect([first.body.outcome, second.body.outcome].sort()).toEqual(['already', 'claimed']);
+    expect(first.body.expiresAt).toBe(p.expiresAt);
+    expect(second.body.expiresAt).toBe(p.expiresAt);
+    // Confirmed once stored, it stays settled: every later turn is told it expired, and stores nothing.
+    expect((await settle(a, p.approvalId, { ...owner, confirm: true })).body).toEqual({ approvalId: p.approvalId, outcome: 'confirmed' });
+    expect((await settle(b, p.approvalId)).body).toMatchObject({ outcome: 'already' });
+  });
+
+  it('leaves a pending approval, and an approved one not yet used, as open: the card is live', async () => {
+    const p = await stored();
+    expect((await settle(a, p.approvalId)).body).toEqual({ approvalId: p.approvalId, outcome: 'open' });
+    const tab = await connect(a, 'token-u1');
+    expect(await decide(tab, p.approvalId, 'approve')).toMatchObject({ ok: true });
+    expect((await settle(b, p.approvalId)).body).toEqual({ approvalId: p.approvalId, outcome: 'open' });
+    // And nothing was claimed by asking.
+    expect((await settle(a, p.approvalId, { ...owner, confirm: true })).body).toMatchObject({ outcome: 'unknown' });
+  });
+
+  it('cannot say a redeemed approval expired: it ran, however long ago', async () => {
+    const p = await stored({ expiresAt: Date.now() + 1_500 });
+    const tab = await connect(a, 'token-u1');
+    const approved = await decide(tab, p.approvalId, 'approve');
+    if (!approved.ok || approved.decision !== 'approve') throw new Error('not approved');
+    expect((await redeem(b, approved.token)).status).toBe(200);
+    // At once, and after the time it would have expired at.
+    expect((await settle(a, p.approvalId)).body).toEqual({ approvalId: p.approvalId, outcome: 'unknown' });
+    await new Promise((r) => setTimeout(r, 1_700));
+    expect((await settle(a, p.approvalId)).body).toEqual({ approvalId: p.approvalId, outcome: 'unknown' });
+  });
+
+  it('cannot say a declined approval expired', async () => {
+    const p = await stored({ expiresAt: Date.now() + 1_500 });
+    const tab = await connect(a, 'token-u1');
+    expect(await decide(tab, p.approvalId, 'decline')).toMatchObject({ ok: true });
+    expect((await settle(b, p.approvalId)).body).toEqual({ approvalId: p.approvalId, outcome: 'unknown' });
+    await new Promise((r) => setTimeout(r, 1_700));
+    expect((await settle(b, p.approvalId)).body).toEqual({ approvalId: p.approvalId, outcome: 'unknown' });
+  });
+
+  it('lets the claim lapse when it is never confirmed, so a later turn claims again; confirmed, it does not lapse', async () => {
+    // A store on the same Redis whose lease is short: a turn that claimed and then died.
+    const client = new Redis({ host: redis.config.host, port: redis.config.port });
+    try {
+      const store = createApprovalStore(client, createApprovalTokenSigner({ signingKey: TEST_APPROVAL_KEY }), logger, { expiryClaimLeaseMs: 600 });
+      const p = await expired();
+      expect(await store.settleExpired(p.approvalId, owner)).toMatchObject({ outcome: 'claimed' });
+      expect(await store.settleExpired(p.approvalId, owner)).toMatchObject({ outcome: 'already' });
+      await new Promise((r) => setTimeout(r, 800));
+      // The first turn never stored it. The next one claims, stores and confirms.
+      expect(await store.settleExpired(p.approvalId, owner)).toMatchObject({ outcome: 'claimed' });
+      expect(await store.confirmExpirySettled(p.approvalId, owner)).toBe(true);
+      await new Promise((r) => setTimeout(r, 800));
+      expect(await store.settleExpired(p.approvalId, owner)).toMatchObject({ outcome: 'already' });
+    } finally {
+      client.disconnect();
+    }
+  });
+
+  it('answers only the approval’s own user and conversation, and only the internal key', async () => {
+    const p = await expired();
+    expect((await settle(a, p.approvalId, { userId: 'u2', conversationId: 'conv-1' })).body).toMatchObject({ outcome: 'unknown' });
+    expect((await settle(a, p.approvalId, { userId: 'u1', conversationId: 'conv-other' })).body).toMatchObject({ outcome: 'unknown' });
+    expect((await settle(a, p.approvalId, { userId: 'u2', conversationId: 'conv-1', confirm: true })).body).toMatchObject({ outcome: 'unknown' });
+    expect((await settle(a, p.approvalId, { userId: 'u1' })).status).toBe(400);
+    expect((await internal(a, `/internal/approvals/${p.approvalId}/settle`, { body: owner, key: 'wrong' })).status).toBe(401);
+    // None of those claimed it.
+    expect((await settle(a, p.approvalId)).body).toMatchObject({ outcome: 'claimed' });
+  });
+
+  it('knows nothing of an approval that was never asked for', async () => {
+    expect((await settle(a, 'call_never_asked')).body).toEqual({ approvalId: 'call_never_asked', outcome: 'unknown' });
   });
 });
 

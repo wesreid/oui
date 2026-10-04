@@ -16,7 +16,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModelMessage } from 'ai';
 import { createToolRegistry } from '../tools/types.js';
 import type { AgentTurnInput, AgentWorkerConfig, TurnHistoryMessage } from '../types.js';
-import type { ApprovalStoreClient } from '../approvals/client.js';
+import type { ApprovalSettlement } from '@ouispec/agent-core';
+import { createHttpApprovalStoreClient, type ApprovalStoreClient } from '../approvals/client.js';
 
 type StreamOpts = { messages: ModelMessage[] };
 let seen: StreamOpts | null = null;
@@ -229,5 +230,212 @@ describe('the stored result says how the approval ended', () => {
     );
     expect(result.newMessages.filter((m) => m.role === 'tool')).toEqual([]);
     expect(results().map((r) => r.output?.value)).toEqual([ran]);
+  });
+});
+
+/**
+ * An approval nobody decided. The card expires, disables its buttons and
+ * sends nothing, so no turn ever stored how the call ended: on dev
+ * (2026-10-04) a later turn still read "waiting for approval… has not run"
+ * and the assistant could not say the approval had expired. At the start of a
+ * turn the worker asks the store about each call the history still shows as
+ * waiting, and only the store's explicit answer settles one.
+ */
+describe('a call still stored as waiting, at the start of a later turn', () => {
+  beforeEach(() => {
+    seen = null;
+  });
+
+  const waiting: TurnHistoryMessage[] = [
+    { role: 'user', content: 'Save a breaking version.' },
+    call('call_save_1'),
+    { role: 'tool', content: WAITING, tool_call_id: 'call_save_1', name: 'ui_act' },
+    { role: 'assistant', content: 'Waiting for your approval.' },
+  ];
+  const expired = { decided: 'expired', ran: false, summary: 'The approval expired before it was used. It was not run.' };
+  const marker = (text: string | undefined) => (JSON.parse(text ?? '{}') as { approval?: Record<string, unknown> }).approval;
+  const lastUserText = () => {
+    const last = seen!.messages[seen!.messages.length - 1];
+    return typeof last.content === 'string' ? last.content : JSON.stringify(last.content);
+  };
+  /** A store that answers `settleExpired` as given, and records what it was asked. */
+  function settling(answer: (approvalId: string) => ApprovalSettlement['outcome'] | Promise<ApprovalSettlement['outcome']>) {
+    const asked: Array<{ approvalId: string; userId: string; conversationId: string }> = [];
+    const store: ApprovalStoreClient = {
+      create: async () => {},
+      redeem: async () => ({ ok: false, reason: 'used', error: 'used' }),
+      status: async () => null,
+      settleExpired: async (approvalId, owner) => {
+        asked.push({ approvalId, ...owner });
+        return { approvalId, outcome: await answer(approvalId) };
+      },
+    };
+    return { store, asked };
+  }
+
+  it('expired undecided: the model is told it expired and did not run, and the result is stored under the call’s id', async () => {
+    const { runAgentTurn } = await import('../orchestrator.js');
+    const { store, asked } = settling(() => 'claimed');
+    const result = await runAgentTurn({ ...config, approvals: store }, turn(waiting));
+
+    // Asked as this user, for this conversation: the store checks the owner.
+    expect(asked).toEqual([{ approvalId: 'call_save_1', userId: 'user-1', conversationId: 'conv' }]);
+    // One call, one result: expired, where "waiting" stood.
+    expect(callIds()).toEqual(['call_save_1']);
+    expect(results()).toHaveLength(1);
+    expect(marker(results()[0].output?.value)).toMatchObject(expired);
+    expect(marker(results()[0].output?.value)).not.toHaveProperty('by');
+    expect(JSON.parse(results()[0].output!.value!)).toMatchObject({ success: false, notRun: true });
+    expect(JSON.stringify(seen!.messages)).not.toContain('awaitingApproval');
+    // And said beside the user's message.
+    expect(lastUserText()).toMatch(/<approval>An approval asked for earlier in this conversation expired before the user decided it, so that action did not run\./);
+
+    // Stored once, under the call's own id; the host confirms it after persisting.
+    const stored = result.newMessages.filter((m) => m.role === 'tool');
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({ toolCallId: 'call_save_1', name: 'ui_act' });
+    expect(marker(stored[0].content ?? undefined)).toMatchObject(expired);
+    expect(result.settledApprovals).toEqual(['call_save_1']);
+
+    // A later turn reads both rows back: the expiry, once.
+    seen = null;
+    await runAgentTurn(
+      config,
+      turn([...waiting, { role: 'tool', content: stored[0].content!, tool_call_id: 'call_save_1', name: 'ui_act' }, { role: 'assistant', content: 'It expired.' }]),
+    );
+    expect(results()).toHaveLength(1);
+    expect(marker(results()[0].output?.value)).toMatchObject(expired);
+  });
+
+  it('claimed by another turn: the model is told for this turn, and nothing is stored', async () => {
+    const { runAgentTurn } = await import('../orchestrator.js');
+    const result = await runAgentTurn({ ...config, approvals: settling(() => 'already').store }, turn(waiting));
+    expect(marker(results()[0].output?.value)).toMatchObject(expired);
+    expect(result.newMessages.filter((m) => m.role === 'tool')).toEqual([]);
+    expect(result.settledApprovals).toBeUndefined();
+  });
+
+  it('two turns starting together store one result between them', async () => {
+    const { runAgentTurn } = await import('../orchestrator.js');
+    // The store's claim is atomic: the first to ask gets it.
+    let claims = 0;
+    const { store } = settling(() => (claims++ === 0 ? 'claimed' : 'already'));
+    const [one, two] = await Promise.all([
+      runAgentTurn({ ...config, approvals: store }, { ...turn(waiting), turnId: 'turn-a' }),
+      runAgentTurn({ ...config, approvals: store }, { ...turn(waiting), turnId: 'turn-b' }),
+    ]);
+    const stored = [...one.newMessages, ...two.newMessages].filter((m) => m.role === 'tool');
+    expect(stored).toHaveLength(1);
+    expect(marker(stored[0].content ?? undefined)).toMatchObject(expired);
+    expect([...(one.settledApprovals ?? []), ...(two.settledApprovals ?? [])]).toEqual(['call_save_1']);
+  });
+
+  it.each([
+    ['still pending and unexpired: the card is live', 'open'],
+    ['declined, redeemed, another conversation’s, or asked for before the store kept this memory', 'unknown'],
+  ] as const)('leaves it untouched when the store says it is %s', async (_why, outcome) => {
+    const { runAgentTurn } = await import('../orchestrator.js');
+    const result = await runAgentTurn({ ...config, approvals: settling(() => outcome).store }, turn(waiting));
+    expect(results().map((r) => r.output?.value)).toEqual([WAITING]);
+    expect(lastUserText()).not.toContain('<approval>');
+    expect(result.newMessages.filter((m) => m.role === 'tool')).toEqual([]);
+    expect(result.settledApprovals).toBeUndefined();
+  });
+
+  it('leaves a declined call untouched without asking: its stored result is the decline, not "waiting"', async () => {
+    const { runAgentTurn } = await import('../orchestrator.js');
+    const { store, asked } = settling(() => 'claimed');
+    const declined = JSON.stringify({ approval: { decided: 'declined', by: 'user', ran: false }, success: false, notRun: true });
+    const result = await runAgentTurn(
+      { ...config, approvals: store },
+      turn([...waiting, { role: 'tool', content: declined, tool_call_id: 'call_save_1', name: 'ui_act' }, { role: 'assistant', content: 'Not saved.' }]),
+    );
+    expect(asked).toEqual([]);
+    expect(results().map((r) => r.output?.value)).toEqual([declined]);
+    expect(result.newMessages.filter((m) => m.role === 'tool')).toEqual([]);
+  });
+
+  it('leaves it untouched when the store cannot be reached, or cannot settle at all', async () => {
+    const { runAgentTurn } = await import('../orchestrator.js');
+    const { store } = settling(() => Promise.reject(new Error('ECONNREFUSED')));
+    await runAgentTurn({ ...config, approvals: store }, turn(waiting));
+    expect(results().map((r) => r.output?.value)).toEqual([WAITING]);
+
+    // A host's own store from before this method.
+    seen = null;
+    const { settleExpired: _none, ...older } = store;
+    const result = await runAgentTurn({ ...config, approvals: older }, turn(waiting));
+    expect(results().map((r) => r.output?.value)).toEqual([WAITING]);
+    expect(result.newMessages.filter((m) => m.role === 'tool')).toEqual([]);
+  });
+
+  it('asks about nothing when the turn that stopped is not in the history yet', async () => {
+    const { runAgentTurn } = await import('../orchestrator.js');
+    const { store, asked } = settling(() => 'claimed');
+    // The history a message sent just after `turn_complete` can read: without the call and its "waiting" row.
+    const result = await runAgentTurn({ ...config, approvals: store }, turn([{ role: 'user', content: 'Save a breaking version.' }]));
+    expect(asked).toEqual([]);
+    expect(result.newMessages.filter((m) => m.role === 'tool')).toEqual([]);
+  });
+
+  it('does not ask about the call whose decision this very turn carries', async () => {
+    const { runAgentTurn } = await import('../orchestrator.js');
+    const { store, asked } = settling(() => 'claimed');
+    await runAgentTurn(
+      { ...config, approvals: store },
+      {
+        turnId: 'turn-decided',
+        conversationId: 'conv',
+        userId: 'user-1',
+        accountId: 'acct',
+        socketRoom: 'agent:turn:turn-decided',
+        content: '',
+        history: waiting,
+        context: null,
+        approval: { approvalId: 'call_save_1', decision: 'decline' },
+      },
+    );
+    expect(asked).toEqual([]);
+  });
+});
+
+describe('the HTTP store client, asked to settle', () => {
+  const client = () => createHttpApprovalStoreClient({ url: 'http://realtime.internal', apiKey: 'k' });
+  const answering = (status: number, body: unknown) =>
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify(body), { status }));
+  const owner = { userId: 'user-1', conversationId: 'conv' };
+
+  it('reads a realtime server without the route as "unknown", so nothing is settled', async () => {
+    const fetchMock = answering(404, { error: 'Not found' });
+    try {
+      expect(await client().settleExpired!('call_save_1', owner)).toEqual({ approvalId: 'call_save_1', outcome: 'unknown' });
+      await expect(client().confirmExpirySettled!('call_save_1', owner)).resolves.toBeUndefined();
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it('asks with the owner, and confirms with the flag', async () => {
+    const fetchMock = answering(200, { approvalId: 'call_save_1', outcome: 'claimed', expiresAt: 1_791_073_000_000 });
+    try {
+      expect(await client().settleExpired!('call_save_1', owner)).toEqual({ approvalId: 'call_save_1', outcome: 'claimed', expiresAt: 1_791_073_000_000 });
+      await client().confirmExpirySettled!('call_save_1', owner);
+      const bodies = fetchMock.mock.calls.map(([url, init]) => [String(url), JSON.parse(String((init as RequestInit).body))]);
+      expect(bodies).toEqual([
+        ['http://realtime.internal/internal/approvals/call_save_1/settle', owner],
+        ['http://realtime.internal/internal/approvals/call_save_1/settle', { ...owner, confirm: true }],
+      ]);
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it('rejects when the store fails, so the worker leaves the call as it is', async () => {
+    const fetchMock = answering(500, { error: 'boom' });
+    try {
+      await expect(client().settleExpired!('call_save_1', owner)).rejects.toThrow(/could not settle/);
+    } finally {
+      fetchMock.mockRestore();
+    }
   });
 });

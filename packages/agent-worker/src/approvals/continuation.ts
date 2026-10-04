@@ -122,6 +122,53 @@ export function unavailableNote(title: string): string {
   return approvalNote(`The user approved "${title}" on the approval card, but it did not run: it is not available where they are now.`);
 }
 
+/** A call the conversation still holds as waiting for the user's approval. */
+export interface WaitingCall {
+  approvalId: string;
+  /** The tool name its result is stored under. */
+  name?: string;
+}
+
+/**
+ * The calls a history still shows as waiting: those whose LAST stored result
+ * is the "waiting for approval" placeholder the worker wrote when the turn
+ * stopped. A call decided since has a later result, and is not one. Newest
+ * first.
+ */
+export function waitingCalls(
+  history: ReadonlyArray<{ role: string; content?: string | null; tool_call_id?: string; name?: string }>,
+): WaitingCall[] {
+  const last = new Map<string, { content: string; name?: string }>();
+  for (const m of history) {
+    if (m.role !== 'tool' || !m.tool_call_id || typeof m.content !== 'string') continue;
+    // Re-inserted so the map's order is the order of each call's latest result.
+    last.delete(m.tool_call_id);
+    last.set(m.tool_call_id, { content: m.content, name: m.name });
+  }
+  const waiting: WaitingCall[] = [];
+  for (const [callId, { content, name }] of last) {
+    if (!content.includes('"awaitingApproval"')) continue;
+    try {
+      const parsed = JSON.parse(content) as { awaitingApproval?: unknown; approvalId?: unknown };
+      if (parsed.awaitingApproval === true && parsed.approvalId === callId) waiting.push({ approvalId: callId, name });
+    } catch {
+      // Not the placeholder.
+    }
+  }
+  return waiting.reverse();
+}
+
+/** What the model is told of calls whose approval expired with nobody deciding. */
+export function expiredNote(count: number): string {
+  return approvalNote(
+    count === 1
+      ? 'An approval asked for earlier in this conversation expired before the user decided it, so that action did not run. ' +
+          'Its result, above, says so. Run it again only if the user asks for it again.'
+      : `${count} approvals asked for earlier in this conversation expired before the user decided them, so those actions did not run. ` +
+          'Their results, above, say so. Run one again only if the user asks for it again.',
+  );
+}
+
 export async function resolveContinuation(
   store: ApprovalStoreClient | undefined,
   continuation: ApprovalContinuation,

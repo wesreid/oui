@@ -47,12 +47,14 @@ import { approvalRequirement, APPROVAL_TOOL_NOTE, type ApprovalRequirement } fro
 import { buildApprovalPreview, declaredTitle } from './approvals/preview.js';
 import {
   approvalMarker,
+  expiredNote,
   markedResult,
   notRunResult,
   ranNote,
   refusedNote,
   resolveContinuation,
   unavailableNote,
+  waitingCalls,
 } from './approvals/continuation.js';
 
 const DEFAULT_MAX_ROUNDS = 12;
@@ -946,6 +948,54 @@ export async function runAgentTurn(
   // ─── The turn after an approval decision (ADR-0228 §2.2.5) ────────────────
   const continued = input.approval ? await continueApproval(input.approval) : null;
 
+  // ─── Calls still stored as waiting, whose approval expired undecided ──────
+  //
+  // A card that expires with nobody clicking it sends nothing, so no turn ever
+  // stored how the call ended: every later turn read "waiting for approval…
+  // has not run" (dev, 2026-10-04). At the start of a turn the store is asked
+  // about each call the history still shows as waiting. Only its explicit
+  // answer settles one: `claimed` stores the expired result under the call's
+  // own id; `already` (another turn holds the claim) tells the model for this
+  // turn and stores nothing; `open` and `unknown` leave the call as it is. A
+  // call whose "waiting" row is not in the history yet is simply not found.
+  // Expiry is the store's clock's to decide, never this process's.
+  /** Calls beyond the newest few are left: a store call per waiting call, on every turn, has to stay small. */
+  const MAX_WAITING_SETTLED = 5;
+  async function settleExpiredWaiting(): Promise<{ outcomes: TurnHistoryMessage[]; persisted: TurnMessage[]; claimed: string[] }> {
+    const settled = { outcomes: [] as TurnHistoryMessage[], persisted: [] as TurnMessage[], claimed: [] as string[] };
+    const store = config.approvals;
+    if (!store?.settleExpired) return settled;
+    const owner = { userId: input.userId, conversationId: input.conversationId };
+    const waiting = waitingCalls(input.history ?? [])
+      // The call this very turn carries the decision for is the continuation's.
+      .filter((w) => w.approvalId !== input.approval?.approvalId)
+      .slice(0, MAX_WAITING_SETTLED);
+    const answers = await Promise.all(
+      waiting.map(async (w) => {
+        try {
+          return { w, answer: await store.settleExpired!(w.approvalId, owner) };
+        } catch (err) {
+          // A store that cannot be reached settles nothing: the call keeps reading "waiting".
+          log('warn', 'agent:tool', 'Could not ask the approval store about a waiting call', { turnId, approvalId: w.approvalId, error: err instanceof Error ? err.message : String(err) });
+          return { w, answer: null };
+        }
+      }),
+    );
+    for (const { w, answer } of answers) {
+      if (answer?.outcome !== 'claimed' && answer?.outcome !== 'already') continue;
+      const content = notRunResult(approvalMarker('expired', false));
+      const name = w.name ?? 'unknown';
+      settled.outcomes.push({ role: 'tool', content, tool_call_id: w.approvalId, name });
+      if (answer.outcome === 'claimed') {
+        settled.persisted.push({ role: 'tool', content, toolCallId: w.approvalId, name });
+        settled.claimed.push(w.approvalId);
+      }
+      log('info', 'agent:tool', 'A waiting call’s approval expired undecided', { turnId, approvalId: w.approvalId, stored: answer.outcome === 'claimed' });
+    }
+    return settled;
+  }
+  const expired = await settleExpiredWaiting();
+
   // Convert history to AI SDK CoreMessage format. The page the user is on
   // travels with their message, not in the system prompt: it changes on every
   // page, and in the system prompt it would invalidate the cached prefix. An
@@ -957,10 +1007,15 @@ export async function runAgentTurn(
   const messages: ModelMessage[] = [
     ...withClock(
       withPageState(
-        convertHistoryToCoreMessages(
-          // An approved call's outcome is a later result of the call already in the history: it takes that call's place.
-          continued?.outcome ? [...(input.history ?? []), continued.outcome] : (input.history ?? []),
-          [input.content, continued?.note].filter(Boolean).join('\n\n'),
+        withNote(
+          convertHistoryToCoreMessages(
+            // An approved call's outcome, and an expired one's, is a later result of the call already in the
+            // history: it takes that call's place.
+            [...(input.history ?? []), ...expired.outcomes, ...(continued?.outcome ? [continued.outcome] : [])],
+            [input.content, continued?.note].filter(Boolean).join('\n\n'),
+          ),
+          // Said on the user's message whether or not the host's history already holds that message.
+          expired.outcomes.length > 0 ? expiredNote(expired.outcomes.length) : null,
         ),
         client,
         config.ui?.maxObservationChars ?? DEFAULT_PAGE_STATE_CHARS,
@@ -1191,7 +1246,7 @@ export async function runAgentTurn(
   });
 
   // The turn's messages, in the host's format, for it to store.
-  const newMessages = [...(continued?.persisted ?? []), ...convertResponseToTurnMessages({ steps }, executedToolResults)];
+  const newMessages = [...expired.persisted, ...(continued?.persisted ?? []), ...convertResponseToTurnMessages({ steps }, executedToolResults)];
 
   // The host stores the turn before the client hears it is complete: a message sent the moment
   // it completes must be answered from a history that holds this turn.
@@ -1227,6 +1282,7 @@ export async function runAgentTurn(
     rounds: steps.length,
     usage,
     newMessages,
+    ...(expired.claimed.length > 0 ? { settledApprovals: expired.claimed } : {}),
     maxRoundsReached: steps.length >= maxRounds,
     stopReason,
   };
@@ -1234,6 +1290,14 @@ export async function runAgentTurn(
     clearTimeout(deadlineTimer);
     if (flushTimer) clearTimeout(flushTimer);
   }
+}
+
+/** Put a note for the model on the turn's user message, after what the user said. */
+function withNote(messages: ModelMessage[], note: string | null): ModelMessage[] {
+  const last = messages[messages.length - 1];
+  if (!note || !last || last.role !== 'user') return messages;
+  const text = typeof last.content === 'string' ? last.content : last.content.map((p) => ('text' in p ? p.text : '')).join('');
+  return [...messages.slice(0, -1), { role: 'user', content: text ? `${text}\n\n${note}` : note }];
 }
 
 /**

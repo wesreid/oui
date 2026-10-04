@@ -149,6 +149,14 @@ export interface AgentTurnResult {
     cacheWriteTokens: number;
   };
   newMessages: TurnMessage[];
+  /**
+   * Approvals this turn found expired undecided and claimed: their "expired,
+   * not run" results are in `newMessages`. Once the host has stored those
+   * messages, confirm each with the approval store (`confirmExpirySettled`),
+   * or the claim lapses and a later turn stores the result again. The turn
+   * runner does this after `persistMessages`.
+   */
+  settledApprovals?: string[];
   maxRoundsReached: boolean;
   /** Why the turn ended: which bound or condition terminated the loop */
   stopReason: 'present_options' | 'awaiting_approval' | 'step_count' | 'token_budget' | 'deadline' | 'complete' | 'error';
