@@ -63,6 +63,7 @@ All of them require the `x-api-key` header.
 | `POST /internal/approvals/:id/decide` `{ userId, decision, channel }` | A conversation channel's decision (`voice`, `phone`, `sms`, `chat`), made by the engine for the session's user. A `ui` decision is refused here: in a UI only the user's click counts. |
 | `POST /internal/approvals/redeem` `{ token, userId, conversationId }` | Atomic single use. `200 { call }` returns exactly the stored call. `403` for a token this environment did not sign, another user's or conversation's, or one not for the stored call; `410` for an expired or already used one. |
 | `GET /internal/approvals/:id?userId=` | Where an approval of this user's stands: `pending`, `approved` or `declined` (remembered for 30 minutes). |
+| `POST /internal/approvals/:id/settle` `{ userId, conversationId, confirm? }` | Whether an approval a conversation still shows as waiting expired with nobody deciding it. Always `200 { approvalId, outcome, expiresAt? }`: `claimed` (it expired without having run, and this caller holds the claim to store that, for two minutes; `decided: "approved"` when the user had approved it and it was never used), `already` (another turn holds the claim, or it is stored), `open` (pending, or approved and not yet used), `unknown` (declined, used, another user's or conversation's, or not remembered). With `confirm: true`, the caller has stored it and the claim becomes permanent: `confirmed`. |
 | `GET /internal/events/settlements/:kind/:id?waitMs=` | How a job of a declared kind ended: `{ kind, role, event, id, payload }`, with `role` `completion` or `failure`. `204` means not yet; `400` an undeclared kind; `404` a server without `events`. A wait lasts at most 25 s. |
 | `GET /health` | Returns `200` with connection and pending-wait counts. No key needed. |
 
@@ -71,6 +72,8 @@ All of them require the `x-api-key` header.
 1. The worker stops the turn at a call that needs approval, stores it with `POST /internal/approvals`, and emits `agent:approval_required` with the preview.
 2. The user clicks the approval card. Their socket sends `approval:decide { approvalId, decision }`, a declared client event. The store checks that the socket's verified user is the approval's own. An approval's token is answered only to that socket, in the ack: `{ ok: true, decision: 'approve', token, argsHash, expiresAt }`.
 3. The next turn carries the token outside the message text. The worker redeems it, and the store returns the stored call exactly once.
+
+An approval nobody decides sends nothing when it expires, so a later turn settles it. The store remembers, for 30 days, that an approval was asked for and is still undecided; a decline or a redemption removes that memory in the same step. Once the approval's own keys have lapsed in Redis, `POST /internal/approvals/:id/settle` answers that it expired undecided, and gives the claim to store that to one caller at a time. Expiry is Redis's clock: neither this server's nor the caller's is consulted. Approvals stored before this memory existed are answered `unknown`.
 
 A declined approval is deleted and remembered for the next turn. Every issue, decision and redemption is logged with the approval id, user, tool, effect, channel and args hash. The arguments are logged only when their declaration marks them not sensitive, and a token never is.
 

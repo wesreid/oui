@@ -150,10 +150,13 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
         // The turn's messages are stored before the client is told it is complete
         // (`beforeTurnComplete`), so the person's next message, however soon, reads them.
         let persisted = false;
+        /** Whether the host's store took the messages: a claimed expiry is confirmed only then. */
+        let stored = false;
         const persist = async (turn: { newMessages: TurnMessage[]; usage: AgentTurnResult['usage'] }) => {
           persisted = true;
           try {
             await config.persistMessages({ turnId, conversationId, messages: turn.newMessages, usage: turn.usage, db });
+            stored = true;
           } catch (err) {
             logger.error('[agent-sdk] persistMessages failed', { turnId, error: messageOf(err) });
           }
@@ -203,6 +206,17 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
 
         // A turn that ended without announcing itself complete still has its messages stored.
         if (!persisted) await persist(result);
+        // Expired approvals this turn claimed are in the conversation now: the claims no longer
+        // lapse. Not stored (or not confirmed), a claim lapses and a later turn stores it again.
+        if (stored && approvals.confirmExpirySettled) {
+          for (const approvalId of result.settledApprovals ?? []) {
+            try {
+              await approvals.confirmExpirySettled(approvalId, { userId, conversationId });
+            } catch (err) {
+              logger.warn('[agent-sdk] Could not confirm an expired approval as stored', { turnId, approvalId, error: messageOf(err) });
+            }
+          }
+        }
         return { status: 'completed', turnId, rounds: result.rounds };
       } catch (error) {
         return fail(payload, error, async (categorized) => {

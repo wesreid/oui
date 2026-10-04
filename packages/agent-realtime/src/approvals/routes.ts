@@ -8,6 +8,8 @@
  *   POST /internal/approvals/:id/decide    a conversation channel's decision (engine)
  *   POST /internal/approvals/redeem        atomic single use (worker, engine)
  *   GET  /internal/approvals/:id?userId=   where an approval stands (worker, for the turn after a decision)
+ *   POST /internal/approvals/:id/settle    whether it expired undecided, claimed for one turn to store; with
+ *                                          `confirm`, that it has been stored (worker, at the start of a later turn)
  */
 import { Router, type Request, type Response } from 'express';
 import type { ApprovalChannel, ApprovalDecision, ApprovalRefusalReason, PendingApprovalInput } from '@ouispec/agent-core';
@@ -88,6 +90,26 @@ export function approvalRouter(deps: ApprovalRouteDeps): Router {
       return;
     }
     res.json(result);
+  });
+
+  router.post('/internal/approvals/:id/settle', async (req: Request, res: Response) => {
+    if (!deps.isInternalKey(req.headers['x-api-key'] as string | undefined)) {
+      res.status(401).json({ error: 'Invalid or missing API key' });
+      return;
+    }
+    const body = (req.body ?? {}) as { userId?: unknown; conversationId?: unknown; confirm?: unknown };
+    if (typeof body.userId !== 'string' || !body.userId || typeof body.conversationId !== 'string' || !body.conversationId) {
+      res.status(400).json({ error: 'userId and conversationId are required' });
+      return;
+    }
+    const approvalId = req.params.id as string;
+    const owner = { userId: body.userId, conversationId: body.conversationId };
+    // Always 200: `unknown` is an answer, and a worker must tell it from a server that has no such route (404).
+    if (body.confirm === true) {
+      res.json({ approvalId, outcome: (await deps.approvals.confirmExpirySettled(approvalId, owner)) ? 'confirmed' : 'unknown' });
+      return;
+    }
+    res.json(await deps.approvals.settleExpired(approvalId, owner));
   });
 
   router.get('/internal/approvals/:id', async (req, res) => {
