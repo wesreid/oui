@@ -15,7 +15,7 @@ import { withoutClientUI } from '../ui/snapshot.js';
 import { createToolRegistry } from '../tools/types.js';
 import { buildAgentSystemPrompt } from '../prompt/index.js';
 import { describeModel } from '../model.js';
-import type { AgentTurnInput } from '../types.js';
+import type { AgentTurnInput, AgentTurnResult, TurnMessage } from '../types.js';
 import type { AgentRuntimeConfig, AgentTurnPayload } from './types.js';
 import { assertAgentRuntimeConfig } from './config.js';
 
@@ -147,10 +147,22 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
         };
 
         const tools = await resolveTools({ userId, accountId, turnId });
+        // The turn's messages are stored before the client is told it is complete
+        // (`beforeTurnComplete`), so the person's next message, however soon, reads them.
+        let persisted = false;
+        const persist = async (turn: { newMessages: TurnMessage[]; usage: AgentTurnResult['usage'] }) => {
+          persisted = true;
+          try {
+            await config.persistMessages({ turnId, conversationId, messages: turn.newMessages, usage: turn.usage, db });
+          } catch (err) {
+            logger.error('[agent-sdk] persistMessages failed', { turnId, error: messageOf(err) });
+          }
+        };
         const result = await runAgentTurn(
           {
             tools,
             emit,
+            beforeTurnComplete: persist,
             apiSurface: config.apiSurfaceFactory ? config.apiSurfaceFactory({ userId, accountId, userToken }) : config.apiSurface,
             systemPrompt,
             model: config.model,
@@ -189,11 +201,8 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
           }
         }
 
-        try {
-          await config.persistMessages({ turnId, conversationId, messages: result.newMessages, usage: result.usage, db });
-        } catch (err) {
-          logger.error('[agent-sdk] persistMessages failed', { turnId, error: messageOf(err) });
-        }
+        // A turn that ended without announcing itself complete still has its messages stored.
+        if (!persisted) await persist(result);
         return { status: 'completed', turnId, rounds: result.rounds };
       } catch (error) {
         return fail(payload, error, async (categorized) => {

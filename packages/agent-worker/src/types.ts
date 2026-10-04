@@ -67,6 +67,18 @@ export interface AgentWorkerConfig {
     /** Largest index of the page's actions given to the model, in characters. Default 60000 (`DEFAULT_INDEX_CHARS`). */
     maxIndexChars?: number;
   };
+  /**
+   * Called with what the turn produced, after its last step and before the
+   * client is told the turn is complete. A host stores the turn's messages
+   * here, so that a message the person sends the moment the turn completes is
+   * answered from a history that holds it: told first and stored after, the
+   * next turn read a history without the turn that had just finished, and the
+   * model did its work again.
+   *
+   * It is awaited. If it rejects, the rejection is logged and the turn still
+   * completes: a turn that answered is not turned into a failure by its record.
+   */
+  beforeTurnComplete?: (turn: Pick<AgentTurnResult, 'rounds' | 'usage' | 'newMessages'>) => Promise<void>;
 }
 
 export interface SystemPromptContext {

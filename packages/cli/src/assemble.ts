@@ -203,6 +203,28 @@ export function assemble(
     for (const u of unbound)
       errors.push({ ...u, message: `${u.message} (on ${page.component}, whose bindings are enforced)` });
   }
+  // A reason a control gives for not being the assistant's often names what the assistant uses
+  // instead: "(editor.add-asset.open)", or "the insert.media command". That name is checked, since
+  // a reason pointing at an action that does not exist leaves the assistant with no way to do it
+  // and nothing saying so (ADR-0248 §2.6).
+  const bindingIds = new Set<string>();
+  const commandIds = new Set<string>();
+  for (const page of pages) {
+    for (const control of page.analysis?.controls ?? []) bindingIds.add(control.binding.id);
+    for (const display of page.analysis?.displays ?? []) bindingIds.add(display.binding.id);
+    for (const room of page.analysis?.rooms ?? []) {
+      for (const action of room.catalog.actions) bindingIds.add(action.id);
+      for (const command of room.catalog.commands ?? []) commandIds.add(command.id);
+    }
+  }
+  for (const page of pages) {
+    for (const reason of page.analysis?.nonAgent ?? []) {
+      for (const problem of nonAgentReferenceProblems(reason.message, bindingIds, commandIds)) {
+        errors.push({ file: reason.file, line: reason.line, message: problem });
+      }
+    }
+  }
+
   for (const page of pages) {
     for (const e of page.analysis?.errors ?? []) errors.push(e);
     if (!page.analysis) {
@@ -700,4 +722,40 @@ function catalogProblems(
     }
   }
   return out;
+}
+
+/** An id with a dot in it, as a binding or a command is named: `editor.add-asset.open`, `insert.media`. */
+const DOTTED_ID = String.raw`[a-z][a-z0-9-]*(?:\.[a-z0-9-]+)+`;
+
+/**
+ * What a non-agent reason names that does not exist. Two forms are read, and
+ * nothing else in the sentence: an id in parentheses, `(editor.add-asset.open)`,
+ * is a binding or a room action; an id followed by "command", `the insert.media
+ * command`, is a room's command.
+ */
+export function nonAgentReferenceProblems(
+  reason: string,
+  bindingIds: ReadonlySet<string>,
+  commandIds: ReadonlySet<string>,
+): string[] {
+  const problems: string[] = [];
+  for (const match of reason.matchAll(new RegExp(String.raw`\((${DOTTED_ID})\)`, 'g'))) {
+    const id = match[1];
+    if (!bindingIds.has(id) && !commandIds.has(id)) {
+      problems.push(
+        `A non-agent reason names "${id}", which is no binding, room action or command of the app: ` +
+          'name the action the assistant uses instead, or bind this control',
+      );
+    }
+  }
+  for (const match of reason.matchAll(new RegExp(String.raw`(${DOTTED_ID}) command\b`, 'g'))) {
+    const id = match[1];
+    if (!commandIds.has(id)) {
+      problems.push(
+        `A non-agent reason names the command "${id}", which no room’s catalog has: ` +
+          'name a command the assistant can run, or bind this control',
+      );
+    }
+  }
+  return problems;
 }

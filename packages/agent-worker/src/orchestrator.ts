@@ -1190,6 +1190,22 @@ export async function runAgentTurn(
       : {}),
   });
 
+  // The turn's messages, in the host's format, for it to store.
+  const newMessages = [...(continued?.persisted ?? []), ...convertResponseToTurnMessages({ steps }, executedToolResults)];
+
+  // The host stores the turn before the client hears it is complete: a message sent the moment
+  // it completes must be answered from a history that holds this turn.
+  if (config.beforeTurnComplete) {
+    try {
+      await config.beforeTurnComplete({ rounds: steps.length, usage, newMessages });
+    } catch (err) {
+      log('error', 'agent:turn', 'beforeTurnComplete failed; the turn completes without it', {
+        turnId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   await config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TURN_COMPLETE, {
     turnId,
     rounds: steps.length,
@@ -1206,9 +1222,6 @@ export async function runAgentTurn(
     usage,
     newMessageCount: responseMessageCount,
   });
-
-  // Convert AI SDK response messages to our TurnMessage format for persistence
-  const newMessages = [...(continued?.persisted ?? []), ...convertResponseToTurnMessages({ steps }, executedToolResults)];
 
   return {
     rounds: steps.length,

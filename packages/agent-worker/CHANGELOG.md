@@ -1,5 +1,18 @@
 # @ouispec/agent-worker
 
+## 0.3.1
+
+### Patch Changes
+
+- A turn's messages are stored before the client is told the turn is complete.
+
+  The runner announced `turn_complete` and then called the host's `persistMessages`. A message sent in that gap was answered from a history without the turn that had just finished: asked to rename a draft and then delete it, with one second between, the model renamed it again (three runs of three on a live deployment; none with a six-second gap).
+
+  - `AgentWorkerConfig.beforeTurnComplete` is called with the turn's `rounds`, `usage` and `newMessages` after the last step and before `turn_complete` is emitted, and is awaited. A rejection is logged and the turn still completes.
+  - `createAgentTurnRunner` calls `persistMessages` there, once. `recordTurnComplete` now runs after the messages are stored, where it ran before them, so a host reading the turn's stored messages in it finds them.
+
+  A host whose `persistMessages` does slow work beyond storing the messages (a summary, a model call) should move that work to `recordTurnComplete`: what `persistMessages` awaits now delays `turn_complete`.
+
 ## 0.3.0
 
 ### Minor Changes

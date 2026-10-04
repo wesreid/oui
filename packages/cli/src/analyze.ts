@@ -134,6 +134,12 @@ export interface PageAnalysis {
   errors: Finding[];
   /** Every use of a mapped control's root. */
   tier2Uses: Tier2Found[];
+  /**
+   * The reasons controls give for not being the assistant's (`data-non-agent`,
+   * `nonAgent`), each where it is written: a reason that names another action
+   * is checked against the actions there are.
+   */
+  nonAgent: Finding[];
 }
 
 interface PropSource {
@@ -208,7 +214,9 @@ export class PageAnalyzer {
       unbound: [],
       errors: [],
       tier2Uses: [],
+      nonAgent: [],
     };
+    this.nonAgentReasons = result.nonAgent;
     this.importsChecked = new Set();
     const seen = new Set<string>();
     this.walk(pageDecl, { reach: [], itemized: false, props: new Map(), depth: 0 }, result, seen, true);
@@ -670,12 +678,31 @@ export class PageAnalyzer {
     return type.getCallSignatures().length > 0;
   }
 
+  /** Where the page being analysed keeps its non-agent reasons. */
+  private nonAgentReasons: Finding[] = [];
+
+  /** Keeps a non-agent reason with where it is written, once. */
+  private noteNonAgent(reason: unknown, node: ts.Node): void {
+    if (typeof reason !== 'string' || !reason.trim()) return;
+    const sf = node.getSourceFile();
+    const found = {
+      file: this.source.rel(sf),
+      line: sf.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+      message: reason.trim(),
+    };
+    if (!this.nonAgentReasons.some(r => r.file === found.file && r.line === found.line && r.message === found.message)) {
+      this.nonAgentReasons.push(found);
+    }
+  }
+
   /** `data-non-agent="<reason>"`, when it gives a reason. */
   private nonAgentReason(el: JsxOpening): boolean {
     const reason = jsxAttribute(el, 'data-non-agent');
     if (reason === undefined || reason === true) return false;
     const text = evaluate(this.source.checker, reason);
-    return typeof text === 'string' && !!text.trim();
+    if (typeof text !== 'string' || !text.trim()) return false;
+    this.noteNonAgent(text, el);
+    return true;
   }
 
   /**
@@ -1065,6 +1092,8 @@ export class PageAnalyzer {
           ...at,
           message: `<${tag} agent={{ nonAgent }}> needs the reason it is not for the assistant`,
         });
+      } else {
+        this.noteNonAgent(agentObj.nonAgent, el);
       }
     }
 
@@ -1093,7 +1122,10 @@ export class PageAnalyzer {
         });
         continue;
       }
-      if (slotValue && typeof slotValue === 'object' && 'nonAgent' in slotValue) continue;
+      if (slotValue && typeof slotValue === 'object' && 'nonAgent' in slotValue) {
+        this.noteNonAgent((slotValue as { nonAgent?: unknown }).nonAgent, el);
+        continue;
+      }
       const binding = this.binding(slotValue as Record<string, unknown>, at, `${tag} ${slot}`, out);
       if (!binding) continue;
       const titleFromEl = this.title(el, descriptor);
@@ -1181,7 +1213,10 @@ export class PageAnalyzer {
       });
       return;
     }
-    if ('nonAgent' in (agent as object)) return;
+    if ('nonAgent' in (agent as object)) {
+      this.noteNonAgent((agent as { nonAgent?: unknown }).nonAgent, obj);
+      return;
+    }
     const binding = this.binding(agent as Record<string, unknown>, here, tag, out);
     if (!binding) return;
     const title = evaluate(this.source.checker, objectProperty(obj, titleKey));
