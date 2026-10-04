@@ -1,5 +1,30 @@
 # @ouispec/agent-realtime
 
+## 0.4.0
+
+### Minor Changes
+
+- The approval store can say that an approval expired without its call having run, and gives one turn at a time the claim to store that.
+
+  - **A memory beside each approval** (`approval:{id}:seen`: the user, the conversation and the expiry time), kept 30 days past the approval's expiry. A decline or a redemption removes it in the same Lua script that declines or redeems, so an approval that was declined or used is never read as expired.
+  - **An approval the user gave and nobody used** is told apart: approving rewrites the memory with `decided: "approved"` (same TTL, in the approving script), and `settle` returns it. Without this, an approved call whose turn died would be told as "expired before the user decided it".
+  - **`POST /internal/approvals/:id/settle` `{ userId, conversationId }`**, always `200`:
+    - `open`: pending, or approved and not yet used;
+    - `claimed`: its keys have lapsed in Redis with the memory still there, so it expired without having run, and this caller holds the claim to store that;
+    - `already`: another caller holds the claim, or it has been confirmed;
+    - `unknown`: declined, used, another user's or conversation's, never asked for, or no longer remembered.
+  - **The claim is a lease** of two minutes (`SET NX PX`), so of two turns asking together exactly one is `claimed`. With `confirm: true` the caller says it has stored the result, and the claim lasts as long as the memory. An unconfirmed claim lapses and can be claimed again; there is no release.
+  - **A confirmation with no live claim** (the lease lapsed while the host was storing) is kept, and logged at warn: the expiry may have been stored twice.
+  - **Expiry is Redis's clock.** Neither this server's clock nor the caller's is consulted.
+  - **`ApprovalStore`** gains `settleExpired` and `confirmExpirySettled`; `createApprovalStore` takes an optional `expiryClaimLeaseMs`.
+  - **Rollout:** the realtime server and the worker ship in either order. A worker from before this change never calls the route.
+  - **Approvals created before this upgrade stay "waiting"** in their conversations: they have no memory, so the store answers `unknown` for them.
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/agent-core@0.4.0
+
 ## 0.2.2
 
 ### Patch Changes

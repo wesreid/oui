@@ -1,5 +1,31 @@
 # @ouispec/agent-worker
 
+## 0.4.0
+
+### Minor Changes
+
+- A call whose approval expired without the call having run is settled at the start of a later turn.
+
+  - **What was wrong:** an approval card that expires disables its buttons and sends nothing, so no turn ever stored how the call ended. Every later turn read "waiting for approval… has not run", and the assistant could not say the approval had expired.
+  - **Now:** at the start of a turn the worker finds the calls the history still shows as waiting (their last stored result is the "waiting" placeholder) and asks the approval store about each, as this user and conversation. Only the store's explicit answer settles one:
+    - `claimed`: the "expired, not run" result is given to the model in place of "waiting" and returned in `newMessages` under the call's own id, with `settledApprovals` naming it.
+    - `already` (another turn holds the claim, or it is stored): the model is told for this turn, and nothing is stored.
+    - `open` and `unknown`: the call is left as it is.
+  - **Approved, and never run:** when the user had approved the call and the turn that would have run it never did, the store says so (`decided: "approved"`). The stored result then reads `approval: { decided: "approved", by: "user", ran: false, expired: true }`, and the model is told the user approved it but it expired before it ran, so to ask before running it again. It is not told that nobody decided.
+  - **Expiry is the store's to decide**, on its own clock. The worker's clock is not consulted.
+  - **A claim is a lease.** After the host has stored the turn's messages, the turn runner confirms each claim (`confirmExpirySettled`). A turn that dies, or a host whose write fails, confirms nothing; the claim lapses after two minutes and a later turn stores the result. A host that calls `runAgentTurn` itself confirms `result.settledApprovals` after persisting.
+  - **Two rows are possible, rarely.** If a turn's claim lapses while its host is still storing (more than two minutes), a second turn can claim and store the same result. The worker's own history conversion gives the model one result per call (the last), and so must a host that reads its store some other way: keep the last result of a call id.
+  - **A history that does not hold the stopped turn yet** has no waiting call in it, so nothing is asked.
+  - **The newest five waiting calls** are asked about per turn; the store is called once for each, in parallel. A store that cannot be reached, or that has no `settleExpired`, settles nothing.
+  - **New in `@ouispec/agent-core`:** `ApprovalSettlement`, `ApprovalSettleOutcome`, `ApprovalOwner`, `EXPIRED_APPROVAL_MEMORY_MS`, `EXPIRY_CLAIM_LEASE_MS`. New, optional, on `ApprovalStoreClient`: `settleExpired` and `confirmExpirySettled`.
+  - **Rollout:** the worker and the realtime server ship in either order. Against a realtime server without `POST /internal/approvals/:id/settle` the worker reads its 404 as `unknown`, and nothing is settled.
+  - **Approvals created before the realtime server is upgraded stay "waiting"**: the store has no memory of them.
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/agent-core@0.4.0
+
 ## 0.3.1
 
 ### Patch Changes
