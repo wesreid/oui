@@ -92,6 +92,63 @@ async function generateIn(root: string, settings: Record<string, unknown> = {}) 
   return generate(resolveConfig(root, { ...SETTINGS, designSystem: ['@fixture/ds'], ...settings }));
 }
 
+describe('a non-agent reason that names another action names one that exists (ADR-0248 §2.6)', () => {
+  const ds = [{ name: '@fixture/ds', packageJson: { oui: { agentControls: './dist/agent-controls.json' } }, files: table }];
+  const page = (lines: string[]) =>
+    [
+      "import { Route, Routes } from 'react-router';",
+      "import { Button } from '@fixture/ds';",
+      'function HomePage() {',
+      '  return (',
+      '    <div>',
+      "      <Button agent={{ id: 'home.start', description: 'Start' }} onClick={() => {}}>Start</Button>",
+      ...lines.map(l => `      ${l}`),
+      '    </div>',
+      '  );',
+      '}',
+      'export function AppRoutes() {',
+      '  return <Routes><Route path="/" element={<HomePage />} /></Routes>;',
+      '}',
+    ].join('\n');
+
+  it('passes a raw control and a design-system control whose reasons name a binding of the app', async () => {
+    const r = await generateIn(
+      tempApp(
+        ds,
+        page([
+          '<button data-non-agent="starts, as the Start button (home.start) does" onClick={() => {}}>Go</button>',
+          "<Button agent={{ nonAgent: 'the same as Start (home.start)' }} onClick={() => {}}>Again</Button>",
+        ]),
+      ),
+    );
+    expect(r.errors).toEqual([]);
+  });
+
+  it('fails each reason that names a binding or a command that is not there, where it is written', async () => {
+    const r = await generateIn(
+      tempApp(
+        ds,
+        page([
+          '<button data-non-agent="opens Add, as the Add button (home.add) does" onClick={() => {}}>Add</button>',
+          "<Button agent={{ nonAgent: 'runs the insert.media command' }} onClick={() => {}}>Media</Button>",
+        ]),
+      ),
+    );
+    expect(r.errors.map(e => [e.file, e.line, e.message])).toEqual([
+      [
+        'src/routes.tsx',
+        7,
+        'A non-agent reason names "home.add", which is no binding, room action or command of the app: name the action the assistant uses instead, or bind this control',
+      ],
+      [
+        'src/routes.tsx',
+        8,
+        'A non-agent reason names the command "insert.media", which no room’s catalog has: name a command the assistant can run, or bind this control',
+      ],
+    ]);
+  });
+});
+
 describe('§2.5 row 1: a design-system package is resolved and has a control table, or the build fails', () => {
   it('reads the neutral "oui.agentControls" key', async () => {
     const root = tempApp([

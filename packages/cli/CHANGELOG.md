@@ -1,5 +1,17 @@
 # @ouispec/cli
 
+## 0.3.0
+
+### Minor Changes
+
+- A reason a control gives for not being the assistant's is checked when it names another action.
+
+  A control opts out with `data-non-agent="<reason>"` or `agent={{ nonAgent: '<reason>' }}`, and the reason commonly names what the assistant uses instead: "opens Add Asset, as the Add button (editor.add-asset.open) does", or "the same as the insert.media command". Nothing checked that name, so a renamed or removed action left the assistant with no way to do the thing and nothing saying so.
+
+  `oui generate` now fails a reason that names, in parentheses, an id with a dot in it that is no binding, room action or command of the app, and one that names "`<id>` command" for a command no room's catalog has. Each failure gives the file and line of the reason. Nothing else in a reason is read.
+
+  **What to do when you take this version.** A build that passed may now fail on a stale reason: point it at the action the assistant uses, or bind the control.
+
 ## 0.2.3
 
 ### Patch Changes
