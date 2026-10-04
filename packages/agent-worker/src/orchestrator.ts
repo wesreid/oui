@@ -47,6 +47,7 @@ import { approvalRequirement, APPROVAL_TOOL_NOTE, type ApprovalRequirement } fro
 import { buildApprovalPreview, declaredTitle } from './approvals/preview.js';
 import {
   approvalMarker,
+  approvedExpiredMarker,
   expiredNote,
   markedResult,
   notRunResult,
@@ -961,8 +962,15 @@ export async function runAgentTurn(
   // Expiry is the store's clock's to decide, never this process's.
   /** Calls beyond the newest few are left: a store call per waiting call, on every turn, has to stay small. */
   const MAX_WAITING_SETTLED = 5;
-  async function settleExpiredWaiting(): Promise<{ outcomes: TurnHistoryMessage[]; persisted: TurnMessage[]; claimed: string[] }> {
-    const settled = { outcomes: [] as TurnHistoryMessage[], persisted: [] as TurnMessage[], claimed: [] as string[] };
+  async function settleExpiredWaiting(): Promise<{
+    outcomes: TurnHistoryMessage[];
+    persisted: TurnMessage[];
+    claimed: string[];
+    /** How many expired with nobody deciding, and how many the user had approved. */
+    undecided: number;
+    approved: number;
+  }> {
+    const settled = { outcomes: [] as TurnHistoryMessage[], persisted: [] as TurnMessage[], claimed: [] as string[], undecided: 0, approved: 0 };
     const store = config.approvals;
     if (!store?.settleExpired) return settled;
     const owner = { userId: input.userId, conversationId: input.conversationId };
@@ -983,14 +991,23 @@ export async function runAgentTurn(
     );
     for (const { w, answer } of answers) {
       if (answer?.outcome !== 'claimed' && answer?.outcome !== 'already') continue;
-      const content = notRunResult(approvalMarker('expired', false));
+      // The user had approved it and it was never run, or nobody decided: the result says which.
+      const wasApproved = answer.decided === 'approved';
+      const content = notRunResult(wasApproved ? approvedExpiredMarker() : approvalMarker('expired', false));
+      if (wasApproved) settled.approved += 1;
+      else settled.undecided += 1;
       const name = w.name ?? 'unknown';
       settled.outcomes.push({ role: 'tool', content, tool_call_id: w.approvalId, name });
       if (answer.outcome === 'claimed') {
         settled.persisted.push({ role: 'tool', content, toolCallId: w.approvalId, name });
         settled.claimed.push(w.approvalId);
       }
-      log('info', 'agent:tool', 'A waiting call’s approval expired undecided', { turnId, approvalId: w.approvalId, stored: answer.outcome === 'claimed' });
+      log('info', 'agent:tool', 'A waiting call’s approval expired without the call running', {
+        turnId,
+        approvalId: w.approvalId,
+        decided: wasApproved ? 'approved' : null,
+        stored: answer.outcome === 'claimed',
+      });
     }
     return settled;
   }
@@ -1015,7 +1032,7 @@ export async function runAgentTurn(
             [input.content, continued?.note].filter(Boolean).join('\n\n'),
           ),
           // Said on the user's message whether or not the host's history already holds that message.
-          expired.outcomes.length > 0 ? expiredNote(expired.outcomes.length) : null,
+          expired.outcomes.length > 0 ? expiredNote(expired) : null,
         ),
         client,
         config.ui?.maxObservationChars ?? DEFAULT_PAGE_STATE_CHARS,

@@ -259,7 +259,10 @@ describe('a call still stored as waiting, at the start of a later turn', () => {
     return typeof last.content === 'string' ? last.content : JSON.stringify(last.content);
   };
   /** A store that answers `settleExpired` as given, and records what it was asked. */
-  function settling(answer: (approvalId: string) => ApprovalSettlement['outcome'] | Promise<ApprovalSettlement['outcome']>) {
+  function settling(
+    answer: (approvalId: string) => ApprovalSettlement['outcome'] | Promise<ApprovalSettlement['outcome']>,
+    decided?: ApprovalSettlement['decided'],
+  ) {
     const asked: Array<{ approvalId: string; userId: string; conversationId: string }> = [];
     const store: ApprovalStoreClient = {
       create: async () => {},
@@ -267,7 +270,7 @@ describe('a call still stored as waiting, at the start of a later turn', () => {
       status: async () => null,
       settleExpired: async (approvalId, owner) => {
         asked.push({ approvalId, ...owner });
-        return { approvalId, outcome: await answer(approvalId) };
+        return { approvalId, outcome: await answer(approvalId), ...(decided ? { decided } : {}) };
       },
     };
     return { store, asked };
@@ -286,6 +289,8 @@ describe('a call still stored as waiting, at the start of a later turn', () => {
     expect(marker(results()[0].output?.value)).toMatchObject(expired);
     expect(marker(results()[0].output?.value)).not.toHaveProperty('by');
     expect(JSON.parse(results()[0].output!.value!)).toMatchObject({ success: false, notRun: true });
+    expect(marker(results()[0].output?.value)).not.toHaveProperty('expired');
+    expect(JSON.parse(results()[0].output!.value!).message).toMatch(/Do not run it again unless the user asks for it again\.$/);
     expect(JSON.stringify(seen!.messages)).not.toContain('awaitingApproval');
     // And said beside the user's message.
     expect(lastUserText()).toMatch(/<approval>An approval asked for earlier in this conversation expired before the user decided it, so that action did not run\./);
@@ -305,6 +310,33 @@ describe('a call still stored as waiting, at the start of a later turn', () => {
     );
     expect(results()).toHaveLength(1);
     expect(marker(results()[0].output?.value)).toMatchObject(expired);
+  });
+
+  it('approved by the user, and never run: says the user approved it, not that nobody decided', async () => {
+    const { runAgentTurn } = await import('../orchestrator.js');
+    // The turn that would have run the approved call died; the approval lapsed unused.
+    const result = await runAgentTurn({ ...config, approvals: settling(() => 'claimed', 'approved').store }, turn(waiting));
+
+    const approvedExpired = {
+      decided: 'approved',
+      by: 'user',
+      ran: false,
+      expired: true,
+      summary: 'Approved by the user on the approval card, but the approval expired before it ran. It was not run.',
+    };
+    expect(results()).toHaveLength(1);
+    expect(marker(results()[0].output?.value)).toMatchObject(approvedExpired);
+    const given = JSON.parse(results()[0].output!.value!) as { success: boolean; notRun: boolean; message: string };
+    expect(given).toMatchObject({ success: false, notRun: true });
+    expect(given.message).toMatch(/Ask the user before running it again\.$/);
+    // The note's other wording: the user did decide.
+    expect(lastUserText()).toMatch(/The user approved an action earlier in this conversation, but the approval expired before it ran; it did not run, so ask before running it again\./);
+    expect(lastUserText()).not.toMatch(/before the user decided/);
+
+    const stored = result.newMessages.filter((m) => m.role === 'tool');
+    expect(stored).toHaveLength(1);
+    expect(marker(stored[0].content ?? undefined)).toMatchObject(approvedExpired);
+    expect(result.settledApprovals).toEqual(['call_save_1']);
   });
 
   it('claimed by another turn: the model is told for this turn, and nothing is stored', async () => {

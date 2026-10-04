@@ -35,6 +35,8 @@ export interface ApprovalMarker {
   at: string;
   /** Whether the call ran: once, when approved and not refused; never otherwise. */
   ran: boolean;
+  /** The user approved it, and the approval expired before the call ran. */
+  expired?: true;
   /** The same, in words: what the model reads. */
   summary: string;
 }
@@ -44,12 +46,21 @@ const SUMMARY = {
   approvedNotRun: 'Approved by the user on the approval card, but it did not run.',
   declined: 'Declined by the user on the approval card. It was not run.',
   expired: 'The approval expired before it was used. It was not run.',
+  approvedExpired: 'Approved by the user on the approval card, but the approval expired before it ran. It was not run.',
 } as const;
 
 export function approvalMarker(decided: ApprovalDecided, ran: boolean, now: Date = new Date()): ApprovalMarker {
   const summary =
     decided === 'approved' ? (ran ? SUMMARY.approvedRan : SUMMARY.approvedNotRun) : decided === 'declined' ? SUMMARY.declined : SUMMARY.expired;
   return { decided, ...(decided === 'expired' ? {} : { by: 'user' as const }), at: now.toISOString(), ran: decided === 'approved' && ran, summary };
+}
+
+/**
+ * The user approved it, and it expired before it ran: the turn that would have
+ * run it never did. Not "undecided": the person did decide.
+ */
+export function approvedExpiredMarker(now: Date = new Date()): ApprovalMarker {
+  return { decided: 'approved', by: 'user', at: now.toISOString(), ran: false, expired: true, summary: SUMMARY.approvedExpired };
 }
 
 /** A call's result with its approval said first: an object gains `approval`; anything else is put beside it as `result`. */
@@ -67,11 +78,13 @@ export function markedResult(text: string, marker: ApprovalMarker): string {
 
 /** The stored result of a call that will never run: declined, expired, or approved where it could not run. */
 export function notRunResult(marker: ApprovalMarker, why?: string): string {
+  // An approval that lapsed after the user gave it is not a refusal: they may still want it, so the model asks.
+  const advice = marker.expired ? 'Ask the user before running it again.' : 'Do not run it again unless the user asks for it again.';
   return JSON.stringify({
     approval: marker,
     success: false,
     notRun: true,
-    message: `${marker.summary}${why ? ` ${why}` : ''} Do not run it again unless the user asks for it again.`,
+    message: `${marker.summary}${why ? ` ${why}` : ''} ${advice}`,
   });
 }
 
@@ -158,15 +171,24 @@ export function waitingCalls(
   return waiting.reverse();
 }
 
-/** What the model is told of calls whose approval expired with nobody deciding. */
-export function expiredNote(count: number): string {
-  return approvalNote(
-    count === 1
-      ? 'An approval asked for earlier in this conversation expired before the user decided it, so that action did not run. ' +
-          'Its result, above, says so. Run it again only if the user asks for it again.'
-      : `${count} approvals asked for earlier in this conversation expired before the user decided them, so those actions did not run. ` +
-          'Their results, above, say so. Run one again only if the user asks for it again.',
-  );
+/**
+ * What the model is told of calls whose approval expired without the call
+ * having run: `undecided` nobody decided, `approved` the user had approved and
+ * the call was never run.
+ */
+export function expiredNote(expired: { undecided: number; approved: number }): string {
+  const parts: string[] = [];
+  if (expired.undecided === 1) {
+    parts.push('An approval asked for earlier in this conversation expired before the user decided it, so that action did not run. Run it again only if the user asks for it again.');
+  } else if (expired.undecided > 1) {
+    parts.push(`${expired.undecided} approvals asked for earlier in this conversation expired before the user decided them, so those actions did not run. Run one again only if the user asks for it again.`);
+  }
+  if (expired.approved === 1) {
+    parts.push('The user approved an action earlier in this conversation, but the approval expired before it ran; it did not run, so ask before running it again.');
+  } else if (expired.approved > 1) {
+    parts.push(`The user approved ${expired.approved} actions earlier in this conversation, but the approvals expired before they ran; they did not run, so ask before running one again.`);
+  }
+  return approvalNote(`${parts.join(' ')} The result of each call, above, says so.`);
 }
 
 export async function resolveContinuation(

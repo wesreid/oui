@@ -309,6 +309,37 @@ describe('an approval nobody decided: settled by a later turn', () => {
     expect((await settle(b, p.approvalId)).body).toMatchObject({ outcome: 'already' });
   });
 
+  it('says the user had approved it when an approved call was never run, and not that it expired undecided', async () => {
+    // Approved on the card, and the turn that would have run it died: never redeemed.
+    const p = await stored({ expiresAt: Date.now() + 1_200 });
+    const tab = await connect(a, 'token-u1');
+    expect(await decide(tab, p.approvalId, 'approve')).toMatchObject({ ok: true, decision: 'approve' });
+    await new Promise((r) => setTimeout(r, 1_500));
+    expect((await settle(b, p.approvalId)).body).toEqual({ approvalId: p.approvalId, outcome: 'claimed', expiresAt: p.expiresAt, decided: 'approved' });
+    expect((await settle(a, p.approvalId)).body).toEqual({ approvalId: p.approvalId, outcome: 'already', expiresAt: p.expiresAt, decided: 'approved' });
+
+    // One nobody decided carries no decision.
+    const undecided = await expired();
+    const answer = (await settle(a, undecided.approvalId)).body;
+    expect(answer).toEqual({ approvalId: undecided.approvalId, outcome: 'claimed', expiresAt: undecided.expiresAt });
+    expect(answer).not.toHaveProperty('decided');
+  });
+
+  it('keeps a confirmation that arrives with no live claim, and warns that the lease had lapsed', async () => {
+    const p = await expired();
+    logger.records.length = 0;
+    // No turn holds a claim: this is a turn whose lease lapsed while its host was still storing.
+    expect((await settle(a, p.approvalId, { ...owner, confirm: true })).body).toEqual({ approvalId: p.approvalId, outcome: 'confirmed' });
+    expect(logger.records.filter((r) => r.level === 'warn' && /no live claim/.test(r.msg))).toHaveLength(1);
+    expect((await settle(b, p.approvalId)).body).toMatchObject({ outcome: 'already' });
+    // With a live claim there is no warning.
+    const q = await expired();
+    logger.records.length = 0;
+    expect((await settle(a, q.approvalId)).body).toMatchObject({ outcome: 'claimed' });
+    expect((await settle(a, q.approvalId, { ...owner, confirm: true })).body).toMatchObject({ outcome: 'confirmed' });
+    expect(logger.records.filter((r) => r.level === 'warn')).toHaveLength(0);
+  });
+
   it('leaves a pending approval, and an approved one not yet used, as open: the card is live', async () => {
     const p = await stored();
     expect((await settle(a, p.approvalId)).body).toEqual({ approvalId: p.approvalId, outcome: 'open' });

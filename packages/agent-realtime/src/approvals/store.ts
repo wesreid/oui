@@ -8,12 +8,15 @@
  *                             conversationId, tool, argsHash, expiresAt, and
  *                             once approved the token's jti and the channel
  *   approval:declined:{id}  → what the next turn tells the model, 30 min
- *   approval:{id}:seen      → that it was asked for and is still undecided
- *                             (userId, conversationId, expiresAt): written
- *                             with the approval, removed in the same script
- *                             that declines or redeems it, and kept 30 days
- *                             past its expiry. Present with the approval
- *                             gone, it expired undecided.
+ *   approval:{id}:seen      → that it was asked for and has not run or been
+ *                             declined (userId, conversationId, expiresAt,
+ *                             and `decided: approved` once the user has
+ *                             approved it): written with the approval,
+ *                             rewritten in the script that approves it,
+ *                             removed in the script that declines or redeems
+ *                             it, and kept 30 days past its expiry. Present
+ *                             with the approval gone, it expired without
+ *                             having run: undecided, or approved and unused.
  *   approval:{id}:settled   → a turn's claim to store that expiry: a two
  *                             minute lease, permanent once confirmed
  *
@@ -91,8 +94,10 @@ redis.call('HSET', KEYS[2], 'status', 'pending', 'userId', ARGV[3], 'conversatio
 redis.call('PEXPIRE', KEYS[2], ARGV[2])
 return 'ok'`;
 
-// KEYS: state, record, declined, seen. ARGV: userId, decision, now ms, jti, channel, declined ttl s, declined JSON.
-// A decline decides it: it is no longer something that can expire undecided.
+// KEYS: state, record, declined, seen. ARGV: userId, decision, now ms, jti, channel, declined ttl s, declined JSON,
+// seen JSON once approved.
+// A decline decides it: it is no longer something that can expire. An approval is recorded in the
+// memory (same TTL), so if the approved call is never run its expiry is not told as "undecided".
 const DECIDE = `
 if redis.call('EXISTS', KEYS[1]) == 0 then return {'unknown'} end
 local s = redis.call('HMGET', KEYS[1], 'status', 'userId', 'expiresAt')
@@ -102,6 +107,7 @@ if tonumber(ARGV[3]) >= tonumber(s[3]) then return {'expired'} end
 local record = redis.call('GET', KEYS[2])
 if ARGV[2] == 'approve' then
   redis.call('HSET', KEYS[1], 'status', 'approved', 'jti', ARGV[4], 'channel', ARGV[5])
+  if redis.call('EXISTS', KEYS[4]) == 1 then redis.call('SET', KEYS[4], ARGV[8], 'KEEPTTL') end
   return {'approved', record}
 end
 redis.call('DEL', KEYS[1], KEYS[2], KEYS[4])
@@ -139,14 +145,17 @@ return {'already', seen}`;
 
 // KEYS: state, seen, settled. ARGV: userId, conversationId, memory ms.
 // The expiry is stored in the conversation: the claim stays for as long as the memory of the approval does.
+// A confirmation with no live claim (the lease lapsed while the host was storing) is still kept, and said.
 const CONFIRM = `
 if redis.call('EXISTS', KEYS[1]) == 1 then return 'unknown' end
 local seen = redis.call('GET', KEYS[2])
 if not seen then return 'unknown' end
 local m = cjson.decode(seen)
 if m['userId'] ~= ARGV[1] or m['conversationId'] ~= ARGV[2] then return 'unknown' end
+local claimed = redis.call('EXISTS', KEYS[3])
 redis.call('SET', KEYS[3], 'confirmed', 'PX', ARGV[3])
-return 'confirmed'`;
+if claimed == 1 then return 'confirmed' end
+return 'unclaimed'`;
 
 // KEYS: state, record, declined. ARGV: userId. A live approval first, then a remembered decline.
 const STATUS = `
@@ -280,6 +289,10 @@ export function createApprovalStore(
         channel,
         DECLINED_TTL_SEC,
         JSON.stringify(declined),
+        // The memory of the approval once it is approved: written by the script, never re-encoded in Lua.
+        seen.kind === 'open'
+          ? JSON.stringify({ userId: seen.pending.userId, conversationId: seen.pending.conversationId, expiresAt: seen.pending.expiresAt, decided: 'approved' })
+          : '',
       )) as [string, string | undefined];
 
       if (outcome !== 'approved' && outcome !== 'declined') {
@@ -375,9 +388,11 @@ export function createApprovalStore(
       )) ?? []) as [string | undefined, string | undefined];
       if (outcome === 'open') return { approvalId, outcome };
       if ((outcome === 'claimed' || outcome === 'already') && raw) {
-        const { expiresAt } = JSON.parse(raw) as { expiresAt: number };
-        if (outcome === 'claimed') logger.info({ approvalId, userId, conversationId, expiresAt }, 'Approval expired undecided: claimed for a turn to store');
-        return { approvalId, outcome, expiresAt };
+        const { expiresAt, decided } = JSON.parse(raw) as { expiresAt: number; decided?: 'approved' };
+        if (outcome === 'claimed') {
+          logger.info({ approvalId, userId, conversationId, expiresAt, decided: decided ?? null }, 'Approval expired without running: claimed for a turn to store');
+        }
+        return { approvalId, outcome, expiresAt, ...(decided === 'approved' ? { decided } : {}) };
       }
       return { approvalId, outcome: 'unknown' };
     },
@@ -394,7 +409,11 @@ export function createApprovalStore(
         EXPIRED_APPROVAL_MEMORY_MS,
       );
       if (outcome === 'confirmed') logger.info({ approvalId, userId, conversationId }, 'Approval expiry stored in the conversation');
-      return outcome === 'confirmed';
+      if (outcome === 'unclaimed') {
+        // The turn's claim had lapsed before it confirmed: another turn may have claimed and stored the expiry too.
+        logger.warn({ approvalId, userId, conversationId }, 'Approval expiry confirmed with no live claim: the lease had lapsed, so it may be stored twice');
+      }
+      return outcome === 'confirmed' || outcome === 'unclaimed';
     },
   };
 }

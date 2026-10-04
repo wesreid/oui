@@ -37,11 +37,12 @@ export const EXPIRY_CLAIM_LEASE_MS = 2 * 60_000;
  * Where an approval stands when a later turn finds its call still stored as
  * waiting, and asks to settle it (`POST /internal/approvals/:id/settle`):
  *
- * - `claimed`: it expired undecided, and this caller holds the claim to store
+ * - `claimed`: it expired without having run — undecided, or approved and
+ *   never used (`decided`) — and this caller holds the claim to store
  *   that, for `EXPIRY_CLAIM_LEASE_MS`. The caller stores the call's result as
  *   expired, then confirms; confirmed, the claim is permanent.
- * - `already`: it expired undecided, and another turn holds the claim or has
- *   confirmed it. The caller tells the model so for its own turn, and stores
+ * - `already`: it expired without having run, and another turn holds the claim
+ *   or has confirmed it. The caller tells the model so for its own turn, and stores
  *   nothing.
  * - `open`: it is still pending, or approved and not yet used. The card is live.
  * - `unknown`: the store cannot say it expired undecided — it was declined, or
@@ -59,6 +60,12 @@ export interface ApprovalSettlement {
   outcome: ApprovalSettleOutcome;
   /** When it expired (epoch ms), for `claimed` and `already`. */
   expiresAt?: number;
+  /**
+   * For `claimed` and `already`: the user had approved it, and it expired
+   * before it was used (the turn that would have run it never did). Absent
+   * when nobody decided it.
+   */
+  decided?: 'approved';
 }
 
 /** Whose approval is asked about: the same ownership the other approval routes check. */
