@@ -9,10 +9,19 @@
  *   POST /internal/approvals/redeem        atomic single use (worker, engine)
  *   GET  /internal/approvals/:id?userId=   where an approval stands (worker, for the turn after a decision)
  *   POST /internal/approvals/:id/settle    whether it expired undecided, claimed for one turn to store; with
- *                                          `confirm`, that it has been stored (worker, at the start of a later turn)
+ *                                          `confirm`, that it has been stored (worker, at the start of a later turn);
+ *                                          with `expire`, expire it now, saying why (host, when a new message
+ *                                          arrives; worker, when the turn that asked is stopped: ADR-0252 §2.6)
  */
 import { Router, type Request, type Response } from 'express';
-import type { ApprovalChannel, ApprovalDecision, ApprovalRefusalReason, PendingApprovalInput } from '@ouispec/agent-core';
+import {
+  APPROVAL_WITHDRAW_REASONS,
+  type ApprovalChannel,
+  type ApprovalDecision,
+  type ApprovalRefusalReason,
+  type ApprovalWithdrawReason,
+  type PendingApprovalInput,
+} from '@ouispec/agent-core';
 import type { PayloadSchema } from '../types.js';
 import type { ApprovalStore } from './store.js';
 import { internalDecideSchema, pendingApprovalSchema, redeemSchema } from './schemas.js';
@@ -97,7 +106,7 @@ export function approvalRouter(deps: ApprovalRouteDeps): Router {
       res.status(401).json({ error: 'Invalid or missing API key' });
       return;
     }
-    const body = (req.body ?? {}) as { userId?: unknown; conversationId?: unknown; confirm?: unknown };
+    const body = (req.body ?? {}) as { userId?: unknown; conversationId?: unknown; confirm?: unknown; expire?: unknown };
     if (typeof body.userId !== 'string' || !body.userId || typeof body.conversationId !== 'string' || !body.conversationId) {
       res.status(400).json({ error: 'userId and conversationId are required' });
       return;
@@ -107,6 +116,14 @@ export function approvalRouter(deps: ApprovalRouteDeps): Router {
     // Always 200: `unknown` is an answer, and a worker must tell it from a server that has no such route (404).
     if (body.confirm === true) {
       res.json({ approvalId, outcome: (await deps.approvals.confirmExpirySettled(approvalId, owner)) ? 'confirmed' : 'unknown' });
+      return;
+    }
+    if (body.expire !== undefined) {
+      if (!(APPROVAL_WITHDRAW_REASONS as readonly unknown[]).includes(body.expire)) {
+        res.status(400).json({ error: `expire must be one of ${APPROVAL_WITHDRAW_REASONS.join(', ')}` });
+        return;
+      }
+      res.json(await deps.approvals.withdraw(approvalId, owner, body.expire as ApprovalWithdrawReason));
       return;
     }
     res.json(await deps.approvals.settleExpired(approvalId, owner));

@@ -5,7 +5,7 @@
  * stored call when there is one, and tells the model what happened in an
  * `<approval>` block on the user's message.
  */
-import type { ApprovalContinuation, ApprovalRefusalReason, ApprovedCall } from '@ouispec/agent-core';
+import type { ApprovalContinuation, ApprovalRefusalReason, ApprovalWithdrawReason, ApprovedCall } from '@ouispec/agent-core';
 import type { ApprovalStoreClient } from './client.js';
 
 export type ContinuationOutcome =
@@ -37,6 +37,12 @@ export interface ApprovalMarker {
   ran: boolean;
   /** The user approved it, and the approval expired before the call ran. */
   expired?: true;
+  /**
+   * The approval did not run out of time: it was withdrawn (ADR-0252 §2.6),
+   * because the user sent a new message while it waited, or stopped the turn
+   * that asked for it.
+   */
+  withdrawn?: ApprovalWithdrawReason;
   /** The same, in words: what the model reads. */
   summary: string;
 }
@@ -61,6 +67,36 @@ export function approvalMarker(decided: ApprovalDecided, ran: boolean, now: Date
  */
 export function approvedExpiredMarker(now: Date = new Date()): ApprovalMarker {
   return { decided: 'approved', by: 'user', at: now.toISOString(), ran: false, expired: true, summary: SUMMARY.approvedExpired };
+}
+
+const WITHDRAWN_BECAUSE: Record<ApprovalWithdrawReason, string> = {
+  superseded: 'the user sent a new message',
+  stopped: 'the user stopped the turn that asked for it',
+};
+
+/**
+ * An approval that was withdrawn before it was used: said as what happened,
+ * not as time running out. One the user had approved keeps that they did.
+ */
+export function withdrawnMarker(reason: ApprovalWithdrawReason, approved: boolean, now: Date = new Date()): ApprovalMarker {
+  const because = WITHDRAWN_BECAUSE[reason];
+  return approved
+    ? {
+        decided: 'approved',
+        by: 'user',
+        at: now.toISOString(),
+        ran: false,
+        expired: true,
+        withdrawn: reason,
+        summary: `Approved by the user on the approval card, but withdrawn before it ran because ${because}. It was not run.`,
+      }
+    : {
+        decided: 'expired',
+        at: now.toISOString(),
+        ran: false,
+        withdrawn: reason,
+        summary: `The approval was withdrawn before the user decided it, because ${because}. It was not run.`,
+      };
 }
 
 /** A call's result with its approval said first: an object gains `approval`; anything else is put beside it as `result`. */
@@ -176,8 +212,14 @@ export function waitingCalls(
  * having run: `undecided` nobody decided, `approved` the user had approved and
  * the call was never run.
  */
-export function expiredNote(expired: { undecided: number; approved: number }): string {
+export function expiredNote(expired: { undecided: number; approved: number; withdrawn?: number }): string {
   const parts: string[] = [];
+  const withdrawn = expired.withdrawn ?? 0;
+  if (withdrawn === 1) {
+    parts.push('An approval asked for earlier in this conversation was withdrawn before it ran, because the user sent a new message or stopped that turn; that action did not run. Run it again only if the user asks for it again.');
+  } else if (withdrawn > 1) {
+    parts.push(`${withdrawn} approvals asked for earlier in this conversation were withdrawn before they ran, because the user sent a new message or stopped that turn; those actions did not run. Run one again only if the user asks for it again.`);
+  }
   if (expired.undecided === 1) {
     parts.push('An approval asked for earlier in this conversation expired before the user decided it, so that action did not run. Run it again only if the user asks for it again.');
   } else if (expired.undecided > 1) {

@@ -10,6 +10,8 @@ import type {
   ApprovalRefusalReason,
   ApprovalSettlement,
   ApprovalStatus,
+  ApprovalWithdrawal,
+  ApprovalWithdrawReason,
   ApprovedCall,
   PendingApprovalInput,
 } from '@ouispec/agent-core';
@@ -34,6 +36,13 @@ export interface ApprovalStoreClient {
    * longer lapses. Called after the host has persisted the turn's messages.
    */
   confirmExpirySettled?(approvalId: string, owner: ApprovalOwner): Promise<void>;
+  /**
+   * Expire an approval now, saying why (ADR-0252 §2.6): the turn that asked
+   * for it was stopped, so its card must not stay live. Optional: a store
+   * without it leaves the approval to its time limit. Rejects when the store
+   * cannot be reached.
+   */
+  withdraw?(approvalId: string, owner: ApprovalOwner, reason: ApprovalWithdrawReason): Promise<ApprovalWithdrawal>;
 }
 
 export interface HttpApprovalStoreClientConfig {
@@ -98,6 +107,16 @@ export function createHttpApprovalStoreClient(config: HttpApprovalStoreClientCon
       if (status !== 200 && status !== 404) {
         throw new Error(`[agent-sdk] The approval store could not confirm approval ${approvalId} as settled: HTTP ${status}`);
       }
+    },
+
+    async withdraw(approvalId, owner, reason) {
+      const { status, json } = await call(`/internal/approvals/${encodeURIComponent(approvalId)}/settle`, { ...owner, expire: reason });
+      // A realtime server from before this: it answers as a plain settle would, which is not a withdrawal.
+      if (status === 200 && (json.outcome === 'withdrawn' || json.outcome === 'settled' || json.outcome === 'unknown')) {
+        return json as unknown as ApprovalWithdrawal;
+      }
+      if (status === 200 || status === 404) return { approvalId, outcome: 'unknown' };
+      throw new Error(`[agent-sdk] The approval store could not withdraw approval ${approvalId}: HTTP ${status}`);
     },
 
     async status(approvalId, userId) {

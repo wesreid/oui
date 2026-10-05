@@ -66,6 +66,7 @@ import {
   resolveContinuation,
   unavailableNote,
   waitingCalls,
+  withdrawnMarker,
 } from './approvals/continuation.js';
 
 const DEFAULT_MAX_ROUNDS = 12;
@@ -1049,11 +1050,12 @@ export async function runAgentTurn(
     outcomes: TurnHistoryMessage[];
     persisted: TurnMessage[];
     claimed: string[];
-    /** How many expired with nobody deciding, and how many the user had approved. */
+    /** How many expired with nobody deciding, how many the user had approved, and how many were withdrawn. */
     undecided: number;
     approved: number;
+    withdrawn: number;
   }> {
-    const settled = { outcomes: [] as TurnHistoryMessage[], persisted: [] as TurnMessage[], claimed: [] as string[], undecided: 0, approved: 0 };
+    const settled = { outcomes: [] as TurnHistoryMessage[], persisted: [] as TurnMessage[], claimed: [] as string[], undecided: 0, approved: 0, withdrawn: 0 };
     const store = config.approvals;
     if (!store?.settleExpired) return settled;
     const owner = { userId: input.userId, conversationId: input.conversationId };
@@ -1076,8 +1078,16 @@ export async function runAgentTurn(
       if (answer?.outcome !== 'claimed' && answer?.outcome !== 'already') continue;
       // The user had approved it and it was never run, or nobody decided: the result says which.
       const wasApproved = answer.decided === 'approved';
-      const content = notRunResult(wasApproved ? approvedExpiredMarker() : approvalMarker('expired', false));
-      if (wasApproved) settled.approved += 1;
+      // Withdrawn (a new message, or its turn stopped) is said as that, not as time running out (ADR-0252 §2.6).
+      const content = notRunResult(
+        answer.withdrawn
+          ? withdrawnMarker(answer.withdrawn, wasApproved)
+          : wasApproved
+            ? approvedExpiredMarker()
+            : approvalMarker('expired', false),
+      );
+      if (answer.withdrawn) settled.withdrawn += 1;
+      else if (wasApproved) settled.approved += 1;
       else settled.undecided += 1;
       const name = w.name ?? 'unknown';
       settled.outcomes.push({ role: 'tool', content, tool_call_id: w.approvalId, name });
@@ -1089,6 +1099,7 @@ export async function runAgentTurn(
         turnId,
         approvalId: w.approvalId,
         decided: wasApproved ? 'approved' : null,
+        ...(answer.withdrawn ? { withdrawn: answer.withdrawn } : {}),
         stored: answer.outcome === 'claimed',
       });
     }
@@ -1458,6 +1469,21 @@ export async function runAgentTurn(
         }),
       ]);
       if (timer) clearTimeout(timer);
+    }
+
+    // A stopped turn leaves no live card: an approval it asked for as the stop came
+    // is withdrawn now, and a later turn records it as that (§2.6).
+    const held = approvalHold as { approvalId: string; title: string } | null;
+    if (held && config.approvals?.withdraw) {
+      try {
+        await config.approvals.withdraw(held.approvalId, { userId: input.userId, conversationId: input.conversationId }, 'stopped');
+      } catch (err) {
+        log('warn', 'agent:tool', 'Could not withdraw the stopped turn’s approval; it lasts until its time limit', {
+          turnId,
+          approvalId: held.approvalId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
 
     const marker: TurnStoppedMarker = { reason: stopped.reason, at: stopped.at };

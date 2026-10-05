@@ -371,6 +371,54 @@ describe('a stop that lands after the turn has begun its own end', () => {
   });
 });
 
+describe('a turn stopped as it asked for an approval', () => {
+  it('withdraws the approval it just created, so a stopped turn leaves no live card, and still stores and announces', async () => {
+    const stop = stopSource();
+    const withdrawn: Array<[string, { userId: string; conversationId: string }, string]> = [];
+    const order: string[] = [];
+    const publish: RegisteredTool = {
+      name: 'publish',
+      description: 'Publishes the draft. It cannot be undone.',
+      inputSchema: { type: 'object', properties: {} },
+      execute: async () => ({ success: true }),
+    };
+    script = async function* (api) {
+      yield 'Publishing. ';
+      await api.opts.tools.publish.execute({}, { toolCallId: 'call-pub' });
+      stop.fire();
+      await api.aborted;
+    };
+    const { runAgentTurn } = await import('../orchestrator.js');
+    const result = await runAgentTurn(
+      {
+        tools: createToolRegistry([publish]),
+        model: 'test-model' as never,
+        systemPrompt: 'test',
+        stopGraceMs: 40,
+        emit: { emit: vi.fn(async (_room: string, event: string) => void (event === AGENT_SOCKET_EVENTS.TURN_COMPLETE && order.push('turn_complete'))) },
+        toolPolicy: { evaluate: async () => ({ action: 'require_approval' as const, reason: 'publishing needs approval' }) },
+        approvals: {
+          create: async () => {},
+          redeem: async () => ({ ok: false, reason: 'used', error: 'used' }),
+          status: async () => null,
+          withdraw: async (approvalId, owner, reason) => {
+            order.push('withdrawn');
+            withdrawn.push([approvalId, owner, reason]);
+            return { approvalId, outcome: 'withdrawn' };
+          },
+        },
+        beforeTurnComplete: async () => void order.push('stored'),
+      },
+      turn(stop.watch),
+    );
+    expect(withdrawn).toEqual([['call-pub', { userId: 'user-1', conversationId: 'conv-1' }, 'stopped']]);
+    expect(order).toEqual(['withdrawn', 'stored', 'turn_complete']);
+    expect(result.stopReason).toBe('user_stop');
+    // The call keeps its one result: it was waiting for approval.
+    expect(result.newMessages.filter((m) => m.role === 'tool')).toHaveLength(1);
+  });
+});
+
 describe('a later turn, reading a stopped turn in its history', () => {
   const said = () => (lastOpts!.messages as Array<{ role: string; content: unknown }>).filter((m) => m.role === 'assistant');
   const textOf = (m: { content: unknown }) =>
