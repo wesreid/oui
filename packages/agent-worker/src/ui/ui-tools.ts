@@ -14,7 +14,7 @@
  * tools built here are what `ui_act` runs, so every check a tool call goes
  * through — input, quota, policy, approval — sees the action itself.
  */
-import { stoppedBeforeAnswer, stoppedNotRun, stoppedOutcomeUnknown } from '../stop/results.js';
+import { stoppedBeforeAnswer, stoppedNotRun, stoppedNotTaken, stoppedOutcomeUnknown } from '../stop/results.js';
 import { randomUUID } from 'node:crypto';
 import { AGENT_UI_TOOLS } from '@ouispec/agent-core';
 import {
@@ -530,7 +530,7 @@ async function runAction(
   // The turn was stopped while the request was out (ADR-0252 §2.2).
   if (!answered.result && ctx.stop?.reason()) {
     // Tabs answered that they got it, and none took it: it did not run.
-    if (answered.receipts && !answered.received) return stoppedNotRun(entry.id);
+    if (answered.receipts && !answered.received) return stoppedNotTaken(entry.id);
     // The page may be running it. One last look, on the stop's own signal (the
     // turn's is aborted), so an action that did run has its answer stored and
     // the next turn does not do it again.

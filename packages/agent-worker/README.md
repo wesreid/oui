@@ -60,6 +60,8 @@ Declare a host tool's approval needs on the tool itself: `effect`, `destructive`
 
 A turn can be stopped by the person, or superseded by their next message. The request is kept by the realtime server (`@ouispec/agent-realtime`, "Stopping a turn"), and the turn asks for it there for as long as it runs. Nothing needs configuring: the runtime uses the realtime server you already gave it. `stops.graceMs` (default 2 s) is how long an answer already on its way is still waited for.
 
+The turn asks its first question before it starts, so a stop asked for while it waited in a queue is heard first: the model is not called, and the turn stores only that it was stopped. Asking never holds a turn up or fails it: if the server cannot be asked, the turn runs and the question is asked again.
+
 What a stopped turn does:
 
 1. Everything that was waiting ends: the model's stream, a UI action's answer, a job's outcome.

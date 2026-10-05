@@ -1027,6 +1027,7 @@ export async function runAgentTurn(
   // A stop asked for while the turn waited to start (in a queue, or for the
   // turns before it to be stored) is heard first: nothing runs, and the turn
   // stores only that it was stopped.
+  await stopWatch.checked();
   const stoppedBeforeStart = stopOf(abortController.signal);
   if (stoppedBeforeStart) return await finishStopped(stoppedBeforeStart, { expired: null, continued: null });
 

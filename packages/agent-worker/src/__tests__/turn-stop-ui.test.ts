@@ -141,6 +141,7 @@ describe('a UI action out when its turn is stopped', () => {
 
     const result = await running;
     expect(result).toMatchObject({ success: false, data: { stopped: true, notRun: true } });
+    expect(result.error).toMatch(/no open page took it/);
     // It did not run, so the page is as it was seen.
     expect(page.sight.refuseChange()).toBeNull();
   });

@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TurnStopRecord } from '@ouispec/agent-core';
-import { createHttpTurnStopClient, TurnStopped, stopOf, watchTurnStop, type TurnStopClient } from '../stop/turn-stop.js';
+import { createHttpTurnStopClient, FIRST_CHECK_LIMIT_MS, TurnStopped, stopOf, watchTurnStop, type TurnStopClient } from '../stop/turn-stop.js';
 
 const record: TurnStopRecord = { turnId: 't1', by: 'u1', reason: 'user_stop', at: 5 };
 
@@ -38,7 +38,9 @@ describe('the stop client', () => {
     const calls = answering(held, held, () => Response.json(record));
     await expect(client().watch('t1', 'u1', new AbortController().signal)).resolves.toEqual(record);
     expect(calls).toHaveLength(3);
-    expect(calls[0]).toBe('http://realtime/internal/turns/t1/stop?userId=u1&waitMs=50');
+    // The first question does not wait: is there a stop already? The rest are held open.
+    expect(calls[0]).toBe('http://realtime/internal/turns/t1/stop?userId=u1&waitMs=0');
+    expect(calls[1]).toBe('http://realtime/internal/turns/t1/stop?userId=u1&waitMs=50');
   });
 
   it('fails open: a server that is restarting is asked again, and the stop is heard late, not lost', async () => {
@@ -73,6 +75,63 @@ describe('the stop client', () => {
     const second = createHttpTurnStopClient({ url: 'http://realtime', apiKey: 'key', maxBackoffMs: 60_000 }).watch('t1', 'u1', backingOff.signal);
     setTimeout(() => backingOff.abort(), 20);
     await expect(second).resolves.toBeNull();
+  });
+});
+
+describe('the first question', () => {
+  const client = () => createHttpTurnStopClient({ url: 'http://realtime', apiKey: 'key', maxPollMs: 50, maxBackoffMs: 20 });
+
+  it('is answered before the turn starts: a stop asked for while the turn waited in a queue is heard first', async () => {
+    answering(() => Response.json(record));
+    const watch = watchTurnStop(client(), 't1', 'u1');
+    expect(watch.current()).toBeNull();
+    await watch.checked();
+    expect(watch.current()).toEqual(record);
+    watch.close();
+  });
+
+  it('with no stop, lets the turn start as soon as the server has said so', async () => {
+    const held = () => new Promise<Response>((resolve) => setTimeout(() => resolve(new Response(null, { status: 204 })), 60));
+    answering(() => new Response(null, { status: 204 }), held);
+    const watch = watchTurnStop(client(), 't1', 'u1');
+    const started = Date.now();
+    await watch.checked();
+    expect(Date.now() - started).toBeLessThan(40);
+    expect(watch.current()).toBeNull();
+    watch.close();
+  });
+
+  it('never holds a turn up: a server that cannot be asked, or does not answer, lets it start', async () => {
+    answering(() => {
+      throw new TypeError('fetch failed');
+    });
+    const failing = watchTurnStop(client(), 't1', 'u1');
+    await failing.checked();
+    expect(failing.current()).toBeNull();
+    failing.close();
+
+    vi.useFakeTimers();
+    try {
+      answering(() => new Promise<Response>(() => {}));
+      const silent = watchTurnStop(client(), 't1', 'u1');
+      let started = false;
+      void silent.checked().then(() => (started = true));
+      await vi.advanceTimersByTimeAsync(FIRST_CHECK_LIMIT_MS - 100);
+      expect(started).toBe(false);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(started).toBe(true);
+      silent.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('is answered at once without a client, and once the watch is closed', async () => {
+    await watchTurnStop(undefined, 't1', 'u1').checked();
+    answering(() => new Promise<Response>(() => {}));
+    const watch = watchTurnStop(client(), 't1', 'u1');
+    watch.close();
+    await watch.checked();
   });
 });
 

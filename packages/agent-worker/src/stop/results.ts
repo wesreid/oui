@@ -15,6 +15,15 @@ export function stoppedNotRun(what: string): ToolExecutionResult {
   };
 }
 
+/** The request went out, tabs answered that they got it, and none took it: it did not run. */
+export function stoppedNotTaken(what: string): ToolExecutionResult {
+  return {
+    success: false,
+    error: `Not run: "${what}" was sent, and no open page took it before the turn was stopped. Nothing was changed by it.`,
+    data: { stopped: true, notRun: true },
+  };
+}
+
 /** The call was sent to the page and no answer came back before the turn ended. */
 export function stoppedOutcomeUnknown(what: string): ToolExecutionResult {
   return {

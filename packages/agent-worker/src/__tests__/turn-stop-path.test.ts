@@ -90,6 +90,7 @@ function stopSource(initial: TurnStopRecord | null = null) {
   let listener: ((r: TurnStopRecord) => void) | null = null;
   const watch: TurnStopWatch = {
     current: () => (closed ? null : heard),
+    checked: async () => {},
     onStop(next) {
       if (closed) return;
       listener = next;

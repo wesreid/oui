@@ -55,8 +55,12 @@ export interface TurnStopClient {
    * aborts. Resolves null when the signal aborts first. Never rejects: a
    * failure to ask is retried, since the request is kept and is heard late
    * rather than lost.
+   *
+   * The first question is asked without waiting, and `onChecked` is called
+   * once it is answered, whatever the answer, or has failed: from then a stop
+   * that was asked for before the watch began has been heard.
    */
-  watch(turnId: string, userId: string, signal: AbortSignal): Promise<TurnStopRecord | null>;
+  watch(turnId: string, userId: string, signal: AbortSignal, onChecked?: () => void): Promise<TurnStopRecord | null>;
 }
 
 export interface HttpTurnStopClientConfig {
@@ -73,6 +77,8 @@ export interface HttpTurnStopClientConfig {
 }
 
 const FIRST_BACKOFF_MS = 250;
+/** The longest a turn waits for the answer to its first question before it starts anyway. */
+export const FIRST_CHECK_LIMIT_MS = 1_500;
 /** A "not yet" sooner than this was not a held request. */
 const UNHELD_ANSWER_MS = 50;
 
@@ -93,28 +99,38 @@ export function createHttpTurnStopClient(config: HttpTurnStopClientConfig): Turn
   const maxBackoffMs = config.maxBackoffMs ?? 5_000;
 
   return {
-    async watch(turnId, userId, signal) {
+    async watch(turnId, userId, signal, onChecked) {
       let backoff = FIRST_BACKOFF_MS;
       let attempt = 0;
+      let checked = false;
+      const firstAnswered = () => {
+        if (checked) return;
+        checked = true;
+        onChecked?.();
+      };
       while (!signal.aborted) {
         attempt++;
         const asked = Date.now();
+        // The first question does not wait: is there a stop already?
+        const waitMs = checked ? maxPollMs : 0;
         try {
-          const query = new URLSearchParams({ userId, waitMs: String(maxPollMs) });
+          const query = new URLSearchParams({ userId, waitMs: String(waitMs) });
           const res = await fetch(`${url}/internal/turns/${encodeURIComponent(turnId)}/stop?${query}`, {
             headers: { 'X-Api-Key': apiKey },
-            signal: AbortSignal.any([signal, AbortSignal.timeout(maxPollMs + 5_000)]),
+            signal: AbortSignal.any([signal, AbortSignal.timeout(waitMs + 5_000)]),
           });
           if (res.status === 200) return (await res.json()) as TurnStopRecord;
           if (res.status === 204) {
             backoff = FIRST_BACKOFF_MS;
-            // A server that answers "not yet" at once is not holding the request open:
-            // asked again without a pause, this would spin.
-            if (Date.now() - asked < UNHELD_ANSWER_MS) await pause(FIRST_BACKOFF_MS, signal);
+            // A server that answers "not yet" at once to a question that asked it to wait is not
+            // holding the request open: asked again without a pause, this would spin.
+            if (waitMs > 0 && Date.now() - asked < UNHELD_ANSWER_MS) await pause(FIRST_BACKOFF_MS, signal);
+            firstAnswered();
             continue;
           }
           throw new Error(`HTTP ${res.status}`);
         } catch (err) {
+          firstAnswered();
           if (signal.aborted) return null;
           config.onError?.(err, attempt);
           await pause(backoff, signal);
@@ -147,6 +163,14 @@ export interface TurnStopWatch {
   /** The stop, once one has been heard; null until then. */
   current(): TurnStopRecord | null;
   /**
+   * Resolves once the watch has asked its first question and has the answer:
+   * a stop asked for before the turn started (while it waited in a queue) has
+   * been heard by then. It also resolves if the question failed, or took
+   * longer than `FIRST_CHECK_LIMIT_MS`: a turn is never held up, or failed,
+   * by not being able to ask.
+   */
+  checked(): Promise<void>;
+  /**
    * Calls `listener` when a stop is heard, at once if one already was. At most
    * once, and never after `close`.
    */
@@ -164,21 +188,33 @@ export function watchTurnStop(client: TurnStopClient | undefined, turnId: string
   let closed = false;
   let listener: ((record: TurnStopRecord) => void) | null = null;
 
+  let markChecked!: () => void;
+  const firstCheck = new Promise<void>((resolve) => {
+    markChecked = resolve;
+  });
   if (client) {
-    void client.watch(turnId, userId, controller.signal).then(
+    const limit = setTimeout(markChecked, FIRST_CHECK_LIMIT_MS);
+    void firstCheck.then(() => clearTimeout(limit));
+    void client.watch(turnId, userId, controller.signal, markChecked).then(
       (record) => {
-        if (!record || closed) return;
-        heard = record;
-        listener?.(record);
+        if (record && !closed) {
+          heard = record;
+          listener?.(record);
+        }
+        markChecked();
       },
       () => {
         // `watch` does not reject; a client that does is treated as hearing nothing.
+        markChecked();
       },
     );
+  } else {
+    markChecked();
   }
 
   return {
     current: () => (closed ? null : heard),
+    checked: () => firstCheck,
     onStop(next) {
       if (closed) return;
       listener = next;
@@ -188,6 +224,7 @@ export function watchTurnStop(client: TurnStopClient | undefined, turnId: string
       closed = true;
       listener = null;
       controller.abort();
+      markChecked();
     },
   };
 }
