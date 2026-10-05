@@ -1,13 +1,14 @@
 /**
  * A UI action that starts work (a GPU job, an export) is answered twice: acknowledged, then finished. The
- * tool waits for the finished answer, so the model tells the person the work is done only once it is, in
- * the same turn; when it has not finished by the action's own limit or by the time the turn must answer,
- * the tool says it is still running, never done.
+ * tool waits a short while for the finished answer, so work that ends quickly is reported done in the same
+ * call. It waits no longer than `jobWaitMs` (20 s by default), the action's own limit, or the time the turn
+ * must answer, whichever is first: work still going then is reported still running, never done, and the
+ * turn goes on and ends. Its outcome reaches the conversation through the page state of a later turn.
  */
 import { describe, expect, it, vi } from "vitest";
 import type { OUIAction, OUIActionResult, OUISurface } from "oui-spec/spec";
 
-import { buildUITools } from "../ui/ui-tools.js";
+import { buildUITools, DEFAULT_JOB_WAIT_MS } from "../ui/ui-tools.js";
 import { pageOf } from "./support/page.js";
 import type { UIActionChannel } from "../ui/channel.js";
 
@@ -64,14 +65,18 @@ function channel(first: OUIActionResult | null, final: OUIActionResult | null) {
 function run(
   ch: UIActionChannel,
   action: OUIAction,
-  waitDeadline?: () => number
+  waitDeadline?: () => number,
+  jobWaitMs?: number
 ) {
-  const { tools } = buildUITools(pageOf([page]), {
+  // The page offers the action under test in place of its own generate.
+  const offered: OUISurface = { ...page, actions: [action, rename] };
+  const { tools } = buildUITools(pageOf([offered]), {
     channel: ch,
     resultTimeoutMs: 1000,
-    currentPage: () => pageOf([page]),
+    currentPage: () => pageOf([offered]),
     onResult: () => {},
     ...(waitDeadline ? { waitDeadline } : {}),
+    ...(jobWaitMs !== undefined ? { jobWaitMs } : {}),
   });
   const tool = tools.find((t) => t.name === action.id)!;
   return tool.execute(
@@ -88,7 +93,7 @@ function run(
 }
 
 describe("a UI action that starts work", () => {
-  it("returns the work’s outcome once it is done, waiting no longer than the action’s own limit", async () => {
+  it("returns the work’s outcome once it is done, waiting no longer than the call’s budget", async () => {
     const ch = channel(started, complete);
     const result = await run(ch, generate);
     expect(result).toMatchObject({
@@ -101,8 +106,10 @@ describe("a UI action that starts work", () => {
     expect(ch.awaitResult).toHaveBeenCalledTimes(2);
     const [, finalOpts] = ch.awaitResult.mock.calls[1];
     expect(finalOpts).toMatchObject({ userId: "u1", final: true });
-    expect(finalOpts.timeoutMs).toBeLessThanOrEqual(300_000);
-    expect(finalOpts.timeoutMs).toBeGreaterThan(290_000);
+    // The action allows 5 min; the call waits 20 s of it.
+    expect(DEFAULT_JOB_WAIT_MS).toBe(20_000);
+    expect(finalOpts.timeoutMs).toBeLessThanOrEqual(20_000);
+    expect(finalOpts.timeoutMs).toBeGreaterThan(19_000);
   });
 
   it("reports a failed outcome as a failure, with its reason", async () => {
@@ -138,11 +145,11 @@ describe("a UI action that starts work", () => {
     expect(ch.awaitResult).toHaveBeenCalledTimes(1);
   });
 
-  it("waits no longer than the turn allows when that is sooner than the action’s limit", async () => {
+  it("waits no longer than the turn allows when that is sooner than the call’s budget", async () => {
     const ch = channel(started, complete);
-    await run(ch, generate, () => Date.now() + 60_000);
+    await run(ch, generate, () => Date.now() + 5_000);
     expect(ch.awaitResult.mock.calls[1][1].timeoutMs).toBeLessThanOrEqual(
-      60_000
+      5_000
     );
   });
 
@@ -165,5 +172,83 @@ describe("a UI action that starts work", () => {
       data: { result: { name: "Harbour" } },
     });
     expect(ch.awaitResult).toHaveBeenCalledTimes(1);
+  });
+});
+
+/** A job that takes `jobMs`: its final answer arrives then, or the wait ends first. */
+function jobChannel(jobMs: number) {
+  const awaitResult = vi.fn(
+    (_id: string, opts: { final?: boolean; timeoutMs: number }) =>
+      new Promise<OUIActionResult | null>((resolve) => {
+        if (!opts.final) return resolve(started);
+        if (jobMs <= opts.timeoutMs) setTimeout(() => resolve(complete), jobMs);
+        else setTimeout(() => resolve(null), opts.timeoutMs);
+      })
+  );
+  return { dispatch: vi.fn(async () => {}), awaitResult } satisfies UIActionChannel;
+}
+
+describe("how long the call waits for started work", () => {
+  const slow: OUIAction = {
+    ...generate,
+    id: "clips_generate",
+    // A picture queued behind a live conversation: up to 16 min.
+    polling: { intervalMs: 1000, maxDurationMs: 960_000 },
+  };
+  const unlimited: OUIAction = { ...generate, polling: { intervalMs: 1000 } };
+
+  it("settles a 3 s job in the call", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = run(jobChannel(3_000), slow);
+      await vi.advanceTimersByTimeAsync(3_000);
+      const result = await pending;
+      expect(result).toMatchObject({ success: true, data: { result: { status: "complete" } } });
+      expect((result.data as Record<string, unknown>).status).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports a 60 s job still running after 20 s, though the action allows 16 min", async () => {
+    vi.useFakeTimers();
+    try {
+      const ch = jobChannel(60_000);
+      let settled = false;
+      const pending = run(ch, slow).finally(() => (settled = true));
+      await vi.advanceTimersByTimeAsync(19_999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      const result = await pending;
+      expect(result.data).toMatchObject({ status: "running", result: { status: "started" } });
+      expect(ch.awaitResult.mock.calls[1][1].timeoutMs).toBe(20_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits the same budget for an action that declares no limit", async () => {
+    const ch = channel(started, complete);
+    await run(ch, unlimited);
+    expect(ch.awaitResult.mock.calls[1][1].timeoutMs).toBeLessThanOrEqual(DEFAULT_JOB_WAIT_MS);
+    expect(ch.awaitResult.mock.calls[1][1].timeoutMs).toBeGreaterThan(DEFAULT_JOB_WAIT_MS - 1_000);
+  });
+
+  it("takes its budget from the host, and never past the action’s own limit", async () => {
+    const ch = channel(started, complete);
+    await run(ch, slow, undefined, 45_000);
+    expect(ch.awaitResult.mock.calls[1][1].timeoutMs).toBeGreaterThan(44_000);
+    expect(ch.awaitResult.mock.calls[1][1].timeoutMs).toBeLessThanOrEqual(45_000);
+
+    const quick: OUIAction = { ...generate, polling: { intervalMs: 1000, maxDurationMs: 5_000 } };
+    const ch2 = channel(started, complete);
+    await run(ch2, quick, undefined, 45_000);
+    expect(ch2.awaitResult.mock.calls[1][1].timeoutMs).toBeLessThanOrEqual(5_000);
+
+    // A budget of 0 reports started work running at once.
+    const ch3 = channel(started, complete);
+    const result = await run(ch3, slow, undefined, 0);
+    expect(result.data).toMatchObject({ status: "running" });
+    expect(ch3.awaitResult).toHaveBeenCalledTimes(1);
   });
 });

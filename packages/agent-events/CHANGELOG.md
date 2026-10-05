@@ -1,5 +1,18 @@
 # @ouispec/agent-events
 
+## 0.7.0
+
+0.6.0 was not published; its changes ship in 0.7.0.
+
+### Minor Changes
+
+- Released with the rest of the agent SDK at one version (VERSIONING.md): no change of its own beyond the SDK's.
+
+### Patch Changes
+
+- Updated dependencies
+  - oui-spec@0.10.0
+
 ## 0.5.0
 
 ### Minor Changes

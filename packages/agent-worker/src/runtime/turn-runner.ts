@@ -244,6 +244,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
             ui: {
               channel: uiChannel,
               resultTimeoutMs: config.uiActions?.resultTimeoutMs,
+              jobWaitMs: config.uiActions?.jobWaitMs,
               maxObservationChars: config.uiActions?.maxObservationChars,
               maxIndexChars: config.uiActions?.maxIndexChars,
             },

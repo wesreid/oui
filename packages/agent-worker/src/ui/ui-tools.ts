@@ -139,6 +139,12 @@ export interface UIToolDependencies {
    */
   waitDeadline?: () => number;
   /**
+   * The longest a call waits for the outcome of work its action started, in ms;
+   * `DEFAULT_JOB_WAIT_MS` when not given. Never longer than the action's own
+   * limit or `waitDeadline`.
+   */
+  jobWaitMs?: number;
+  /**
    * The turn's UI action queue, shared by every set of UI tools built during the
    * turn, so the actions run one at a time in the order they were called. A new
    * one is made for these tools when none is given.
@@ -170,8 +176,18 @@ export const MAX_RESEND_AFTER_MS = 8_000;
  * `reanswerAfterMs`, 8 s), so the repeat recovers an answer that was lost.
  */
 export const RECEIVED_RESEND_AFTER_MS = 10_000;
-/** How long to wait for an async action's outcome when it declares no limit of its own. */
-export const DEFAULT_JOB_WAIT_MS = 5 * 60_000;
+/**
+ * The longest a UI tool waits, in the call, for the outcome of work an action
+ * started (a GPU job, an export): `UIToolDependencies.jobWaitMs` by default.
+ *
+ * Work that ends within it is reported done in the call. Work that does not is
+ * reported still running, and the turn goes on and ends: its outcome reaches
+ * the conversation through the page state, where the app's job tracker lists
+ * it, in the next turn. The call never waits on the action's own limit (its
+ * `maxDurationMs`), which can be many minutes for a job queued behind a live
+ * conversation: a turn held open that long could not be stopped or answered.
+ */
+export const DEFAULT_JOB_WAIT_MS = 20_000;
 /** The most actions one `ui_describe` call describes. */
 export const MAX_DESCRIBED_ACTIONS = 8;
 
@@ -663,8 +679,9 @@ function withPage(result: OUIActionResult, shared: Shared): { result: OUIActionR
 
 /**
  * The final answer to a started action: its outcome once the work is done or
- * has failed, or `'running'` when it has not finished by its own limit (its
- * polling's `maxDurationMs`) or by when the turn must stop waiting.
+ * has failed, or `'running'` when it has not finished within the call's wait
+ * (`jobWaitMs`), its own limit (its polling's `maxDurationMs`), or by when the
+ * turn must stop waiting, whichever comes first.
  */
 async function awaitOutcome(
   entry: OUIActionIndexEntry,
@@ -672,7 +689,8 @@ async function awaitOutcome(
   requestId: string,
   ctx: ToolExecutionContext,
 ): Promise<OUIActionResult | 'running'> {
-  const until = Math.min(Date.now() + (entry.maxDurationMs ?? DEFAULT_JOB_WAIT_MS), deps.waitDeadline?.() ?? Infinity);
+  const waitMs = Math.min(entry.maxDurationMs ?? Infinity, jobWaitOf(deps));
+  const until = Math.min(Date.now() + waitMs, deps.waitDeadline?.() ?? Infinity);
   const timeoutMs = until - Date.now();
   if (timeoutMs <= 0) return 'running';
   const final = await deps.channel.awaitResult(requestId, {
@@ -684,6 +702,12 @@ async function awaitOutcome(
   // No answer in time, or a relay that only keeps first answers handing back the acknowledgment.
   if (!final || final.interim) return 'running';
   return final;
+}
+
+/** The call's wait for a started action's outcome. */
+export function jobWaitOf(deps: Pick<UIToolDependencies, 'jobWaitMs'>): number {
+  const ms = deps.jobWaitMs;
+  return typeof ms === 'number' && Number.isFinite(ms) && ms >= 0 ? ms : DEFAULT_JOB_WAIT_MS;
 }
 
 function stillRunningNote(entry: OUIActionIndexEntry): string {

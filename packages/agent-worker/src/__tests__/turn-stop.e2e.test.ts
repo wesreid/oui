@@ -58,8 +58,18 @@ describe('a turn stopped by its user', () => {
     // the action's request reaches nobody, and the turn waits on it.
     const tab = await product.openTab('session-ana', 'chat:turn:turn-stop-elsewhere');
 
-    const running = runFixtureTurn(product, { adapter: 'container', model: provider.model, turnId, tab, tabJoinsAfterMs: 1_500 });
-    await new Promise((r) => setTimeout(r, 400));
+    // Stopped once the action's request is out: waited for, not timed, so a loaded machine cannot stop the turn first.
+    let out!: () => void;
+    const requestOut = new Promise<void>((resolve) => (out = resolve));
+    const running = runFixtureTurn(product, {
+      adapter: 'container',
+      model: provider.model,
+      turnId,
+      tab,
+      tabJoinsAfterMs: 1_500,
+      onUIDispatch: () => out(),
+    });
+    await requestOut;
     // The host's stop for its user (a newer message arrived): the same record the socket writes.
     const res = await fetch(`${product.realtimeUrl}/internal/turns/${turnId}/stop`, {
       method: 'POST',

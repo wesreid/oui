@@ -8,6 +8,7 @@ import type { SQSEvent } from 'aws-lambda';
 import { AGENT_SOCKET_EVENTS } from '@ouispec/agent-core';
 import { createLambdaAgentHandler } from '../../lambda/handler.js';
 import { startContainerAgentWorker } from '../../container/server.js';
+import { createHttpUIActionChannel } from '../../ui/channel.js';
 import type { AgentRuntimeConfig } from '../../runtime/types.js';
 import type { TurnOutcome } from '../../runtime/turn-runner.js';
 import type { LanguageModel, ProviderOptions } from '../../model.js';
@@ -83,6 +84,22 @@ export interface FixtureTurnOptions {
    * send-message answer, while the worker may already be running the turn.
    */
   tabJoinsAfterMs?: number;
+  /** Called with each UI action request the worker sends, once the realtime server has taken it. */
+  onUIDispatch?: (requestId: string) => void;
+}
+
+/** The realtime server's UI action channel, as the worker builds it, telling the test of each request sent. */
+function observedChannel(product: FixtureProduct, onDispatch: ((requestId: string) => void) | undefined) {
+  const channel = createHttpUIActionChannel({ url: product.realtimeUrl, apiKey: INTERNAL_KEY });
+  if (!onDispatch) return channel;
+  return {
+    ...channel,
+    dispatch: async (...args: Parameters<typeof channel.dispatch>) => {
+      const receipt = await channel.dispatch(...args);
+      onDispatch(args[1].requestId);
+      return receipt;
+    },
+  };
 }
 
 export async function runFixtureTurn(product: FixtureProduct, options: FixtureTurnOptions): Promise<FixtureTurnRun> {
@@ -113,7 +130,7 @@ export async function runFixtureTurn(product: FixtureProduct, options: FixtureTu
     tools: options.tools ?? [],
     toolPolicy: options.toolPolicy,
     ...(options.apiSurface ? { apiSurface: options.apiSurface } : {}),
-    uiActions: { resultTimeoutMs: 10_000 },
+    uiActions: { resultTimeoutMs: 10_000, channel: observedChannel(product, options.onUIDispatch) },
     getDb: async () => ({}),
     getHistory: async () => history,
     persistMessages: async ({ turnId: id, conversationId, messages }) => {

@@ -352,7 +352,7 @@ Many UI operations are not instant. A DataViz chart generation might take 30 sec
 2. Handler fires, calls the API, returns `{ jobId: 'xyz' }` immediately
 3. OUI runtime starts polling every 2 seconds using the `resolve` function
 4. Each poll pushes an observation: `{ status: 'processing', progress: 45, interim: true }`
-5. When `resolve` returns `{ done: true }`, polling stops and a final observation is pushed
+5. When `resolve` returns `{ done: true }`, polling stops and a final observation is pushed. Work that failed returns `{ done: true, data, error: { code, message } }`, and the final result is a failure
 6. The agent sees the final `{ status: 'complete', chartUrl: '...' }` observation on its next invocation
 
 ### Subscribe Mode (Alternative to Polling)
@@ -508,6 +508,7 @@ export const datavizSurface = defineSurface<DataVizContext>({
             return {
               done: true,
               data: { status: "failed", error: status.error },
+              error: { code: "RENDER_FAILED", message: status.error },
             };
           }
           return {

@@ -656,6 +656,7 @@ When the agent invokes an action, the runtime sends an `action:request`:
 - If `success` is `false`, the `error` field MUST be present
 - If `success` is `true`, the `error` field MUST NOT be present
 - An async action's acknowledgment result MUST set `interim: true`; its final result MUST set `interim: false`
+- An async action whose work failed MUST send its final result as a failure (`success: false`, with `error`); it MAY keep the work's own report in `data`
 
 #### 7.3.4 The Client's State After an Action
 

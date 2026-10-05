@@ -551,6 +551,12 @@ function jobPolling(timeoutMs: number, runs: JobRuns): NonNullable<ActionDefinit
       if (!outcome) return { done: false, data: { status: 'running', jobId } };
       jobs.forget(jobId);
       runs.ended(jobId);
+      // A failed job ends its action as a failure, with the declared reason: the
+      // assistant's record of the call, and anyone reading the chat later, see
+      // that it failed (ADR-0244's verify-after-act reads that record).
+      if (outcome.status === 'failed') {
+        return { done: true, data: outcome, error: { code: 'JOB_FAILED', message: outcome.error } };
+      }
       return { done: true, data: outcome };
     },
   };
