@@ -304,8 +304,37 @@ describe('a turn of many actions (session 24611234)', () => {
     expect(outputs.filter((o) => o.includes('quotaExceeded') || o.includes('repeatedCall'))).toEqual([]);
   });
 
-  it('refuses the same call with the same input a fourth time, and says why', async () => {
-    const { channel, dispatched } = makeChannel(answer);
+  it('runs the same call as often as each run changes the page: undo five times is five undos', async () => {
+    let version = 0;
+    const { channel, dispatched } = makeChannel((req) => ({
+      requestId: req.requestId,
+      success: true,
+      timestamp: 1,
+      surfaces: [editor],
+      observations: { editor: { slides, version: ++version } },
+    }));
+    const outputs: string[] = [];
+    segmentImpls = [
+      async (opts) => {
+        for (let i = 0; i < 5; i++) outputs.push(await opts.tools.ui_act.execute(fill(3, 'undo'), { toolCallId: `undo-${i}` }));
+        return [{ text: '', toolCalls: [] }];
+      },
+    ];
+    const { runAgentTurn } = await import('../orchestrator.js');
+    await runAgentTurn(makeConfig(channel), makeInput([editor], { editor: { slides } }));
+    expect(dispatched).toHaveLength(5);
+    expect(outputs.filter((o) => o.includes('repeatedCall'))).toEqual([]);
+  });
+
+  it('refuses an identical call that keeps changing nothing: on its fourth when the page says so, and says why', async () => {
+    const { channel, dispatched } = makeChannel((req) => ({
+      requestId: req.requestId,
+      success: true,
+      timestamp: 1,
+      data: { changed: [] },
+      surfaces: [editor],
+      observations: { editor: { slides } },
+    }));
     const outputs: string[] = [];
     segmentImpls = [
       async (opts) => {
@@ -319,8 +348,29 @@ describe('a turn of many actions (session 24611234)', () => {
     expect(dispatched).toHaveLength(4);
     const fourth = JSON.parse(outputs[3]);
     expect(fourth).toMatchObject({ repeatedCall: true });
-    expect(fourth.error).toContain('3 times in this turn with exactly this input');
+    expect(fourth.error).toContain('has changed nothing the last 3 times it ran in this turn');
     expect(JSON.parse(outputs[4]).repeatedCall).toBeUndefined();
+  });
+
+  it('judges by the page’s state when the answer does not say: the same page after each run, refused on the fifth', async () => {
+    const { channel, dispatched } = makeChannel((req) => ({
+      requestId: req.requestId,
+      success: true,
+      timestamp: 1,
+      surfaces: [editor],
+      observations: { editor: { slides } },
+    }));
+    const outputs: string[] = [];
+    segmentImpls = [
+      async (opts) => {
+        for (let i = 0; i < 5; i++) outputs.push(await opts.tools.ui_act.execute(fill(3, 'zoom'), { toolCallId: `zoom-${i}` }));
+        return [{ text: '', toolCalls: [] }];
+      },
+    ];
+    const { runAgentTurn } = await import('../orchestrator.js');
+    await runAgentTurn(makeConfig(channel), makeInput([editor], { editor: { slides } }));
+    expect(dispatched).toHaveLength(4);
+    expect(JSON.parse(outputs[4])).toMatchObject({ repeatedCall: true });
   });
 
   it('sends the page’s state with the newest answer only: 20 actions cost about what one does, plus what each did', async () => {

@@ -163,7 +163,7 @@ export async function runAgentTurn(
   const heldDefinitions: HeldDefinitions = client?.held ?? new Map();
   // Whether the page can be seen (ADR-0245 §2.5): nothing that changes it runs while it cannot.
   const sight = createPageSight();
-  const uiCounts = { describes: 0, reads: 0, acts: 0 };
+  const uiCounts = { describes: 0, reads: 0, acts: 0, guides: 0 };
   // Earlier answers' page states replaced, summed over the turn's steps.
   let pageStatesNotRepeated = 0;
 
@@ -300,10 +300,11 @@ export async function runAgentTurn(
   const DEFAULT_TOOL_QUOTA = 12;
   const SIDE_EFFECT_TOOL_QUOTA = 2;
   // A UI action is not counted (session 24611234: filling 12 slides of 3 values each
-  // ran one action 36 times, and a cap of 12 stopped it). What is refused is the same
-  // call with the same input again and again: a loop, not work.
-  const IDENTICAL_UI_CALLS = 3;
-  const uiCallsMade = new Map<string, number>();
+  // ran one action 36 times, and a cap of 12 stopped it). What is refused is a loop:
+  // the same call with the same input, made again after it changed nothing three
+  // times in a row. Undo five times, or nudge a layer five times, is work: each changes the page.
+  const UNCHANGED_REPEATS = 3;
+  const uiRepeats = new Map<string, { unchanged: number; lastState: string | null }>();
 
   // What each call of the turn did: said back to the model before every step
   // after one did not succeed, so its reply matches it (ADR-0244 §2.5).
@@ -438,6 +439,9 @@ export async function runAgentTurn(
     // Told to the model with the result, so it sends the value itself next time (below).
     const readFromText = validation.coerced ?? [];
 
+    // The call as a repeat is judged by: its name and its exact input. Set for a UI action that changes the page.
+    let repeatKey: string | null = null;
+
     // ── Quota enforcement ──
     // UI actions run as the user in their own session (ADR-0182 §3), so the
     // backend side-effect cap does not apply to them (ADR-0209 D5). They are
@@ -454,20 +458,19 @@ export async function runAgentTurn(
         } catch {
           input = JSON.stringify(args);
         }
-        const call = `${t.name} ${input}`;
-        const made = uiCallsMade.get(call) ?? 0;
-        if (made >= IDENTICAL_UI_CALLS) {
+        repeatKey = `${t.name} ${input}`;
+        const unchanged = uiRepeats.get(repeatKey)?.unchanged ?? 0;
+        if (unchanged >= UNCHANGED_REPEATS) {
           return refused(
             {
               error:
-                `"${t.name}" has already been called ${made} times in this turn with exactly this input. ` +
-                'Calling it again would do the same again: read the page for what it did, then change the input or stop.',
+                `"${t.name}" with exactly this input has changed nothing the last ${unchanged} times it ran in this turn. ` +
+                'Running it again would change nothing again: read the page for why, then change the input or stop.',
               repeatedCall: true,
             },
             args,
           );
         }
-        uiCallsMade.set(call, made + 1);
       }
     } else {
       const quota = isSideEffecting ? SIDE_EFFECT_TOOL_QUOTA : DEFAULT_TOOL_QUOTA;
@@ -523,6 +526,8 @@ export async function runAgentTurn(
 
     if (t.name === UI_DESCRIBE_TOOL) uiCounts.describes++;
     else if (t.name === UI_READ_TOOL) uiCounts.reads++;
+    // It reads what the client sent, and touches no page.
+    else if (t.name === KNOWLEDGE_TOOL) uiCounts.guides++;
     else if (isUI) uiCounts.acts++;
 
     log('info', 'agent:tool', 'Tool call started', {
@@ -613,6 +618,21 @@ export async function runAgentTurn(
       ok: resultSuccess,
       ...(resultSuccess ? {} : { error: isWrapped && result.error ? result.error : 'it did not succeed' }),
     });
+
+    // Did this run change the page? Not when it failed, when the page says it changed no row,
+    // or when the page's state is what it was after the same call last ran.
+    if (repeatKey) {
+      const answer = (modelPayload ?? {}) as { state?: unknown; result?: { changed?: unknown } };
+      const state = answer.state === undefined ? null : JSON.stringify(answer.state);
+      const changed = answer.result?.changed;
+      const held = uiRepeats.get(repeatKey);
+      const noChange =
+        !resultSuccess ||
+        changed === false ||
+        (Array.isArray(changed) && changed.length === 0) ||
+        (state !== null && held?.lastState === state);
+      uiRepeats.set(repeatKey, { unchanged: noChange ? (held?.unchanged ?? 0) + 1 : 0, lastState: state });
+    }
 
     // A picture in the result is the model's to look at with this call's
     // result, and nothing else's: it is not in the text above, the event or the record.
