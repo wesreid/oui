@@ -1,5 +1,13 @@
 # oui-spec
 
+## 0.10.0
+
+### Minor Changes
+
+- Work that failed ends its action as a failure. A polling `resolve` may now return `{ done: true, data, error: { code, message } }`. The runtime then sends the final result with `success: false` and that error, and keeps `data`. The spec says so in §7.3.3: an async action whose work failed sends its final result as a failure.
+
+  `@ouispec/bindings` ends a job whose declared failure arrived this way, with error `JOB_FAILED` and the declared reason as its message, and keeps the outcome as data. Before, a failed job answered `success: true` with `data.status: 'failed'`. The assistant's record of the call then said it succeeded, and so did the stored chat.
+
 ## 0.9.0
 
 ### Minor Changes

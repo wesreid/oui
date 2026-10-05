@@ -46,6 +46,7 @@ import {
   createPageSight,
   DefinitionUnavailable,
   fitNotes,
+  jobWaitOf,
   UI_ACT_TOOL,
   UI_DESCRIBE_TOOL,
   UI_READ_TOOL,
@@ -126,6 +127,7 @@ export async function runAgentTurn(
   const turnDeadlineMs = config.turnDeadlineMs ?? 240_000; // 4 min, below the 5 min Lambda ceiling
   const retries = config.retries ?? 3;
   const uiResultTimeoutMs = config.ui?.resultTimeoutMs ?? DEFAULT_UI_RESULT_TIMEOUT_MS;
+  const uiJobWaitMs = jobWaitOf({ jobWaitMs: config.ui?.jobWaitMs });
 
   if (!config.model) {
     throw new Error('[agent-sdk] config.model is required: pass an `ai` library model (ADR-0227 §2.2)');
@@ -378,9 +380,14 @@ export async function runAgentTurn(
       return notRun({ success: false, ...payload });
     };
     // A UI tool waits for the client's answer, which has its own deadline, and
-    // then for the outcome of work it started, until uiWaitDeadline.
+    // then for the outcome of work it started: for uiJobWaitMs at most, and
+    // never past uiWaitDeadline.
     const timeoutMs = isUI
-      ? Math.max(toolTimeoutMs, uiResultTimeoutMs + 5_000, uiWaitDeadline() - Date.now() + uiResultTimeoutMs + 5_000)
+      ? Math.max(
+          toolTimeoutMs,
+          uiResultTimeoutMs + 5_000,
+          Math.min(uiJobWaitMs, Math.max(0, uiWaitDeadline() - Date.now())) + uiResultTimeoutMs + 5_000,
+        )
       : toolTimeoutMs;
 
     // ── No changes while blind (ADR-0245 §2.5) ──
@@ -786,6 +793,7 @@ export async function runAgentTurn(
       resultTimeoutMs: uiResultTimeoutMs,
       maxObservationChars: config.ui.maxObservationChars,
       waitDeadline: uiWaitDeadline,
+      jobWaitMs: uiJobWaitMs,
       currentPage: () => currentPage,
       sequence: uiSequence,
       held: heldDefinitions,

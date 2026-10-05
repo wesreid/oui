@@ -1,5 +1,24 @@
 # @ouispec/agent-worker
 
+## 0.7.0
+
+0.6.0 was not published; its changes ship in 0.7.0.
+
+### Minor Changes
+
+- A UI action that starts work (a GPU job, an export) no longer holds the turn open until the work ends. The call waits for its outcome for at most 20 s, or the action's own limit, or until the turn must answer, whichever comes first. Work that ends within that time is reported done in the call. Work still going is reported still running, and the turn goes on and ends. Meanwhile the person can stop the turn, and the assistant can do something else, including cancelling that work. The outcome reaches the conversation through the page state of a later turn.
+
+  The wait is settable as `ui.jobWaitMs` on `runAgentTurn`'s config and `uiActions.jobWaitMs` on the Lambda handler's. `DEFAULT_JOB_WAIT_MS` is now 20 s, where it was 5 min, so an action that declares no limit is not held for 5 min either.
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - oui-spec@0.10.0
+  - @ouispec/bindings@0.3.3
+  - @ouispec/agent-core@0.7.0
+  - @ouispec/agent-events@0.7.0
+
 ## 0.6.0
 
 ### Minor Changes

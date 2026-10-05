@@ -330,6 +330,51 @@ describe('createSurfaceRuntime', () => {
     runtime.dispose();
   });
 
+  it('sends the final result of work that failed as a failure, with its error and its report', async () => {
+    const socket = createMockSocket();
+    const runtime = createSurfaceRuntime({ socket, announce: false, settle: FAST });
+    const render = defineSurface({
+      id: 'render',
+      name: 'Render',
+      description: 'r',
+      actions: [
+        {
+          id: 'render_start',
+          description: 'start',
+          input: { type: 'object' },
+          async: true,
+          polling: {
+            intervalMs: 10,
+            resolve: async () => ({
+              done: true,
+              data: { status: 'failed', jobId: 'job-1', error: 'GPU out of memory' },
+              error: { code: 'JOB_FAILED', message: 'GPU out of memory' },
+            }),
+          },
+          handler: async () => ({ success: true, data: { jobId: 'job-1' } }),
+        },
+      ],
+    });
+    runtime.mount(render, () => ({}));
+
+    socket.receive('oui:dispatch', request('render', 'render_start', {}, 'async-failed'));
+    await wait(FAST.quietMs + 100);
+
+    const results = socket.emitted
+      .filter(e => e.event === 'oui:action:result')
+      .map(e => e.data as OUIActionResult);
+    expect(results).toHaveLength(2);
+    expect(results[0]).toMatchObject({ success: true, interim: true });
+    expect(results[1]).toMatchObject({
+      requestId: 'async-failed',
+      success: false,
+      interim: false,
+      error: { code: 'JOB_FAILED', message: 'GPU out of memory' },
+      data: { status: 'failed', jobId: 'job-1' },
+    });
+    runtime.dispose();
+  });
+
   describe('an async action is always answered once it has been acknowledged', () => {
     function renderSurface(resolve: () => Promise<{ done: boolean; data?: unknown }>, withAction = true) {
       return defineSurface({

@@ -583,7 +583,8 @@ export function createSurfaceRuntime(
           clearInterval(timer);
           pollers.delete(pollerKey);
           abandon.delete(pollerKey);
-          void finish(true, r.data);
+          // Work that failed ends as a failure, with what it reported.
+          void finish(!r.error, r.data, r.error);
         }
       } catch (err) {
         // A transient failure is reported, not fatal: keep polling.

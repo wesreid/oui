@@ -419,6 +419,66 @@ describe('a turn of many actions (session 24611234)', () => {
   });
 });
 
+describe('work an action starts', () => {
+  const studio: OUISurface = {
+    id: 'room:vector-studio',
+    name: 'Vector studio',
+    description: 'graphics',
+    actions: [
+      {
+        id: 'vector_generate_picture',
+        description: 'Generate a picture',
+        input: { type: 'object', properties: {} },
+        async: true,
+        // Up to 16 min: a picture can wait behind a live conversation.
+        polling: { intervalMs: 1000, maxDurationMs: 960_000 },
+      },
+      { id: 'vector_cancel_generation', description: 'Cancel a picture', input: { type: 'object', properties: {} } },
+    ],
+  };
+
+  it('is reported still running once the call’s budget is spent, and the turn goes on and ends: the person can cancel it in the same turn', async () => {
+    const dispatched: string[] = [];
+    const finalWaits: number[] = [];
+    const channel: UIActionChannel = {
+      dispatch: vi.fn(async (_room, request) => void dispatched.push(request.actionId)),
+      awaitResult: vi.fn(async (requestId, opts) => {
+        if (opts.final) {
+          finalWaits.push(opts.timeoutMs);
+          // The job runs for a minute: nothing arrives within the wait.
+          await new Promise((r) => setTimeout(r, opts.timeoutMs));
+          return null;
+        }
+        return requestId === 'call-gen'
+          ? { requestId, success: true, interim: true, data: { status: 'started', jobId: 'job-1' }, timestamp: 1 }
+          : { requestId, success: true, data: { cancelled: 'job-1' }, timestamp: 2 };
+      }),
+    };
+    let generated = '';
+    let cancelled = '';
+    segmentImpls = [
+      async (opts) => {
+        generated = await opts.tools.ui_act.execute({ action: 'vector_generate_picture', input: {} }, { toolCallId: 'call-gen' });
+        cancelled = await opts.tools.ui_act.execute({ action: 'vector_cancel_generation', input: {} }, { toolCallId: 'call-cancel' });
+        return [{ text: 'Started it, then cancelled it as you asked.', toolCalls: [] }];
+      },
+    ];
+    const { runAgentTurn } = await import('../orchestrator.js');
+    const config = makeConfig(channel);
+    config.ui = { ...config.ui!, jobWaitMs: 50 };
+    const began = Date.now();
+    const result = await runAgentTurn(config, makeInput([studio]));
+
+    expect(Date.now() - began).toBeLessThan(5_000);
+    expect(finalWaits).toHaveLength(1);
+    expect(finalWaits[0]).toBeLessThanOrEqual(50);
+    expect(JSON.parse(generated)).toMatchObject({ status: 'running', result: { status: 'started', jobId: 'job-1' } });
+    expect(JSON.parse(cancelled)).toMatchObject({ result: { cancelled: 'job-1' } });
+    expect(dispatched).toEqual(['vector_generate_picture', 'vector_cancel_generation']);
+    expect(result.newMessages.at(-1)).toMatchObject({ role: 'assistant', content: 'Started it, then cancelled it as you asked.' });
+  });
+});
+
 describe('the index follows the page', () => {
   it('after a navigation that changes the page, the answer carries the new page\'s index and the turn carries on in it', async () => {
     const { channel, dispatched } = makeChannel((req) => ({

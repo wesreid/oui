@@ -38,11 +38,19 @@ export interface ActionPollingConfig<
    * Called on each poll interval. Receives the dispatch result from the handler
    * plus the current context. Return { done: true, data } to stop polling,
    * or { done: false, data } to continue.
+   *
+   * Work that ended in failure returns { done: true, data, error }: the final
+   * result is then a failure (§7.3.3) carrying `error`, with `data` kept, so
+   * the agent never records failed work as a success.
    */
   resolve?: (
     dispatchResult: unknown,
     context: TContext,
-  ) => Promise<{ done: boolean; data: unknown }>;
+  ) => Promise<{
+    done: boolean;
+    data: unknown;
+    error?: { code: string; message: string };
+  }>;
 }
 
 /**

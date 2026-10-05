@@ -184,6 +184,14 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
     channel?: UIActionChannel;
     /** How long a UI tool waits for the client's answer. Default 20 s. */
     resultTimeoutMs?: number;
+    /**
+     * The longest a UI tool waits, in the call, for the outcome of work its
+     * action started (a GPU job, an export). Work that ends within it is
+     * reported done; work that does not is reported still running, and the
+     * turn ends: its outcome is in the page state the next turn reads.
+     * Default 20 s (`DEFAULT_JOB_WAIT_MS`).
+     */
+    jobWaitMs?: number;
     /** Largest page-state payload given to the model, in characters. Default 12000 (`DEFAULT_PAGE_STATE_CHARS`). */
     maxObservationChars?: number;
     /** Longest the page's index is in the model's context, in characters, before its furthest surfaces are listed by action id only. Default 60000 (`DEFAULT_INDEX_CHARS`, ADR-0245). */
