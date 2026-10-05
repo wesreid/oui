@@ -23,9 +23,15 @@ export function isTurnStopReason(value: unknown): value is TurnStopReason {
   return typeof value === 'string' && (TURN_STOP_REASONS as readonly string[]).includes(value);
 }
 
-/** What the tab sends with `TURN_STOP_EVENT`. A stop from a socket is always the person's own (`user_stop`). */
+/**
+ * What the tab sends with `TURN_STOP_EVENT`. A stop from a socket is always
+ * the person's own (`user_stop`). `room` is the turn's room, which the tab
+ * joined with the turn's room token: being in it is what shows the turn is
+ * this user's.
+ */
 export interface TurnStopPayload {
   turnId: string;
+  room: string;
 }
 
 /**

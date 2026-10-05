@@ -44,6 +44,10 @@ export type { OUIResultStore } from './oui/results.js';
 export type { ResultsRedis, ResultsSubscriber } from './redis-waits.js';
 export { createSettlementStore, SETTLEMENT_TTL_SEC } from './events/settlements.js';
 export type { SettlementStore } from './events/settlements.js';
+export { createTurnStopStore, TURN_STOP_TTL_SEC } from './turns/stops.js';
+export type { TurnStopStore } from './turns/stops.js';
+export { createTurnStopEvent } from './turns/client-event.js';
+export { turnStopsRouter, MAX_STOP_WAIT_MS } from './turns/routes.js';
 export { MAX_RESULT_WAIT_MS } from './http/routes.js';
 
 export { createConsoleLogger } from './logger.js';
