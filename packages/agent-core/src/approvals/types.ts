@@ -66,6 +66,35 @@ export interface ApprovalSettlement {
    * when nobody decided it.
    */
   decided?: 'approved';
+  /**
+   * For `claimed` and `already`: set when the approval did not run out of
+   * time but was withdrawn (ADR-0252 §2.6). Absent when its time ran out.
+   */
+  withdrawn?: ApprovalWithdrawReason;
+}
+
+/**
+ * Why an approval was expired before its time (ADR-0252 §2.6):
+ * - `superseded`: the person sent a new message while the card waited.
+ * - `stopped`: the turn that asked for it was stopped as it asked.
+ *
+ * A withdrawn approval is expired from that moment: its card is dead and its
+ * token answers `used`. What is stored and told to the model says why, so it
+ * reads "withdrawn because you sent a new message", not "it timed out".
+ */
+export type ApprovalWithdrawReason = 'superseded' | 'stopped';
+
+export const APPROVAL_WITHDRAW_REASONS: readonly ApprovalWithdrawReason[] = ['superseded', 'stopped'];
+
+/** The answer to withdrawing an approval (`POST /internal/approvals/:id/settle` with `expire`). */
+export interface ApprovalWithdrawal {
+  approvalId: string;
+  /**
+   * - `withdrawn`: it was pending, or approved and not yet used, and is now expired.
+   * - `settled`: it had already ended (declined, used, expired or withdrawn); nothing changed.
+   * - `unknown`: the store holds no such approval for this owner.
+   */
+  outcome: 'withdrawn' | 'settled' | 'unknown';
 }
 
 /** Whose approval is asked about: the same ownership the other approval routes check. */

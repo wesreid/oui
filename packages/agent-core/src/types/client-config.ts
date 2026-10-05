@@ -14,6 +14,7 @@
 import type { AgentProtocolEvent } from '../protocol/index.js';
 import type { ViewAnnotationState } from './api-surface.js';
 import type { ApprovalContinuation, ApprovalGrant } from '../approvals/types.js';
+import type { TurnStoppedMarker } from '../turns/types.js';
 
 
 /**
@@ -139,6 +140,11 @@ export interface AgentStoredMessage {
   toolCalls?: Array<{ id: string; name: string; arguments?: Record<string, unknown> }> | null;
   toolCallId?: string | null;
   createdAt: string;
+  /**
+   * Set on the last assistant message of a turn that was stopped (ADR-0252).
+   * The panel labels the message; a later turn's history says so after its text.
+   */
+  stopped?: TurnStoppedMarker | null;
 }
 
 /** One stored conversation, with its most recent messages in chronological order. */

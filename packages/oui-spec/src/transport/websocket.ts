@@ -137,6 +137,10 @@ export function createWebSocketTransport(
               ...(typeof data.knownSurfaces === "string" && data.knownSurfaces
                 ? { knownSurfaces: data.knownSurfaces }
                 : {}),
+              // The turn the request belongs to, for a client that accepts per turn (§7.3.1).
+              ...(typeof data.turnId === "string" && data.turnId
+                ? { turnId: data.turnId }
+                : {}),
             },
             receipt,
           );

@@ -287,6 +287,16 @@ export interface OUIActionRequest {
   timestamp: number;
 
   /**
+   * The turn of the agent's work this request belongs to. A client that runs
+   * one turn at a time accepts a request only for its current turn (`accept`),
+   * so a request sent late by a turn the person has stopped or superseded does
+   * not run under their newer instruction. Optional: an agent runtime that
+   * does not know of turns sends none, and a client then applies whatever rule
+   * it had without it.
+   */
+  turnId?: string;
+
+  /**
    * The user's approval this request runs on, for an action that needs one.
    * The surface runtime runs such an action only when this matches a grant
    * the tab received from the user's own confirmation, for exactly `params`.

@@ -79,6 +79,12 @@ export const PLATFORM_EVENTS: EventDeclarationDocument = {
       {
         rounds: { type: 'integer', description: 'Model calls the turn made.' },
         usage: { type: 'object', description: 'Token usage.' },
+        stopReason: {
+          type: 'string',
+          enum: ['user_stop', 'superseded'],
+          description:
+            'Set when the turn did not end by itself (ADR-0252): the person stopped it, or a newer message superseded it.',
+        },
       },
       [],
     ),
@@ -125,6 +131,11 @@ export const PLATFORM_EVENTS: EventDeclarationDocument = {
           actionId: { type: 'string', minLength: 1 },
           params: { type: 'object' },
           timestamp: { type: 'number' },
+          turnId: {
+            type: 'string',
+            minLength: 1,
+            description: 'The turn the request belongs to (ADR-0252): a tab runs a request only for its current turn.',
+          },
         },
         required: ['requestId', 'surfaceId', 'actionId'],
       },

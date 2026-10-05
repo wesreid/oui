@@ -95,11 +95,13 @@ export interface SurfaceRuntimeOptions {
 
   /**
    * Decides whether a request that arrived on the socket may run at all. A
-   * refused request is neither run nor answered, and is logged.
+   * refused request is not run: its sender gets a receipt saying it was
+   * received and not accepted, and the refusal is logged.
    *
    * The server should be the only sender of action requests, but a client can
-   * also check that a request is one it expects: for example, only while its
-   * agent has a turn in progress. Requests passed to `execute` directly are
+   * also check that a request is one it expects: for example, only for the
+   * turn its agent is running now (the request's `turnId`), so a request sent
+   * late by a stopped turn does not run. Requests passed to `execute` directly are
    * not checked; they come from the application itself.
    */
   accept?: (request: OUIActionRequest) => boolean;
