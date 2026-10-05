@@ -1,4 +1,4 @@
-export { AgentProvider, useAgent } from './provider/AgentProvider.js';
+export { AgentProvider, useAgent, STOP_CONFIRM_TIMEOUT_MS } from './provider/AgentProvider.js';
 
 export { useFeedback } from './hooks/useFeedback.js';
 export { storedToAgentMessages } from './provider/stored-messages.js';

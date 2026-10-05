@@ -197,6 +197,15 @@ export interface AgentClientConfig {
   }) => Promise<{ turnId: string; socketRoom: string; roomToken?: string }>;
 
   /**
+   * Asks the platform's API to stop a turn (ADR-0252 §2.14). The Stop control
+   * asks over the socket first; this is used when the socket cannot be reached
+   * or the stop is not confirmed in time. The platform checks that the turn is
+   * the user's, and records the same stop the socket would have. Optional: a
+   * platform without it stops only over the socket.
+   */
+  stopTurn?: (params: { turnId: string; conversationId: string | null }) => Promise<void>;
+
+  /**
    * Hands the user's approval to this tab's OUI runtime (`runtime.grantApproval`
    * in oui-spec), so the approved UI action runs when the worker dispatches it.
    * The approval card calls it after the user's click is accepted. Required for
