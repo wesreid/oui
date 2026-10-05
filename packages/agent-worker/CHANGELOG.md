@@ -1,5 +1,15 @@
 # @ouispec/agent-worker
 
+## 0.6.0
+
+### Minor Changes
+
+- A model call carries less, and ordinary editing is not capped (session 24611234).
+
+  - The client's knowledge is bounded in the system prompt (`KNOWLEDGE_PROMPT_CHARS`, 12,000): small entries whole, a large entry cut at a line with how much is left, workflows listed by name. The new `ui_guide` tool reads the rest of an entry a page at a time, or a workflow with its steps. The video editor's knowledge went from 117,000 characters to 11,300.
+  - Only the newest UI answer carries the page's state to the model; every earlier answer keeps what it did and says where the state is. `Turn usage` logs `ui.pageStatesNotRepeated`.
+  - UI actions are no longer counted against a per-tool quota of 12. A loop is refused instead (`repeatedCall`): the same call with the same input, once it has changed nothing three times in a row (it failed, the page said no row changed, or the page's state was the same as after its last run). Undo five times runs five times. `ui_guide` calls are counted as `ui.guides` in `Turn usage`. Backend tools keep their quotas.
+
 ## 0.5.0
 
 ### Minor Changes

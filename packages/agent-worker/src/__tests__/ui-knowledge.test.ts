@@ -8,7 +8,15 @@
 import { describe, expect, it } from 'vitest';
 import { resolveKnowledge } from '@ouispec/bindings';
 import { buildAgentSystemPrompt } from '../prompt/builder.js';
-import { CLIENT_KNOWLEDGE_KEY, readClientKnowledge, renderClientKnowledge, withClientKnowledge } from '../ui/knowledge.js';
+import {
+  CLIENT_KNOWLEDGE_KEY,
+  KNOWLEDGE_PROMPT_CHARS,
+  KNOWLEDGE_TOOL,
+  knowledgeTool,
+  readClientKnowledge,
+  renderClientKnowledge,
+  withClientKnowledge,
+} from '../ui/knowledge.js';
 import { withoutClientUI } from '../ui/snapshot.js';
 import { DESK_KNOWLEDGE } from './support/fixture-product.js';
 
@@ -97,5 +105,70 @@ describe("the host's prompt never sees it", () => {
     expect(prompt).toContain('"currentPath": "/inbox"');
     expect(prompt).not.toContain('uiKnowledge');
     expect(prompt.indexOf('## CURRENT UI CONTEXT')).toBeLessThan(prompt.indexOf('## Platform Knowledge'));
+  });
+});
+
+// Session 24611234: the video editor's knowledge was 117,000 characters, most of it one page's
+// detail (70,000) and 60 workflows (31,000), sent with every model call of every turn.
+describe('knowledge larger than the prompt holds', () => {
+  const lines = (prefix: string, n: number) =>
+    Array.from({ length: n }, (_, i) => `- ${prefix} ${i}: what it does, and the tool in brackets [${prefix}_${i}]`).join('\n');
+  const editor = {
+    entries: [
+      { title: 'The app’s pages', content: 'Pages: Projects (/media-projects), Editor (/media-projects/:id/editor).' },
+      { title: 'Project Editor (/media-projects/:id/editor)', content: `The Project Editor page.\n${lines('action', 900)}` },
+      { title: 'Project Editor: how things relate', content: lines('relation', 140) },
+      { title: 'Video Studio', content: 'Every video project, and new ones.' },
+    ],
+    workflows: Array.from({ length: 60 }, (_, i) => ({
+      name: `Use the dialog ${i}`,
+      trigger: `Anything done in dialog ${i} on Project Editor`,
+      steps: [`Open it with dialog_${i}_open.`, `Set what it asks for: ${lines('field', 4)}`, 'Read the page’s state.'],
+    })),
+  };
+
+  it('fits the prompt’s bound, keeps the small entries whole, cuts the large ones at a line, and says how to read the rest', () => {
+    const text = renderClientKnowledge(editor);
+    expect(JSON.stringify(editor).length).toBeGreaterThan(90_000);
+    expect(text.length).toBeLessThanOrEqual(KNOWLEDGE_PROMPT_CHARS);
+    expect(text).toContain('### The app’s pages\nPages: Projects (/media-projects)');
+    expect(text).toContain('### Video Studio\nEvery video project, and new ones.');
+    expect(text).toMatch(/more characters of "Project Editor \(\/media-projects\/:id\/editor\)" are not shown: `ui_guide` with `entry` set to this title and `from: \d+` reads them/);
+    // Cut at a line: no line is shown in part.
+    expect(text).not.toMatch(/\[action_\d+$/m);
+    // Every workflow by name, none with its steps.
+    for (let i = 0; i < 60; i++) expect(text).toContain(`- Use the dialog ${i}\n`.trimEnd());
+    expect(text).not.toContain('dialog_0_open');
+  });
+
+  it('reads the rest of an entry a page at a time, and a workflow whole, with ui_guide', async () => {
+    const guide = knowledgeTool(editor);
+    expect(guide.name).toBe(KNOWLEDGE_TOOL);
+    expect(guide.effect).toBe('view');
+    const text = renderClientKnowledge(editor);
+    const from = Number(/from: (\d+)/.exec(text)![1]);
+    const title = 'Project Editor (/media-projects/:id/editor)';
+    const page = (await guide.execute({ entry: title, from }, {} as never)) as {
+      success: boolean;
+      data: { text: string; next?: number; total: number };
+    };
+    expect(page.success).toBe(true);
+    expect(page.data.text.startsWith('\n- action') || page.data.text.startsWith('- action')).toBe(true);
+    // Read to the end, it is the whole entry: nothing between pages is lost.
+    let read = editor.entries[1].content.slice(0, from) + page.data.text;
+    let next = page.data.next;
+    while (next !== undefined) {
+      const more = (await guide.execute({ entry: title, from: next }, {} as never)) as { data: { text: string; next?: number } };
+      read += more.data.text;
+      next = more.data.next;
+    }
+    expect(read).toBe(editor.entries[1].content);
+
+    const flow = (await guide.execute({ workflow: 'use the dialog 7' }, {} as never)) as { data: { text: string } };
+    expect(flow.data.text).toContain('1. Open it with dialog_7_open.');
+    expect(await guide.execute({ workflow: 'No such' }, {} as never)).toMatchObject({
+      success: false,
+      error: expect.stringContaining('"Use the dialog 0"'),
+    });
   });
 });

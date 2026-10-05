@@ -23,6 +23,7 @@ import type { ModelMessage, AssistantModelMessage, ToolModelMessage, TextPart, T
 import {
   AGENT_SOCKET_EVENTS,
   argsHash,
+  canonicalJson,
   turnStoppedNote,
   type ApprovalContinuation,
   type ApprovalRequiredEvent,
@@ -37,7 +38,8 @@ import { defaultTurnPolicy } from './turn-policy.js';
 import { evaluateToolPolicySafe } from './authz/tool-policy.js';
 import { createToolInputValidator } from './tools/input-validation.js';
 import { readClientPage, withoutClientUI, type ClientPage } from './ui/snapshot.js';
-import { readClientKnowledge, withClientKnowledge } from './ui/knowledge.js';
+import { KNOWLEDGE_TOOL, knowledgeTool, readClientKnowledge, withClientKnowledge } from './ui/knowledge.js';
+import { withNewestPageStateOnly } from './ui/newest-page-state.js';
 import { withClock } from './prompt/clock.js';
 import {
   buildUITools,
@@ -161,7 +163,9 @@ export async function runAgentTurn(
   const heldDefinitions: HeldDefinitions = client?.held ?? new Map();
   // Whether the page can be seen (ADR-0245 §2.5): nothing that changes it runs while it cannot.
   const sight = createPageSight();
-  const uiCounts = { describes: 0, reads: 0, acts: 0 };
+  const uiCounts = { describes: 0, reads: 0, acts: 0, guides: 0 };
+  // Earlier answers' page states replaced, summed over the turn's steps.
+  let pageStatesNotRepeated = 0;
 
   // The knowledge the client sent for its page goes after the host's prompt.
   const knowledge = readClientKnowledge(input.context ?? null);
@@ -205,7 +209,7 @@ export async function runAgentTurn(
     : config.systemPrompt;
   const systemPrompt = withClientKnowledge(hostPrompt, input.context);
 
-  log('debug', 'agent:prompt', 'System prompt built', { turnId, promptLength: systemPrompt.length });
+  log('debug', 'agent:prompt', 'System prompt built', { turnId, promptLength: systemPrompt.length, hostPromptLength: hostPrompt.length });
 
   // Wall-clock deadline: abort the entire streamText call if it exceeds turnDeadlineMs.
   const turnStartedAt = Date.now();
@@ -293,8 +297,14 @@ export async function runAgentTurn(
   // Quota is per-turn, held in this closure — never module scope. It spans
   // segments: rebuilding the tool set does not reset what was already used.
   const toolInvocationCounts = new Map<string, number>();
-  const DEFAULT_TOOL_QUOTA = 12; // matches maxRounds
+  const DEFAULT_TOOL_QUOTA = 12;
   const SIDE_EFFECT_TOOL_QUOTA = 2;
+  // A UI action is not counted (session 24611234: filling 12 slides of 3 values each
+  // ran one action 36 times, and a cap of 12 stopped it). What is refused is a loop:
+  // the same call with the same input, made again after it changed nothing three
+  // times in a row. Undo five times, or nudge a layer five times, is work: each changes the page.
+  const UNCHANGED_REPEATS = 3;
+  const uiRepeats = new Map<string, { unchanged: number; lastState: string | null }>();
 
   // What each call of the turn did: said back to the model before every step
   // after one did not succeed, so its reply matches it (ADR-0244 §2.5).
@@ -429,24 +439,52 @@ export async function runAgentTurn(
     // Told to the model with the result, so it sends the value itself next time (below).
     const readFromText = validation.coerced ?? [];
 
+    // The call as a repeat is judged by: its name and its exact input. Set for a UI action that changes the page.
+    let repeatKey: string | null = null;
+
     // ── Quota enforcement ──
     // UI actions run as the user in their own session (ADR-0182 §3), so the
-    // backend side-effect cap does not apply to them (ADR-0209 D5).
+    // backend side-effect cap does not apply to them (ADR-0209 D5). They are
+    // bounded by the turn's steps and deadline; only a repeated identical call is refused.
     const currentCount = toolInvocationCounts.get(t.name) ?? 0;
     const isSideEffecting = schema.sideEffects !== false; // fail-closed: undefined = side-effecting
-    // A UI action that only reads (a room's inspect and query, ADR-0244 §2.2)
-    // changes nothing however often it is called: the turn's step limit bounds it.
-    const quota = reads ? Infinity : !isUI && isSideEffecting ? SIDE_EFFECT_TOOL_QUOTA : DEFAULT_TOOL_QUOTA;
-    if (currentCount >= quota) {
-      return refused(
-        {
-          error: `Tool "${t.name}" has reached its maximum invocation quota of ${quota} for this turn. Please proceed without calling it again.`,
-          quotaExceeded: true,
-        },
-        args,
-      );
+    if (isUI) {
+      // A UI action that only reads (a room's inspect and query, ADR-0244 §2.2)
+      // changes nothing however often it is called.
+      if (!reads) {
+        let input: string;
+        try {
+          input = canonicalJson(args);
+        } catch {
+          input = JSON.stringify(args);
+        }
+        repeatKey = `${t.name} ${input}`;
+        const unchanged = uiRepeats.get(repeatKey)?.unchanged ?? 0;
+        if (unchanged >= UNCHANGED_REPEATS) {
+          return refused(
+            {
+              error:
+                `"${t.name}" with exactly this input has changed nothing the last ${unchanged} times it ran in this turn. ` +
+                'Running it again would change nothing again: read the page for why, then change the input or stop.',
+              repeatedCall: true,
+            },
+            args,
+          );
+        }
+      }
+    } else {
+      const quota = isSideEffecting ? SIDE_EFFECT_TOOL_QUOTA : DEFAULT_TOOL_QUOTA;
+      if (currentCount >= quota) {
+        return refused(
+          {
+            error: `Tool "${t.name}" has reached its maximum invocation quota of ${quota} for this turn. Please proceed without calling it again.`,
+            quotaExceeded: true,
+          },
+          args,
+        );
+      }
+      toolInvocationCounts.set(t.name, currentCount + 1);
     }
-    toolInvocationCounts.set(t.name, currentCount + 1);
 
     // ── Policy enforcement ──
     // A deny always wins, over an approval too (ADR-0228 §2.1).
@@ -488,6 +526,8 @@ export async function runAgentTurn(
 
     if (t.name === UI_DESCRIBE_TOOL) uiCounts.describes++;
     else if (t.name === UI_READ_TOOL) uiCounts.reads++;
+    // It reads what the client sent, and touches no page.
+    else if (t.name === KNOWLEDGE_TOOL) uiCounts.guides++;
     else if (isUI) uiCounts.acts++;
 
     log('info', 'agent:tool', 'Tool call started', {
@@ -578,6 +618,21 @@ export async function runAgentTurn(
       ok: resultSuccess,
       ...(resultSuccess ? {} : { error: isWrapped && result.error ? result.error : 'it did not succeed' }),
     });
+
+    // Did this run change the page? Not when it failed, when the page says it changed no row,
+    // or when the page's state is what it was after the same call last ran.
+    if (repeatKey) {
+      const answer = (modelPayload ?? {}) as { state?: unknown; result?: { changed?: unknown } };
+      const state = answer.state === undefined ? null : JSON.stringify(answer.state);
+      const changed = answer.result?.changed;
+      const held = uiRepeats.get(repeatKey);
+      const noChange =
+        !resultSuccess ||
+        changed === false ||
+        (Array.isArray(changed) && changed.length === 0) ||
+        (state !== null && held?.lastState === state);
+      uiRepeats.set(repeatKey, { unchanged: noChange ? (held?.unchanged ?? 0) + 1 : 0, lastState: state });
+    }
 
     // A picture in the result is the model's to look at with this call's
     // result, and nothing else's: it is not in the text above, the event or the record.
@@ -863,6 +918,8 @@ export async function runAgentTurn(
       tools[UI_DESCRIBE_TOOL] = toAiTool(ui.describe);
       tools[UI_READ_TOOL] = toAiTool(ui.read);
     }
+    // What the prompt leaves out of the client's knowledge, read when it is needed.
+    if (knowledge && !tools[KNOWLEDGE_TOOL]) tools[KNOWLEDGE_TOOL] = toAiTool(knowledgeTool(knowledge));
     return tools;
   }
 
@@ -1208,7 +1265,7 @@ export async function runAgentTurn(
         isEnabled: true,
         functionId: `agent-turn:${turnId}`,
       },
-      prepareStep: async ({ steps }) => {
+      prepareStep: async ({ steps, messages }) => {
         // The policy speaks of the page's actions by their ids, as it always
         // has: a `ui_act` call is shown to it as the action it ran, and the
         // actions are among the tool names it may choose from.
@@ -1253,8 +1310,12 @@ export async function runAgentTurn(
         const notes = [note, forced ? `This step: call ${UI_ACT_TOOL} with action "${forced}".` : null, ledger.note()].filter(
           (n): n is string => !!n,
         );
+        // The page's state on the newest answer only: an earlier page is not the page now.
+        const trimmed = messages ? withNewestPageStateOnly(messages) : null;
+        if (trimmed) pageStatesNotRepeated += trimmed.replaced;
         return {
           ...constraints,
+          ...(trimmed ? { messages: trimmed.messages } : {}),
           instructions: notes.length
             ? [instructions, ...notes.map((content) => ({ role: 'system' as const, content }))]
             : instructions,
@@ -1386,6 +1447,7 @@ export async function runAgentTurn(
             // What bounds the model: the page's index as it reads it, against the most it is given
             // before the furthest surfaces are listed by id only.
             indexChars: indexText(client.page, Infinity).length,
+            pageStatesNotRepeated,
             maxIndexChars: config.ui?.maxIndexChars ?? DEFAULT_INDEX_CHARS,
           },
         }

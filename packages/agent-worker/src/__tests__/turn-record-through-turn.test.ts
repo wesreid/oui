@@ -118,7 +118,7 @@ beforeEach(() => {
 });
 
 describe('a turn that reads, fails and edits', () => {
-  it('lets a reader be called more often than any edit may be', async () => {
+  it('lets a reader and an edit be called as often as the work needs, each with its own input', async () => {
     const { channel } = makeChannel((req) => ({ requestId: req.requestId, success: true, data: { items: [] }, timestamp: 1 }));
     const outputs: Record<string, string[]> = { inspect: [], select: [] };
     segmentImpls = [
@@ -133,7 +133,8 @@ describe('a turn that reads, fails and edits', () => {
     const { runAgentTurn } = await import('../orchestrator.js');
     await runAgentTurn(makeConfig(channel).config, input());
     expect(outputs.inspect.filter((o) => o.includes('quota'))).toHaveLength(0);
-    expect(outputs.select.filter((o) => o.includes('quota'))).toHaveLength(20 - 12);
+    // UI edits are not counted (session 24611234); only the same call with the same input again is refused.
+    expect(outputs.select.filter((o) => o.includes('quota') || o.includes('repeatedCall'))).toHaveLength(0);
   });
 
   it('tells the model before each later step which calls did not succeed, and nothing while all have', async () => {

@@ -1,5 +1,11 @@
 # @ouispec/contract
 
+## 0.3.2
+
+### Patch Changes
+
+- The integrator guide describes `ui_guide`, the bounded knowledge, the page's state on the newest answer only, and UI actions without a per-tool quota.
+
 ## 0.2.0
 
 ### Minor Changes
