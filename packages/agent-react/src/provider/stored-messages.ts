@@ -1,4 +1,4 @@
-import { displayedToolCall, type AgentStoredMessage } from '@ouispec/agent-core';
+import { displayedToolCall, turnStoppedNote, type AgentStoredMessage } from '@ouispec/agent-core';
 import type { AgentMessage } from './types.js';
 
 /** A stored tool result as the live stream carried it: parsed JSON when it is JSON. */
@@ -31,8 +31,18 @@ export function storedToAgentMessages(stored: readonly AgentStoredMessage[]): Ag
   for (const m of stored) {
     const timestamp = Date.parse(m.createdAt) || 0;
     if (m.role === 'user' || m.role === 'assistant') {
-      if (m.content) {
-        messages.push({ id: m.id, role: m.role === 'user' ? 'user' : 'assistant', content: m.content, timestamp });
+      // A stopped turn's last message keeps its mark; one that has only the mark
+      // (the turn was stopped before it said anything) shows as stopped, with no text.
+      const stopped = m.role === 'assistant' && m.stopped ? m.stopped.reason : undefined;
+      const onlyTheMark = stopped !== undefined && m.content === turnStoppedNote({ reason: stopped });
+      if (m.content || stopped) {
+        messages.push({
+          id: m.id,
+          role: m.role === 'user' ? 'user' : 'assistant',
+          content: onlyTheMark ? '' : (m.content ?? ''),
+          timestamp,
+          ...(stopped ? { stopped } : {}),
+        });
       }
       for (const call of m.toolCalls ?? []) {
         const shown = displayedToolCall(call);

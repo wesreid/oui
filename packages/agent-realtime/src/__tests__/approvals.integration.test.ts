@@ -406,6 +406,112 @@ describe('an approval nobody decided: settled by a later turn', () => {
   });
 });
 
+describe('an approval withdrawn before it was used (ADR-0252 §2.6)', () => {
+  const owner = { userId: 'u1', conversationId: 'conv-1' };
+  const settle = (server: RealtimeServerInstance, id: string, body: Record<string, unknown> = owner) =>
+    internal(server, `/internal/approvals/${id}/settle`, { body });
+  const withdraw = (server: RealtimeServerInstance, id: string, reason: unknown = 'superseded', who: Record<string, unknown> = owner) =>
+    settle(server, id, { ...who, expire: reason });
+
+  it('expires a pending approval at once: the card is dead, and a later turn is told it was withdrawn, not that it timed out', async () => {
+    const p = await stored();
+    expect((await withdraw(b, p.approvalId)).body).toEqual({ approvalId: p.approvalId, outcome: 'withdrawn' });
+
+    // The click that comes after finds nothing to decide.
+    const tab = await connect(a, 'token-u1');
+    expect(await decide(tab, p.approvalId, 'approve')).toMatchObject({ ok: false, reason: 'unknown' });
+    expect((await internal(a, `/internal/approvals/${p.approvalId}?userId=u1`)).status).toBe(404);
+
+    // Settled as any expiry is, long before its five minutes: claimed once, with why.
+    const [first, second] = await Promise.all([settle(a, p.approvalId), settle(b, p.approvalId)]);
+    expect([first.body.outcome, second.body.outcome].sort()).toEqual(['already', 'claimed']);
+    expect(first.body).toMatchObject({ expiresAt: p.expiresAt, withdrawn: 'superseded' });
+    expect(second.body).toMatchObject({ withdrawn: 'superseded' });
+    expect(first.body).not.toHaveProperty('decided');
+    expect((await settle(a, p.approvalId, { ...owner, confirm: true })).body).toMatchObject({ outcome: 'confirmed' });
+  });
+
+  it('expires an approved approval that was not used yet: it keeps that the user approved it, and its token answers used', async () => {
+    const p = await stored();
+    const tab = await connect(a, 'token-u1');
+    const approved = await decide(tab, p.approvalId, 'approve');
+    expect(approved).toMatchObject({ ok: true, decision: 'approve' });
+    const token = (approved as { token: string }).token;
+
+    expect((await withdraw(a, p.approvalId, 'stopped')).body).toEqual({ approvalId: p.approvalId, outcome: 'withdrawn' });
+
+    const redeemed = await internal(b, '/internal/approvals/redeem', { body: { token, ...owner } });
+    expect(redeemed.status).toBe(410);
+    expect(redeemed.body).toMatchObject({ reason: 'used' });
+
+    expect((await settle(b, p.approvalId)).body).toEqual({
+      approvalId: p.approvalId,
+      outcome: 'claimed',
+      expiresAt: p.expiresAt,
+      decided: 'approved',
+      withdrawn: 'stopped',
+    });
+  });
+
+  it('changes nothing that has already ended: redeemed, declined, expired or withdrawn before', async () => {
+    const tab = await connect(a, 'token-u1');
+
+    const used = await stored();
+    const approved = (await decide(tab, used.approvalId, 'approve')) as { token: string };
+    expect((await internal(b, '/internal/approvals/redeem', { body: { token: approved.token, ...owner } })).status).toBe(200);
+    // It ran: the store has no memory of it to withdraw.
+    expect((await withdraw(a, used.approvalId)).body).toMatchObject({ outcome: 'unknown' });
+    expect((await settle(a, used.approvalId)).body).toMatchObject({ outcome: 'unknown' });
+
+    const declined = await stored();
+    await decide(tab, declined.approvalId, 'decline');
+    expect((await withdraw(a, declined.approvalId)).body).toMatchObject({ outcome: 'unknown' });
+
+    const twice = await stored();
+    expect((await withdraw(a, twice.approvalId, 'superseded')).body).toMatchObject({ outcome: 'withdrawn' });
+    // The first reason stands.
+    expect((await withdraw(b, twice.approvalId, 'stopped')).body).toMatchObject({ outcome: 'settled' });
+    expect((await settle(a, twice.approvalId)).body).toMatchObject({ outcome: 'claimed', withdrawn: 'superseded' });
+
+    const timedOut = await stored({ expiresAt: Date.now() + 1_200 });
+    await new Promise((r) => setTimeout(r, 1_500));
+    expect((await withdraw(a, timedOut.approvalId)).body).toMatchObject({ outcome: 'settled' });
+    // Its time ran out: it is not told as withdrawn.
+    expect((await settle(a, timedOut.approvalId)).body).not.toHaveProperty('withdrawn');
+  });
+
+  it('with a decision arriving at the same instant, exactly one of them happens', async () => {
+    const tab = await connect(a, 'token-u1');
+    for (let i = 0; i < 5; i++) {
+      const p = await stored();
+      const [decision, withdrawal] = await Promise.all([decide(tab, p.approvalId, 'decline'), withdraw(b, p.approvalId)]);
+      // Declined first: nothing was left to withdraw. Withdrawn first: nothing was left to decline.
+      if (decision.ok) expect(withdrawal.body.outcome).toBe('unknown');
+      else expect(withdrawal.body.outcome).toBe('withdrawn');
+    }
+  });
+
+  it('withdraws only for the approval’s own user and conversation, a reason it knows, and the internal key', async () => {
+    const p = await stored();
+    expect((await withdraw(a, p.approvalId, 'superseded', { userId: 'u2', conversationId: 'conv-1' })).body).toMatchObject({ outcome: 'unknown' });
+    expect((await withdraw(a, p.approvalId, 'superseded', { userId: 'u1', conversationId: 'conv-9' })).body).toMatchObject({ outcome: 'unknown' });
+    expect((await withdraw(a, p.approvalId, 'bored')).status).toBe(400);
+    expect((await internal(a, `/internal/approvals/${p.approvalId}/settle`, { body: { ...owner, expire: 'superseded' }, key: 'wrong' })).status).toBe(401);
+    // Still live after all of that.
+    expect((await settle(a, p.approvalId)).body).toMatchObject({ outcome: 'open' });
+  });
+
+  it('forgets an old withdrawal when the same call id asks again', async () => {
+    const p = await stored();
+    await withdraw(a, p.approvalId);
+    const again = await internal(b, '/internal/approvals', { body: { ...p, expiresAt: Date.now() + 1_200 } });
+    expect(again.status).toBe(201);
+    await new Promise((r) => setTimeout(r, 1_500));
+    // This time its time ran out.
+    expect((await settle(a, p.approvalId)).body).not.toHaveProperty('withdrawn');
+  });
+});
+
 describe('a conversation channel deciding through the engine route', () => {
   it('issues a token for the session’s user on a voice channel, and refuses a UI decision there', async () => {
     const p = await stored();

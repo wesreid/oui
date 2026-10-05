@@ -6,7 +6,8 @@ import type {
   ApprovalDecideResult,
   ApprovalDecision,
 } from '@ouispec/agent-core';
-import { APPROVAL_DECIDE_EVENT } from '@ouispec/agent-core';
+import { APPROVAL_DECIDE_EVENT, TURN_STOP_EVENT } from '@ouispec/agent-core';
+import type { TurnStopPayload, TurnStopReason, TurnStopResult } from '@ouispec/agent-core';
 import type { AgentProtocolEvent } from '@ouispec/agent-core';
 import { ALL_AGENT_SOCKET_EVENTS, parseSocketEvent } from '@ouispec/agent-core';
 import type { SocketLike } from '@ouispec/agent-core';
@@ -39,6 +40,12 @@ const DEFAULT_ACTIVE_CONVERSATION_KEY = 'agent-sdk.activeConversation';
 const HISTORY_PAGE_SIZE = 20;
 /** How long the card waits for the approval store to answer a click. */
 const APPROVAL_DECIDE_TIMEOUT_MS = 10_000;
+/** How long the server's answer to a Stop is waited for before the platform's API is asked instead. */
+const STOP_ACK_TIMEOUT_MS = 3_000;
+/** How long a stop may go unconfirmed by the turn's end before the turn is shown as stopped (ADR-0252 §2.14). */
+export const STOP_CONFIRM_TIMEOUT_MS = 10_000;
+/** How many ended turns the tab remembers, to ignore what they still send. */
+const ENDED_TURNS_REMEMBERED = 20;
 
 /**
  * The tab's remembered active conversation, in `sessionStorage` so a reload
@@ -147,6 +154,9 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   const [pendingApproval, setPendingApproval] = useState<AgentApprovalRequest | null>(null);
   const [approvalDeciding, setApprovalDeciding] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
+  // The turn the person asked to stop, from their Stop until its end arrives (ADR-0252 §2.14).
+  const [isStopping, setIsStopping] = useState(false);
+  const stoppingRef = useRef<{ turnId: string; timer: ReturnType<typeof setTimeout> | null } | null>(null);
   const socketRef = useRef<SocketLike | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   // The room of the turn in progress and its token. A reconnect gives the
@@ -249,6 +259,51 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   const liveTurnRef = useRef<{ starting: boolean; turnId: string | null }>({ starting: false, turnId: null });
   const turnStartsRef = useRef(0);
   const heldEndsRef = useRef<AgentProtocolEvent[]>([]);
+  /**
+   * Whether an event of turn `turnId` belongs to the turn the tab is running. While a new turn has
+   * no id yet, nothing does: whatever still arrives is the turn before it, which a new message has
+   * superseded (ADR-0252 §2.5), and its text and calls are no longer shown as in progress.
+   */
+  const ofLiveTurn = (turnId: string | undefined): boolean => {
+    const { starting, turnId: live } = liveTurnRef.current;
+    if (starting) return false;
+    if (turnId !== undefined && endedTurnsRef.current.has(turnId)) return false;
+    return live === null || turnId === undefined || turnId === live;
+  };
+  /**
+   * The turns the tab has shown as ended. A turn shown as stopped because its stop was never
+   * confirmed, or superseded by a new message, may have a worker still streaming: the text, calls
+   * and approval cards it sends after that are not shown as in progress again (`ofLiveTurn`). Its
+   * end is still read, since an end is safe to apply twice: for a turn that is not the tab's it
+   * only finishes that turn's own message, and for no turn at all it changes nothing.
+   */
+  const endedTurnsRef = useRef<Set<string>>(new Set());
+  const rememberEnded = (turnId: string | undefined) => {
+    if (!turnId) return;
+    const ended = endedTurnsRef.current;
+    ended.add(turnId);
+    // The last few are all that can still be sending.
+    if (ended.size > ENDED_TURNS_REMEMBERED) ended.delete(ended.values().next().value as string);
+  };
+  /** The assistant message and running calls of a turn that ended by being stopped, as the panel shows them. */
+  const markStopped = (prev: AgentMessage[], turnId: string, reason: TurnStopReason): AgentMessage[] => {
+    const msgId = `msg_${turnId}`;
+    const marked = prev.map((m) => {
+      if (m.id === msgId) return { ...m, isStreaming: false, stopped: reason };
+      if (m.toolCall?.status === 'running') return { ...m, toolCall: { ...m.toolCall, status: 'stopped' as const } };
+      return m.isStreaming ? { ...m, isStreaming: false } : m;
+    });
+    // A turn stopped before it said anything still shows that it was stopped.
+    return marked.some((m) => m.id === msgId)
+      ? marked
+      : [...marked, { id: msgId, role: 'assistant' as const, content: '', timestamp: Date.now(), stopped: reason }];
+  };
+  /** A stop is no longer waited on: its turn ended, or the tab moved on. */
+  const clearStopping = () => {
+    if (stoppingRef.current?.timer) clearTimeout(stoppingRef.current.timer);
+    stoppingRef.current = null;
+    setIsStopping(false);
+  };
   /** Whether an end of turn `turnId` is the end of the turn the tab is running. */
   const endsLiveTurn = (turnId: string | undefined): boolean => {
     const live = liveTurnRef.current.turnId;
@@ -268,6 +323,8 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     switch (event.type) {
       case 'token': {
         if (!event.content) break;
+        // Text a superseded turn still sends is not the turn in progress's.
+        if (!ofLiveTurn(event.turnId)) break;
         streamBufferRef.current += event.content;
         // Snapshot the accumulated content BEFORE enqueueing the state update.
         // React batches updates and runs the setMessages callback later; if the
@@ -311,6 +368,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
         break;
 
       case 'intent_call':
+        if (!ofLiveTurn(event.turnId)) break;
         setMessages(prev => [...prev, {
           id: `tool_${event.id}`,
           role: 'tool' as const,
@@ -338,6 +396,8 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
         break;
 
       case 'approval_required': {
+        // A card for a turn the person has moved on from is not shown: its approval is withdrawn.
+        if (!ofLiveTurn(event.turnId)) break;
         // The card renders it; only the user's click on it decides.
         const { type: _type, ...request } = event;
         setPendingApproval(request);
@@ -352,12 +412,42 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
           // message is finished, and nothing of the turn in progress is touched — not its streaming
           // state, its id, its room or its text.
           const earlier = `msg_${event.turnId}`;
-          setMessages(prev => prev.map(m => (m.id === earlier && m.isStreaming ? { ...m, isStreaming: false } : m)));
+          rememberEnded(event.turnId);
+          setMessages(prev =>
+            prev.map(m =>
+              m.id === earlier ? { ...m, isStreaming: false, ...(event.stopReason ? { stopped: event.stopReason } : {}) } : m,
+            ),
+          );
           addDebugLog('info', 'agent:state', 'An earlier turn completed after the next one started; the turn in progress continues', {
             turnId: event.turnId,
           });
           break;
         }
+        if (event.stopReason) {
+          // The turn was stopped: what it had said stays, marked. Stopped by a message from another
+          // window, the conversation has moved on without this tab, so it is read again.
+          const reason = event.stopReason;
+          const asked = stoppingRef.current?.turnId === event.turnId;
+          rememberEnded(event.turnId);
+          streamBufferRef.current = '';
+          roundPrefixRef.current = '';
+          setMessages(prev => markStopped(prev, event.turnId, reason));
+          setIsStreaming(false);
+          setCurrentTurnId(null);
+          liveTurnRef.current = { starting: false, turnId: null };
+          activeRoomRef.current = null;
+          if (unsubscribeRef.current) {
+            unsubscribeRef.current();
+            unsubscribeRef.current = null;
+          }
+          clearStopping();
+          setPendingApproval(null);
+          addDebugLog('info', 'agent:state', `Turn stopped: ${reason}`, { turnId: event.turnId, reason });
+          if (reason === 'superseded' && !asked) supersededElsewhereRef.current?.();
+          break;
+        }
+        clearStopping();
+        rememberEnded(event.turnId);
         // Finalize all streaming messages. Drop any assistant streaming bubble
         // that ended up truly empty (e.g. token_clear wiped it and no text was
         // re-emitted). Preserve tool messages (which legitimately have null content).
@@ -370,7 +460,8 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
           return finalized.filter(m => {
             // Only drop assistant bubbles that are empty (null or empty string).
             // Tool messages have null content by design — keep them.
-            if (m.role === 'assistant' && (m.content === null || m.content === '')) {
+            // A stopped turn's message is kept even when it had said nothing: it says the turn was stopped.
+            if (m.role === 'assistant' && (m.content === null || m.content === '') && !m.stopped) {
               return false;
             }
             return true;
@@ -419,9 +510,12 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
           unsubscribeRef.current();
           unsubscribeRef.current = null;
         }
+        clearStopping();
         break;
     }
   }, []);
+  // Set once conversations can be loaded (below): what a turn superseded from another window does.
+  const supersededElsewhereRef = useRef<(() => void) | null>(null);
 
   // --- Join a turn room ---
   // The realtime server requires a signed room token for a turn room and
@@ -535,6 +629,16 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     }
     // Any choice still on screen belongs to the previous turn.
     setPresentedOptions(null);
+    // A message sent while a turn runs supersedes it (ADR-0252 §2.5): the platform stops that turn,
+    // and here it is shown as stopped at once. Its room is left when the new turn's is joined, so
+    // its own end may never arrive to say so.
+    const superseded = approval ? null : liveTurnRef.current.turnId;
+    if (superseded) {
+      rememberEnded(superseded);
+      setMessages(prev => markStopped(prev, superseded, 'superseded'));
+      roundPrefixRef.current = '';
+      clearStopping();
+    }
     setIsStreaming(true);
     // From here the tab's turn is this one, though it has no id until the request returns: the end
     // of any earlier turn no longer ends it.
@@ -601,6 +705,69 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   }, [collectContext, subscribeToRoom, addDebugLog, setActiveConversation, handleProtocolEvent]);
 
   const sendMessage = useCallback((content: string, attachments?: File[]) => startTurn(content, attachments), [startTurn]);
+
+  // --- The person's Stop (ADR-0252 §2.14) ---
+  // Asked over the socket, from the turn's room: the server takes it only from there. The turn's
+  // worker hears it, stores what it had, and sends the turn's end with why. If the socket cannot
+  // ask, or the end has not arrived in time, the platform's API is asked instead and the turn is
+  // shown as stopped: the person pressed Stop, and the panel must not go on saying "working".
+  const stopTurn = useCallback(async () => {
+    const turnId = liveTurnRef.current.turnId;
+    if (!turnId || stoppingRef.current) return;
+    const entry: { turnId: string; timer: ReturnType<typeof setTimeout> | null } = { turnId, timer: null };
+    stoppingRef.current = entry;
+    setIsStopping(true);
+    addDebugLog('info', 'agent:api', 'Stopping the turn', { turnId });
+
+    let askedThroughApi = false;
+    const askApi = async () => {
+      const stop = configRef.current.stopTurn;
+      if (!stop || askedThroughApi) return;
+      askedThroughApi = true;
+      try {
+        await stop({ turnId, conversationId: conversationIdRef.current });
+      } catch (err) {
+        addDebugLog('warn', 'agent:api', `The API could not be asked to stop the turn: ${reasonOf(err)}`, { turnId });
+      }
+    };
+    const stillWaiting = () => stoppingRef.current === entry;
+
+    // Not confirmed in time: ask the API (once), and show the turn as stopped.
+    entry.timer = setTimeout(() => {
+      void (async () => {
+        if (!stillWaiting()) return;
+        await askApi();
+        if (!stillWaiting()) return;
+        addDebugLog('warn', 'agent:state', 'The stop was not confirmed in time; the turn is shown as stopped', { turnId });
+        handleProtocolEvent({ type: 'done', turnId, stopReason: 'user_stop' });
+      })();
+    }, STOP_CONFIRM_TIMEOUT_MS);
+
+    const socket = socketRef.current;
+    const room = activeRoomRef.current?.room;
+    const answer: TurnStopResult =
+      socket?.connected && room
+        ? await new Promise<TurnStopResult>(resolve => {
+            const timer = setTimeout(() => resolve({ ok: false, reason: 'unavailable' }), STOP_ACK_TIMEOUT_MS);
+            socket.emit(TURN_STOP_EVENT, { turnId, room } satisfies TurnStopPayload, (result: TurnStopResult) => {
+              clearTimeout(timer);
+              resolve(result && typeof result === 'object' && 'ok' in result ? result : { ok: false, reason: 'unavailable' });
+            });
+          })
+        : { ok: false, reason: 'unavailable' };
+    if (!answer.ok) {
+      // The socket could not ask (not connected, or a realtime server from before the event).
+      addDebugLog('warn', 'agent:socket', `The stop could not be asked over the socket: ${answer.reason}`, { turnId });
+      if (stillWaiting()) await askApi();
+    }
+  }, [addDebugLog, handleProtocolEvent]);
+
+  /** The turn whose UI requests the tab runs now: none while starting, none once a stop is asked. */
+  const acceptedTurnId = useCallback((): string | null => {
+    const { starting, turnId } = liveTurnRef.current;
+    if (starting || !turnId) return null;
+    return stoppingRef.current?.turnId === turnId ? null : turnId;
+  }, []);
 
   // --- The user's decision on an approval card (ADR-0228 §2.2.3) ---
   // Only the card calls this: it is not on the context `useAgent` returns, so
@@ -671,6 +838,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     turnStartsRef.current += 1;
     liveTurnRef.current = { starting: false, turnId: null };
     heldEndsRef.current = [];
+    clearStopping();
   }, []);
 
   /**
@@ -712,6 +880,13 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     pendingLoadRef.current = load;
     return load;
   }, [addDebugLog, setActiveConversation]);
+
+  // A turn of this tab superseded by a message sent from another window: the conversation has
+  // moved on there, so it is read again here.
+  supersededElsewhereRef.current = () => {
+    const id = conversationIdRef.current;
+    if (id) void loadConversation(id, { restoring: false });
+  };
 
   // Return to the tab's conversation after a reload.
   useEffect(() => {
@@ -901,6 +1076,9 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     open: useCallback(() => setIsOpen(true), []),
     close: useCallback(() => setIsOpen(false), []),
     sendMessage,
+    stopTurn,
+    isStopping,
+    acceptedTurnId,
     messages,
     isStreaming,
     isProcessing: isStreaming,

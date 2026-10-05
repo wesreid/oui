@@ -16,7 +16,8 @@ import type { ToolPolicy } from '../authz/tool-policy.js';
 import type { UIActionChannel } from '../ui/channel.js';
 import type { LanguageModel, ProviderOptions } from '../model.js';
 import type { ApprovalStoreClient } from '../approvals/client.js';
-import type { ApprovalContinuation } from '@ouispec/agent-core';
+import type { ApprovalContinuation, TurnStopReason, TurnStoppedMarker } from '@ouispec/agent-core';
+import type { TurnStopClient } from '../stop/turn-stop.js';
 
 /**
  * Database handle — opaque to the SDK. The integrator's callbacks receive
@@ -43,6 +44,25 @@ export interface AgentTurnPayload {
    * token to redeem, or that they declined (ADR-0228 §2.2.5).
    */
   approval?: ApprovalContinuation;
+  /**
+   * The turns of this conversation that this turn supersedes (ADR-0252 §2.5):
+   * the host asked each to stop when this turn's message arrived. The host's
+   * `getHistory` is given them, to wait until each is stored before it reads.
+   */
+  supersedes?: string[];
+}
+
+/** What `getHistory` is told of the turn it reads for. */
+export interface HistoryRequest {
+  turnId: string;
+  /** The turns this one supersedes, which must be stored (or given up on) before history is read. */
+  supersedes: readonly string[];
+  /**
+   * Aborts when this turn is itself asked to stop while it waits: a wait for
+   * earlier turns should end then, since the turn will store only that it was
+   * stopped and reads no history.
+   */
+  signal: AbortSignal;
 }
 
 /**
@@ -178,6 +198,16 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
     store?: ApprovalStoreClient;
   };
 
+  /**
+   * Stopping a turn (ADR-0252). The stop request is kept by the realtime
+   * server, and the turn asks for it there unless `client` says otherwise.
+   */
+  stops?: {
+    client?: TurnStopClient;
+    /** How long after a stop an answer already on its way is still waited for. Default 2 s. */
+    graceMs?: number;
+  };
+
   // ─── Integrator Callbacks ────────────────────────────────────────────
 
   /**
@@ -194,23 +224,37 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
    *
    * The SDK handles appending the current user message — don't include it.
    */
-  getHistory: (conversationId: string, db: TDb) => Promise<TurnHistoryMessage[]>;
+  getHistory: (conversationId: string, db: TDb, turn: HistoryRequest) => Promise<TurnHistoryMessage[]>;
 
   /**
-   * Persists the new messages generated during this turn.
-   * Called after the turn completes successfully.
+   * Persists the new messages generated during this turn. Called once, before
+   * the client is told the turn ended, whether it ended by itself or was
+   * stopped (`stopped` is then set, and the last assistant message carries the
+   * same marker: ADR-0252 §2.3).
+   *
+   * A host that lets a newer turn give up on this one (ADR-0252 §2.5) answers
+   * `{ stored: false }` when it found the turn already given up on and stored
+   * nothing. The turn is still announced, and nothing that depends on its
+   * messages being stored (an expired approval's confirmation) is done.
    */
   persistMessages: (input: {
     turnId: string;
     conversationId: string;
     messages: TurnMessage[];
     usage: { promptTokens: number; completionTokens: number; totalTokens: number };
+    stopped?: TurnStoppedMarker;
     db: TDb;
-  }) => Promise<void>;
+  }) => Promise<void | { stored: false }>;
 
   /**
    * Optional: record turn start in your database. Receives the db handle.
    * Default: no-op (the SDK still emits `agent:turn_started` to realtime).
+   *
+   * A host that keeps a row per turn claims it here. Answering
+   * `{ run: false, reason }` says the turn must not run: its row shows it
+   * already ended or was given up on, which is what a queue's redelivery of
+   * an old turn finds (ADR-0252 §2.5). The turn then does nothing: no model
+   * call, no UI action, no event to the client.
    */
   recordTurnStart?: (input: {
     turnId: string;
@@ -219,7 +263,7 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
     accountId: string;
     model: string;
     db: TDb;
-  }) => Promise<void>;
+  }) => Promise<void | { run: false; reason: string }>;
 
   /**
    * Optional: record turn completion. Default: no-op.
@@ -229,6 +273,8 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
     conversationId: string;
     rounds: number;
     usage: { promptTokens: number; completionTokens: number; totalTokens: number };
+    /** Set when the turn was stopped rather than ending by itself (ADR-0252). */
+    stopReason?: TurnStopReason;
     db: TDb;
   }) => Promise<void>;
 

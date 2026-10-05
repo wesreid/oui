@@ -24,6 +24,9 @@ import { createRoomTokenSigner, type RoomTokenSigner } from './rooms/room-token.
 import { createOUIResultStore, type OUIResultStore } from './oui/results.js';
 import { createApprovalTokenSigner } from './approvals/token.js';
 import { createApprovalStore, type ApprovalStore } from './approvals/store.js';
+import { createTurnStopStore, type TurnStopStore } from './turns/stops.js';
+import { createTurnStopEvent } from './turns/client-event.js';
+import { turnStopsRouter } from './turns/routes.js';
 import { createApprovalDecideEvent } from './approvals/client-event.js';
 import { approvalRouter } from './approvals/routes.js';
 import { createDeclaredEvents } from './events/declared.js';
@@ -51,6 +54,8 @@ export interface RealtimeServerInstance {
   approvals: ApprovalStore;
   /** Job settlements, when the server has event declarations. */
   settlements: SettlementStore | null;
+  /** Stop requests for turns (ADR-0252). */
+  stops: TurnStopStore;
   close(): Promise<void>;
 }
 
@@ -101,6 +106,7 @@ export async function createRealtimeServer(config: RealtimeServerConfig): Promis
   }
   const results = createOUIResultStore(pub, resultsSub, logger);
   const approvals = createApprovalStore(pub, approvalTokens, logger);
+  const stops = createTurnStopStore(pub, resultsSub, logger);
   const settlements = declared ? createSettlementStore(pub, resultsSub, logger) : null;
 
   const clientEvents = [
@@ -112,6 +118,7 @@ export async function createRealtimeServer(config: RealtimeServerConfig): Promis
       results: () => results,
     }),
     createApprovalDecideEvent(() => approvals),
+    createTurnStopEvent(config.roomPolicy, () => stops),
     ...(config.clientEvents ?? []),
   ];
   assertUniqueClientEvents(clientEvents);
@@ -145,6 +152,7 @@ export async function createRealtimeServer(config: RealtimeServerConfig): Promis
   app.use(ouiResultsRouter(deps));
   app.use(approvalRouter({ approvals, isInternalKey: deps.isInternalKey }));
   app.use(settlementsRouter(deps));
+  app.use(turnStopsRouter({ stops: () => stops, isInternalKey: deps.isInternalKey, logger }));
 
   // Authentication, once per socket, through the product's verifier.
   io.use(async (socket, next) => {
@@ -198,6 +206,7 @@ export async function createRealtimeServer(config: RealtimeServerConfig): Promis
     results,
     approvals,
     settlements,
+    stops,
     async close() {
       await new Promise<void>((resolve) => io.close(() => resolve()));
       await Promise.all(redisClients.map((c) => c.quit().catch(() => c.disconnect())));

@@ -23,7 +23,7 @@
  * });
  * ```
  */
-import type { SQSEvent } from 'aws-lambda';
+import type { Context, SQSEvent } from 'aws-lambda';
 import { createAgentTurnRunner, payloadRefusal } from '../runtime/turn-runner.js';
 import type { AgentTurnPayload, LambdaAgentConfig } from '../runtime/types.js';
 
@@ -38,7 +38,7 @@ import type { AgentTurnPayload, LambdaAgentConfig } from '../runtime/types.js';
 export function createLambdaAgentHandler<TDb>(config: LambdaAgentConfig<TDb>) {
   const runner = createAgentTurnRunner(config);
 
-  return async (event: SQSEvent): Promise<void> => {
+  return async (event: SQSEvent, context?: Context): Promise<void> => {
     if (!event.Records?.length) {
       runner.logger.warn('[agent-sdk] Empty SQS event');
       return;
@@ -47,7 +47,8 @@ export function createLambdaAgentHandler<TDb>(config: LambdaAgentConfig<TDb>) {
     const refusal = payloadRefusal(payload);
     if (refusal) throw new Error(`[agent-sdk] ${refusal}`);
 
-    const outcome = await runner.run(payload);
+    // A stopped turn stores and announces within what the invocation has left.
+    const outcome = await runner.run(payload, context ? { remainingMs: () => context.getRemainingTimeInMillis() } : {});
     if (outcome.status === 'failed' && !outcome.error.recoverable) throw outcome.cause;
   };
 }

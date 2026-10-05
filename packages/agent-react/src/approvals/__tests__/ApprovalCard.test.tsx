@@ -83,9 +83,11 @@ function setup(answer: (payload: { approvalId: string; decision: string }) => Ap
     }),
     () => ({}),
   );
+  // The first start is turn-1, the turn the approval event below names: a card is shown only for
+  // the turn the tab is running (the mock has recorded the call by the time it answers).
   const sendMessage = vi.fn(async (_params: Parameters<AgentClientConfig['sendMessage']>[0]) => ({
-    turnId: `turn-${sendMessage.mock.calls.length + 1}`,
-    socketRoom: `chat:turn:turn-${sendMessage.mock.calls.length + 1}`,
+    turnId: `turn-${sendMessage.mock.calls.length}`,
+    socketRoom: `chat:turn:turn-${sendMessage.mock.calls.length}`,
     roomToken: 'room-token',
   }));
   const grantApproval = vi.fn((grant: { approvalId: string; argsHash: string; expiresAt: number }) => runtime.grantApproval(grant));

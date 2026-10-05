@@ -174,6 +174,70 @@ describe('receipts of a UI action request (oui-spec §7.3.7)', () => {
   });
 });
 
+describe('stopping a turn (ADR-0252)', () => {
+  const stop = (socket: Socket, payload: unknown) =>
+    new Promise<unknown>((resolve) => socket.emit('agent:turn_stop', payload, resolve));
+
+  it("records the owner's stop from the turn's room, and the worker on the other instance hears it", async () => {
+    const tab = await connect(a, 'token-u1');
+    const room = 'agent:turn:t-stop-1';
+    await subscribe(tab, { rooms: [room], tokens: { [room]: await mintToken(b, 'u1', room) } });
+
+    // The worker's watch, open on B before the person presses Stop.
+    const watching = internal(b, '/internal/turns/t-stop-1/stop?userId=u1&waitMs=5000');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await stop(tab, { turnId: 't-stop-1', room })).toEqual({ ok: true, stop: 'requested' });
+
+    const heard = await watching;
+    expect(heard.status).toBe(200);
+    expect(await heard.json()).toMatchObject({ turnId: 't-stop-1', by: 'u1', reason: 'user_stop' });
+    // Pressed again: the first stop stands.
+    expect(await stop(tab, { turnId: 't-stop-1', room })).toEqual({ ok: true, stop: 'already' });
+  });
+
+  it("refuses a stop from a socket that is not in the turn's room", async () => {
+    const outsider = await connect(a, 'token-u2');
+    const room = 'agent:turn:t-stop-2';
+    expect(await stop(outsider, { turnId: 't-stop-2', room })).toEqual({ ok: false, reason: 'not_in_turn_room' });
+    // Its own identity room is one it is in, but joining it proves nothing about a turn.
+    expect(await stop(outsider, { turnId: 't-stop-2', room: 'user:u2' })).toEqual({ ok: false, reason: 'not_in_turn_room' });
+    expect(await stop(outsider, { turnId: 't-stop-2' })).toEqual({ ok: false, reason: 'invalid' });
+
+    const none = await internal(b, '/internal/turns/t-stop-2/stop?userId=u1&waitMs=0');
+    expect(none.status).toBe(204);
+  });
+
+  it("does not let one user's stop reach another user's turn, even from a turn room of their own", async () => {
+    const other = await connect(a, 'token-u2');
+    const ownRoom = 'agent:turn:t-own-u2';
+    await subscribe(other, { rooms: [ownRoom], tokens: { [ownRoom]: await mintToken(b, 'u2', ownRoom) } });
+    // u2 names u1's turn, from a room u2 is truly in.
+    expect(await stop(other, { turnId: 't-stop-3', room: ownRoom })).toEqual({ ok: true, stop: 'requested' });
+
+    // u1's worker asks for u1's stop, and there is none.
+    const forOwner = await internal(b, '/internal/turns/t-stop-3/stop?userId=u1&waitMs=0');
+    expect(forOwner.status).toBe(204);
+  });
+
+  it("takes the host's stop for its user, with the reason, and only with the internal key", async () => {
+    const asked = await internal(a, '/internal/turns/t-stop-4/stop', { body: { userId: 'u1', reason: 'superseded' } });
+    expect(asked.status).toBe(200);
+    expect(await asked.json()).toMatchObject({ ok: true, stop: 'requested', record: { reason: 'superseded', by: 'u1' } });
+
+    const heard = await internal(b, '/internal/turns/t-stop-4/stop?userId=u1&waitMs=0');
+    expect(await heard.json()).toMatchObject({ turnId: 't-stop-4', reason: 'superseded' });
+
+    const again = await internal(a, '/internal/turns/t-stop-4/stop', { body: { userId: 'u1', reason: 'user_stop' } });
+    expect(await again.json()).toMatchObject({ stop: 'already', record: { reason: 'superseded' } });
+
+    expect((await internal(a, '/internal/turns/t-stop-5/stop', { body: { userId: 'u1', reason: 'bored' } })).status).toBe(400);
+    expect((await internal(a, '/internal/turns/t-stop-5/stop', { body: { reason: 'user_stop' } })).status).toBe(400);
+    expect((await internal(a, '/internal/turns/t-stop-5/stop?waitMs=0')).status).toBe(400);
+    expect((await internal(a, '/internal/turns/t-stop-5/stop', { body: { userId: 'u1', reason: 'user_stop' }, key: 'wrong' })).status).toBe(401);
+    expect((await internal(a, '/internal/turns/t-stop-5/stop?userId=u1', { key: 'wrong' })).status).toBe(401);
+  });
+});
+
 describe('relay', () => {
   it('refuses a UI action dispatch into another account, and carries an allow-listed event to the room', async () => {
     const attacker = await connect(a, 'token-u2');

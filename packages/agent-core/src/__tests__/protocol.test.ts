@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AGENT_SOCKET_EVENTS, ALL_AGENT_SOCKET_EVENTS, parseSocketEvent } from '../protocol/index.js';
+import { TURN_STOP_REASONS, isTurnStopReason, turnStoppedNote } from '../turns/index.js';
 
 describe('Agent Protocol (W1.T2 — D2 fix)', () => {
   it('TURN_ERROR should be in AGENT_SOCKET_EVENTS', () => {
@@ -41,5 +42,34 @@ describe('Agent Protocol (W1.T2 — D2 fix)', () => {
       const result = parseSocketEvent(eventName, { turnId: 'test-turn', text: 'test', name: 'test_tool', toolUseId: 'tc1' }, 'fallback');
       expect(result, `parseSocketEvent('${eventName}', ...) returned null — missing handler`).not.toBeNull();
     }
+  });
+});
+
+describe('a stopped turn (ADR-0252)', () => {
+  it('reads why a turn was stopped from its completion', () => {
+    for (const stopReason of ['user_stop', 'superseded'] as const) {
+      expect(parseSocketEvent('agent:turn_complete', { turnId: 't1', stopReason }, 'fallback')).toEqual({
+        type: 'done',
+        turnId: 't1',
+        messageId: undefined,
+        usage: undefined,
+        stopReason,
+      });
+    }
+  });
+
+  it('says nothing of stopping for a turn that ended by itself, or for a reason it does not know', () => {
+    expect(parseSocketEvent('agent:turn_complete', { turnId: 't1' }, 'fallback')).not.toHaveProperty('stopReason');
+    expect(parseSocketEvent('agent:turn_complete', { turnId: 't1', stopReason: 'complete' }, 'fallback')).not.toHaveProperty(
+      'stopReason',
+    );
+  });
+
+  it('gives a stopped message a line of text to carry, never an empty one', () => {
+    expect(turnStoppedNote({ reason: 'user_stop' })).toMatch(/person stopped this turn/);
+    expect(turnStoppedNote({ reason: 'superseded' })).toMatch(/sent a new message/);
+    for (const reason of TURN_STOP_REASONS) expect(turnStoppedNote({ reason }).trim()).not.toBe('');
+    expect(isTurnStopReason('user_stop')).toBe(true);
+    expect(isTurnStopReason('deadline')).toBe(false);
   });
 });

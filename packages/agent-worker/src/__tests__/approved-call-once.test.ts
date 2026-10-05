@@ -262,6 +262,7 @@ describe('a call still stored as waiting, at the start of a later turn', () => {
   function settling(
     answer: (approvalId: string) => ApprovalSettlement['outcome'] | Promise<ApprovalSettlement['outcome']>,
     decided?: ApprovalSettlement['decided'],
+    withdrawn?: ApprovalSettlement['withdrawn'],
   ) {
     const asked: Array<{ approvalId: string; userId: string; conversationId: string }> = [];
     const store: ApprovalStoreClient = {
@@ -270,7 +271,7 @@ describe('a call still stored as waiting, at the start of a later turn', () => {
       status: async () => null,
       settleExpired: async (approvalId, owner) => {
         asked.push({ approvalId, ...owner });
-        return { approvalId, outcome: await answer(approvalId), ...(decided ? { decided } : {}) };
+        return { approvalId, outcome: await answer(approvalId), ...(decided ? { decided } : {}), ...(withdrawn ? { withdrawn } : {}) };
       },
     };
     return { store, asked };
@@ -337,6 +338,43 @@ describe('a call still stored as waiting, at the start of a later turn', () => {
     expect(stored).toHaveLength(1);
     expect(marker(stored[0].content ?? undefined)).toMatchObject(approvedExpired);
     expect(result.settledApprovals).toEqual(['call_save_1']);
+  });
+
+  it('withdrawn because the user sent a new message: said as that, never as time running out (ADR-0252 §2.6)', async () => {
+    const { runAgentTurn } = await import('../orchestrator.js');
+    const result = await runAgentTurn({ ...config, approvals: settling(() => 'claimed', undefined, 'superseded').store }, turn(waiting));
+
+    const given = JSON.parse(results()[0].output!.value!) as { success: boolean; notRun: boolean; message: string };
+    expect(marker(results()[0].output?.value)).toMatchObject({
+      decided: 'expired',
+      ran: false,
+      withdrawn: 'superseded',
+      summary: 'The approval was withdrawn before the user decided it, because the user sent a new message. It was not run.',
+    });
+    expect(marker(results()[0].output?.value)).not.toHaveProperty('by');
+    expect(given).toMatchObject({ success: false, notRun: true });
+    expect(given.message).not.toMatch(/expired before/);
+    expect(lastUserText()).toMatch(/was withdrawn before it ran, because the user sent a new message or stopped that turn; that action did not run\./);
+    expect(lastUserText()).not.toMatch(/expired before the user decided/);
+
+    // Stored once, under the call's own id, and confirmed like any expiry.
+    const stored = result.newMessages.filter((m) => m.role === 'tool');
+    expect(stored).toHaveLength(1);
+    expect(marker(stored[0].content ?? undefined)).toMatchObject({ withdrawn: 'superseded' });
+    expect(result.settledApprovals).toEqual(['call_save_1']);
+  });
+
+  it('approved, then withdrawn before it ran: keeps that the user approved it, and why it did not run', async () => {
+    const { runAgentTurn } = await import('../orchestrator.js');
+    await runAgentTurn({ ...config, approvals: settling(() => 'claimed', 'approved', 'stopped').store }, turn(waiting));
+    expect(marker(results()[0].output?.value)).toMatchObject({
+      decided: 'approved',
+      by: 'user',
+      ran: false,
+      withdrawn: 'stopped',
+      summary: 'Approved by the user on the approval card, but withdrawn before it ran because the user stopped the turn that asked for it. It was not run.',
+    });
+    expect((JSON.parse(results()[0].output!.value!) as { message: string }).message).toMatch(/Ask the user before running it again\.$/);
   });
 
   it('claimed by another turn: the model is told for this turn, and nothing is stored', async () => {
@@ -459,6 +497,25 @@ describe('the HTTP store client, asked to settle', () => {
       ]);
     } finally {
       fetchMock.mockRestore();
+    }
+  });
+
+  it('withdraws with the reason, and reads an older server, which only settles, as not having withdrawn', async () => {
+    const fetchMock = answering(200, { approvalId: 'call_save_1', outcome: 'withdrawn' });
+    try {
+      expect(await client().withdraw!('call_save_1', owner, 'stopped')).toEqual({ approvalId: 'call_save_1', outcome: 'withdrawn' });
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(String(url)).toBe('http://realtime.internal/internal/approvals/call_save_1/settle');
+      expect(JSON.parse(String((init as RequestInit).body))).toEqual({ ...owner, expire: 'stopped' });
+    } finally {
+      fetchMock.mockRestore();
+    }
+    // A server from before this ignores `expire` and answers as a settle: the approval is still live.
+    const older = answering(200, { approvalId: 'call_save_1', outcome: 'open' });
+    try {
+      expect(await client().withdraw!('call_save_1', owner, 'stopped')).toEqual({ approvalId: 'call_save_1', outcome: 'unknown' });
+    } finally {
+      older.mockRestore();
     }
   });
 

@@ -14,6 +14,7 @@
 import type { AgentProtocolEvent } from '../protocol/index.js';
 import type { ViewAnnotationState } from './api-surface.js';
 import type { ApprovalContinuation, ApprovalGrant } from '../approvals/types.js';
+import type { TurnStoppedMarker } from '../turns/types.js';
 
 
 /**
@@ -139,6 +140,11 @@ export interface AgentStoredMessage {
   toolCalls?: Array<{ id: string; name: string; arguments?: Record<string, unknown> }> | null;
   toolCallId?: string | null;
   createdAt: string;
+  /**
+   * Set on the last assistant message of a turn that was stopped (ADR-0252).
+   * The panel labels the message; a later turn's history says so after its text.
+   */
+  stopped?: TurnStoppedMarker | null;
 }
 
 /** One stored conversation, with its most recent messages in chronological order. */
@@ -189,6 +195,15 @@ export interface AgentClientConfig {
      */
     approval?: ApprovalContinuation;
   }) => Promise<{ turnId: string; socketRoom: string; roomToken?: string }>;
+
+  /**
+   * Asks the platform's API to stop a turn (ADR-0252 §2.14). The Stop control
+   * asks over the socket first; this is used when the socket cannot be reached
+   * or the stop is not confirmed in time. The platform checks that the turn is
+   * the user's, and records the same stop the socket would have. Optional: a
+   * platform without it stops only over the socket.
+   */
+  stopTurn?: (params: { turnId: string; conversationId: string | null }) => Promise<void>;
 
   /**
    * Hands the user's approval to this tab's OUI runtime (`runtime.grantApproval`

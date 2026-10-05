@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createSurfaceRuntime } from '../../src/core/surface-runtime.js';
 import { defineSurface } from '../../src/core/define-surface.js';
+import { acceptCurrentTurn } from '../../src/core/accept-turn.js';
 import type { OUIActionRequest, OUIActionResult } from '../../src/spec/types.js';
 import { createMockSocket, wait } from '../helpers/mock-socket.js';
 
@@ -439,5 +440,73 @@ describe('createSurfaceRuntime', () => {
     expect(socket.emitted.filter(e => e.event === 'oui:action:result')).toHaveLength(1);
     warn.mockRestore();
     runtime.dispose();
+  });
+});
+
+describe('accepting requests per turn (§7.3.1)', () => {
+  function setup(currentTurn: () => string | null) {
+    const socket = createMockSocket();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const runtime = createSurfaceRuntime({ socket, announce: false, settle: FAST, accept: acceptCurrentTurn(currentTurn) });
+    const go = vi.fn();
+    runtime.mount(shell, () => ({ go }));
+    const send = (turnId: string | undefined, id: string) => {
+      const receipts: unknown[] = [];
+      socket.receiveWithAck(
+        'oui:dispatch',
+        { ...request('shell', 'go', { to: '/x' }, id), ...(turnId ? { turnId } : {}) },
+        (r: unknown) => receipts.push(r),
+      );
+      return receipts;
+    };
+    return { socket, runtime, go, send, done: () => (warn.mockRestore(), runtime.dispose()) };
+  }
+
+  it('runs a request of the current turn, and refuses one a superseded turn sends late', async () => {
+    let current: string | null = 'turn-1';
+    const { go, send, socket, done } = setup(() => current);
+
+    send('turn-1', 'r1');
+    await wait(FAST.quietMs + 50);
+    expect(go).toHaveBeenCalledTimes(1);
+
+    // The person sends a new message: the tab's turn is now turn-2, at once.
+    current = 'turn-2';
+    const late = send('turn-1', 'r2');
+    await wait(FAST.quietMs + 50);
+    expect(go).toHaveBeenCalledTimes(1);
+    // Received and not accepted: the worker settles it as "not run".
+    expect(late).toEqual([{ ok: false, reason: 'this client does not accept requests now' }]);
+    expect(socket.emitted.filter(e => e.event === 'oui:action:result')).toHaveLength(1);
+
+    send('turn-2', 'r3');
+    await wait(FAST.quietMs + 50);
+    expect(go).toHaveBeenCalledTimes(2);
+    done();
+  });
+
+  it('accepts a request that names no turn while a turn is in progress: an older worker is not refused', async () => {
+    let current: string | null = 'turn-1';
+    const { go, send, done } = setup(() => current);
+
+    const during = send(undefined, 'old-1');
+    await wait(FAST.quietMs + 50);
+    expect(go).toHaveBeenCalledTimes(1);
+    expect(during).toEqual([{ ok: true }]);
+
+    current = null;
+    const after = send(undefined, 'old-2');
+    await wait(FAST.quietMs + 50);
+    expect(go).toHaveBeenCalledTimes(1);
+    expect(after).toEqual([{ ok: false, reason: 'this client does not accept requests now' }]);
+    done();
+  });
+
+  it('refuses every request while no turn runs, whatever turn it names', async () => {
+    const { go, send, done } = setup(() => null);
+    send('turn-1', 'r1');
+    await wait(FAST.quietMs + 50);
+    expect(go).not.toHaveBeenCalled();
+    done();
   });
 });

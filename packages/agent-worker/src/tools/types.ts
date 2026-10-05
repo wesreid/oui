@@ -1,3 +1,4 @@
+import type { TurnStopState } from '../stop/turn-stop.js';
 import type { ActionRequestApproval, AgentApiSurface } from '@ouispec/agent-core';
 import type { EffectOrKind } from '@ouispec/bindings';
 import type { UISlot } from '../ui/ui-sequence.js';
@@ -79,6 +80,12 @@ export interface ToolExecutionContext {
    * the grant from the user's own click.
    */
   approval?: ActionRequestApproval;
+  /**
+   * Whether the turn has been asked to stop (ADR-0252). A tool that waits on
+   * something it sent reads it when `abortSignal` aborts, to say what became
+   * of the call: not run, or sent with its outcome unknown.
+   */
+  stop?: TurnStopState;
   [key: string]: unknown;
 }
 

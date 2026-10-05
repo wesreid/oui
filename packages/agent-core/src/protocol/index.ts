@@ -4,6 +4,7 @@
  */
 import { AGENT_TURN_EVENTS } from '@ouispec/agent-events';
 import type { ApprovalRequiredEvent } from '../approvals/types.js';
+import { isTurnStopReason, type TurnStopReason } from '../turns/types.js';
 
 /**
  * Canonical Socket.IO event names of an agent turn. Declared with their
@@ -152,6 +153,11 @@ export interface DoneEvent {
   messageId?: string;
   usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
   maxRoundsReached?: boolean;
+  /**
+   * Set when the turn did not end by itself (ADR-0252): the person stopped it,
+   * or a newer message superseded it. What it had produced is stored.
+   */
+  stopReason?: TurnStopReason;
 }
 
 /**
@@ -211,6 +217,7 @@ export function parseSocketEvent(event: string, data: unknown, fallbackTurnId: s
         turnId,
         messageId: payload.messageId as string | undefined,
         usage: payload.usage as { promptTokens: number; completionTokens: number; totalTokens: number } | undefined,
+        ...(isTurnStopReason(payload.stopReason) ? { stopReason: payload.stopReason } : {}),
       };
 
     case AGENT_SOCKET_EVENTS.TURN_ERROR: {

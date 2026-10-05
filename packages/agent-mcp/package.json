@@ -1,6 +1,6 @@
 {
   "name": "@ouispec/agent-mcp",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "MCP server adapter — serves generated OpenAPI tools, each call as the client's own principal, and Agent SDK intents as MCP tools",
   "homepage": "https://github.com/wesreid/oui/tree/main/packages/agent-mcp#readme",
   "bugs": {

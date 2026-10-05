@@ -8,12 +8,14 @@ import { describe, expect, it } from 'vitest';
 import {
   AsyncBindingError,
   EventDeclarationError,
+  OUI_WIRE,
   PLATFORM_EVENTS,
   UndeclaredEventError,
   createEventCatalog,
   validateEventDeclarations,
   type EventDeclarationDocument,
 } from '../index.js';
+import { createPayloadValidator } from '../validate.js';
 import { deskEvents } from './support/desk-events.js';
 
 function problemsOf(build: () => unknown): string[] {
@@ -126,6 +128,25 @@ describe('the platform events', () => {
     expect(catalog.allowsRoom('report:ready', 'chat:turn:abc')).toBe(false);
     expect(catalog.allowsRoom('report:progress', 'member:ana')).toBe(false);
     expect(catalog.allowsRoom('report:unknown', 'export:x-1')).toBe(false);
+  });
+});
+
+describe('the platform events of a stopped turn (ADR-0252)', () => {
+  const validator = createPayloadValidator(createEventCatalog(PLATFORM_EVENTS));
+
+  it('accept a completion that says why the turn was stopped, and refuse a reason that is not one', () => {
+    const done = { turnId: 't1', rounds: 1, usage: {}, timestamp: 1 };
+    expect(validator.problems('agent:turn_complete', done)).toEqual([]);
+    expect(validator.problems('agent:turn_complete', { ...done, stopReason: 'user_stop' })).toEqual([]);
+    expect(validator.problems('agent:turn_complete', { ...done, stopReason: 'superseded' })).toEqual([]);
+    expect(validator.problems('agent:turn_complete', { ...done, stopReason: 'bored' })).not.toEqual([]);
+  });
+
+  it('accept a UI request with its turn, and one without: an older worker sends none', () => {
+    const request = { requestId: 'r1', surfaceId: 's', actionId: 'a', params: {}, timestamp: 1 };
+    expect(validator.problems(OUI_WIRE.dispatch, request)).toEqual([]);
+    expect(validator.problems(OUI_WIRE.dispatch, { ...request, turnId: 't1' })).toEqual([]);
+    expect(validator.problems(OUI_WIRE.dispatch, { ...request, turnId: '' })).not.toEqual([]);
   });
 });
 

@@ -8,6 +8,7 @@ import type {
   AgentConversationChanges,
   AgentConversationFilter,
   AgentConversationSummary,
+  TurnStopReason,
 } from '@ouispec/agent-core';
 
 export interface AgentToolCallState {
@@ -15,7 +16,8 @@ export interface AgentToolCallState {
   name: string;
   /** What the assistant called it with: a session's record can be replayed from it (ADR-0244 §2.7). */
   arguments?: Record<string, unknown>;
-  status: 'running' | 'complete' | 'error';
+  /** `stopped`: the turn was stopped before this call's result arrived here. */
+  status: 'running' | 'complete' | 'error' | 'stopped';
   result?: unknown;
 }
 
@@ -26,6 +28,11 @@ export interface AgentMessage {
   timestamp: number;
   toolCall?: AgentToolCallState;
   isStreaming?: boolean;
+  /**
+   * Set on the assistant message of a turn that was stopped (ADR-0252): by
+   * the person, or by a newer message. What it had said is kept.
+   */
+  stopped?: TurnStopReason;
 }
 
 export type DebugLogLevel = 'info' | 'warn' | 'error' | 'event' | 'socket';
@@ -165,7 +172,27 @@ export interface AgentContextValue {
   toggle: () => void;
   open: () => void;
   close: () => void;
+  /**
+   * Sends the person's message. While a turn is running this is a barge-in
+   * (ADR-0252 §2.5): the platform stops the running turn and this message
+   * runs next. The tab's turn is the new one from this call on.
+   */
   sendMessage: (content: string, attachments?: File[]) => Promise<{ turnId: string }>;
+  /**
+   * Stops the turn in progress (ADR-0252 §2.14). What it had produced is
+   * kept. Does nothing when no turn is running or a stop is already asked.
+   */
+  stopTurn: () => Promise<void>;
+  /** True from the person's Stop until the turn's end arrives. */
+  isStopping: boolean;
+  /**
+   * The turn whose UI requests this tab runs now, or null: read when a request
+   * arrives, not at render. Null while no turn runs, while a new turn has no
+   * id yet, and from the moment a stop is asked, so a request a stopped or
+   * superseded turn sends late is refused. Give it to the tab's OUI runtime:
+   * `accept: acceptCurrentTurn(agent.acceptedTurnId)`.
+   */
+  acceptedTurnId: () => string | null;
   messages: AgentMessage[];
   isStreaming: boolean;
   currentTurnId: string | null;

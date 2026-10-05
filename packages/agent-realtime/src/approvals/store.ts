@@ -28,6 +28,7 @@
  */
 import crypto from 'node:crypto';
 import {
+  APPROVAL_WITHDRAW_REASONS,
   argsHash as hashOf,
   EXPIRED_APPROVAL_MEMORY_MS,
   EXPIRY_CLAIM_LEASE_MS,
@@ -41,6 +42,8 @@ import {
   type ApprovalRefusalReason,
   type ApprovalSettlement,
   type ApprovalStatus,
+  type ApprovalWithdrawal,
+  type ApprovalWithdrawReason,
   type ApprovedCall,
   type PendingApprovalInput,
 } from '@ouispec/agent-core';
@@ -71,6 +74,15 @@ export interface ApprovalStore {
   settleExpired(approvalId: string, owner: ApprovalOwner): Promise<ApprovalSettlement>;
   /** The claimed expiry is stored: the claim no longer lapses. False when the store does not know the approval as this owner's. */
   confirmExpirySettled(approvalId: string, owner: ApprovalOwner): Promise<boolean>;
+  /**
+   * Expire an approval now instead of at its time limit (ADR-0252 §2.6): the
+   * person sent a new message while its card waited, or the turn that asked
+   * was stopped. One script, with decide and redeem, so it cannot interleave
+   * with either: a pending approval, or an approved one not yet used, is gone
+   * from that moment, its memory kept with why. A later turn then settles it
+   * as any expiry (`settleExpired`), and is told it was withdrawn.
+   */
+  withdraw(approvalId: string, owner: ApprovalOwner, reason: ApprovalWithdrawReason): Promise<ApprovalWithdrawal>;
 }
 
 /** How long a decline is remembered for the turn that follows it. */
@@ -81,13 +93,14 @@ const stateKey = (id: string) => `approval:${id}:state`;
 const declinedKey = (id: string) => `approval:declined:${id}`;
 const seenKey = (id: string) => `approval:${id}:seen`;
 const settledKey = (id: string) => `approval:${id}:settled`;
+const withdrawnKey = (id: string) => `approval:${id}:withdrawn`;
 
-// KEYS: record, state, declined, seen, settled. ARGV: record JSON, ttl ms, userId, conversationId, tool, argsHash,
-// expiresAt, seen JSON, seen ttl ms.
-// A new approval supersedes an old decline under the same id, and an old expiry's settlement.
+// KEYS: record, state, declined, seen, settled, withdrawn. ARGV: record JSON, ttl ms, userId, conversationId, tool,
+// argsHash, expiresAt, seen JSON, seen ttl ms.
+// A new approval supersedes an old decline under the same id, an old expiry's settlement, and an old withdrawal.
 const CREATE = `
 if redis.call('EXISTS', KEYS[1]) == 1 or redis.call('EXISTS', KEYS[2]) == 1 then return 'exists' end
-redis.call('DEL', KEYS[3], KEYS[5])
+redis.call('DEL', KEYS[3], KEYS[5], KEYS[6])
 redis.call('SET', KEYS[4], ARGV[8], 'PX', ARGV[9])
 redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
 redis.call('HSET', KEYS[2], 'status', 'pending', 'userId', ARGV[3], 'conversationId', ARGV[4], 'tool', ARGV[5], 'argsHash', ARGV[6], 'expiresAt', ARGV[7])
@@ -126,10 +139,31 @@ local record = redis.call('GET', KEYS[2])
 redis.call('DEL', KEYS[1], KEYS[2], KEYS[3])
 return {'ok', record, s[7]}`;
 
-// KEYS: state, seen, settled. ARGV: userId, conversationId, lease ms.
+// KEYS: state, record, seen, withdrawn. ARGV: userId, conversationId, reason.
+// Expire-now. A pending approval, or an approved one not yet redeemed, loses its state and record,
+// which is exactly what its time running out does: a decision is then refused, a token redeemed
+// after it answers 'used', and SETTLE finds "state gone, seen present". The memory (seen) is left
+// as it is, so one the person had approved still says 'approved'; why it was withdrawn is kept
+// beside it for as long as the memory lasts.
+const WITHDRAW = `
+if redis.call('EXISTS', KEYS[1]) == 0 then
+  local seen = redis.call('GET', KEYS[3])
+  if not seen then return 'unknown' end
+  local m = cjson.decode(seen)
+  if m['userId'] ~= ARGV[1] or m['conversationId'] ~= ARGV[2] then return 'unknown' end
+  return 'settled'
+end
+local o = redis.call('HMGET', KEYS[1], 'userId', 'conversationId')
+if o[1] ~= ARGV[1] or o[2] ~= ARGV[2] then return 'unknown' end
+redis.call('DEL', KEYS[1], KEYS[2])
+local left = redis.call('PTTL', KEYS[3])
+if left > 0 then redis.call('SET', KEYS[4], ARGV[3], 'PX', left) end
+return 'withdrawn'`;
+
+// KEYS: state, seen, settled, withdrawn. ARGV: userId, conversationId, lease ms.
 // The approval's own keys lapse in Redis at its expiry, so "state gone, seen present" is this
 // server's Redis saying it expired undecided. The claim is one SET NX: exactly one caller gets it,
-// and it lapses unless confirmed.
+// and it lapses unless confirmed. An approval that was withdrawn says why.
 const SETTLE = `
 if redis.call('EXISTS', KEYS[1]) == 1 then
   local o = redis.call('HMGET', KEYS[1], 'userId', 'conversationId')
@@ -140,8 +174,9 @@ local seen = redis.call('GET', KEYS[2])
 if not seen then return {'unknown'} end
 local m = cjson.decode(seen)
 if m['userId'] ~= ARGV[1] or m['conversationId'] ~= ARGV[2] then return {'unknown'} end
-if redis.call('SET', KEYS[3], 'lease', 'NX', 'PX', ARGV[3]) then return {'claimed', seen} end
-return {'already', seen}`;
+local withdrawn = redis.call('GET', KEYS[4]) or ''
+if redis.call('SET', KEYS[3], 'lease', 'NX', 'PX', ARGV[3]) then return {'claimed', seen, withdrawn} end
+return {'already', seen, withdrawn}`;
 
 // KEYS: state, seen, settled. ARGV: userId, conversationId, memory ms.
 // The expiry is stored in the conversation: the claim stays for as long as the memory of the approval does.
@@ -243,12 +278,13 @@ export function createApprovalStore(
       const seen = { userId: input.userId, conversationId: input.conversationId, expiresAt: input.expiresAt };
       const result = await redis.eval(
         CREATE,
-        5,
+        6,
         recordKey(input.approvalId),
         stateKey(input.approvalId),
         declinedKey(input.approvalId),
         seenKey(input.approvalId),
         settledKey(input.approvalId),
+        withdrawnKey(input.approvalId),
         JSON.stringify(input),
         input.expiresAt - now,
         input.userId,
@@ -376,25 +412,46 @@ export function createApprovalStore(
     },
 
     async settleExpired(approvalId, { userId, conversationId }) {
-      const [outcome, raw] = ((await redis.eval(
+      const [outcome, raw, why] = ((await redis.eval(
         SETTLE,
-        3,
+        4,
         stateKey(approvalId),
         seenKey(approvalId),
         settledKey(approvalId),
+        withdrawnKey(approvalId),
         userId,
         conversationId,
         expiryClaimLeaseMs,
-      )) ?? []) as [string | undefined, string | undefined];
+      )) ?? []) as [string | undefined, string | undefined, string | undefined];
       if (outcome === 'open') return { approvalId, outcome };
       if ((outcome === 'claimed' || outcome === 'already') && raw) {
         const { expiresAt, decided } = JSON.parse(raw) as { expiresAt: number; decided?: 'approved' };
+        const withdrawn = (APPROVAL_WITHDRAW_REASONS as readonly string[]).includes(why ?? '') ? (why as ApprovalWithdrawReason) : null;
         if (outcome === 'claimed') {
-          logger.info({ approvalId, userId, conversationId, expiresAt, decided: decided ?? null }, 'Approval expired without running: claimed for a turn to store');
+          logger.info(
+            { approvalId, userId, conversationId, expiresAt, decided: decided ?? null, withdrawn },
+            'Approval expired without running: claimed for a turn to store',
+          );
         }
-        return { approvalId, outcome, expiresAt, ...(decided === 'approved' ? { decided } : {}) };
+        return { approvalId, outcome, expiresAt, ...(decided === 'approved' ? { decided } : {}), ...(withdrawn ? { withdrawn } : {}) };
       }
       return { approvalId, outcome: 'unknown' };
+    },
+
+    async withdraw(approvalId, { userId, conversationId }, reason) {
+      const outcome = (await redis.eval(
+        WITHDRAW,
+        4,
+        stateKey(approvalId),
+        recordKey(approvalId),
+        seenKey(approvalId),
+        withdrawnKey(approvalId),
+        userId,
+        conversationId,
+        reason,
+      )) as ApprovalWithdrawal['outcome'] | null;
+      if (outcome === 'withdrawn') logger.info({ approvalId, userId, conversationId, reason }, 'Approval withdrawn before it was used');
+      return { approvalId, outcome: outcome === 'withdrawn' || outcome === 'settled' ? outcome : 'unknown' };
     },
 
     async confirmExpirySettled(approvalId, { userId, conversationId }) {
