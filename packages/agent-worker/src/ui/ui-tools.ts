@@ -14,6 +14,7 @@
  * tools built here are what `ui_act` runs, so every check a tool call goes
  * through — input, quota, policy, approval — sees the action itself.
  */
+import { stoppedBeforeAnswer, stoppedNotRun, stoppedOutcomeUnknown } from '../stop/results.js';
 import { randomUUID } from 'node:crypto';
 import { AGENT_UI_TOOLS } from '@ouispec/agent-core';
 import {
@@ -239,6 +240,8 @@ function actionTool(action: PageAction, shared: Shared): RegisteredTool {
         // Checked here, in the action's place in the turn's order, and not when
         // the model's call arrived: of two changes called in one response, the
         // first's answer decides whether the second may run (ADR-0245 §2.5).
+        // A stopped turn sends nothing more: said first, since why it did not run is the stop.
+        if (ctx.stop?.reason()) return stoppedNotRun(entry.id);
         const refusal = entry.effect === 'view' ? null : shared.sight.refuseChange();
         if (refusal) {
           shared.deps.log?.('warn', 'UI action refused: the page cannot be seen', { action: entry.id, stopped: refusal.stopped });
@@ -280,14 +283,20 @@ async function definitionsOf(
   for (let round = 0; missing.length > 0 && round < wanted.length; round++) {
     const room = ctx.socketRoom;
     if (!room) throw new Error('[agent-sdk] Describing a UI action needs the turn’s room');
+    // A stopped turn asks the page nothing more.
+    if (ctx.stop?.reason()) throw new DefinitionUnavailable(stoppedBeforeAnswer('what the action takes').error!);
     const request: OUIActionRequest = {
       requestId: `describe-${randomUUID()}`,
       surfaceId: OUI_RUNTIME_SURFACE,
       actionId: OUI_DESCRIBE_ACTION,
       params: { actions: missing.map((a) => ({ surface: a.surface.id, action: a.entry.id })) },
       timestamp: Date.now(),
+      turnId: ctx.turnId,
     };
     const answered = await dispatchUntilAnswered(shared.deps, room, request, ctx);
+    if (!answered.result && ctx.stop?.reason()) {
+      throw new DefinitionUnavailable(stoppedBeforeAnswer('what the action takes').error!);
+    }
     if (!answered.result) {
       // A page that does not answer cannot be seen either: nothing is changed in it until it is read.
       shared.sight.lost('the page is not answering');
@@ -451,14 +460,18 @@ function readTool(shared: Shared): RegisteredTool {
       return slot.run(async () => {
         const room = ctx.socketRoom;
         if (!room) throw new Error('[agent-sdk] Reading the page needs the turn’s room');
+        // A stopped turn asks the page nothing more.
+        if (ctx.stop?.reason()) return stoppedBeforeAnswer('the read');
         const request: OUIActionRequest = {
           requestId: ctx.toolCallId ?? `read-${randomUUID()}`,
           surfaceId: OUI_RUNTIME_SURFACE,
           actionId: OUI_READ_ACTION,
           params: input,
           timestamp: Date.now(),
+          turnId: ctx.turnId,
         };
         const answered = await dispatchUntilAnswered(shared.deps, room, request, ctx);
+        if (!answered.result && ctx.stop?.reason()) return stoppedBeforeAnswer('the read');
         if (!answered.result) {
           shared.sight.lost('the page did not answer a read');
           return {
@@ -492,6 +505,10 @@ async function runAction(
     throw new Error(`[agent-sdk] UI tool ${entry.id} needs the tool call id and the turn's room`);
   }
 
+  // A stopped turn sends nothing more: an action that was waiting its place in
+  // the turn's UI order has not reached the page, and now never does.
+  if (ctx.stop?.reason()) return stoppedNotRun(entry.id);
+
   // The page as the actions before this one left it.
   const before = sequence.latestSurfaces() ?? deps.currentPage();
 
@@ -505,8 +522,29 @@ async function runAction(
     timestamp: Date.now(),
     ...(ctx.approval ? { approval: ctx.approval } : {}),
     ...(knownSurfaces ? { knownSurfaces } : {}),
+    // The tab runs a request only for its current turn (oui-spec §7.3.1).
+    turnId: ctx.turnId,
   };
-  const answered = await dispatchUntilAnswered(deps, room, request, ctx);
+  let answered = await dispatchUntilAnswered(deps, room, request, ctx);
+
+  // The turn was stopped while the request was out (ADR-0252 §2.2).
+  if (!answered.result && ctx.stop?.reason()) {
+    // Tabs answered that they got it, and none took it: it did not run.
+    if (answered.receipts && !answered.received) return stoppedNotRun(entry.id);
+    // The page may be running it. One last look, on the stop's own signal (the
+    // turn's is aborted), so an action that did run has its answer stored and
+    // the next turn does not do it again.
+    const late = await deps.channel.awaitResult(requestId, {
+      userId: ctx.userId,
+      timeoutMs: ctx.stop.graceMs,
+      signal: ctx.stop.graceSignal(),
+    });
+    if (!late) {
+      sight.lost(`the turn was stopped before the page answered "${entry.id}"`);
+      return stoppedOutcomeUnknown(entry.id);
+    }
+    answered = { ...answered, result: late };
+  }
 
   if (!answered.result) {
     const within = `within ${Math.round(deps.resultTimeoutMs / 1000)}s`;

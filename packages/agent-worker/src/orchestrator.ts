@@ -20,7 +20,17 @@
  */
 import { streamText, dynamicTool, jsonSchema, isStepCount, hasToolCall } from 'ai';
 import type { ModelMessage, AssistantModelMessage, ToolModelMessage, TextPart, ToolCallPart } from 'ai';
-import { AGENT_SOCKET_EVENTS, argsHash, type ApprovalContinuation, type ApprovalRequiredEvent } from '@ouispec/agent-core';
+import {
+  AGENT_SOCKET_EVENTS,
+  argsHash,
+  turnStoppedNote,
+  type ApprovalContinuation,
+  type ApprovalRequiredEvent,
+  type TurnStoppedMarker,
+} from '@ouispec/agent-core';
+import { DEFAULT_STOP_GRACE_MS, TurnStopped, stopOf, watchTurnStop, type TurnStopState } from './stop/turn-stop.js';
+import { stoppedTurnMessages, type RecordedCall, type RecordedStep } from './stop/partial.js';
+import { resultText, stoppedNotRun, stoppedWhileRunning } from './stop/results.js';
 import type { AgentWorkerConfig, AgentTurnInput, AgentTurnResult, TurnMessage, TurnHistoryMessage } from './types.js';
 import type { RegisteredTool, ToolExecutionContext, ToolExecutionResult } from './tools/types.js';
 import { defaultTurnPolicy } from './turn-policy.js';
@@ -203,6 +213,37 @@ export async function runAgentTurn(
   const abortController = new AbortController();
   const deadlineTimer = setTimeout(() => abortController.abort('Turn deadline exceeded'), turnDeadlineMs);
 
+  // ─── Stopping (ADR-0252) ───────────────────────────────────────────────────
+  // The person's Stop, or a newer message superseding this turn, is kept by the
+  // realtime server; the watch asks for it for as long as the turn runs. A stop
+  // aborts the turn's signal with a typed reason, which is what everything that
+  // waits (the model stream, a UI action's answer, a job's outcome) already
+  // honours. What the turn had produced is then stored and announced (below).
+  const stopWatch = input.stopWatch ?? watchTurnStop(config.stops, turnId, input.userId);
+  /** Set when the turn begins its own end: a stop that lands after is not one (§2.4). */
+  let ending = false;
+  /** Kept back from a stopped turn's grace for storing and announcing it. */
+  const STOP_STORE_MARGIN_MS = 3_000;
+  let stopGraceMs = config.stopGraceMs ?? DEFAULT_STOP_GRACE_MS;
+  // The stop path's own signal: the turn's is aborted by the time anything needs one.
+  let graceSignal: AbortSignal | null = null;
+  const stopState: TurnStopState = {
+    reason: () => stopOf(abortController.signal)?.reason ?? null,
+    graceSignal: () => (graceSignal ??= AbortSignal.timeout(stopGraceMs + 250)),
+    get graceMs() {
+      return stopGraceMs;
+    },
+  };
+  stopWatch.onStop((record) => {
+    if (ending || abortController.signal.aborted) return;
+    // Never longer than this process has left, less what storing and announcing take.
+    const remaining = input.remainingMs?.();
+    if (remaining !== undefined) stopGraceMs = Math.max(0, Math.min(stopGraceMs, remaining - STOP_STORE_MARGIN_MS));
+    graceSignal = AbortSignal.timeout(stopGraceMs + 250);
+    log('info', 'agent:turn', 'Turn asked to stop', { turnId, reason: record.reason, graceMs: stopGraceMs });
+    abortController.abort(new TurnStopped(record.reason, record.at));
+  });
+
   // Build tool execution context
   const toolCtx: ToolExecutionContext = {
     userId: input.userId,
@@ -213,6 +254,7 @@ export async function runAgentTurn(
     apiSurface: config.apiSurface,
     abortSignal: abortController.signal,
     socketRoom,
+    stop: stopState,
   };
 
   // Track tool executions for emit events and persistence.
@@ -220,6 +262,27 @@ export async function runAgentTurn(
   const executedToolResults: Array<{ toolCallId: string; toolName: string; result: string }> = [];
   // The pictures results came with, by call: given to the model with that call's result (ui/answer-image.ts).
   const answerImages = new Map<string, { mediaType: string; base64: string }>();
+
+  // The worker's own record of the turn, kept as it runs: what a stopped turn
+  // is stored from (stop/partial.ts). The model stream's own results do not
+  // survive an abort, so nothing on the stop path reads them.
+  const recordedSteps: Array<RecordedStep & { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number }> = [];
+  const recordedCalls = new Map<string, RecordedCall & { settled: Promise<void> }>();
+  let streamedText = '';
+  /** Records a call as it arrives, and its result when it settles. */
+  const tracked = (toolCallId: string, toolName: string, callInput: unknown, run: () => Promise<string>): Promise<string> => {
+    const call = { toolCallId, toolName, input: callInput, text: null as string | null, settled: Promise.resolve() };
+    recordedCalls.set(toolCallId, call);
+    const result = run().then((text) => {
+      call.text = text;
+      return text;
+    });
+    call.settled = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  };
 
   // Per-tool invocation quotas — mandatory for side-effecting tools.
   // Quota is per-turn, held in this closure — never module scope. It spans
@@ -268,6 +331,9 @@ export async function runAgentTurn(
   ): Promise<CallOutcome> => {
     const startMs = Date.now();
     const isUI = t.kind === 'ui';
+
+    // A stopped turn starts nothing more.
+    if (stopState.reason()) return { text: resultText(stoppedNotRun(t.name)), ran: false };
 
     /**
      * A call refused before its tool ran: invalid input, over its quota, or
@@ -456,6 +522,11 @@ export async function runAgentTurn(
     } finally {
       if (timer) clearTimeout(timer);
     }
+    // A host tool that the stop cut short failed with whatever its abort threw:
+    // its result says what happened instead. (A UI tool says so itself.)
+    if (!isUI && stopState.reason() && result && typeof result === 'object' && 'success' in result && !result.success) {
+      result = stoppedWhileRunning(t.name);
+    }
 
     const durationMs = Date.now() - startMs;
 
@@ -614,12 +685,14 @@ export async function runAgentTurn(
     // one response may get through them in any order (ui-sequence.ts). The place
     // is given up if the call never reaches the page, and otherwise held until
     // its action settles.
-    const execute = async (rawArgs: unknown, options: { toolCallId?: string } | undefined): Promise<string> => {
+    const execute = (rawArgs: unknown, options: { toolCallId?: string } | undefined): Promise<string> => {
       const toolUseId = options?.toolCallId ?? `tool_${Date.now()}`;
       const uiSlot = isUI ? uiSequence.reserve() : undefined;
-      const { text } = await executeCall(t, rawArgs, toolUseId, uiSlot).finally(() => uiSlot?.release());
-      executedToolResults.push({ toolCallId: toolUseId, toolName: t.name, result: text });
-      return text;
+      return tracked(toolUseId, t.name, rawArgs, async () => {
+        const { text } = await executeCall(t, rawArgs, toolUseId, uiSlot).finally(() => uiSlot?.release());
+        executedToolResults.push({ toolCallId: toolUseId, toolName: t.name, result: text });
+        return text;
+      });
     };
 
     // A call that needs approval says so in its description, in place of any
@@ -733,8 +806,14 @@ export async function runAgentTurn(
         required: ['action'],
         additionalProperties: false,
       }),
-      execute: async (rawArgs: unknown, options: { toolCallId?: string } | undefined): Promise<string> => {
+      execute: (rawArgs: unknown, options: { toolCallId?: string } | undefined): Promise<string> => {
         const toolUseId = options?.toolCallId ?? `tool_${Date.now()}`;
+        return tracked(toolUseId, UI_ACT_TOOL, rawArgs, () => act(rawArgs, toolUseId));
+      },
+      toModelOutput,
+    });
+
+    async function act(rawArgs: unknown, toolUseId: string): Promise<string> {
         const { action, input: actionInput } = (rawArgs ?? {}) as { action?: unknown; input?: unknown };
         // Taken as the call arrives, like any UI call (ui-sequence.ts), and
         // given up if it never reaches the page.
@@ -767,9 +846,7 @@ export async function runAgentTurn(
         const { text } = await executeCall(tool, actionInput ?? {}, toolUseId, uiSlot).finally(() => uiSlot.release());
         executedToolResults.push({ toolCallId: toolUseId, toolName: UI_ACT_TOOL, result: text });
         return text;
-      },
-      toModelOutput,
-    });
+    }
   }
 
   function assembleTools(): Record<string, AiTool> {
@@ -946,6 +1023,12 @@ export async function runAgentTurn(
   // tell caching is still working.
   const cachePoint = config.promptCacheBreakpoint;
 
+  // A stop asked for while the turn waited to start (in a queue, or for the
+  // turns before it to be stored) is heard first: nothing runs, and the turn
+  // stores only that it was stopped.
+  const stoppedBeforeStart = stopOf(abortController.signal);
+  if (stoppedBeforeStart) return await finishStopped(stoppedBeforeStart, { expired: null, continued: null });
+
   // ─── The turn after an approval decision (ADR-0228 §2.2.5) ────────────────
   const continued = input.approval ? await continueApproval(input.approval) : null;
 
@@ -1012,6 +1095,10 @@ export async function runAgentTurn(
     return settled;
   }
   const expired = await settleExpiredWaiting();
+
+  // Stopped while the approved call ran, or while the store was asked: the model is not called.
+  const stoppedBeforeModel = stopOf(abortController.signal);
+  if (stoppedBeforeModel) return await finishStopped(stoppedBeforeModel, { expired, continued });
 
   // Convert history to AI SDK CoreMessage format. The page the user is on
   // travels with their message, not in the system prompt: it changes on every
@@ -1157,7 +1244,15 @@ export async function runAgentTurn(
             : instructions,
         };
       },
-      onStepEnd: async ({ text, toolCalls }) => {
+      onStepEnd: async ({ text, toolCalls, usage: stepUsage }) => {
+        recordedSteps.push({
+          text: text ?? '',
+          toolCalls: (toolCalls ?? []).map((tc) => ({ toolCallId: tc.toolCallId, toolName: tc.toolName, input: tc.input })),
+          inputTokens: stepUsage?.inputTokens ?? 0,
+          outputTokens: stepUsage?.outputTokens ?? 0,
+          cacheReadTokens: stepUsage?.inputTokenDetails?.cacheReadTokens ?? 0,
+          cacheWriteTokens: stepUsage?.inputTokenDetails?.cacheWriteTokens ?? 0,
+        });
         log('info', 'agent:llm', 'Step completed', {
           turnId,
           turnClass,
@@ -1169,33 +1264,52 @@ export async function runAgentTurn(
       },
     });
 
-    for await (const textPart of result.textStream) {
-      tokenBuffer += textPart;
-      if (tokenBuffer.length >= COALESCE_CHARS) {
-        await flushTokenBuffer();
-      } else if (!flushTimer) {
-        flushTimer = setTimeout(() => flushTokenBuffer(), COALESCE_MS);
+    // A stop aborts the stream. However that surfaces, as a throw here or as the
+    // stream simply ending, the turn then goes to its stop path, which reads
+    // none of the stream's own results: they reject on an abort.
+    try {
+      for await (const textPart of result.textStream) {
+        streamedText += textPart;
+        tokenBuffer += textPart;
+        if (tokenBuffer.length >= COALESCE_CHARS) {
+          await flushTokenBuffer();
+        } else if (!flushTimer) {
+          flushTimer = setTimeout(() => flushTokenBuffer(), COALESCE_MS);
+        }
       }
+      await flushTokenBuffer();
+      if (stopOf(abortController.signal)) break;
+
+      // After the text stream completes, all promised properties resolve.
+      const steps = await result.steps;
+      const segmentUsage = await result.usage;
+      const response = await result.response;
+
+      allSteps.push(...steps);
+      usageTotals.inputTokens += segmentUsage?.inputTokens ?? 0;
+      usageTotals.outputTokens += segmentUsage?.outputTokens ?? 0;
+      usageTotals.cacheReadTokens += segmentUsage?.inputTokenDetails?.cacheReadTokens ?? 0;
+      usageTotals.cacheWriteTokens += segmentUsage?.inputTokenDetails?.cacheWriteTokens ?? 0;
+      responseMessageCount += response.messages.length;
+      conversation = [...conversation, ...response.messages];
+    } catch (err) {
+      if (!stopOf(abortController.signal)) throw err;
     }
-    await flushTokenBuffer();
-
-    // After the text stream completes, all promised properties resolve.
-    const steps = await result.steps;
-    const segmentUsage = await result.usage;
-    const response = await result.response;
-
-    allSteps.push(...steps);
-    usageTotals.inputTokens += segmentUsage?.inputTokens ?? 0;
-    usageTotals.outputTokens += segmentUsage?.outputTokens ?? 0;
-    usageTotals.cacheReadTokens += segmentUsage?.inputTokenDetails?.cacheReadTokens ?? 0;
-    usageTotals.cacheWriteTokens += segmentUsage?.inputTokenDetails?.cacheWriteTokens ?? 0;
-    responseMessageCount += response.messages.length;
-    conversation = [...conversation, ...response.messages];
 
     // The model's tools no longer change with the page (ADR-0245 §2.2): what
     // the page offers reaches it in each answer, so the turn runs as one segment.
     break;
   }
+
+  // ─── Stopped, or ending ────────────────────────────────────────────────────
+  // Decided here with nothing awaited in between: either the stop was heard
+  // before this point and the turn takes its stop path, or the turn has begun
+  // its own end and a stop that lands from now on is not one. Its watch is
+  // closed, so it cannot abort the store or cause a second announcement.
+  const stop = stopOf(abortController.signal);
+  if (stop) return await finishStopped(stop, { expired, continued });
+  ending = true;
+  stopWatch.close();
 
   // ─── Finalize ──────────────────────────────────────────────────────────────
   const steps = allSteps;
@@ -1306,6 +1420,116 @@ export async function runAgentTurn(
   } finally {
     clearTimeout(deadlineTimer);
     if (flushTimer) clearTimeout(flushTimer);
+    // The turn is over, however it ended: nothing is listening for a stop.
+    ending = true;
+    stopWatch.close();
+  }
+
+  /**
+   * The end of a stopped turn (ADR-0252 §2.4): settle what was in flight, store
+   * what the turn had produced, then say so. Persist first, announce after, as
+   * a turn that ends by itself does.
+   *
+   * Everything here happens after the turn's signal was aborted, so nothing
+   * here is given that signal: each step has its own limit.
+   */
+  async function finishStopped(
+    stopped: TurnStopped,
+    earlier: {
+      expired: { persisted: TurnMessage[]; claimed: string[] } | null;
+      continued: { persisted: TurnMessage[] } | null;
+    },
+  ): Promise<AgentTurnResult> {
+    ending = true;
+    stopWatch.close();
+    // Text the turn produced and had not sent yet is still the person's to see.
+    await flushTokenBuffer().catch(() => undefined);
+
+    // A call that was out when the stop came takes one last look for its answer
+    // (the UI tools do, on the stop's own signal). They are waited for, a little
+    // past that grace, and no longer.
+    const pending = [...recordedCalls.values()].filter((call) => call.text === null);
+    if (pending.length > 0) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        Promise.all(pending.map((call) => call.settled)),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, stopGraceMs + 500);
+        }),
+      ]);
+      if (timer) clearTimeout(timer);
+    }
+
+    const marker: TurnStoppedMarker = { reason: stopped.reason, at: stopped.at };
+    const newMessages: TurnMessage[] = [
+      ...(earlier.expired?.persisted ?? []),
+      ...(earlier.continued?.persisted ?? []),
+      ...stoppedTurnMessages({ steps: recordedSteps, calls: [...recordedCalls.values()], streamedText, marker }),
+    ];
+    const unsettled = [...recordedCalls.values()].filter((call) => call.text === null).map((call) => call.toolName);
+
+    // The steps that ended reported their tokens; the step the stop cut short did not.
+    const stepInputTokens = recordedSteps.map((step) => step.inputTokens);
+    const promptTokens = stepInputTokens.reduce((sum, n) => sum + n, 0);
+    const completionTokens = recordedSteps.reduce((sum, step) => sum + step.outputTokens, 0);
+    const usage = {
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+      peakPromptTokens: stepInputTokens.length > 0 ? Math.max(...stepInputTokens) : 0,
+      cacheReadTokens: recordedSteps.reduce((sum, step) => sum + step.cacheReadTokens, 0),
+      cacheWriteTokens: recordedSteps.reduce((sum, step) => sum + step.cacheWriteTokens, 0),
+    };
+    const rounds = recordedSteps.length;
+    log('info', 'agent:llm', 'Turn usage', {
+      turnId,
+      rounds,
+      stopped: true,
+      stopReason: stopped.reason,
+      peakPromptTokens: usage.peakPromptTokens,
+      promptTokens: usage.promptTokens,
+      cacheReadTokens: usage.cacheReadTokens,
+      cacheWriteTokens: usage.cacheWriteTokens,
+      ...(unsettled.length > 0 ? { unsettledCalls: unsettled } : {}),
+      ...(client ? { ui: { ...uiCounts, blindRefusals: sight.refusals(), stopped: sight.stopped() } } : {}),
+    });
+
+    if (config.beforeTurnComplete) {
+      try {
+        await config.beforeTurnComplete({ rounds, usage, newMessages, stopped: marker });
+      } catch (err) {
+        log('error', 'agent:turn', 'beforeTurnComplete failed; the stopped turn is announced without it', {
+          turnId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    await config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TURN_COMPLETE, {
+      turnId,
+      rounds,
+      usage,
+      stopReason: stopped.reason,
+      timestamp: Date.now(),
+    });
+
+    log('info', 'agent:turn', 'Turn stopped', {
+      turnId,
+      conversationId: input.conversationId,
+      stopReason: stopped.reason,
+      totalRounds: rounds,
+      newMessageCount: newMessages.length,
+    });
+
+    return {
+      rounds,
+      usage,
+      newMessages,
+      ...(earlier.expired && earlier.expired.claimed.length > 0 ? { settledApprovals: earlier.expired.claimed } : {}),
+      maxRoundsReached: false,
+      stopReason: stopped.reason,
+      stopped: marker,
+    };
   }
 }
 
@@ -1405,11 +1629,17 @@ function convertHistoryToCoreMessages(history: TurnHistoryMessage[], currentCont
     if (msg.role === 'user') {
       messages.push({ role: 'user', content: msg.content });
     } else if (msg.role === 'assistant') {
-      if (msg.content || msg.tool_calls?.length) {
+      // A stopped turn's last message says so after its text (ADR-0252 §2.3).
+      // A message that has only that carries the line as its whole text: an
+      // empty text block is refused by a model provider.
+      const stoppedLine = msg.stopped ? turnStoppedNote(msg.stopped) : null;
+      const said = msg.content && msg.content.trim() ? msg.content : null;
+      const text = [said, stoppedLine && !said?.includes(stoppedLine) ? stoppedLine : null].filter(Boolean).join('\n\n');
+      if (text || msg.tool_calls?.length) {
         const parts: Array<TextPart | ToolCallPart> = [];
 
-        if (msg.content) {
-          parts.push({ type: 'text', text: msg.content });
+        if (text) {
+          parts.push({ type: 'text', text });
         }
         if (msg.tool_calls?.length) {
           for (const tc of msg.tool_calls) {

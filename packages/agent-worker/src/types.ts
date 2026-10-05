@@ -1,3 +1,5 @@
+import type { TurnStopReason, TurnStoppedMarker } from '@ouispec/agent-core';
+import type { TurnStopClient, TurnStopWatch } from './stop/turn-stop.js';
 import type { LanguageModel, ProviderOptions } from './model.js';
 import type { RealtimeEmitAdapter } from './emit/types.js';
 import type { ToolRegistry } from './tools/types.js';
@@ -77,8 +79,22 @@ export interface AgentWorkerConfig {
    *
    * It is awaited. If it rejects, the rejection is logged and the turn still
    * completes: a turn that answered is not turned into a failure by its record.
+   *
+   * A stopped turn calls it too, with what it had produced and `stopped`
+   * (ADR-0252 §2.4): stored first, announced after, on both paths.
    */
-  beforeTurnComplete?: (turn: Pick<AgentTurnResult, 'rounds' | 'usage' | 'newMessages'>) => Promise<void>;
+  beforeTurnComplete?: (turn: Pick<AgentTurnResult, 'rounds' | 'usage' | 'newMessages' | 'stopped'>) => Promise<void>;
+  /**
+   * Where the turn hears that it was asked to stop (ADR-0252 §2.1): the
+   * person's Stop, or a newer message superseding it. Without one, or without
+   * `stopWatch` on the turn's input, a turn cannot be stopped.
+   */
+  stops?: TurnStopClient;
+  /**
+   * How long after a stop an answer already on its way is still waited for,
+   * before its call is stored as sent with its outcome unknown. Default 2 s.
+   */
+  stopGraceMs?: number;
 }
 
 export interface SystemPromptContext {
@@ -106,6 +122,18 @@ export interface AgentTurnInput {
    * message text.
    */
   approval?: ApprovalContinuation;
+  /**
+   * The turn's watch for a stop, when the caller opened it before this call:
+   * the turn runner does, before it reads history, so a stop asked for while
+   * the turn waited is heard first. Without it, one is opened from
+   * `config.stops`.
+   */
+  stopWatch?: TurnStopWatch;
+  /**
+   * How long this process has left, in ms, when the host knows (a Lambda's
+   * remaining time). A stopped turn stores and announces within it.
+   */
+  remainingMs?: () => number;
 }
 
 /**
@@ -114,7 +142,17 @@ export interface AgentTurnInput {
  */
 export type TurnHistoryMessage =
   | { role: 'user'; content: string }
-  | { role: 'assistant'; content: string | null; tool_calls?: ToolCallRef[] }
+  | {
+      role: 'assistant';
+      content: string | null;
+      tool_calls?: ToolCallRef[];
+      /**
+       * Set on the last assistant message of a turn that was stopped
+       * (`TurnMessage.stopped`, as the host stored it). The model is told so
+       * after the message's text.
+       */
+      stopped?: TurnStoppedMarker | null;
+    }
   | { role: 'tool'; content: string; tool_call_id: string; name?: string };
 
 export interface ToolCallRef {
@@ -158,8 +196,24 @@ export interface AgentTurnResult {
    */
   settledApprovals?: string[];
   maxRoundsReached: boolean;
-  /** Why the turn ended: which bound or condition terminated the loop */
-  stopReason: 'present_options' | 'awaiting_approval' | 'step_count' | 'token_budget' | 'deadline' | 'complete' | 'error';
+  /**
+   * Why the turn ended: which bound or condition terminated the loop, or
+   * that it was stopped (`user_stop`, `superseded`: ADR-0252).
+   */
+  stopReason:
+    | 'present_options'
+    | 'awaiting_approval'
+    | 'step_count'
+    | 'token_budget'
+    | 'deadline'
+    | 'complete'
+    | 'error'
+    | TurnStopReason;
+  /**
+   * Set when the turn was stopped: `newMessages` is what it had produced, each
+   * call with exactly one result, the last assistant message marked.
+   */
+  stopped?: TurnStoppedMarker;
 }
 
 export interface TurnMessage {
@@ -168,4 +222,11 @@ export interface TurnMessage {
   toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
   toolCallId?: string;
   name?: string;
+  /**
+   * On the last assistant message of a stopped turn (ADR-0252 §2.3). The host
+   * stores it with the message and hands it back in history
+   * (`TurnHistoryMessage.stopped`). A message that has only the marker carries
+   * the marker's line as its `content`, so it is never empty.
+   */
+  stopped?: TurnStoppedMarker;
 }

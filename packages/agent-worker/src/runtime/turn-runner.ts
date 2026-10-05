@@ -6,11 +6,12 @@
  * decides how a turn arrives and what a failure means to its transport.
  */
 import { APICallError, RetryError } from 'ai';
-import { AGENT_SOCKET_EVENTS } from '@ouispec/agent-core';
+import { AGENT_SOCKET_EVENTS, type TurnStopReason, type TurnStoppedMarker } from '@ouispec/agent-core';
 import { runAgentTurn } from '../orchestrator.js';
 import { createHttpEmitAdapter } from '../emit/http-adapter.js';
 import { createHttpUIActionChannel } from '../ui/channel.js';
 import { createHttpApprovalStoreClient } from '../approvals/client.js';
+import { createHttpTurnStopClient, watchTurnStop } from '../stop/turn-stop.js';
 import { withoutClientUI } from '../ui/snapshot.js';
 import { createToolRegistry } from '../tools/types.js';
 import { buildAgentSystemPrompt } from '../prompt/index.js';
@@ -27,11 +28,18 @@ export interface CategorizedError {
 
 export type TurnOutcome =
   | { status: 'completed'; turnId: string; rounds: number }
+  /** The turn was stopped (ADR-0252): what it had produced is stored, and the client was told. */
+  | { status: 'stopped'; turnId: string; rounds: number; stopReason: TurnStopReason }
+  /** The host's turn record said the turn must not run (a redelivery of a turn that already ended): nothing was done. */
+  | { status: 'refused'; turnId: string; reason: string }
   | { status: 'failed'; turnId: string; error: CategorizedError; cause: unknown };
 
 export interface AgentTurnRunner {
-  /** Runs one turn to its end. Never throws for a turn's own failure: it reports it. */
-  run(payload: AgentTurnPayload): Promise<TurnOutcome>;
+  /**
+   * Runs one turn to its end. Never throws for a turn's own failure: it reports it.
+   * `remainingMs` is how long the process has left, when the host knows.
+   */
+  run(payload: AgentTurnPayload, host?: { remainingMs?: () => number }): Promise<TurnOutcome>;
   /** The model, as logs name it. */
   readonly model: string;
   /** The host's logger, or the default one. */
@@ -59,6 +67,9 @@ export function payloadRefusal(payload: unknown): string | null {
   if (missing.length > 0) return `the turn payload is missing ${missing.join(', ')}`;
   if (p.context !== undefined && p.context !== null && typeof p.context !== 'object') return 'context must be an object';
   if (p.userToken !== undefined && typeof p.userToken !== 'string') return 'userToken must be a string';
+  if (p.supersedes !== undefined && !(Array.isArray(p.supersedes) && p.supersedes.every((id) => typeof id === 'string' && id))) {
+    return 'supersedes must be a list of turn ids';
+  }
   if (p.approval !== undefined) {
     const a = p.approval as Record<string, unknown> | null;
     if (!a || typeof a !== 'object' || typeof a.approvalId !== 'string' || !a.approvalId) return 'approval needs an approvalId';
@@ -94,6 +105,15 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
   const approvals =
     config.approvals?.store ?? createHttpApprovalStoreClient({ url: config.realtime.url, apiKey: config.realtime.apiKey });
 
+  // A stop is kept by the same realtime server (ADR-0252 §2.1).
+  const stops =
+    config.stops?.client ??
+    createHttpTurnStopClient({
+      url: config.realtime.url,
+      apiKey: config.realtime.apiKey,
+      onError: (error, attempt) => logger.warn('[agent-sdk] Could not ask whether the turn was stopped; asking again', { attempt, error: messageOf(error) }),
+    });
+
   const resolveTools = async (ctx: { userId: string; accountId: string; turnId: string }) =>
     createToolRegistry(typeof config.tools === 'function' ? await config.tools(ctx) : config.tools);
 
@@ -102,9 +122,10 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
   return {
     model,
     logger,
-    async run(payload) {
+    async run(payload, host = {}) {
       const { turnId, conversationId, userId, accountId, socketRoom, content, context, userToken, approval } = payload;
-      logger.info('[agent-sdk] Processing turn', { turnId, conversationId, userId });
+      const supersedes = Array.isArray(payload.supersedes) ? payload.supersedes.filter((id) => typeof id === 'string' && id) : [];
+      logger.info('[agent-sdk] Processing turn', { turnId, conversationId, userId, ...(supersedes.length ? { supersedes } : {}) });
 
       let db: TDb;
       try {
@@ -116,14 +137,33 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
 
       if (config.recordTurnStart) {
         try {
-          await config.recordTurnStart({ turnId, conversationId, userId, accountId, model, db });
+          const claim = await config.recordTurnStart({ turnId, conversationId, userId, accountId, model, db });
+          if (claim && claim.run === false) {
+            // The host's record says this turn already ended or was given up on: a queue's
+            // redelivery. It does nothing, and says nothing to a client that has moved on.
+            logger.warn('[agent-sdk] Turn refused by its record; nothing was run', { turnId, reason: claim.reason });
+            return { status: 'refused', turnId, reason: claim.reason };
+          }
         } catch (err) {
           logger.warn('[agent-sdk] recordTurnStart failed', { error: messageOf(err) });
         }
       }
 
+      // Open before history is read: a stop asked for while the turn waited in the
+      // queue, or waits now for the turns it supersedes, is the first thing it hears.
+      const stopWatch = watchTurnStop(stops, turnId, userId);
+      const waiting = new AbortController();
+      stopWatch.onStop(() => waiting.abort());
+
       try {
-        const history = await config.getHistory(conversationId, db);
+        let history: Awaited<ReturnType<typeof config.getHistory>>;
+        try {
+          history = await config.getHistory(conversationId, db, { turnId, supersedes, signal: waiting.signal });
+        } catch (err) {
+          // Stopped while it waited: it reads nothing, and stores only that it was stopped.
+          if (!stopWatch.current()) throw err;
+          history = [];
+        }
 
         // What the client's UI sent for the worker is not the host's prompt
         // text: its snapshot becomes the turn's UI tools, and its knowledge is
@@ -144,6 +184,8 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
           history,
           userToken,
           ...(approval ? { approval } : {}),
+          stopWatch,
+          ...(host.remainingMs ? { remainingMs: host.remainingMs } : {}),
         };
 
         const tools = await resolveTools({ userId, accountId, turnId });
@@ -152,10 +194,22 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
         let persisted = false;
         /** Whether the host's store took the messages: a claimed expiry is confirmed only then. */
         let stored = false;
-        const persist = async (turn: { newMessages: TurnMessage[]; usage: AgentTurnResult['usage'] }) => {
+        const persist = async (turn: { newMessages: TurnMessage[]; usage: AgentTurnResult['usage']; stopped?: TurnStoppedMarker }) => {
           persisted = true;
           try {
-            await config.persistMessages({ turnId, conversationId, messages: turn.newMessages, usage: turn.usage, db });
+            const answer = await config.persistMessages({
+              turnId,
+              conversationId,
+              messages: turn.newMessages,
+              usage: turn.usage,
+              ...(turn.stopped ? { stopped: turn.stopped } : {}),
+              db,
+            });
+            // The host found the turn given up on by a newer one, and stored nothing.
+            if (answer && answer.stored === false) {
+              logger.warn('[agent-sdk] The turn was given up on before it stored; nothing was stored', { turnId });
+              return;
+            }
             stored = true;
           } catch (err) {
             logger.error('[agent-sdk] persistMessages failed', { turnId, error: messageOf(err) });
@@ -179,6 +233,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
             turnPolicy: config.turnPolicy,
             toolPolicy: config.toolPolicy,
             approvals,
+            stopGraceMs: config.stops?.graceMs,
             ui: {
               channel: uiChannel,
               resultTimeoutMs: config.uiActions?.resultTimeoutMs,
@@ -189,8 +244,9 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
           turnInput,
         );
 
-        logger.info('[agent-sdk] Turn completed', {
+        logger.info(result.stopped ? '[agent-sdk] Turn stopped' : '[agent-sdk] Turn completed', {
           turnId,
+          ...(result.stopped ? { stopReason: result.stopped.reason } : {}),
           rounds: result.rounds,
           maxRoundsReached: result.maxRoundsReached,
           usage: result.usage,
@@ -198,7 +254,14 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
 
         if (config.recordTurnComplete) {
           try {
-            await config.recordTurnComplete({ turnId, conversationId, rounds: result.rounds, usage: result.usage, db });
+            await config.recordTurnComplete({
+              turnId,
+              conversationId,
+              rounds: result.rounds,
+              usage: result.usage,
+              ...(result.stopped ? { stopReason: result.stopped.reason } : {}),
+              db,
+            });
           } catch (err) {
             logger.warn('[agent-sdk] recordTurnComplete failed', { error: messageOf(err) });
           }
@@ -217,7 +280,9 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
             }
           }
         }
-        return { status: 'completed', turnId, rounds: result.rounds };
+        return result.stopped
+          ? { status: 'stopped', turnId, rounds: result.rounds, stopReason: result.stopped.reason }
+          : { status: 'completed', turnId, rounds: result.rounds };
       } catch (error) {
         return fail(payload, error, async (categorized) => {
           if (!config.recordTurnFailure) return;
@@ -227,6 +292,8 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
             logger.warn('[agent-sdk] recordTurnFailure failed', { error: messageOf(err) });
           }
         });
+      } finally {
+        stopWatch.close();
       }
     },
   };

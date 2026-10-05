@@ -55,6 +55,14 @@ export { approvalRequirement, APPROVAL_TOOL_NOTE } from './approvals/requirement
 export type { ApprovalRequirement } from './approvals/requirement.js';
 export { buildApprovalPreview } from './approvals/preview.js';
 
+// Stopping a turn (ADR-0252): the person's Stop, or a newer message that
+// supersedes the turn, is kept by the realtime server and asked for by the
+// turn. What the turn had produced is stored, then announced.
+export { createHttpTurnStopClient, watchTurnStop, stopOf, TurnStopped, DEFAULT_STOP_GRACE_MS } from './stop/turn-stop.js';
+export type { TurnStopClient, HttpTurnStopClientConfig, TurnStopWatch, TurnStopState } from './stop/turn-stop.js';
+export { stoppedTurnMessages } from './stop/partial.js';
+export type { RecordedStep, RecordedCall } from './stop/partial.js';
+
 // UI actions (ADR-0209): the client's surfaces become the turn's UI tools,
 // and every UI action is answered by the client.
 export type { UIActionChannel, HttpUIActionChannelConfig } from './ui/channel.js';
@@ -107,7 +115,7 @@ export type { HttpEmitAdapterConfig } from './emit/http-adapter.js';
 export { createAgentTurnRunner, categorizeError, payloadRefusal } from './runtime/turn-runner.js';
 export type { AgentTurnRunner, TurnOutcome, CategorizedError } from './runtime/turn-runner.js';
 export { assertAgentRuntimeConfig } from './runtime/config.js';
-export type { AgentRuntimeConfig, LambdaAgentConfig, AgentTurnPayload } from './runtime/types.js';
+export type { AgentRuntimeConfig, LambdaAgentConfig, AgentTurnPayload, HistoryRequest } from './runtime/types.js';
 export { createLambdaAgentHandler } from './lambda/handler.js';
 export { startContainerAgentWorker } from './container/server.js';
 export type { ContainerAgentConfig, ContainerAgentWorker } from './container/server.js';
