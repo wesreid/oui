@@ -64,6 +64,9 @@ All of them require the `x-api-key` header.
 | `POST /internal/approvals/redeem` `{ token, userId, conversationId }` | Atomic single use. `200 { call }` returns exactly the stored call. `403` for a token this environment did not sign, another user's or conversation's, or one not for the stored call; `410` for an expired or already used one. |
 | `GET /internal/approvals/:id?userId=` | Where an approval of this user's stands: `pending`, `approved` or `declined` (remembered for 30 minutes). |
 | `POST /internal/approvals/:id/settle` `{ userId, conversationId, confirm? }` | Whether an approval a conversation still shows as waiting expired with nobody deciding it. Always `200 { approvalId, outcome, expiresAt? }`: `claimed` (it expired without having run, and this caller holds the claim to store that, for two minutes; `decided: "approved"` when the user had approved it and it was never used), `already` (another turn holds the claim, or it is stored), `open` (pending, or approved and not yet used), `unknown` (declined, used, another user's or conversation's, or not remembered). With `confirm: true`, the caller has stored it and the claim becomes permanent: `confirmed`. |
+| `POST /internal/approvals/:id/settle` `{ userId, conversationId, expire }` | Expires an approval now instead of at its time limit, saying why: `expire` is `superseded` (the user sent a new message while its card waited) or `stopped` (the turn that asked was stopped). `200 { approvalId, outcome }`: `withdrawn` (it was pending, or approved and not yet used, and is now gone: a decision is refused and its token answers `used`), `settled` (it had already ended), `unknown`. A later settle then answers `claimed` with `withdrawn: "superseded" \| "stopped"`. |
+| `POST /internal/turns/:turnId/stop` `{ userId, reason }` | Asks that a turn stop, for its user: `reason` is `superseded` (a newer message runs instead) or `user_stop`. Your API calls it after checking the turn is the user's. `200 { ok, stop: "requested" \| "already", record }`; the first request stands. |
+| `GET /internal/turns/:turnId/stop?userId=&waitMs=` | The stop asked for on a turn by its user, which the turn's worker holds open for as long as the turn runs. `200` carries `{ turnId, by, reason, at }`; `204` means none yet. A wait lasts at most 25 s. The record is kept 30 minutes. |
 | `GET /internal/events/settlements/:kind/:id?waitMs=` | How a job of a declared kind ended: `{ kind, role, event, id, payload }`, with `role` `completion` or `failure`. `204` means not yet; `400` an undeclared kind; `404` a server without `events`. A wait lasts at most 25 s. |
 | `GET /health` | Returns `200` with connection and pending-wait counts. No key needed. |
 
@@ -75,9 +78,21 @@ All of them require the `x-api-key` header.
 
 An approval nobody decides sends nothing when it expires, so a later turn settles it. The store remembers, for 30 days, that an approval was asked for and is still undecided; a decline or a redemption removes that memory in the same step. Once the approval's own keys have lapsed in Redis, `POST /internal/approvals/:id/settle` answers that it expired undecided, and gives the claim to store that to one caller at a time. Expiry is Redis's clock: neither this server's nor the caller's is consulted. Approvals stored before this memory existed are answered `unknown`.
 
+An approval can also be withdrawn before its time is up (`settle` with `expire`): when the user sends a new message while its card waits, or the turn that asked for it is stopped. That is one script with the decision and the redemption, so exactly one of them happens. From then it is an expiry like any other, settled by a later turn, which is told why: it was withdrawn, not left to time out. One the user had approved keeps that they did.
+
 A declined approval is deleted and remembered for the next turn. Every issue, decision and redemption is logged with the approval id, user, tool, effect, channel and args hash. The arguments are logged only when their declaration marks them not sensitive, and a token never is.
 
 The token's claims are `aid sub cid tool ah eff ch iat exp jti`. `ah` is `argsHash(args)` from `@ouispec/agent-core`: SHA-256 over the RFC 8785 canonical JSON. The package ships `approval-vectors.json`, which every other implementation must match.
+
+## Stopping a turn
+
+A person can stop a running turn, and a newer message supersedes one. The worker has no socket, so the server keeps the request and the worker asks for it:
+
+1. The tab sends `agent:turn_stop { turnId, room }` on the user's socket, where `room` is the turn's room. The server takes it only from a socket that is in that room, and only when the room is one your policy guards with a token: the socket can only have joined it with the token your API minted for that turn.
+2. The stop is kept under the socket's verified user. A worker's wait is answered only with the stop of the user it asks for, which is its turn's own. The server keeps no record of who owns a turn, and needs none: one user's stop for another user's turn is a record nobody reads, and cannot block the owner's.
+3. Your API asks the same way with `POST /internal/turns/:turnId/stop`, after its own check, when a new message arrives for a chat with a turn running.
+
+The worker stores what the turn had produced and then emits `agent:turn_complete` with `stopReason`: `user_stop` or `superseded`.
 
 ## Example
 
