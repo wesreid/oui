@@ -44,6 +44,8 @@ const APPROVAL_DECIDE_TIMEOUT_MS = 10_000;
 const STOP_ACK_TIMEOUT_MS = 3_000;
 /** How long a stop may go unconfirmed by the turn's end before the turn is shown as stopped (ADR-0252 §2.14). */
 export const STOP_CONFIRM_TIMEOUT_MS = 10_000;
+/** How many ended turns the tab remembers, to ignore what they still send. */
+const ENDED_TURNS_REMEMBERED = 20;
 
 /**
  * The tab's remembered active conversation, in `sessionStorage` so a reload
@@ -265,7 +267,23 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   const ofLiveTurn = (turnId: string | undefined): boolean => {
     const { starting, turnId: live } = liveTurnRef.current;
     if (starting) return false;
+    if (turnId !== undefined && endedTurnsRef.current.has(turnId)) return false;
     return live === null || turnId === undefined || turnId === live;
+  };
+  /**
+   * The turns the tab has shown as ended. A turn shown as stopped because its stop was never
+   * confirmed, or superseded by a new message, may have a worker still streaming: the text, calls
+   * and approval cards it sends after that are not shown as in progress again (`ofLiveTurn`). Its
+   * end is still read, since an end is safe to apply twice: for a turn that is not the tab's it
+   * only finishes that turn's own message, and for no turn at all it changes nothing.
+   */
+  const endedTurnsRef = useRef<Set<string>>(new Set());
+  const rememberEnded = (turnId: string | undefined) => {
+    if (!turnId) return;
+    const ended = endedTurnsRef.current;
+    ended.add(turnId);
+    // The last few are all that can still be sending.
+    if (ended.size > ENDED_TURNS_REMEMBERED) ended.delete(ended.values().next().value as string);
   };
   /** The assistant message and running calls of a turn that ended by being stopped, as the panel shows them. */
   const markStopped = (prev: AgentMessage[], turnId: string, reason: TurnStopReason): AgentMessage[] => {
@@ -394,6 +412,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
           // message is finished, and nothing of the turn in progress is touched — not its streaming
           // state, its id, its room or its text.
           const earlier = `msg_${event.turnId}`;
+          rememberEnded(event.turnId);
           setMessages(prev =>
             prev.map(m =>
               m.id === earlier ? { ...m, isStreaming: false, ...(event.stopReason ? { stopped: event.stopReason } : {}) } : m,
@@ -409,6 +428,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
           // window, the conversation has moved on without this tab, so it is read again.
           const reason = event.stopReason;
           const asked = stoppingRef.current?.turnId === event.turnId;
+          rememberEnded(event.turnId);
           streamBufferRef.current = '';
           roundPrefixRef.current = '';
           setMessages(prev => markStopped(prev, event.turnId, reason));
@@ -427,6 +447,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
           break;
         }
         clearStopping();
+        rememberEnded(event.turnId);
         // Finalize all streaming messages. Drop any assistant streaming bubble
         // that ended up truly empty (e.g. token_clear wiped it and no text was
         // re-emitted). Preserve tool messages (which legitimately have null content).
@@ -613,6 +634,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     // its own end may never arrive to say so.
     const superseded = approval ? null : liveTurnRef.current.turnId;
     if (superseded) {
+      rememberEnded(superseded);
       setMessages(prev => markStopped(prev, superseded, 'superseded'));
       roundPrefixRef.current = '';
       clearStopping();

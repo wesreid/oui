@@ -2,12 +2,19 @@
  * `agent:turn_stop` (ADR-0252 §2.1): the person's Stop, on their own
  * authenticated socket.
  *
+ * What makes a stop the owner's is the key it is kept under, not the room.
  * Who is asking is the socket's verified identity, never one the payload
- * names. The socket must be in the turn's room, which it can only have joined
- * with the room token the host minted for that turn, and that room must be one
- * that needs a token: a room anyone may join proves nothing. The stop is then
- * kept under that user, and the turn's worker reads only its own user's stop,
- * so a stop from anyone else is never heard.
+ * names; the stop is kept under that user; and a turn's worker reads only the
+ * stop of its turn's own user. So a stop from anyone else is never heard, and
+ * cannot stand in the way of the owner's.
+ *
+ * The room check is narrower than it may look. The server does not know which
+ * room belongs to which turn (each host names its own), so it cannot check
+ * that `room` is this turn's. It checks only that the socket is in the room it
+ * names and that the room is one that needs a token. A socket in any
+ * token-guarded room can therefore write a stop for any turn id, but only
+ * under its own user, where no other user's worker will read it. The check
+ * keeps the event to sockets that hold a room token at all, and nothing more.
  */
 import Joi from 'joi';
 import { TURN_STOP_EVENT, type TurnStopPayload, type TurnStopResult } from '@ouispec/agent-core';

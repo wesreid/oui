@@ -106,12 +106,19 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
     config.approvals?.store ?? createHttpApprovalStoreClient({ url: config.realtime.url, apiKey: config.realtime.apiKey });
 
   // A stop is kept by the same realtime server (ADR-0252 §2.1).
+  /** Said once for the life of the process, not once a turn. */
+  let stopsUnsupported = false;
   const stops =
     config.stops?.client ??
     createHttpTurnStopClient({
       url: config.realtime.url,
       apiKey: config.realtime.apiKey,
       onError: (error, attempt) => logger.warn('[agent-sdk] Could not ask whether the turn was stopped; asking again', { attempt, error: messageOf(error) }),
+      onUnsupported: () => {
+        if (stopsUnsupported) return;
+        stopsUnsupported = true;
+        logger.warn('[agent-sdk] The realtime server keeps no turn stops (it answered 404): turns cannot be stopped until it is updated');
+      },
     });
 
   const resolveTools = async (ctx: { userId: string; accountId: string; turnId: string }) =>

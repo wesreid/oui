@@ -225,6 +225,10 @@ export async function runAgentTurn(
   let ending = false;
   /** Kept back from a stopped turn's grace for storing and announcing it. */
   const STOP_STORE_MARGIN_MS = 3_000;
+  /** Kept back from a stopped turn's store for announcing it. */
+  const STOP_ANNOUNCE_MARGIN_MS = 1_000;
+  /** The least any step of the stop path is given, however little is left. */
+  const STOP_STEP_FLOOR_MS = 250;
   let stopGraceMs = config.stopGraceMs ?? DEFAULT_STOP_GRACE_MS;
   // The stop path's own signal: the turn's is aborted by the time anything needs one.
   let graceSignal: AbortSignal | null = null;
@@ -1443,7 +1447,10 @@ export async function runAgentTurn(
    * a turn that ends by itself does.
    *
    * Everything here happens after the turn's signal was aborted, so nothing
-   * here is given that signal: each step has its own limit.
+   * here is given that signal. The wait for calls in flight is bounded by the
+   * grace; the store and the announcement are bounded by what the process has
+   * left, when the host says (`remainingMs`). Without that, they take as long
+   * as the host's store and the emit adapter's own timeout take.
    */
   async function finishStopped(
     stopped: TurnStopped,
@@ -1521,9 +1528,37 @@ export async function runAgentTurn(
       ...(client ? { ui: { ...uiCounts, blindRefusals: sight.refusals(), stopped: sight.stopped() } } : {}),
     });
 
+    // The store and the announcement each get a limit of their own when the host says how long
+    // the process has left: a slow store must not run it to its hard end with nothing announced.
+    const within = async (what: string, keepBackMs: number, work: () => Promise<unknown>): Promise<void> => {
+      const remaining = input.remainingMs?.();
+      if (remaining === undefined) {
+        await work();
+        return;
+      }
+      const limitMs = Math.max(STOP_STEP_FLOOR_MS, remaining - keepBackMs);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timedOut = Symbol('timed out');
+      const outcome = await Promise.race([
+        work(),
+        new Promise<typeof timedOut>((resolve) => {
+          timer = setTimeout(() => resolve(timedOut), limitMs);
+        }),
+      ]);
+      if (timer) clearTimeout(timer);
+      if (outcome === timedOut) {
+        log('error', 'agent:turn', `The stopped turn's ${what} did not finish within its limit; the turn goes on without waiting for it`, {
+          turnId,
+          limitMs,
+          remainingMs: remaining,
+        });
+      }
+    };
+
     if (config.beforeTurnComplete) {
       try {
-        await config.beforeTurnComplete({ rounds, usage, newMessages, stopped: marker });
+        // Kept back: time to announce after it.
+        await within('store', STOP_ANNOUNCE_MARGIN_MS, () => config.beforeTurnComplete!({ rounds, usage, newMessages, stopped: marker }));
       } catch (err) {
         log('error', 'agent:turn', 'beforeTurnComplete failed; the stopped turn is announced without it', {
           turnId,
@@ -1532,13 +1567,19 @@ export async function runAgentTurn(
       }
     }
 
-    await config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TURN_COMPLETE, {
-      turnId,
-      rounds,
-      usage,
-      stopReason: stopped.reason,
-      timestamp: Date.now(),
-    });
+    try {
+      await within('announcement', STOP_STEP_FLOOR_MS, () =>
+        config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TURN_COMPLETE, {
+          turnId,
+          rounds,
+          usage,
+          stopReason: stopped.reason,
+          timestamp: Date.now(),
+        }),
+      );
+    } catch (err) {
+      log('error', 'agent:turn', 'The stopped turn could not be announced', { turnId, error: err instanceof Error ? err.message : String(err) });
+    }
 
     log('info', 'agent:turn', 'Turn stopped', {
       turnId,

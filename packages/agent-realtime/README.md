@@ -88,8 +88,8 @@ The token's claims are `aid sub cid tool ah eff ch iat exp jti`. `ah` is `argsHa
 
 A person can stop a running turn, and a newer message supersedes one. The worker has no socket, so the server keeps the request and the worker asks for it:
 
-1. The tab sends `agent:turn_stop { turnId, room }` on the user's socket, where `room` is the turn's room. The server takes it only from a socket that is in that room, and only when the room is one your policy guards with a token: the socket can only have joined it with the token your API minted for that turn.
-2. The stop is kept under the socket's verified user. A worker's wait is answered only with the stop of the user it asks for, which is its turn's own. The server keeps no record of who owns a turn, and needs none: one user's stop for another user's turn is a record nobody reads, and cannot block the owner's.
+1. The tab sends `agent:turn_stop { turnId, room }` on the user's socket, where `room` is the turn's room. The server takes it only from a socket that is in the room it names, and only when that room is one your policy guards with a token.
+2. The stop is kept under the socket's verified user, and that is what makes it the owner's. A worker's wait is answered only with the stop of the user it asks for, which is its turn's own. The server keeps no record of who owns a turn and does not know which room is which turn's, so the room check does not prove the turn is the user's: a socket in any token-guarded room can write a stop for any turn id. It writes it under its own user, where no other user's worker reads it, and it cannot block the owner's.
 3. Your API asks the same way with `POST /internal/turns/:turnId/stop`, after its own check, when a new message arrives for a chat with a turn running.
 
 The worker stores what the turn had produced and then emits `agent:turn_complete` with `stopReason`: `user_stop` or `superseded`.

@@ -74,6 +74,12 @@ export interface HttpTurnStopClientConfig {
   maxBackoffMs?: number;
   /** Where a failed attempt is reported. */
   onError?: (error: unknown, attempt: number) => void;
+  /**
+   * Called once when the server answers that it has no such route (404): a
+   * realtime server from before stops were kept. The watch then ends, since
+   * asking again cannot help; the turn runs on and cannot be stopped.
+   */
+  onUnsupported?: () => void;
 }
 
 const FIRST_BACKOFF_MS = 250;
@@ -87,10 +93,10 @@ const UNHELD_ANSWER_MS = 50;
  * `GET {url}/internal/turns/{turnId}/stop?userId=&waitMs=` (200 with the
  * record, 204 when none was asked for in `waitMs`).
  *
- * It fails open. Any failure (the server restarting, a 5xx, an older server
- * without the route answering 404) is retried with a growing pause, and the
- * turn runs on meanwhile: a turn must never fail because it could not ask
- * whether to stop.
+ * It fails open. A failure (the server restarting, a 5xx) is retried with a
+ * growing pause, and the turn runs on meanwhile: a turn must never fail
+ * because it could not ask whether to stop. A 404 is not a failure to retry:
+ * it is a server that keeps no stops, said once, and the watch ends.
  */
 export function createHttpTurnStopClient(config: HttpTurnStopClientConfig): TurnStopClient {
   const { url, apiKey } = config;
@@ -127,6 +133,12 @@ export function createHttpTurnStopClient(config: HttpTurnStopClientConfig): Turn
             if (waitMs > 0 && Date.now() - asked < UNHELD_ANSWER_MS) await pause(FIRST_BACKOFF_MS, signal);
             firstAnswered();
             continue;
+          }
+          if (res.status === 404) {
+            // A realtime server from before stops were kept: there is nothing to wait for.
+            firstAnswered();
+            config.onUnsupported?.();
+            return null;
           }
           throw new Error(`HTTP ${res.status}`);
         } catch (err) {

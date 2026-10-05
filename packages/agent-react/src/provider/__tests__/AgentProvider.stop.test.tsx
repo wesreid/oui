@@ -205,11 +205,43 @@ describe('Stop', () => {
     expect(agent.isStopping).toBe(false);
     expect(said()[0]).toMatchObject({ stopped: 'user_stop' });
 
-    // The worker's own announcement, arriving after all, changes nothing.
+    // Its worker is still running: what it goes on sending is not shown as in progress again.
+    act(() => {
+      mounted.socket.fire('agent:token', { turnId: 'turn-1', text: 'tidy the notes' });
+      mounted.socket.fire('agent:tool_call_started', { turnId: 'turn-1', toolUseId: 'call-late', name: 'notes_tidy', input: {} });
+      mounted.socket.fire('agent:approval_required', { turnId: 'turn-1', conversationId: 'conv-1', approvalId: 'call-late', tool: 'notes_tidy', preview: { title: 'Tidy' } });
+    });
+    expect(said()).toEqual([expect.objectContaining({ content: 'I renamed the draft. Next I will ', stopped: 'user_stop', isStreaming: false })]);
+    expect(agent.messages.some((m) => m.toolCall)).toBe(false);
+    expect(agent.pendingApproval).toBeNull();
+    expect(agent.isStreaming).toBe(false);
+
+    // The worker's own announcement, arriving after all, changes nothing; nor does a second one.
     act(() => {
       mounted.socket.fire('agent:turn_complete', { turnId: 'turn-1', stopReason: 'user_stop' });
+      mounted.socket.fire('agent:turn_complete', { turnId: 'turn-1' });
     });
-    expect(said()).toHaveLength(1);
+    expect(said()).toEqual([expect.objectContaining({ content: 'I renamed the draft. Next I will ', stopped: 'user_stop' })]);
+  });
+
+  it('a second end for one turn is harmless: it does not end the turn that followed', async () => {
+    const mounted = await running();
+    act(() => {
+      mounted.socket.fire('agent:turn_complete', { turnId: 'turn-1' });
+    });
+    await act(async () => {
+      const next = agent.sendMessage('And the notes');
+      mounted.starts[0].resolve(started(2));
+      await next;
+    });
+    act(() => {
+      mounted.socket.fire('agent:token', { turnId: 'turn-2', text: 'Tidying' });
+      // Delivered twice.
+      mounted.socket.fire('agent:turn_complete', { turnId: 'turn-1' });
+    });
+    expect(agent.isStreaming).toBe(true);
+    expect(agent.currentTurnId).toBe('turn-2');
+    expect(said().at(-1)).toMatchObject({ content: 'Tidying', isStreaming: true });
   });
 
   it('a stop that lost to the turn’s own end is forgotten: the turn simply completed', async () => {

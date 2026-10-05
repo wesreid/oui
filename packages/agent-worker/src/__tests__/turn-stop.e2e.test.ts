@@ -11,7 +11,9 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { AGENT_SOCKET_EVENTS, TURN_STOP_EVENT, turnStoppedNote, type TurnStopResult } from '@ouispec/agent-core';
 import { FIXTURE_TURN, INTERNAL_KEY, startFixtureProduct, type FixtureProduct } from './support/fixture-product.js';
 import { runFixtureTurn } from './support/fixture-turn.js';
-import { bedrockReplay } from './support/replay.js';
+import { createOpenAI } from '@ai-sdk/openai';
+import { bedrockReplay, chunk } from './support/replay.js';
+import type { LanguageModel } from '../model.js';
 
 let product: FixtureProduct;
 beforeAll(async () => {
@@ -86,6 +88,95 @@ describe('a turn stopped by its user', () => {
     for (const m of assistants) expect(m.content === null ? (m.toolCalls?.length ?? 0) > 0 : m.content.trim() !== '').toBe(true);
     // The action never reached a tab.
     expect(tab.dispatches.filter((d) => d.requestId === provider.expected.toolCallId)).toEqual([]);
+    tab.close();
+  }, 30_000);
+
+  it('asked mid-text in its second step: stores step one whole, then exactly the text streamed in step two, with nothing repeated and nothing missing', async () => {
+    const turnId = 'turn-stop-midtext';
+    const STEP_ONE = ['Opening ', 'your reports', ' now. '];
+    const STEP_TWO = ['They are open. ', 'Next I will export ', 'the Q3 one'];
+    const call = { id: 'call_nav_mid', name: 'ui_act', args: { action: 'navigate', input: { path: '/reports' } } };
+
+    // The real OpenAI provider package over a stream this test holds open: step one says
+    // something and calls the page's navigate; step two says something and never finishes.
+    const sse = (c: unknown) => new TextEncoder().encode(`data: ${JSON.stringify(c)}\n\n`);
+    const text = (content: string) => sse(chunk([{ index: 0, delta: { role: 'assistant', content }, finish_reason: null }]));
+    let requests = 0;
+    let secondStepAborted = false;
+    const provider = createOpenAI({
+      apiKey: 'fixture-key',
+      fetch: (async (_input: unknown, init?: { signal?: AbortSignal }) => {
+        const step = ++requests;
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            if (step === 1) {
+              for (const piece of STEP_ONE) controller.enqueue(text(piece));
+              controller.enqueue(
+                sse(
+                  chunk([
+                    {
+                      index: 0,
+                      delta: { tool_calls: [{ index: 0, id: call.id, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } }] },
+                      finish_reason: null,
+                    },
+                  ]),
+                ),
+              );
+              controller.enqueue(sse(chunk([{ index: 0, delta: {}, finish_reason: 'tool_calls' }])));
+              controller.enqueue(sse(chunk([], { usage: { prompt_tokens: 600, completion_tokens: 20, total_tokens: 620 } })));
+              controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
+              controller.close();
+              return;
+            }
+            // Step two: its text, then silence until the turn is stopped.
+            for (const piece of STEP_TWO) controller.enqueue(text(piece));
+            init?.signal?.addEventListener('abort', () => {
+              secondStepAborted = true;
+              controller.error(new DOMException('This operation was aborted', 'AbortError'));
+            });
+          },
+        });
+        return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+      }) as typeof fetch,
+    });
+    const model: LanguageModel = provider.chat('gpt-fixture');
+
+    const tab = await product.openTab('session-ana', `chat:turn:${turnId}`);
+    const running = runFixtureTurn(product, { adapter: 'container', model, turnId, tab });
+
+    // The person watches step two's text arrive, then presses Stop.
+    const streamed = () =>
+      tab
+        .turnEvents(turnId)
+        .filter((e) => e.event === AGENT_SOCKET_EVENTS.TOKEN)
+        .map((e) => (e.data as { text: string }).text)
+        .join('');
+    await expect.poll(streamed, { timeout: 10_000, interval: 20 }).toContain(STEP_TWO.join(''));
+    const room = `chat:turn:${turnId}`;
+    expect(await new Promise<TurnStopResult>((resolve) => tab.socket.emit(TURN_STOP_EVENT, { turnId, room }, resolve))).toEqual({ ok: true, stop: 'requested' });
+    const run = await running;
+
+    expect(run.outcome).toMatchObject({ status: 'stopped', stopReason: 'user_stop', rounds: 1 });
+    expect(requests).toBe(2);
+    expect(secondStepAborted).toBe(true);
+    // The action of step one ran on the page, once.
+    expect(tab.dispatches.filter((d) => d.requestId === call.id)).toHaveLength(1);
+
+    const messages = run.persisted[0].messages;
+    expect(messages.map((m) => m.role)).toEqual(['assistant', 'tool', 'assistant']);
+    // Step one, whole: its text, its call, and the call's real result.
+    expect(messages[0]).toMatchObject({ content: STEP_ONE.join(''), toolCalls: [{ id: call.id, name: 'ui_act', arguments: call.args }] });
+    expect(messages[0].stopped).toBeUndefined();
+    expect(messages[1]).toMatchObject({ toolCallId: call.id, name: 'ui_act' });
+    expect(JSON.parse(messages[1].content!)).not.toHaveProperty('stopped');
+    // Step two: exactly what was streamed in it. Cut by where step one's text ended, so this is
+    // the proof that the library's step text is the concatenation of that step's stream.
+    expect(messages[2]).toEqual({ role: 'assistant', content: STEP_TWO.join(''), stopped: expect.objectContaining({ reason: 'user_stop' }) });
+    // And what was stored is what the person saw.
+    expect(streamed()).toBe(STEP_ONE.join('') + STEP_TWO.join(''));
+
+    const done = (await tab.waitForTurn(AGENT_SOCKET_EVENTS.TURN_COMPLETE, turnId)) as { stopReason?: string };
+    expect(done.stopReason).toBe('user_stop');
     tab.close();
   }, 30_000);
 });

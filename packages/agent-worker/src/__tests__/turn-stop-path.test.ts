@@ -372,6 +372,54 @@ describe('a stop that lands after the turn has begun its own end', () => {
   });
 });
 
+describe('a stopped turn in a process with little time left', () => {
+  it('does not wait on a store that hangs: it is announced within what is left, and the hang is logged', async () => {
+    const stop = stopSource();
+    script = async function* (api) {
+      yield 'Half an answer';
+      setTimeout(() => stop.fire(), 5);
+      await api.aborted;
+    };
+    const announced: unknown[] = [];
+    const errors: string[] = [];
+    const error = vi.spyOn(console, 'error').mockImplementation((line: string) => void errors.push(line));
+    const startedAt = Date.now();
+    const { runAgentTurn } = await import('../orchestrator.js');
+    try {
+      const result = await runAgentTurn(
+        {
+          tools: createToolRegistry([]),
+          model: 'test-model' as never,
+          systemPrompt: 'test',
+          stopGraceMs: 40,
+          emit: { emit: vi.fn(async (_room: string, event: string, data: unknown) => void (event === AGENT_SOCKET_EVENTS.TURN_COMPLETE && announced.push(data))) },
+          // The host's store never answers.
+          beforeTurnComplete: () => new Promise<void>(() => {}),
+        },
+        // 1.6 s left when asked: 1 s is kept back for the announcement.
+        { ...turn(stop.watch), remainingMs: () => 1_600 - (Date.now() - startedAt) },
+      );
+      expect(result.stopReason).toBe('user_stop');
+    } finally {
+      error.mockRestore();
+    }
+    expect(Date.now() - startedAt).toBeLessThan(1_600);
+    expect(announced).toEqual([expect.objectContaining({ stopReason: 'user_stop' })]);
+    expect(errors.some((line) => line.includes("The stopped turn's store did not finish within its limit"))).toBe(true);
+  });
+
+  it('with no limit known, waits for the store as a turn that ends by itself does', async () => {
+    const stop = stopSource();
+    script = async function* (api) {
+      yield 'Half an answer';
+      setTimeout(() => stop.fire(), 5);
+      await api.aborted;
+    };
+    const { order } = await run({ stop, store: () => new Promise((resolve) => setTimeout(resolve, 300)) });
+    expect(order).toEqual(['stored', 'turn_complete']);
+  });
+});
+
 describe('a turn stopped as it asked for an approval', () => {
   it('withdraws the approval it just created, so a stopped turn leaves no live card, and still stores and announces', async () => {
     const stop = stopSource();

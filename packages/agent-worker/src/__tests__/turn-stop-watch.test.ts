@@ -50,13 +50,26 @@ describe('the stop client', () => {
         throw new TypeError('fetch failed');
       },
       () => new Response('bad gateway', { status: 502 }),
-      // An older realtime server has no such route.
-      () => new Response('not found', { status: 404 }),
       () => Response.json(record),
     );
     await expect(client((_e, attempt) => errors.push(attempt)).watch('t1', 'u1', new AbortController().signal)).resolves.toEqual(record);
-    expect(calls).toHaveLength(4);
-    expect(errors).toEqual([1, 2, 3]);
+    expect(calls).toHaveLength(3);
+    expect(errors).toEqual([1, 2]);
+  });
+
+  it('stops asking a server that has no such route: said once, never retried, and the turn is not held up', async () => {
+    const calls = answering(() => new Response('not found', { status: 404 }));
+    const unsupported = vi.fn();
+    const errors = vi.fn();
+    const old = createHttpTurnStopClient({ url: 'http://realtime', apiKey: 'key', maxPollMs: 50, maxBackoffMs: 20, onUnsupported: unsupported, onError: errors });
+    const watch = watchTurnStop(old, 't1', 'u1');
+    await watch.checked();
+    await new Promise((r) => setTimeout(r, 120));
+    expect(calls).toHaveLength(1);
+    expect(unsupported).toHaveBeenCalledOnce();
+    expect(errors).not.toHaveBeenCalled();
+    expect(watch.current()).toBeNull();
+    watch.close();
   });
 
   it('ends with nothing when the turn ends first, while waiting or while backing off', async () => {
