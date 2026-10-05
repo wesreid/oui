@@ -18,6 +18,7 @@ type StreamOpts = {
   tools: Record<string, { execute: (args: unknown, o: { toolCallId: string }) => Promise<string>; description: string }>;
   messages: Array<{ role: string; content: unknown }>;
   stopWhen: unknown[];
+  prepareStep: (o: { steps: unknown[]; messages: unknown[] }) => Promise<{ messages?: unknown[] }>;
 };
 let segmentImpls: Array<(opts: StreamOpts) => Promise<Array<{ text: string; toolCalls: Array<{ toolName: string; toolCallId: string }> }>>>;
 let seenOpts: StreamOpts[];
@@ -253,6 +254,118 @@ describe('a UI action is answered', () => {
     const { runAgentTurn } = await import('../orchestrator.js');
     await runAgentTurn(makeConfig(channel), makeInput([shell]));
     expect(outputs.every((o) => !o.includes('quotaExceeded'))).toBe(true);
+  });
+});
+
+describe('a turn of many actions (session 24611234)', () => {
+  const editor: OUISurface = {
+    id: 'editor',
+    name: 'Editor',
+    description: 'A slide editor',
+    actions: [
+      {
+        id: 'set_slot',
+        description: 'Set one slot of a slide',
+        input: {
+          type: 'object',
+          properties: { slide: { type: 'integer' }, slot: { type: 'string' }, value: { type: 'string' } },
+          required: ['slide', 'slot', 'value'],
+        },
+      },
+    ],
+  };
+  // The page as every answer reports it: some thousands of characters after it is fitted, as the editor's was.
+  const slides = Array.from({ length: 12 }, (_, i) => ({ id: `slide-${i}`, number: i + 2, title: `Chapter ${i + 2} `.repeat(30) }));
+  const answer = (req: OUIActionRequest): OUIActionResult => ({
+    requestId: req.requestId,
+    success: true,
+    timestamp: 1,
+    data: { changed: [{ list: 'slides', ref: `slide-${(req.params as { slide: number }).slide}` }] },
+    surfaces: [editor],
+    observations: { editor: { slides } },
+  });
+  const fill = (slide: number, slot: string) => ({ action: 'set_slot', input: { slide, slot, value: `${slot} of ${slide}` } });
+
+  it('runs one action as often as the work needs: 12 slides of 3 slots is 36 calls, none refused', async () => {
+    const { channel, dispatched } = makeChannel(answer);
+    const outputs: string[] = [];
+    segmentImpls = [
+      async (opts) => {
+        let n = 0;
+        for (let slide = 0; slide < 12; slide++)
+          for (const slot of ['number', 'title', 'description'])
+            outputs.push(await opts.tools.ui_act.execute(fill(slide, slot), { toolCallId: `fill-${n++}` }));
+        return [{ text: 'Filled.', toolCalls: [] }];
+      },
+    ];
+    const { runAgentTurn } = await import('../orchestrator.js');
+    await runAgentTurn(makeConfig(channel), makeInput([editor], { editor: { slides } }));
+    expect(dispatched).toHaveLength(36);
+    expect(outputs.filter((o) => o.includes('quotaExceeded') || o.includes('repeatedCall'))).toEqual([]);
+  });
+
+  it('refuses the same call with the same input a fourth time, and says why', async () => {
+    const { channel, dispatched } = makeChannel(answer);
+    const outputs: string[] = [];
+    segmentImpls = [
+      async (opts) => {
+        for (let i = 0; i < 4; i++) outputs.push(await opts.tools.ui_act.execute(fill(3, 'title'), { toolCallId: `same-${i}` }));
+        outputs.push(await opts.tools.ui_act.execute(fill(3, 'number'), { toolCallId: 'other' }));
+        return [{ text: '', toolCalls: [] }];
+      },
+    ];
+    const { runAgentTurn } = await import('../orchestrator.js');
+    await runAgentTurn(makeConfig(channel), makeInput([editor], { editor: { slides } }));
+    expect(dispatched).toHaveLength(4);
+    const fourth = JSON.parse(outputs[3]);
+    expect(fourth).toMatchObject({ repeatedCall: true });
+    expect(fourth.error).toContain('3 times in this turn with exactly this input');
+    expect(JSON.parse(outputs[4]).repeatedCall).toBeUndefined();
+  });
+
+  it('sends the page’s state with the newest answer only: 20 actions cost about what one does, plus what each did', async () => {
+    const { channel } = makeChannel(answer);
+    let one = 0;
+    let twenty = 0;
+    let sent: Array<{ role: string; content: unknown }> = [];
+    segmentImpls = [
+      async (opts) => {
+        const messages: Array<{ role: string; content: unknown }> = [...opts.messages];
+        for (let i = 0; i < 20; i++) {
+          const id = `step-${i}`;
+          const input = fill(i % 12, i < 12 ? 'title' : 'description');
+          const text = await opts.tools.ui_act.execute(input, { toolCallId: id });
+          messages.push(
+            { role: 'assistant', content: [{ type: 'tool-call', toolCallId: id, toolName: 'ui_act', input }] },
+            { role: 'tool', content: [{ type: 'tool-result', toolCallId: id, toolName: 'ui_act', output: { type: 'text', value: text } }] },
+          );
+          const prepared = await opts.prepareStep({ steps: [], messages });
+          sent = (prepared.messages ?? messages) as typeof sent;
+          if (i === 0) one = JSON.stringify(sent).length;
+        }
+        twenty = JSON.stringify(sent).length;
+        return [{ text: 'Done.', toolCalls: [] }];
+      },
+    ];
+    const { runAgentTurn } = await import('../orchestrator.js');
+    await runAgentTurn(makeConfig(channel), makeInput([editor], { editor: { slides } }));
+
+    const answers = sent
+      .filter((m) => m.role === 'tool')
+      .map((m) => JSON.parse((m.content as Array<{ output: { value: string } }>)[0].output.value));
+    const { SUPERSEDED_STATE } = await import('../ui/newest-page-state.js');
+    // The newest answer has the page; every earlier one says where it is, and keeps what it did.
+    expect(JSON.stringify(answers[19].state)).toContain('Chapter');
+    for (const earlier of answers.slice(0, 19)) {
+      expect(earlier.state).toBe(SUPERSEDED_STATE);
+      expect(earlier.result.changed[0].list).toBe('slides');
+    }
+    // Twenty answers add only what each did: far less than twenty pages.
+    const page = JSON.stringify(answers[19].state).length;
+    expect(page).toBeGreaterThan(3_000);
+    // With every page kept, the nineteen later answers would add nineteen pages.
+    expect(twenty - one).toBeLessThan(19 * 1_000);
+    expect(twenty - one).toBeLessThan((19 * page) / 4);
   });
 });
 

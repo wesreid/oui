@@ -1,6 +1,6 @@
 {
   "name": "@ouispec/contract",
-  "version": "0.2.0",
+  "version": "0.3.2",
   "description": "The OUI integrator contract (ADR-0226 §3): versioned JSON Schemas for the control table, control-kind registration, tier 2 mapping, binding, action effect, room catalog, manifest, knowledge, oui.config.json, approvals and event declarations; the TypeScript types generated from them; a validator; and the integrator guide",
   "homepage": "https://github.com/wesreid/oui/tree/main/packages/contract#readme",
   "bugs": {

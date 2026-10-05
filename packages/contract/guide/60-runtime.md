@@ -38,7 +38,11 @@ A page's action definitions weigh what its whole catalogue weighs. On a studio p
   - `ui_act` runs one action by its id.
   - `ui_describe` says what actions take. A large input comes back as an outline, and one part of it is opened by path.
   - `ui_read` reads part of the page's state.
+
+  When the client sends knowledge, a fourth: `ui_guide` reads what the prompt leaves out of it. The knowledge is bounded in the prompt (12,000 characters): small entries whole, a large one cut at a line with how much is left, and workflows by name; `ui_guide` reads the rest of an entry a page at a time, or one workflow with its steps.
 - **The page's index is in the page state the model reads,** with its own budget, so the assistant's context stays about the same size however many actions the app has.
+- **Only the newest answer carries the page's state to the model.** Every earlier answer of the turn keeps what its action did (its result, the rows it changed, what the page offers since) and says where the state is, so a turn of many actions costs about what one does, plus what each did.
+- **UI actions are not counted against a per-tool quota:** they run as the person, bounded by the turn's steps and deadline. The same call with the same input a fourth time in a turn is refused, as a loop.
 - **Every answer is fitted to a byte budget before it is sent** (480 KB by default, 256 KB for a snapshot). The action's own result is kept whole. Long lists in the page's state are cut first, and the answer says where, so the assistant can read the rest with `ui_read` or a room's `query`.
 - **The assistant never changes a page it cannot see.** After an answer that arrived without the page's state, or no answer, the worker runs only reads until one succeeds. After two refused changes in a row, the assistant stops and tells the person what it could not confirm.
 
