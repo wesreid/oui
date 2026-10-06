@@ -59,4 +59,18 @@ describe('checkBudgets', () => {
       },
     ]);
   });
+
+  it('measures an action that takes an attached file, its index line saying so', () => {
+    const file = {
+      type: 'object' as const,
+      properties: {
+        picture: { type: 'string' as const, format: 'oui-attachment', 'x-oui-attachment': { as: 'file', mediaTypes: ['image/png', 'image/jpeg'] } },
+        svg: { type: 'string' as const, format: 'oui-attachment', 'x-oui-attachment': { as: 'text', mediaTypes: ['image/svg+xml'] } },
+      },
+      required: ['picture'],
+    };
+    const report = checkBudgets({ name: 'studio', manifest: { surfaces: [surface('room:studio', [action('studio/action/texture', file as ManifestAction['input'])])] } });
+    expect(report.violations).toEqual([]);
+    expect(report.checked).toEqual({ 'within-budgets': 2 });
+  });
 });

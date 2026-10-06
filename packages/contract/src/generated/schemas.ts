@@ -119,6 +119,7 @@ export const CONTRACT_SCHEMAS = {
         "type": "string"
       },
       "format": {
+        "description": "A string's format: `date`, `time`, `email`, `uri`, or `oui-attachment`, an input that takes a file the user attached (OUI spec §7.3.11): the agent passes the attachment's id, and the client hands the action the file or its text, as `x-oui-attachment` declares.",
         "type": "string"
       },
       "oneOf": {
@@ -160,6 +161,30 @@ export const CONTRACT_SCHEMAS = {
       "x-enum-omitted": {
         "description": "How many allowed values a shortened `enum` leaves out. Only in the page state, where a row's options are summarised; a tool's input schema always lists every value.",
         "type": "number"
+      },
+      "x-oui-attachment": {
+        "description": "On a string with `format: oui-attachment`: what the action takes once the client resolves the attachment's id (ADR-0252 §2.13). `as`: `file` (a `File`, as the user's own file choice produces) or `text` (the file's text, for an input that takes markup or JSON). `mediaTypes`: the types it accepts, `type/*` for a family; any when absent.",
+        "type": "object",
+        "properties": {
+          "as": {
+            "type": "string",
+            "enum": [
+              "file",
+              "text"
+            ]
+          },
+          "mediaTypes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "required": [
+          "as"
+        ],
+        "additionalProperties": false
       }
     },
     "$defs": {
@@ -584,7 +609,7 @@ export const CONTRACT_SCHEMAS = {
     "additionalProperties": false,
     "$defs": {
       "ControlKind": {
-        "description": "The built-in control kinds, closed:\n\n- `button`: press it (buttons, toolbar buttons, menu items, a row's action).\n- `toggle`: set it on or off (switches, checkboxes).\n- `text`: type into it (inputs, text areas).\n- `number`: set a number (sliders, scrub fields).\n- `choice`: choose one of its options (selects, radio groups, preset tiles).\n- `multi-choice`: choose any of its options (multi-selects, checkbox groups, filter chips).\n- `color`: set a colour or paint (colour pickers, swatches).\n- `font`: choose a family and style (font pickers).\n- `tabs`: select a tab.\n- `date`: set a date.\n- `date-range`: set a start and an end date.\n- `dialog`: close it. Opening is its trigger's.",
+        "description": "The built-in control kinds, closed:\n\n- `button`: press it (buttons, toolbar buttons, menu items, a row's action).\n- `toggle`: set it on or off (switches, checkboxes).\n- `text`: type into it (inputs, text areas).\n- `number`: set a number (sliders, scrub fields).\n- `choice`: choose one of its options (selects, radio groups, preset tiles).\n- `multi-choice`: choose any of its options (multi-selects, checkbox groups, filter chips).\n- `color`: set a colour or paint (colour pickers, swatches).\n- `font`: choose a family and style (font pickers).\n- `tabs`: select a tab.\n- `date`: set a date.\n- `date-range`: set a start and an end date.\n- `file`: give it a file (upload zones, file buttons): the user's attached file, by its id, which the client resolves to a `File` (ADR-0252 §2.13).\n- `dialog`: close it. Opening is its trigger's.",
         "enum": [
           "button",
           "toggle",
@@ -597,6 +622,7 @@ export const CONTRACT_SCHEMAS = {
           "tabs",
           "date",
           "date-range",
+          "file",
           "dialog"
         ]
       },
@@ -632,7 +658,8 @@ export const CONTRACT_SCHEMAS = {
           "inputType",
           "paintKinds",
           "allowNone",
-          "clearable"
+          "clearable",
+          "accept"
         ]
       },
       "ControlOption": {
@@ -715,6 +742,14 @@ export const CONTRACT_SCHEMAS = {
           "clearable": {
             "description": "A choice that can be cleared (a toggleable tile grid).",
             "type": "boolean"
+          },
+          "accept": {
+            "description": "The media types a file control takes, `type/*` for a family: an `<input accept>`'s types, without file extensions.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         },
         "additionalProperties": false
@@ -1012,6 +1047,9 @@ export const CONTRACT_SCHEMAS = {
             "type": "string"
           },
           "clearable": {
+            "type": "string"
+          },
+          "accept": {
             "type": "string"
           }
         },

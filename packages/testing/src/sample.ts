@@ -22,6 +22,11 @@ function candidates(schema: JsonSchema, current: unknown): unknown[] {
     return [...nonNull, ...alternatives].flatMap(a => candidates(a, current));
   }
   if (schema.const !== undefined) return [schema.const];
+  // An attached file: a control is run with what the page resolves its id to (OUI spec §7.3.11).
+  if (schema.format === 'oui-attachment') {
+    const declared = (schema as Record<string, unknown>)['x-oui-attachment'] as { as?: string; mediaTypes?: string[] } | undefined;
+    return [declared?.as === 'text' ? SAMPLE_TEXT : sampleFile(declared?.mediaTypes)];
+  }
   if (schema.enum) {
     const values = schema.enum.filter(v => v !== null);
     return [...values.filter(v => v !== current), ...values, ...(schema.enum.includes(null) ? [null] : [])];
@@ -110,4 +115,11 @@ function object(schema: JsonSchema): Record<string, unknown> {
     out[key] = prop ? sampleValue(prop) : SAMPLE_TEXT;
   }
   return out;
+}
+
+/** A small file of the first type an input accepts, as the person's own file choice would give it. */
+function sampleFile(mediaTypes: readonly string[] | undefined): File {
+  const type = mediaTypes?.find((t) => !t.endsWith('/*')) ?? (mediaTypes?.[0]?.replace('/*', '/png') || 'application/octet-stream');
+  const ext = type.split('/')[1]?.split('+')[0] ?? 'bin';
+  return new File([new Uint8Array([79, 85, 73])], `oui-kit-sample.${ext}`, { type });
 }

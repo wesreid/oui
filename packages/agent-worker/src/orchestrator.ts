@@ -45,6 +45,9 @@ import { withUserText } from './prompt/user-text.js';
 import { AttachmentGuard } from './attachments/guard.js';
 import { turnAttachmentParts, withReferenceLines, withTurnAttachments, withoutLeftOut } from './attachments/content.js';
 import { attachmentTools } from './attachments/tools.js';
+import { attachmentIdsIn, type AttachmentRef } from '@ouispec/agent-core';
+
+const ATTACHMENT_LIST_HINT = 'attachment_list lists the files that can.';
 import {
   buildUITools,
   createPageSight,
@@ -479,6 +482,30 @@ export async function runAgentTurn(
       );
     }
     const args = validation.value;
+
+    // ── Attached files named in the call (ADR-0252 §2.13) ──
+    // Each must be a file of this turn's conversation, checked before anything
+    // is dispatched; the page then resolves it through its own host.
+    const namedFiles = attachmentIdsIn(schema, args);
+    const callFiles = new Map<string, AttachmentRef>();
+    if (namedFiles.length > 0) {
+      if (!fileArea) {
+        return refused({ error: `"${t.name}" takes an attached file, and this assistant cannot use attached files.`, notRun: true }, args);
+      }
+      const ids = [...new Set(namedFiles.map((f) => f.id))];
+      const found = await fileArea.store.describe(ids, fileOwner);
+      for (const ref of found) callFiles.set(ref.id, ref);
+      const missing = ids.filter((id) => !callFiles.has(id) || callFiles.get(id)!.removed);
+      if (missing.length > 0) {
+        return refused(
+          {
+            error: `${missing.map((id) => `"${id}"`).join(', ')} ${missing.length === 1 ? 'is not a file' : 'are not files'} of this conversation that can be used. ${ATTACHMENT_LIST_HINT}`,
+            notRun: true,
+          },
+          args,
+        );
+      }
+    }
     // Told to the model with the result, so it sends the value itself next time (below).
     const readFromText = validation.coerced ?? [];
 
@@ -565,7 +592,7 @@ export async function runAgentTurn(
     }
     if ((requirement.required || policyRequiresApproval) && !approved) {
       ledger.record({ tool: t.name, ok: false, error: 'Not run: it waits for the user’s approval on the card' });
-      return { text: await requestApproval(t, args, toolUseId, requirement), ran: false };
+      return { text: await requestApproval(t, args, toolUseId, requirement, callFiles), ran: false };
     }
 
     if (t.name === UI_DESCRIBE_TOOL) uiCounts.describes++;
@@ -711,8 +738,10 @@ export async function runAgentTurn(
     args: Record<string, unknown>,
     toolUseId: string,
     requirement: ApprovalRequirement,
+    files: ReadonlyMap<string, AttachmentRef>,
   ): Promise<string> => {
-    const preview = buildApprovalPreview(t, args);
+    // A file is shown by its name and size; the approval stays bound to its id (ADR-0252 §2.13).
+    const preview = buildApprovalPreview(t, args, files);
     approvalHold = { approvalId: toolUseId, title: preview.title };
     const refuse = (why: string) => {
       approvalHold = null;

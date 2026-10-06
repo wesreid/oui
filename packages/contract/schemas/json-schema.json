@@ -110,6 +110,7 @@
       "type": "string"
     },
     "format": {
+      "description": "A string's format: `date`, `time`, `email`, `uri`, or `oui-attachment`, an input that takes a file the user attached (OUI spec §7.3.11): the agent passes the attachment's id, and the client hands the action the file or its text, as `x-oui-attachment` declares.",
       "type": "string"
     },
     "oneOf": {
@@ -151,6 +152,30 @@
     "x-enum-omitted": {
       "description": "How many allowed values a shortened `enum` leaves out. Only in the page state, where a row's options are summarised; a tool's input schema always lists every value.",
       "type": "number"
+    },
+    "x-oui-attachment": {
+      "description": "On a string with `format: oui-attachment`: what the action takes once the client resolves the attachment's id (ADR-0252 §2.13). `as`: `file` (a `File`, as the user's own file choice produces) or `text` (the file's text, for an input that takes markup or JSON). `mediaTypes`: the types it accepts, `type/*` for a family; any when absent.",
+      "type": "object",
+      "properties": {
+        "as": {
+          "type": "string",
+          "enum": [
+            "file",
+            "text"
+          ]
+        },
+        "mediaTypes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "as"
+      ],
+      "additionalProperties": false
     }
   },
   "$defs": {

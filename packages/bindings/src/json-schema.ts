@@ -1,3 +1,4 @@
+import { OUI_ATTACHMENT_FORMAT } from 'oui-spec/spec';
 import type { JsonSchema, JsonSchemaType } from '@ouispec/contract';
 
 /**
@@ -104,6 +105,11 @@ function sortKeys(value: unknown): unknown {
  * alternatives.
  */
 export function validateValue(schema: JsonSchema, value: unknown, path = 'value'): string | null {
+  // An attached file: by the time a handler checks it, the page has resolved the id to the
+  // file (a File) or its text (OUI spec §7.3.11), and checked its id and type then.
+  if (schema.format === OUI_ATTACHMENT_FORMAT) {
+    return typeof value === 'string' || (typeof Blob !== 'undefined' && value instanceof Blob) ? null : `${path} must be an attached file`;
+  }
   const alternatives = schema.anyOf ?? schema.oneOf;
   if (alternatives) {
     const problems = alternatives.map(s => validateValue(s, value, path));

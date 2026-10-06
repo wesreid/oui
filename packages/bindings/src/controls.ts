@@ -8,6 +8,7 @@
  * slider's range is its `min` and `max`, a select's options are its options.
  */
 
+import { OUI_ATTACHMENT_FORMAT } from 'oui-spec/spec';
 import type {
   AnyControlKind,
   ControlKind,
@@ -58,6 +59,7 @@ export const CONTROL_KINDS: readonly ControlKind[] = [
   'tabs',
   'date',
   'date-range',
+  'file',
   'dialog',
 ];
 
@@ -74,6 +76,7 @@ export const CONTROL_VERBS: Readonly<Record<ControlKind, string>> = {
   tabs: 'Select a tab of',
   date: 'Set the date of',
   'date-range': 'Set the dates of',
+  file: 'Give a file to',
   dialog: 'Close',
 };
 
@@ -299,6 +302,17 @@ export function deriveValueSchema(kind: AnyControlKind, props: SchemaProps = {})
       };
     case 'date':
       return { type: 'string', format: 'date', description: 'A date, YYYY-MM-DD' };
+    case 'file':
+      // The file the person attached, by its id: the page resolves it to a File (ADR-0252 §2.13).
+      return {
+        type: 'string',
+        format: OUI_ATTACHMENT_FORMAT,
+        'x-oui-attachment': { as: 'file', ...(props.accept?.length ? { mediaTypes: [...props.accept] } : {}) },
+        description:
+          'The id of a file the person attached to the conversation' +
+          (props.accept?.length ? `, of type ${props.accept.join(', ')}` : '') +
+          ': the page uses it as if the person had chosen it',
+      };
     case 'date-range':
       return {
         type: 'object',

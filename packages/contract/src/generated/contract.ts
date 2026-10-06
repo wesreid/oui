@@ -43,6 +43,11 @@ export interface JsonSchema {
   minLength?: number;
   maxLength?: number;
   pattern?: string;
+  /**
+   * A string's format: `date`, `time`, `email`, `uri`, or `oui-attachment`, an input that takes
+   * a file the user attached (OUI spec §7.3.11): the agent passes the attachment's id, and the
+   * client hands the action the file or its text, as `x-oui-attachment` declares.
+   */
   format?: string;
   oneOf?: readonly JsonSchema[];
   anyOf?: readonly JsonSchema[];
@@ -76,6 +81,16 @@ export interface JsonSchema {
    * row's options are summarised; a tool's input schema always lists every value.
    */
   'x-enum-omitted'?: number;
+  /**
+   * On a string with `format: oui-attachment`: what the action takes once the client resolves
+   * the attachment's id (ADR-0252 §2.13). `as`: `file` (a `File`, as the user's own file choice
+   * produces) or `text` (the file's text, for an input that takes markup or JSON).
+   * `mediaTypes`: the types it accepts, `type/*` for a family; any when absent.
+   */
+  'x-oui-attachment'?: {
+    as: 'file' | 'text';
+    mediaTypes?: readonly string[];
+  };
 }
 
 /** How the rows of a list are addressed and indexed. */
@@ -304,9 +319,11 @@ export interface ControlKindRegistration {
  * - `tabs`: select a tab.
  * - `date`: set a date.
  * - `date-range`: set a start and an end date.
+ * - `file`: give it a file (upload zones, file buttons): the user's attached file, by its id,
+ * which the client resolves to a `File` (ADR-0252 §2.13).
  * - `dialog`: close it. Opening is its trigger's.
  */
-export type ControlKind = 'button' | 'toggle' | 'text' | 'number' | 'choice' | 'multi-choice' | 'color' | 'font' | 'tabs' | 'date' | 'date-range' | 'dialog';
+export type ControlKind = 'button' | 'toggle' | 'text' | 'number' | 'choice' | 'multi-choice' | 'color' | 'font' | 'tabs' | 'date' | 'date-range' | 'file' | 'dialog';
 
 /**
  * A kind a design system registers: `x-` and lower-kebab, so it never collides with a built-in
@@ -318,7 +335,7 @@ export type RegisteredControlKind = `x-${string}`;
 export type AnyControlKind = ControlKind | RegisteredControlKind;
 
 /** A key of `SchemaProps`: a prop a control's value schema is derived from. */
-export type SchemaPropName = 'min' | 'max' | 'step' | 'unit' | 'wrap' | 'options' | 'minLength' | 'maxLength' | 'pattern' | 'inputType' | 'paintKinds' | 'allowNone' | 'clearable';
+export type SchemaPropName = 'min' | 'max' | 'step' | 'unit' | 'wrap' | 'options' | 'minLength' | 'maxLength' | 'pattern' | 'inputType' | 'paintKinds' | 'allowNone' | 'clearable' | 'accept';
 
 /** One option of a choice, tab set or menu, as the control shows it. */
 export interface ControlOption {
@@ -351,6 +368,11 @@ export interface SchemaProps {
   allowNone?: boolean;
   /** A choice that can be cleared (a toggleable tile grid). */
   clearable?: boolean;
+  /**
+   * The media types a file control takes, `type/*` for a family: an `<input accept>`'s types,
+   * without file extensions.
+   */
+  accept?: readonly string[];
 }
 
 /**
@@ -518,6 +540,7 @@ export interface SchemaPropSources {
   paintKinds?: string;
   allowNone?: string;
   clearable?: string;
+  accept?: string;
 }
 
 // ─── A tier 2 mapping (ADR-0226 §2.3) ──────────────────────────────────────────

@@ -152,3 +152,74 @@ describe('a turn with files', () => {
     expect(typeof lastUser(seen!.messages).content === 'string' || (lastUser(seen!.messages).content as Part[]).every((p) => p.type === 'text')).toBe(true);
   });
 });
+
+describe('an action that takes an attached file', () => {
+  const placeLogo = (run = vi.fn(async (args: Record<string, unknown>) => ({ success: true, data: { placed: args.logo } }))) => ({
+    run,
+    tool: {
+      name: 'brand_logo_set',
+      description: 'Use a picture as the brand logo',
+      title: 'Set the brand logo',
+      destructive: true,
+      effect: 'mutate' as const,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          logo: { type: 'string', title: 'Logo', format: 'oui-attachment', 'x-oui-attachment': { as: 'file', mediaTypes: ['image/*'] } },
+        },
+        required: ['logo'],
+      },
+      execute: run,
+    },
+  });
+
+  it('runs with a file of this conversation, by its id', async () => {
+    const { tool, run } = placeLogo();
+    let out = '';
+    script = async (opts) => {
+      out = await opts.tools.brand_logo_set.execute({ logo: 'att_logo00001' }, { toolCallId: 'call-logo' });
+    };
+    const { runAgentTurn } = await import('../orchestrator.js');
+    await runAgentTurn(config({ tools: createToolRegistry([{ ...tool, destructive: false }]) }), input());
+    expect(run).toHaveBeenCalledWith({ logo: 'att_logo00001' }, expect.anything());
+    expect(JSON.parse(out)).toMatchObject({ placed: 'att_logo00001' });
+  });
+
+  it('is not run with a file that is not this conversation’s, or with something that is not an id', async () => {
+    const { tool, run } = placeLogo();
+    const outs: string[] = [];
+    script = async (opts) => {
+      outs.push(await opts.tools.brand_logo_set.execute({ logo: 'att_elsewhere1' }, { toolCallId: 'call-1' }));
+      outs.push(await opts.tools.brand_logo_set.execute({ logo: 'https://evil.example/logo.png' }, { toolCallId: 'call-2' }));
+    };
+    const { runAgentTurn } = await import('../orchestrator.js');
+    await runAgentTurn(config({ tools: createToolRegistry([{ ...tool, destructive: false }]) }), input());
+    expect(run).not.toHaveBeenCalled();
+    expect(JSON.parse(outs[0])).toMatchObject({ notRun: true, error: expect.stringMatching(/"att_elsewhere1" is not a file of this conversation/) });
+    expect(JSON.parse(outs[1])).toMatchObject({ invalidInput: true });
+  });
+
+  it('asks for approval showing the file by its name and size, bound to its id', async () => {
+    const { tool, run } = placeLogo();
+    const create = vi.fn(async () => {});
+    script = async (opts) => {
+      await opts.tools.brand_logo_set.execute({ logo: 'att_logo00001' }, { toolCallId: 'call-approve' });
+    };
+    const { runAgentTurn } = await import('../orchestrator.js');
+    await runAgentTurn(
+      config({
+        tools: createToolRegistry([tool]),
+        approvals: { create, redeem: vi.fn(), status: vi.fn() } as never,
+      }),
+      input(),
+    );
+    expect(run).not.toHaveBeenCalled();
+    const pending = (create.mock.calls[0] as unknown as [Record<string, unknown>])[0];
+    expect(pending).toMatchObject({
+      args: { logo: 'att_logo00001' },
+      preview: { arguments: [{ name: 'logo', label: 'Logo', value: '"logo.png" (391 KB)' }] },
+    });
+    expect(JSON.stringify(pending.preview)).not.toContain('att_logo00001');
+  });
+});
+
