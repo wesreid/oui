@@ -11,6 +11,15 @@
  *    since `<ref>` has a new version, and no version goes backwards. Tests,
  *    evals and test configuration are not shipped, so changing only them needs
  *    no release.
+ * 3. No published package is left depending on an old release of another. A
+ *    package still at the version its release tag (`<name>@<version>`) records
+ *    was published with each `workspace:` dependency resolved to that
+ *    dependency's version then. When the dependency has since moved outside
+ *    that range, the package must be released again; otherwise an app that
+ *    takes the latest of everything installs a second, older copy of the
+ *    dependency through it (@ouispec/cli 0.3.0 kept `@ouispec/bindings ^0.2.3`
+ *    after bindings 0.3 was released). Needs the release tags (CI checks out
+ *    with `fetch-depth: 0`).
  *
  *   node scripts/release-check.mjs                  # (1) only
  *   node scripts/release-check.mjs --base origin/main
@@ -86,6 +95,54 @@ if (base) {
       problems.push(
         `${pkg.name} changes ${shipped.slice(0, 5).join(', ')}${shipped.length > 5 ? `, and ${shipped.length - 5} more` : ''} ` +
           `but is still ${pkg.version}: add a changeset (\`pnpm changeset\`) and apply it (\`pnpm version-packages\`).`,
+      );
+    }
+  }
+}
+
+// (3) Published packages that still depend on an old release of another.
+const tags = new Set(git('tag', '--list').split('\n').filter(Boolean));
+if (![...tags].some(tag => tag.includes('@'))) {
+  problems.push('no release tags (`<name>@<version>`) in this clone: fetch them (`git fetch --tags`) so stale dependencies can be checked');
+}
+
+/** Whether `version` is inside the range `workspace:<kind>` resolved to against `at` when published. */
+function admits(kind, at, version) {
+  const [a, b, c] = parts(at);
+  const [x, y, z] = parts(version);
+  if (kind === '*' || kind === '') return a === x && b === y && c === z;
+  if (compare(version, at) < 0) return false;
+  if (kind === '~') return a === x && b === y;
+  // ^: the left-most non-zero part is fixed.
+  if (a > 0) return x === a;
+  if (b > 0) return x === 0 && y === b;
+  return x === 0 && y === 0 && z === c;
+}
+
+const current = new Map(publishedPackages().map(({ pkg }) => [pkg.name, pkg.version]));
+for (const { dir, pkg } of publishedPackages()) {
+  const tag = `${pkg.name}@${pkg.version}`;
+  if (!tags.has(tag)) continue; // not released yet at this version: it is published with today's versions
+  const atTag = name => {
+    for (const path of git('ls-tree', '-r', '--name-only', tag).split('\n')) {
+      if (!/^packages\/[^/]+\/package\.json$/.test(path)) continue;
+      const other = JSON.parse(git('show', `${tag}:${path}`));
+      if (other.name === name) return other.version;
+    }
+    return undefined;
+  };
+  const published = JSON.parse(git('show', `${tag}:${dir}/package.json`));
+  for (const field of ['dependencies', 'peerDependencies']) {
+    for (const [name, range] of Object.entries(published[field] ?? {})) {
+      const match = /^workspace:([\^~*]?)/.exec(String(range));
+      const now = current.get(name);
+      if (!match || !now) continue;
+      const then = atTag(name);
+      if (!then || admits(match[1], then, now)) continue;
+      const resolved = `${match[1] === '*' ? '' : match[1]}${then}`;
+      problems.push(
+        `${pkg.name} ${pkg.version} was published depending on ${name} ${resolved}, which ${name} ${now} is outside: ` +
+          `release ${pkg.name} again (a patch changeset, applied) so it depends on the current release.`,
       );
     }
   }
