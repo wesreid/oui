@@ -6,7 +6,7 @@
  * decides how a turn arrives and what a failure means to its transport.
  */
 import { APICallError, RetryError } from 'ai';
-import { AGENT_SOCKET_EVENTS, type TurnStopReason, type TurnStoppedMarker } from '@ouispec/agent-core';
+import { AGENT_SOCKET_EVENTS, type TurnStoppedReason, type TurnStoppedMarker } from '@ouispec/agent-core';
 import { runAgentTurn } from '../orchestrator.js';
 import { createHttpEmitAdapter } from '../emit/http-adapter.js';
 import { createHttpUIActionChannel } from '../ui/channel.js';
@@ -29,7 +29,7 @@ export interface CategorizedError {
 export type TurnOutcome =
   | { status: 'completed'; turnId: string; rounds: number }
   /** The turn was stopped (ADR-0252): what it had produced is stored, and the client was told. */
-  | { status: 'stopped'; turnId: string; rounds: number; stopReason: TurnStopReason }
+  | { status: 'stopped'; turnId: string; rounds: number; stopReason: TurnStoppedReason }
   /** The host's turn record said the turn must not run (a redelivery of a turn that already ended): nothing was done. */
   | { status: 'refused'; turnId: string; reason: string }
   | { status: 'failed'; turnId: string; error: CategorizedError; cause: unknown };

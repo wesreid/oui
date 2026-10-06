@@ -165,7 +165,7 @@ describe('Orchestrator Execution Bounds (W7.T1)', () => {
   // ── 2. Wall-clock deadline ─────────────────────────────────────────────────
 
   describe('Wall-clock deadline', () => {
-    it('fires AbortSignal and turn fails with deadline error', async () => {
+    it('ends the turn on the stop path: what it had said is kept, marked as having run out of time, and announced (ADR-0252 §6.4)', async () => {
       // Use real timers for this test — fake timers don't advance inside async generators
       vi.useRealTimers();
 
@@ -173,19 +173,16 @@ describe('Orchestrator Execution Bounds (W7.T1)', () => {
 
       mockStreamTextImpl = (opts) => {
         capturedAbortSignal = opts.abortSignal as AbortSignal;
-        // Return a stream that blocks until aborted
         return {
           textStream: (async function* () {
-            // Yield empty to satisfy require-yield, then wait for abort
-            yield '';
-            // Wait until abort fires (or 10s safety ceiling)
+            yield 'Here is the first part of a long answer';
+            // Wait until the deadline aborts the stream (or a 10 s safety ceiling).
             await new Promise<void>((resolve) => {
               const signal = opts.abortSignal as AbortSignal;
               if (signal.aborted) { resolve(); return; }
               signal.addEventListener('abort', () => resolve(), { once: true });
               setTimeout(resolve, 10_000);
             });
-            // After abort, throw like a real stream would
             throw new Error('This operation was aborted');
           })(),
           steps: new Promise(() => {}),
@@ -199,14 +196,17 @@ describe('Orchestrator Execution Bounds (W7.T1)', () => {
       const { emit: emitFn } = makeEmit();
       const config = makeBaseConfig({
         emit: { emit: emitFn },
-        turnDeadlineMs: 50, // Very short deadline for test
+        turnDeadlineMs: 80,
       });
 
-      // The turn should reject/throw due to abort
-      await expect(runAgentTurn(config, makeBaseInput())).rejects.toThrow();
+      const result = await runAgentTurn(config, makeBaseInput());
 
-      // The abort signal should have fired
       expect(capturedAbortSignal?.aborted).toBe(true);
+      expect(result.stopReason).toBe('deadline');
+      expect(result.stopped).toMatchObject({ reason: 'deadline' });
+      const last = result.newMessages[result.newMessages.length - 1];
+      expect(last).toMatchObject({ role: 'assistant', stopped: { reason: 'deadline' } });
+      expect(last.content).toContain('Here is the first part of a long answer');
     }, 15_000);
   });
 

@@ -218,7 +218,6 @@ export async function runAgentTurn(
   // A UI tool waiting on work it started stops in time for the model to answer.
   const uiWaitDeadline = () => turnStartedAt + turnDeadlineMs - UI_ANSWER_MARGIN_MS;
   const abortController = new AbortController();
-  const deadlineTimer = setTimeout(() => abortController.abort('Turn deadline exceeded'), turnDeadlineMs);
 
   // ─── Stopping (ADR-0252) ───────────────────────────────────────────────────
   // The person's Stop, or a newer message superseding this turn, is kept by the
@@ -245,15 +244,24 @@ export async function runAgentTurn(
       return stopGraceMs;
     },
   };
-  stopWatch.onStop((record) => {
+  /** Abort the turn on its stop path: what it had produced is stored, then announced. */
+  const stopTurn = (stop: TurnStopped) => {
     if (ending || abortController.signal.aborted) return;
     // Never longer than this process has left, less what storing and announcing take.
     const remaining = input.remainingMs?.();
     if (remaining !== undefined) stopGraceMs = Math.max(0, Math.min(stopGraceMs, remaining - STOP_STORE_MARGIN_MS));
     graceSignal = AbortSignal.timeout(stopGraceMs + 250);
-    log('info', 'agent:turn', 'Turn asked to stop', { turnId, reason: record.reason, graceMs: stopGraceMs });
-    abortController.abort(new TurnStopped(record.reason, record.at));
-  });
+    log('info', 'agent:turn', stop.reason === 'deadline' ? 'Turn ran out of time' : 'Turn asked to stop', {
+      turnId,
+      reason: stop.reason,
+      graceMs: stopGraceMs,
+    });
+    abortController.abort(stop);
+  };
+  stopWatch.onStop((record) => stopTurn(new TurnStopped(record.reason, record.at)));
+  // The turn's deadline ends it on the same path (ADR-0252 §6.4): what it did
+  // before it ran out of time is kept, marked, and the next turn is told.
+  const deadlineTimer = setTimeout(() => stopTurn(new TurnStopped('deadline', Date.now())), turnDeadlineMs);
 
   // Build tool execution context
   const toolCtx: ToolExecutionContext = {

@@ -7,7 +7,7 @@ import type {
   ApprovalDecision,
 } from '@ouispec/agent-core';
 import { APPROVAL_DECIDE_EVENT, TURN_STOP_EVENT } from '@ouispec/agent-core';
-import type { TurnStopPayload, TurnStopReason, TurnStopResult } from '@ouispec/agent-core';
+import type { TurnStopPayload, TurnStoppedReason, TurnStopResult } from '@ouispec/agent-core';
 import type { AgentProtocolEvent } from '@ouispec/agent-core';
 import { ALL_AGENT_SOCKET_EVENTS, parseSocketEvent } from '@ouispec/agent-core';
 import type { SocketLike } from '@ouispec/agent-core';
@@ -286,7 +286,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     if (ended.size > ENDED_TURNS_REMEMBERED) ended.delete(ended.values().next().value as string);
   };
   /** The assistant message and running calls of a turn that ended by being stopped, as the panel shows them. */
-  const markStopped = (prev: AgentMessage[], turnId: string, reason: TurnStopReason): AgentMessage[] => {
+  const markStopped = (prev: AgentMessage[], turnId: string, reason: TurnStoppedReason): AgentMessage[] => {
     const msgId = `msg_${turnId}`;
     const marked = prev.map((m) => {
       if (m.id === msgId) return { ...m, isStreaming: false, stopped: reason };

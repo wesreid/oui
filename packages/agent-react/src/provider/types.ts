@@ -8,7 +8,7 @@ import type {
   AgentConversationChanges,
   AgentConversationFilter,
   AgentConversationSummary,
-  TurnStopReason,
+  TurnStoppedReason,
 } from '@ouispec/agent-core';
 
 export interface AgentToolCallState {
@@ -32,7 +32,7 @@ export interface AgentMessage {
    * Set on the assistant message of a turn that was stopped (ADR-0252): by
    * the person, or by a newer message. What it had said is kept.
    */
-  stopped?: TurnStopReason;
+  stopped?: TurnStoppedReason;
 }
 
 export type DebugLogLevel = 'info' | 'warn' | 'error' | 'event' | 'socket';

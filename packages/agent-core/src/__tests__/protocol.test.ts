@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AGENT_SOCKET_EVENTS, ALL_AGENT_SOCKET_EVENTS, parseSocketEvent } from '../protocol/index.js';
-import { TURN_STOP_REASONS, isTurnStopReason, turnStoppedNote } from '../turns/index.js';
+import { TURN_STOP_REASONS, TURN_STOPPED_REASONS, isTurnStopReason, isTurnStoppedReason, turnStoppedNote } from '../turns/index.js';
 
 describe('Agent Protocol (W1.T2 — D2 fix)', () => {
   it('TURN_ERROR should be in AGENT_SOCKET_EVENTS', () => {
@@ -71,5 +71,9 @@ describe('a stopped turn (ADR-0252)', () => {
     for (const reason of TURN_STOP_REASONS) expect(turnStoppedNote({ reason }).trim()).not.toBe('');
     expect(isTurnStopReason('user_stop')).toBe(true);
     expect(isTurnStopReason('deadline')).toBe(false);
+    // Nobody asks for a deadline stop; a turn that ran out of time ends on the stop path with that reason.
+    expect(isTurnStoppedReason('deadline')).toBe(true);
+    expect(TURN_STOPPED_REASONS).toEqual(['user_stop', 'superseded', 'deadline']);
+    expect(turnStoppedNote({ reason: 'deadline' })).toMatch(/ran out of time/);
   });
 });

@@ -16,7 +16,7 @@ import type { ToolPolicy } from '../authz/tool-policy.js';
 import type { UIActionChannel } from '../ui/channel.js';
 import type { LanguageModel, ProviderOptions } from '../model.js';
 import type { ApprovalStoreClient } from '../approvals/client.js';
-import type { ApprovalContinuation, TurnStopReason, TurnStoppedMarker } from '@ouispec/agent-core';
+import type { ApprovalContinuation, TurnStoppedReason, TurnStoppedMarker } from '@ouispec/agent-core';
 import type { TurnStopClient } from '../stop/turn-stop.js';
 
 /**
@@ -282,7 +282,7 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
     rounds: number;
     usage: { promptTokens: number; completionTokens: number; totalTokens: number };
     /** Set when the turn was stopped rather than ending by itself (ADR-0252). */
-    stopReason?: TurnStopReason;
+    stopReason?: TurnStoppedReason;
     db: TDb;
   }) => Promise<void>;
 

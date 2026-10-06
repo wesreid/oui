@@ -1,4 +1,4 @@
-import type { TurnStopReason, TurnStoppedMarker } from '@ouispec/agent-core';
+import type { TurnStoppedReason, TurnStoppedMarker } from '@ouispec/agent-core';
 import type { TurnStopClient, TurnStopWatch } from './stop/turn-stop.js';
 import type { LanguageModel, ProviderOptions } from './model.js';
 import type { RealtimeEmitAdapter } from './emit/types.js';
@@ -216,7 +216,7 @@ export interface AgentTurnResult {
     | 'deadline'
     | 'complete'
     | 'error'
-    | TurnStopReason;
+    | TurnStoppedReason;
   /**
    * Set when the turn was stopped: `newMessages` is what it had produced, each
    * call with exactly one result, the last assistant message marked.
