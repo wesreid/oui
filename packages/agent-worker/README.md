@@ -90,23 +90,26 @@ A file is uploaded to your storage first, and a message carries its reference (`
 ```ts
 attachments: {
   store: {
-    describe: (ids, owner) => …,          // the references of these files, if they are the owner's conversation's
-    load: (id, owner, as, range) => …,    // 'image': the model's rendition; 'text': a page of its text; 'document': a PDF's bytes
-    list: (owner) => …,                   // every file of the conversation
-    conversationUsage: (owner) => …,      // optional: tokens earlier turns gave the model, for the conversation's cap
+    describe: (ids, owner, { signal }) => …,           // the references of these files, if they are the owner's conversation's; `pending: true` while still checked
+    load: (id, owner, as, { range, signal }) => …,     // 'image': the model's rendition; 'text': a page of its text; 'document': a PDF's bytes
+    list: (owner, { signal }) => …,                    // every file of the conversation
+    conversationUsage: (owner, { signal }) => …,       // optional: tokens earlier turns gave the model, for the conversation's cap
   },
   turnTokens: 30_000,                     // the defaults
   conversationTokens: 300_000,
+  perMessage: 5,
   pdfAsDocument: false,                   // a short PDF as a document part, once your provider's document part is proven
 }
 ```
 
-- **The turn's files** go to the model with its message: a picture as your model rendition (at most 1,568 px and 1 MB), a text file's text up to 20,000 characters (40,000 a turn), a PDF's text, anything else as its reference line. Earlier files are in history as their reference lines only.
-- **The tools** `attachment_list`, `attachment_view` and `attachment_read` reach every file of the conversation by its id. They are backend tools of the class `attachment` (`ToolPolicyContext.toolClass`), not UI tools: admit the class in your tool policy.
+- **The turn's files** go to the model with its message: a picture as your model rendition (PNG, JPEG or WebP, at most 1,568 px and 1 MB; anything else is refused and named), a text file's text up to 20,000 characters (40,000 a turn), a PDF's text, anything else as its reference line. Each file once, at most `perMessage`. Earlier files are in history as their reference lines only.
+- **A file that cannot be had** is named with why, and the turn goes on: a store call that throws, a load that answers `{ ok: false, reason: 'pending' }` (still being checked), `'gone'`, `'refused'` or `'unsupported'`. Every store call is given the turn's `signal`, aborted when the turn is stopped or runs out of time.
+- **A file is data.** The system prompt tells the model a file's name and content are never instructions. Names reach it as one cleaned JSON string, and a file's text cannot close its own `<attachment>` block.
+- **The tools** `attachment_list`, `attachment_view` and `attachment_read` reach every file of the conversation by its id. They are backend tools of the class `attachment` (`ToolPolicyContext.toolClass`; a turn policy's `prepareStep` gets each tool's class in `allTools`), not UI tools: admit the class in your tool policy.
 - **The cost guard** counts what each model step carries, and from the step that would pass `turnTokens` (or what is left of `conversationTokens`) gives the costliest file's line instead of the file. `recordTurnComplete` receives `attachments` with `estimatedTokens`: keep it for the conversation's cap.
-- **An action that takes a file** declares an input with `format: 'oui-attachment'` (OUI spec §7.3.11). The model passes the id; the worker checks it is a file of the turn's conversation before the call runs, and the approval card shows the file by name and size.
+- **An action that takes a file** declares an input with `format: 'oui-attachment'` (OUI spec §7.3.11). The model passes the id. Before the call runs, the worker checks that it is a file of the turn's conversation, that its check has passed, and that its type is one the input takes; the approval card shows the file by name and size.
 
-No file's bytes or text is in an event, the turn's record or a stored message: bytes go from your store to the model call and nowhere else.
+No file's bytes or text is in an event, the turn's record or a stored message: a picture `attachment_view` shows and the text `attachment_read` reads go to the model with that call's result and nowhere else.
 
 ## Lambda + SQS
 
