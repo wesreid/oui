@@ -61,6 +61,18 @@ export { buildApprovalPreview } from './approvals/preview.js';
 export { createHttpTurnStopClient, watchTurnStop, stopOf, TurnStopped, DEFAULT_STOP_GRACE_MS } from './stop/turn-stop.js';
 export type { TurnStopClient, HttpTurnStopClientConfig, TurnStopWatch, TurnStopState } from './stop/turn-stop.js';
 export { stoppedTurnMessages } from './stop/partial.js';
+// Files the person attaches (ADR-0252 §2.8–§2.12): the host's file area, the cost guard, the attachment tools.
+export type { AttachmentStore, AttachmentStoreCallOptions, AttachmentOwner, AttachmentLoadAs, AttachmentContent, AttachmentWorkerConfig } from './attachments/store.js';
+export { AttachmentGuard, type AttachmentUsage, type GuardedPart, type AttachmentCap } from './attachments/guard.js';
+export { attachmentTools, ATTACHMENT_TOOLS, ATTACHMENT_TOOL_CLASS } from './attachments/tools.js';
+export {
+  VIEW_TOOL as ATTACHMENT_VIEW_TOOL,
+  READ_TOOL as ATTACHMENT_READ_TOOL,
+  LIST_TOOL as ATTACHMENT_LIST_TOOL,
+  ATTACHMENT_DATA_NOTE,
+  escapeAttachmentText,
+} from './attachments/content.js';
+export * as attachmentLimits from './attachments/limits.js';
 export type { RecordedStep, RecordedCall } from './stop/partial.js';
 
 // UI actions (ADR-0209): the client's surfaces become the turn's UI tools,
@@ -106,13 +118,13 @@ export { runAgentTurn } from './orchestrator.js';
 // The model seam: any `ai` library model; the worker imports no provider.
 export { PROMPT_CACHE_BREAKPOINTS, describeModel } from './model.js';
 export type { LanguageModel, ProviderOptions } from './model.js';
-export type { TurnPolicy } from './turn-policy.js';
+export type { TurnPolicy, StepTool } from './turn-policy.js';
 export { defaultTurnPolicy } from './turn-policy.js';
 export { createHttpEmitAdapter } from './emit/http-adapter.js';
 export type { HttpEmitAdapterConfig } from './emit/http-adapter.js';
 
 // The runtime: one core, two host adapters (Lambda + SQS, container)
-export { createAgentTurnRunner, categorizeError, payloadRefusal } from './runtime/turn-runner.js';
+export { createAgentTurnRunner, categorizeError, payloadRefusal, TURN_DEADLINE_EXCEEDED } from './runtime/turn-runner.js';
 export type { AgentTurnRunner, TurnOutcome, CategorizedError } from './runtime/turn-runner.js';
 export { assertAgentRuntimeConfig } from './runtime/config.js';
 export type { AgentRuntimeConfig, LambdaAgentConfig, AgentTurnPayload, HistoryRequest } from './runtime/types.js';

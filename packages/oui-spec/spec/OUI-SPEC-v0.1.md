@@ -858,6 +858,36 @@ them now (including what it narrowed at run time):
 - For any other value, data is `{ value, fit? }`, fitted as in §7.3.9.
 - An unknown surface, observation or path is `NOT_FOUND`.
 
+#### 7.3.11 Inputs That Take an Attached File
+
+An action input MAY take a file the user attached to their conversation with the agent. It is a string schema with the format `oui-attachment` and a declaration of what the action takes:
+
+```json
+{
+  "type": "string",
+  "format": "oui-attachment",
+  "x-oui-attachment": {
+    "as": "file",
+    "mediaTypes": ["image/png", "image/jpeg"]
+  }
+}
+```
+
+- `as` is `file` (the action receives a `File`, as the user's own file choice produces) or `text` (the action receives the file's text, for an input that takes markup or JSON).
+- `mediaTypes` lists the types the input accepts; a type ending in `/*` accepts the family. Without it, any file is accepted.
+- Such an input is a property of the action's input, or the items of a list property. It is nowhere else: not inside an object property, a list of lists, or an `anyOf`, `oneOf` or `allOf` alternative.
+
+**Requirements:**
+
+- The agent runtime MUST send the attachment's id, never the file's content. An id is 8 to 64 characters of `A–Z`, `a–z`, `0–9`, `_` and `-`.
+- The agent runtime MUST check, before it sends the request, that each file is one of the conversation's and of a type the input accepts.
+- The client MUST resolve each id through its host before the handler runs. The host MUST check that the file is the user's.
+- The client MUST check the file's type against `mediaTypes` for `text` inputs as well as `file` inputs. A host resolving a `text` input gives the file, or its text with its name and type; text whose type is unknown is taken only by an input that accepts any type.
+- The client MUST refuse the request without running the handler when an id cannot be resolved or names a file of a type the input does not accept (`ATTACHMENT_UNAVAILABLE`), when a list input names more than 20 files (`ATTACHMENT_UNAVAILABLE`), when it has no way to resolve files (`ATTACHMENTS_UNSUPPORTED`), and when the action declares an attachment input anywhere other than where it may be (`ATTACHMENT_INPUT_UNSUPPORTED`).
+- A file named more than once in one request SHOULD be resolved once, and a list's files a few at a time.
+- An approval (§7.3.6) is of the request as sent: it binds the file by its id.
+- The action's index entry (§7.3.8) MUST describe the input as a file, not as a string.
+
 ### 7.4 Observation Updates
 
 #### 7.4.1 Push Update

@@ -461,7 +461,7 @@ Every input, value and observation schema, here and in tier 1, is written in the
 > | `minLength` | number |  |  |
 > | `maxLength` | number |  |  |
 > | `pattern` | string |  |  |
-> | `format` | string |  |  |
+> | `format` | string |  | A string's format: `date`, `time`, `email`, `uri`, or `oui-attachment`, an input that takes a file the user attached (OUI spec §7.3.11): the agent passes the attachment's id, and the client hands the action the file or its text, as `x-oui-attachment` declares. |
 > | `oneOf` | JsonSchema[] |  |  |
 > | `anyOf` | JsonSchema[] |  |  |
 > | `default` | unknown |  |  |
@@ -470,6 +470,7 @@ Every input, value and observation schema, here and in tier 1, is written in the
 > | `x-rows` | RowList |  | On an array of objects in an observation: the list is a collection the assistant addresses rows of (a document's layers, its artboards). |
 > | `x-ref` | string[] |  | On a string (or the items of an array of strings) in an action's input: the value addresses a row of one of the surface's `x-rows` lists, each named `<observation id>/<list property>`, or `<observation id>` when the observation itself is the list. |
 > | `x-enum-omitted` | number |  | How many allowed values a shortened `enum` leaves out. |
+> | `x-oui-attachment` | { as: "file" \| "text", mediaTypes?: string[] } |  | On a string with `format: oui-attachment`: what the action takes once the client resolves the attachment's id (ADR-0252 §2.13). |
 
 ## `oui.config.json`
 

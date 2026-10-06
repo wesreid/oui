@@ -59,4 +59,36 @@ describe('checkBudgets', () => {
       },
     ]);
   });
+
+  it('measures an action that takes an attached file, its index line saying so', () => {
+    const file = {
+      type: 'object' as const,
+      properties: {
+        picture: { type: 'string' as const, format: 'oui-attachment', 'x-oui-attachment': { as: 'file', mediaTypes: ['image/png', 'image/jpeg'] } },
+        svg: { type: 'string' as const, format: 'oui-attachment', 'x-oui-attachment': { as: 'text', mediaTypes: ['image/svg+xml'] } },
+      },
+      required: ['picture'],
+    };
+    const report = checkBudgets({ name: 'studio', manifest: { surfaces: [surface('room:studio', [action('studio/action/texture', file as ManifestAction['input'])])] } });
+    expect(report.violations).toEqual([]);
+    expect(report.checked).toEqual({ 'within-budgets': 2 });
+
+    // What it measured: the index entry's bytes, as a budget of one byte reports them.
+    const entryBytes = (input: ManifestAction['input']) => {
+      const tight = checkBudgets({ name: 'studio', manifest: { surfaces: [surface('room:studio', [action('studio/action/texture', input)])] }, budgets: { indexEntryBytes: 1 } });
+      const said = tight.violations.find((v) => v.subject === 'room:studio studio/action/texture')!.message;
+      return Number(/its index entry is (\d+) bytes/.exec(said)![1]);
+    };
+    const asFiles = entryBytes(file as ManifestAction['input']);
+    const asStrings = entryBytes({ type: 'object', properties: { picture: { type: 'string' }, svg: { type: 'string' } }, required: ['picture'] });
+    // The entry says each input is a file and which types it takes: "file(image/png|image/jpeg)" where a string says "string".
+    expect(asFiles - asStrings).toBe('file(image/png|image/jpeg)'.length - 'string'.length + 'file(image/svg+xml)'.length - 'string'.length);
+    // And the budget holds it to exactly that.
+    const at = (indexEntryBytes: number) =>
+      checkBudgets({ name: 'studio', manifest: { surfaces: [surface('room:studio', [action('studio/action/texture', file as ManifestAction['input'])])] }, budgets: { indexEntryBytes } });
+    expect(at(asFiles).violations).toEqual([]);
+    expect(at(asFiles - 1).violations).toEqual([
+      { rule: 'within-budgets', subject: 'room:studio studio/action/texture', message: `studio/action/texture: its index entry is ${asFiles} bytes, over ${asFiles - 1}. Shorten its id or its title.` },
+    ]);
+  });
 });

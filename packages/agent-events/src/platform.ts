@@ -81,9 +81,9 @@ export const PLATFORM_EVENTS: EventDeclarationDocument = {
         usage: { type: 'object', description: 'Token usage.' },
         stopReason: {
           type: 'string',
-          enum: ['user_stop', 'superseded'],
+          enum: ['user_stop', 'superseded', 'deadline'],
           description:
-            'Set when the turn did not end by itself (ADR-0252): the person stopped it, or a newer message superseded it.',
+            'Set when the turn did not end by itself (ADR-0252): the person stopped it, a newer message superseded it, or it ran out of time.',
         },
       },
       [],

@@ -24,6 +24,20 @@ export function isTurnStopReason(value: unknown): value is TurnStopReason {
 }
 
 /**
+ * Why a turn ended on the stop path, keeping what it had produced: a stop that
+ * was asked for (`TurnStopReason`), or its own deadline (`deadline`: it ran
+ * out of time, ADR-0252 §6.4). Nobody asks for `deadline`: it is never a
+ * stop request, only a stopped turn's reason.
+ */
+export type TurnStoppedReason = TurnStopReason | 'deadline';
+
+export const TURN_STOPPED_REASONS: readonly TurnStoppedReason[] = [...TURN_STOP_REASONS, 'deadline'];
+
+export function isTurnStoppedReason(value: unknown): value is TurnStoppedReason {
+  return typeof value === 'string' && (TURN_STOPPED_REASONS as readonly string[]).includes(value);
+}
+
+/**
  * What the tab sends with `TURN_STOP_EVENT`. A stop from a socket is always
  * the person's own (`user_stop`). `room` is the turn's room, which the tab
  * joined with the turn's room token: being in it is what shows the turn is
@@ -64,7 +78,7 @@ export const TURN_STOP_RECORD_TTL_MS = 30 * 60_000;
  * history says, after that message's text, that the turn was stopped there.
  */
 export interface TurnStoppedMarker {
-  reason: TurnStopReason;
+  reason: TurnStoppedReason;
   /** Epoch ms. */
   at: number;
 }
@@ -76,7 +90,12 @@ export interface TurnStoppedMarker {
  * block, so a stopped turn that produced nothing still says this).
  */
 export function turnStoppedNote(marker: Pick<TurnStoppedMarker, 'reason'>): string {
-  return marker.reason === 'superseded'
-    ? '[This turn was stopped here because the person sent a new message. Calls marked "not run" did not run.]'
-    : '[The person stopped this turn here. Calls marked "not run" did not run.]';
+  switch (marker.reason) {
+    case 'superseded':
+      return '[This turn was stopped here because the person sent a new message. Calls marked "not run" did not run.]';
+    case 'deadline':
+      return '[This turn ran out of time and was stopped here. Calls marked "not run" did not run.]';
+    default:
+      return '[The person stopped this turn here. Calls marked "not run" did not run.]';
+  }
 }

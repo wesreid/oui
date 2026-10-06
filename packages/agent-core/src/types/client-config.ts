@@ -15,6 +15,7 @@ import type { AgentProtocolEvent } from '../protocol/index.js';
 import type { ViewAnnotationState } from './api-surface.js';
 import type { ApprovalContinuation, ApprovalGrant } from '../approvals/types.js';
 import type { TurnStoppedMarker } from '../turns/types.js';
+import type { AttachmentLimits, AttachmentRef } from '../attachments/types.js';
 
 
 /**
@@ -145,6 +146,8 @@ export interface AgentStoredMessage {
    * The panel labels the message; a later turn's history says so after its text.
    */
   stopped?: TurnStoppedMarker | null;
+  /** The files the person attached to this message (ADR-0252 §2.8), by reference. */
+  attachments?: AttachmentRef[] | null;
 }
 
 /** One stored conversation, with its most recent messages in chronological order. */
@@ -185,7 +188,12 @@ export interface AgentClientConfig {
     conversationId: string;
     content: string;
     context?: AgentMessageContext;
-    attachments?: File[];
+    /**
+     * The files attached to this message, already uploaded through
+     * `attachments.upload` (ADR-0252 §2.8): the platform sends their ids.
+     * No file's bytes go with a message.
+     */
+    attachments?: AttachmentRef[];
     /**
      * Set on the turn the approval card starts after the user's decision
      * (ADR-0228 §2.2.5): the token to redeem, or that they declined. The
@@ -204,6 +212,13 @@ export interface AgentClientConfig {
    * platform without it stops only over the socket.
    */
   stopTurn?: (params: { turnId: string; conversationId: string | null }) => Promise<void>;
+
+  /**
+   * The platform's file area (ADR-0252 §2.8, §3). With it, the person can
+   * attach files to a message: each is uploaded when it is attached, and the
+   * message carries references. Without it, nothing can be attached.
+   */
+  attachments?: AttachmentClientSeam;
 
   /**
    * Hands the user's approval to this tab's OUI runtime (`runtime.grantApproval`
@@ -275,4 +290,25 @@ export interface AgentClientConfig {
    * Useful for analytics, logging, or custom side effects.
    */
   onEvent?: (event: AgentProtocolEvent) => void;
+}
+
+/**
+ * How a tab puts files in the platform's file area and takes them out
+ * (ADR-0252 §3). The SDK holds the composer's state; the platform owns the
+ * requests, the storage and every check.
+ */
+export interface AttachmentClientSeam {
+  /** The platform's limits, so a file is refused before it is uploaded. Defaults to `DEFAULT_ATTACHMENT_LIMITS`. */
+  limits?: AttachmentLimits | (() => Promise<AttachmentLimits>);
+  /**
+   * Upload one file to the conversation's file area and resolve its reference
+   * once the platform has checked it and it can be used. Rejects with an
+   * `Error` whose message says why it was refused, which the composer shows.
+   */
+  upload(
+    file: File,
+    options: { conversationId: string; signal: AbortSignal; onProgress?: (fraction: number) => void },
+  ): Promise<AttachmentRef>;
+  /** Remove a file from the conversation's file area. */
+  remove?(ref: AttachmentRef, options: { conversationId: string }): Promise<void>;
 }

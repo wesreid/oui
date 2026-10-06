@@ -32,6 +32,12 @@ export interface ToolPolicyContext {
    * Decide by this, not by the name: a UI action id can equal a host tool's.
    */
   toolKind: 'ui' | 'backend';
+  /**
+   * The SDK's class for a tool it owns: `attachment` for the attachment tools
+   * (ADR-0252 §2.12). A policy that admits by name should admit the class too,
+   * so a tool the SDK adds to it later needs no change.
+   */
+  toolClass?: 'attachment';
   /** What the tool declares it does (ADR-0226 §2.6); undefined when it declares nothing, which counts as a write. */
   effect: ToolEffect | undefined;
   /** Whether the tool declares it removes or replaces something the person made. */

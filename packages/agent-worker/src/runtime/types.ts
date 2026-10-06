@@ -16,7 +16,9 @@ import type { ToolPolicy } from '../authz/tool-policy.js';
 import type { UIActionChannel } from '../ui/channel.js';
 import type { LanguageModel, ProviderOptions } from '../model.js';
 import type { ApprovalStoreClient } from '../approvals/client.js';
-import type { ApprovalContinuation, TurnStopReason, TurnStoppedMarker } from '@ouispec/agent-core';
+import type { ApprovalContinuation, AttachmentRef, TurnStoppedReason, TurnStoppedMarker } from '@ouispec/agent-core';
+import type { AttachmentWorkerConfig } from '../attachments/store.js';
+import type { AttachmentUsage } from '../attachments/guard.js';
 import type { TurnStopClient } from '../stop/turn-stop.js';
 
 /**
@@ -50,6 +52,12 @@ export interface AgentTurnPayload {
    * `getHistory` is given them, to wait until each is stored before it reads.
    */
   supersedes?: string[];
+  /**
+   * The files attached to the turn's message, by reference (ADR-0252 §2.8).
+   * The host checked each is ready and is this conversation's before it
+   * enqueued the turn; the worker reads them through `attachments.store`.
+   */
+  attachments?: AttachmentRef[];
 }
 
 /** What `getHistory` is told of the turn it reads for. */
@@ -216,6 +224,12 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
     graceMs?: number;
   };
 
+  /**
+   * The host's file area (ADR-0252 §3): with it, a turn's files are given to
+   * the model, and the attachment tools reach the conversation's files.
+   */
+  attachments?: AttachmentWorkerConfig;
+
   // ─── Integrator Callbacks ────────────────────────────────────────────
 
   /**
@@ -282,12 +296,20 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
     rounds: number;
     usage: { promptTokens: number; completionTokens: number; totalTokens: number };
     /** Set when the turn was stopped rather than ending by itself (ADR-0252). */
-    stopReason?: TurnStopReason;
+    stopReason?: TurnStoppedReason;
+    /** What the turn gave the model of its files: a host keeps `estimatedTokens` for the conversation's cap. */
+    attachments?: AttachmentUsage;
     db: TDb;
   }) => Promise<void>;
 
   /**
    * Optional: record turn failure. Default: no-op.
+   *
+   * `error.code` is `TURN_DEADLINE_EXCEEDED` for a turn that ran out of time
+   * and whose stop path could not store what it had (ADR-0252 §6.4). When the
+   * store did not finish in time it may still finish after this is called, so
+   * record the failure only over a turn that is still running (a conditional
+   * update from `running`): a turn whose messages did get stored keeps that.
    */
   recordTurnFailure?: (input: {
     turnId: string;

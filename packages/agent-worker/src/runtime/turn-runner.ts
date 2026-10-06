@@ -6,7 +6,7 @@
  * decides how a turn arrives and what a failure means to its transport.
  */
 import { APICallError, RetryError } from 'ai';
-import { AGENT_SOCKET_EVENTS, type TurnStopReason, type TurnStoppedMarker } from '@ouispec/agent-core';
+import { AGENT_SOCKET_EVENTS, isAttachmentId, type TurnStoppedReason, type TurnStoppedMarker } from '@ouispec/agent-core';
 import { runAgentTurn } from '../orchestrator.js';
 import { createHttpEmitAdapter } from '../emit/http-adapter.js';
 import { createHttpUIActionChannel } from '../ui/channel.js';
@@ -26,10 +26,24 @@ export interface CategorizedError {
   recoverable: boolean;
 }
 
+/**
+ * The failure code of a turn that ran out of time and whose stop path could
+ * not store what it had produced (ADR-0252 §6.4): a host records it as
+ * `deadline_exceeded`, not as stopped.
+ */
+export const TURN_DEADLINE_EXCEEDED = 'TURN_DEADLINE_EXCEEDED';
+
 export type TurnOutcome =
   | { status: 'completed'; turnId: string; rounds: number }
   /** The turn was stopped (ADR-0252): what it had produced is stored, and the client was told. */
-  | { status: 'stopped'; turnId: string; rounds: number; stopReason: TurnStopReason }
+  | {
+      status: 'stopped';
+      turnId: string;
+      rounds: number;
+      stopReason: TurnStoppedReason;
+      /** `false` when what the turn had produced could not be stored: a deadline stop is then recorded as `TURN_DEADLINE_EXCEEDED`. */
+      stored?: false;
+    }
   /** The host's turn record said the turn must not run (a redelivery of a turn that already ended): nothing was done. */
   | { status: 'refused'; turnId: string; reason: string }
   | { status: 'failed'; turnId: string; error: CategorizedError; cause: unknown };
@@ -132,6 +146,17 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
     async run(payload, host = {}) {
       const { turnId, conversationId, userId, accountId, socketRoom, content, context, userToken, approval } = payload;
       const supersedes = Array.isArray(payload.supersedes) ? payload.supersedes.filter((id) => typeof id === 'string' && id) : [];
+      // The message's files, by reference: anything that is not one is left out.
+      // Each file once.
+      const attachments = Array.isArray(payload.attachments)
+        ? [
+            ...new Map(
+              payload.attachments
+                .filter((ref) => !!ref && typeof ref === 'object' && isAttachmentId(ref.id) && typeof ref.name === 'string')
+                .map((ref) => [ref.id, ref] as const),
+            ).values(),
+          ]
+        : [];
       logger.info('[agent-sdk] Processing turn', { turnId, conversationId, userId, ...(supersedes.length ? { supersedes } : {}) });
 
       let db: TDb;
@@ -191,6 +216,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
           history,
           userToken,
           ...(approval ? { approval } : {}),
+          ...(attachments.length > 0 ? { attachments } : {}),
           stopWatch,
           ...(host.remainingMs ? { remainingMs: host.remainingMs } : {}),
         };
@@ -201,6 +227,8 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
         let persisted = false;
         /** Whether the host's store took the messages: a claimed expiry is confirmed only then. */
         let stored = false;
+        /** Whether the host's store failed (threw), as opposed to finding the turn given up on. */
+        let storeFailed = false;
         const persist = async (turn: { newMessages: TurnMessage[]; usage: AgentTurnResult['usage']; stopped?: TurnStoppedMarker }) => {
           persisted = true;
           try {
@@ -219,6 +247,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
             }
             stored = true;
           } catch (err) {
+            storeFailed = true;
             logger.error('[agent-sdk] persistMessages failed', { turnId, error: messageOf(err) });
           }
         };
@@ -248,6 +277,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
               maxObservationChars: config.uiActions?.maxObservationChars,
               maxIndexChars: config.uiActions?.maxIndexChars,
             },
+            ...(config.attachments ? { attachments: config.attachments } : {}),
           },
           turnInput,
         );
@@ -260,6 +290,25 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
           usage: result.usage,
         });
 
+        // A turn that ran out of time and could not store what it had is not a stopped turn:
+        // nothing of it was kept. It is recorded as having run out of time (ADR-0252 §6.4).
+        if (result.stopped?.reason === 'deadline' && (result.stored === false || storeFailed)) {
+          const categorized: CategorizedError = {
+            code: TURN_DEADLINE_EXCEEDED,
+            message: 'The turn ran out of time, and what it had done could not be stored.',
+            recoverable: false,
+          };
+          logger.error('[agent-sdk] Turn ran out of time and its store failed', { turnId, rounds: result.rounds });
+          if (config.recordTurnFailure) {
+            try {
+              await config.recordTurnFailure({ turnId, conversationId, error: categorized, db });
+            } catch (err) {
+              logger.warn('[agent-sdk] recordTurnFailure failed', { error: messageOf(err) });
+            }
+          }
+          return { status: 'stopped', turnId, rounds: result.rounds, stopReason: 'deadline', stored: false };
+        }
+
         if (config.recordTurnComplete) {
           try {
             await config.recordTurnComplete({
@@ -268,6 +317,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
               rounds: result.rounds,
               usage: result.usage,
               ...(result.stopped ? { stopReason: result.stopped.reason } : {}),
+              ...(result.attachments ? { attachments: result.attachments } : {}),
               db,
             });
           } catch (err) {

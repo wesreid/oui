@@ -11,6 +11,7 @@
  * properties says so with `additionalProperties: false`, as the schema loader and the
  * entity tool generator now do.
  */
+import { ATTACHMENT_ID_PATTERN, OUI_ATTACHMENT_FORMAT } from 'oui-spec/spec';
 import { Ajv, type ErrorObject, type ValidateFunction } from 'ajv';
 import formatsPlugin from 'ajv-formats';
 
@@ -46,6 +47,8 @@ export type ToolInputValidator = (input: unknown) => ToolInputValidation;
 
 const ajv = new Ajv({ allErrors: true, strict: false, useDefaults: false, coerceTypes: false });
 addFormats(ajv);
+// An input that takes a file the person attached is given the file's id (OUI spec §7.3.11).
+ajv.addFormat(OUI_ATTACHMENT_FORMAT, ATTACHMENT_ID_PATTERN);
 
 function describeError(error: ErrorObject): string {
   const at = error.instancePath || '(input)';

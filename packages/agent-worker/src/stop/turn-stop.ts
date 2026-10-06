@@ -6,7 +6,7 @@
  * the worker asks for it for as long as the turn runs, as it asks for UI
  * answers and approvals.
  */
-import type { TurnStopReason, TurnStopRecord } from '@ouispec/agent-core';
+import type { TurnStoppedReason, TurnStopRecord } from '@ouispec/agent-core';
 import { requireRealtime } from '../emit/http-adapter.js';
 
 /**
@@ -17,11 +17,17 @@ import { requireRealtime } from '../emit/http-adapter.js';
 export class TurnStopped extends Error {
   readonly cause = 'stopped' as const;
   constructor(
-    readonly reason: TurnStopReason,
-    /** When it was asked for, epoch ms. */
+    readonly reason: TurnStoppedReason,
+    /** When it was asked for, or the deadline passed: epoch ms. */
     readonly at: number,
   ) {
-    super(reason === 'superseded' ? 'The turn was superseded by a newer message' : 'The turn was stopped by the person');
+    super(
+      reason === 'superseded'
+        ? 'The turn was superseded by a newer message'
+        : reason === 'deadline'
+          ? 'The turn ran out of time'
+          : 'The turn was stopped by the person',
+    );
     this.name = 'TurnStopped';
   }
 }
@@ -39,7 +45,7 @@ export function stopOf(signal: AbortSignal | undefined): TurnStopped | null {
  */
 export interface TurnStopState {
   /** Why the turn was stopped, or null while it has not been. */
-  reason(): TurnStopReason | null;
+  reason(): TurnStoppedReason | null;
   /** Aborts when the grace after a stop is over. A fresh signal: the turn's own is already aborted. */
   graceSignal(): AbortSignal;
   /** How long after a stop an answer already on its way is still waited for. */

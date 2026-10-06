@@ -268,6 +268,9 @@
         },
         "clearable": {
           "type": "string"
+        },
+        "accept": {
+          "type": "string"
         }
       },
       "additionalProperties": false

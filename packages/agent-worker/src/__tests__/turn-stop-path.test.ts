@@ -400,12 +400,42 @@ describe('a stopped turn in a process with little time left', () => {
         { ...turn(stop.watch), remainingMs: () => 1_600 - (Date.now() - startedAt) },
       );
       expect(result.stopReason).toBe('user_stop');
+      // Not stored: the result says so.
+      expect(result.stored).toBe(false);
     } finally {
       error.mockRestore();
     }
     expect(Date.now() - startedAt).toBeLessThan(1_600);
     expect(announced).toEqual([expect.objectContaining({ stopReason: 'user_stop' })]);
     expect(errors.some((line) => line.includes("The stopped turn's store did not finish within its limit"))).toBe(true);
+  });
+
+  it('says a turn that ran out of time was not stored when its store fails, and says nothing when it was stored', async () => {
+    const stop = stopSource();
+    script = async function* (api) {
+      yield 'Half an answer';
+      await api.aborted;
+    };
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { runAgentTurn } = await import('../orchestrator.js');
+    const config = (beforeTurnComplete: AgentWorkerConfig['beforeTurnComplete']): AgentWorkerConfig => ({
+      tools: createToolRegistry([]),
+      model: 'test-model' as never,
+      systemPrompt: 'test',
+      stopGraceMs: 20,
+      turnDeadlineMs: 30,
+      emit: { emit: vi.fn(async () => {}) },
+      beforeTurnComplete,
+    });
+    try {
+      const failed = await runAgentTurn(config(async () => Promise.reject(new Error('the database is gone'))), turn(stop.watch));
+      expect(failed).toMatchObject({ stopReason: 'deadline', stored: false, stopped: { reason: 'deadline' } });
+      const kept = await runAgentTurn(config(async () => {}), turn(stopSource().watch));
+      expect(kept).toMatchObject({ stopReason: 'deadline', stopped: { reason: 'deadline' } });
+      expect(kept).not.toHaveProperty('stored');
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it('with no limit known, waits for the store as a turn that ends by itself does', async () => {

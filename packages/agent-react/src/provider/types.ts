@@ -2,13 +2,22 @@
  * Re-export the config type for convenience.
  */
 export type { AgentClientConfig } from '@ouispec/agent-core';
+import type { AttachmentRef } from '@ouispec/agent-core';
+import type { ComposerAttachmentsState, NotSentReason } from './attachments.js';
+
+/** What `sendMessage` did: the turn it started, or why nothing was sent. */
+export interface SendMessageResult {
+  /** Empty when nothing was sent. */
+  turnId: string;
+  notSent?: { reason: NotSentReason; content: string };
+}
 import type {
   ApprovalRequiredProtocolEvent,
   SocketLike,
   AgentConversationChanges,
   AgentConversationFilter,
   AgentConversationSummary,
-  TurnStopReason,
+  TurnStoppedReason,
 } from '@ouispec/agent-core';
 
 export interface AgentToolCallState {
@@ -32,7 +41,9 @@ export interface AgentMessage {
    * Set on the assistant message of a turn that was stopped (ADR-0252): by
    * the person, or by a newer message. What it had said is kept.
    */
-  stopped?: TurnStopReason;
+  stopped?: TurnStoppedReason;
+  /** The files the person attached to this message (ADR-0252 §2.8), by reference. */
+  attachments?: AttachmentRef[];
 }
 
 export type DebugLogLevel = 'info' | 'warn' | 'error' | 'event' | 'socket';
@@ -176,8 +187,21 @@ export interface AgentContextValue {
    * Sends the person's message. While a turn is running this is a barge-in
    * (ADR-0252 §2.5): the platform stops the running turn and this message
    * runs next. The tab's turn is the new one from this call on.
+   *
+   * The message carries the composer's ready files (`attachments`), after
+   * waiting for any still uploading, unless references are given here.
+   *
+   * It is not sent, and `notSent` says why and hands back `content` for the
+   * composer to keep as the draft, when a file on it is refused, when a send
+   * already waits for its files, or when the conversation changes or the
+   * person gives the send up (Stop) while it waits.
    */
-  sendMessage: (content: string, attachments?: File[]) => Promise<{ turnId: string }>;
+  sendMessage: (content: string, attachments?: AttachmentRef[]) => Promise<SendMessageResult>;
+  /**
+   * The files on the message being written (ADR-0252 §2.14): attach, watch
+   * each upload, remove. `enabled` is false when the platform takes no files.
+   */
+  attachments: ComposerAttachmentsState;
   /**
    * Stops the turn in progress (ADR-0252 §2.14). What it had produced is
    * kept. Does nothing when no turn is running or a stop is already asked.

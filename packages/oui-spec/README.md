@@ -373,6 +373,33 @@ The `$dispatchResult.` prefix tells the runtime to resolve the filter value from
 
 ---
 
+## Inputs That Take an Attached File
+
+An action can take a file the user attached to their conversation with the agent (spec §7.3.11). Declare the input as a string with the format `oui-attachment` and what the handler takes:
+
+```typescript
+input: {
+  type: 'object',
+  properties: {
+    picture: { type: 'string', format: 'oui-attachment', 'x-oui-attachment': { as: 'file', mediaTypes: ['image/*'] } },
+  },
+  required: ['picture'],
+},
+handler: async ({ picture }) => useAsTexture(picture as File),
+```
+
+The agent sends the attachment's id. Give the runtime your host's way to open one, and it hands the handler the `File` (or the file's text, with `as: 'text'`) before the handler runs, refusing an id it cannot resolve or a file of a type the input does not take:
+
+```typescript
+createSurfaceRuntime({
+  attachments: { resolve: (id, as) => openAttachment(id, as) },
+});
+```
+
+For `as: 'text'`, resolve to the `File` or to `{ name, mediaType, text }`: the runtime checks the type against `mediaTypes` either way, so an `.html` file never reaches an input that takes SVG. A list input takes at most 20 files, resolved a few at a time, and a file input anywhere below the input's own properties (or a list property's items) is refused, since it can be neither checked nor resolved.
+
+The index describes the input as `file(image/*)`, and an approval binds the file by its id.
+
 ## Real-World Example: DataViz Surface
 
 A complete DataViz wizard surface — the kind of thing you'd build for an AI-assisted analytics tool:
