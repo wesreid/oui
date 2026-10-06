@@ -29,13 +29,17 @@ export {
   type DefinedSurface,
 } from "./define-surface.js";
 export { createOUI } from "./create-oui.js";
-export { createSurfaceRuntime } from "./surface-runtime.js";
+export {
+  createSurfaceRuntime,
+  ATTACHMENT_LIST_MAX,
+} from "./surface-runtime.js";
 export { acceptCurrentTurn } from "./accept-turn.js";
 export type {
   SurfaceForm,
   SurfaceRuntime,
   SurfaceRuntimeOptions,
   AttachmentResolver,
+  AttachmentText,
   SettleOptions,
   MountedSurface,
 } from "./surface-runtime.js";

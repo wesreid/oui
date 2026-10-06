@@ -9,7 +9,7 @@ import { createSurfaceRuntime } from 'oui-spec/core';
 import { summarizeInput } from 'oui-spec/spec';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createBindingRegistry, deriveInputSchema, deriveValueSchema, type OuiManifest } from '../src/index.js';
+import { createBindingRegistry, deriveInputSchema, deriveValueSchema, validateValue, type OuiManifest } from '../src/index.js';
 import { connectBindings } from '../src/oui.js';
 import { AgentBindingProvider, useAgentBinding } from '../src/react.js';
 
@@ -108,5 +108,18 @@ describe('a file control', () => {
     );
     expect(result).toMatchObject({ success: false, error: { code: 'ATTACHMENT_UNAVAILABLE' } });
     expect(onFiles).not.toHaveBeenCalled();
+  });
+});
+
+describe('a file input’s value', () => {
+  it('is the file itself for an input that takes a file, and the text for one that takes text: an unresolved id or URL is neither', () => {
+    const file = deriveValueSchema('file', { accept: ['image/png'] });
+    const png = new File([new Uint8Array([1])], 'logo.png', { type: 'image/png' });
+    expect(validateValue(file as never, png)).toBeNull();
+    expect(validateValue(file as never, 'att_logo00001')).toBe('value must be an attached file');
+    expect(validateValue(file as never, 'https://evil.example/logo.png')).toBe('value must be an attached file');
+    const text = { type: 'string', format: 'oui-attachment', 'x-oui-attachment': { as: 'text', mediaTypes: ['image/svg+xml'] } };
+    expect(validateValue(text as never, '<svg/>')).toBeNull();
+    expect(validateValue(text as never, png)).toBe("value must be an attached file's text");
   });
 });

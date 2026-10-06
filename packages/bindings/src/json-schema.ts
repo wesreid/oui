@@ -106,9 +106,12 @@ function sortKeys(value: unknown): unknown {
  */
 export function validateValue(schema: JsonSchema, value: unknown, path = 'value'): string | null {
   // An attached file: by the time a handler checks it, the page has resolved the id to the
-  // file (a File) or its text (OUI spec §7.3.11), and checked its id and type then.
+  // file (a File) or its text (OUI spec §7.3.11), and checked its id and type then. An input
+  // that takes a file takes nothing else: an id or a URL that was never resolved is not one.
   if (schema.format === OUI_ATTACHMENT_FORMAT) {
-    return typeof value === 'string' || (typeof Blob !== 'undefined' && value instanceof Blob) ? null : `${path} must be an attached file`;
+    const takes = (schema as Record<string, unknown>)['x-oui-attachment'] as { as?: unknown } | undefined;
+    if (takes?.as === 'text') return typeof value === 'string' ? null : `${path} must be an attached file's text`;
+    return typeof Blob !== 'undefined' && value instanceof Blob ? null : `${path} must be an attached file`;
   }
   const alternatives = schema.anyOf ?? schema.oneOf;
   if (alternatives) {

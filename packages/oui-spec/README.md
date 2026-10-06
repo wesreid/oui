@@ -396,6 +396,8 @@ createSurfaceRuntime({
 });
 ```
 
+For `as: 'text'`, resolve to the `File` or to `{ name, mediaType, text }`: the runtime checks the type against `mediaTypes` either way, so an `.html` file never reaches an input that takes SVG. A list input takes at most 20 files, resolved a few at a time, and a file input anywhere below the input's own properties (or a list property's items) is refused, since it can be neither checked nor resolved.
+
 The index describes the input as `file(image/*)`, and an approval binds the file by its id.
 
 ## Real-World Example: DataViz Surface

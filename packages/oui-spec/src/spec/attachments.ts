@@ -86,6 +86,77 @@ export function attachmentInputs(
   return found;
 }
 
+/**
+ * Where an action's input schema declares an attachment input anywhere other
+ * than a property of the input or the items of a list property: inside an
+ * object property, a list of lists, `anyOf`/`oneOf`/`allOf`, or anything a
+ * schema nests. Such an input is neither checked nor resolved, so an action
+ * declaring one is refused (§7.3.11). Each entry is a path in the schema, as
+ * `property.sub`, `property[]`, `property.anyOf[0]`.
+ */
+export function misplacedAttachmentInputs(
+  schema: JSONSchema | undefined,
+): string[] {
+  const misplaced: string[] = [];
+  const visit = (node: unknown, path: string, depth: number): void => {
+    if (!node || typeof node !== "object" || depth > 32) return;
+    const s = node as JSONSchema & Record<string, unknown>;
+    if (s.format === OUI_ATTACHMENT_FORMAT) misplaced.push(path || "(input)");
+    const child = (value: unknown, at: string) => visit(value, at, depth + 1);
+    for (const [name, sub] of Object.entries(
+      (s.properties as Record<string, unknown> | undefined) ?? {},
+    ))
+      child(sub, path ? `${path}.${name}` : name);
+    if (s.items) child(s.items, `${path}[]`);
+    for (const key of ["anyOf", "oneOf", "allOf", "prefixItems"] as const) {
+      const list = s[key];
+      if (Array.isArray(list))
+        list.forEach((sub, i) => child(sub, `${path}.${key}[${i}]`));
+    }
+    for (const key of [
+      "additionalProperties",
+      "not",
+      "if",
+      "then",
+      "else",
+      "contains",
+    ] as const)
+      if (s[key] && typeof s[key] === "object") child(s[key], `${path}.${key}`);
+    for (const key of ["patternProperties", "$defs", "definitions"] as const) {
+      const map = s[key];
+      if (map && typeof map === "object")
+        for (const [name, sub] of Object.entries(
+          map as Record<string, unknown>,
+        ))
+          child(sub, `${path}.${key}.${name}`);
+    }
+  };
+  if (!schema) return misplaced;
+  // The input's own properties, and the items of a list property, are where a
+  // file may be: look below them, and at everything else the schema holds.
+  const { properties, ...rest } = schema as JSONSchema &
+    Record<string, unknown>;
+  visit({ ...rest, format: undefined }, "", 0);
+  for (const [name, property] of Object.entries(
+    (properties as Record<string, JSONSchema> | undefined) ?? {},
+  )) {
+    if (attachmentInputOf(property)) {
+      const { format: _f, ...below } = property as Record<string, unknown>;
+      visit(below, name, 1);
+      continue;
+    }
+    if (property.type === "array" && attachmentInputOf(property.items)) {
+      const { items, ...list } = property as Record<string, unknown>;
+      const { format: _f, ...below } = items as Record<string, unknown>;
+      visit(list, name, 1);
+      visit(below, `${name}[]`, 2);
+      continue;
+    }
+    visit(property, name, 1);
+  }
+  return misplaced;
+}
+
 /** Every attachment id an action's params name, with the input that takes it. */
 export function attachmentIdsIn(
   schema: JSONSchema | undefined,

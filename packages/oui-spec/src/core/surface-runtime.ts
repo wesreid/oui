@@ -47,6 +47,8 @@ import {
   attachmentIdsIn,
   attachmentInputs,
   isAttachmentId,
+  misplacedAttachmentInputs,
+  type OUIAttachmentInput,
 } from "../spec/attachments.js";
 import {
   jsonBytes,
@@ -151,15 +153,33 @@ export interface SurfaceRuntimeOptions {
   attachments?: AttachmentResolver;
 }
 
+/** A file's text as a host resolves it, with what the file is, so its type can be checked (§7.3.11). */
+export interface AttachmentText {
+  name: string;
+  mediaType: string;
+  text: string;
+}
+
 /** How a client turns an attachment's id into what an action takes (§7.3.11). */
 export interface AttachmentResolver {
   /**
-   * The file, as a `File` or as its text. Rejects with an `Error` whose
-   * message says why (it is not the person's, it was removed), which the agent
-   * is told.
+   * The file, as a `File`, or as its text with its name and type. A `File`
+   * for an input that takes text is read as text once its type is checked.
+   * A bare string is taken only by an input that accepts any type: there is
+   * nothing to check it against. Rejects with an `Error` whose message says
+   * why (it is not the person's, it was removed, it is still being checked),
+   * which the agent is told.
    */
-  resolve(id: string, as: "file" | "text"): Promise<File | string>;
+  resolve(
+    id: string,
+    as: "file" | "text",
+  ): Promise<File | AttachmentText | string>;
 }
+
+/** The most files one list input takes (§7.3.11). */
+export const ATTACHMENT_LIST_MAX = 20;
+/** How many files a runtime resolves at once. */
+const ATTACHMENT_RESOLVE_CONCURRENCY = 4;
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -667,6 +687,18 @@ export function createSurfaceRuntime(
     | { resolved: Record<string, unknown> }
     | { error: { code: string; message: string } }
   > {
+    // A file input anywhere a file is neither checked nor resolved: the action is not run.
+    const misplaced = misplacedAttachmentInputs(action?.input);
+    if (misplaced.length > 0) {
+      return {
+        error: {
+          code: "ATTACHMENT_INPUT_UNSUPPORTED",
+          message:
+            `This action declares an attached file at ${misplaced.join(", ")}, where none can be taken: ` +
+            "a file is a property of the input, or an item of a list property.",
+        },
+      };
+    }
     const wanted = attachmentIdsIn(action?.input, params);
     if (wanted.length === 0) return { resolved: params };
     const resolver = options.attachments;
@@ -680,23 +712,32 @@ export function createSurfaceRuntime(
       };
     }
     const resolved: Record<string, unknown> = { ...params };
+    // One resolution per file and form, however often the params name it.
+    const once = new Map<string, Promise<unknown>>();
     for (const { path, input } of attachmentInputs(action?.input)) {
       const value = params[path[0]];
-      const one = async (id: unknown): Promise<unknown> => {
+      const one = (id: unknown): Promise<unknown> => {
         if (!isAttachmentId(id))
-          throw new Error(`"${String(id)}" is not an attachment's id.`);
-        const file = await resolver.resolve(id, input.as);
-        if (typeof file !== "string" && !acceptsMediaType(input, file.type)) {
-          throw new Error(
-            `"${file.name}" is ${file.type || "of no type"}; this takes ${input.mediaTypes!.join(", ")}.`,
+          return Promise.reject(
+            new Error(`"${String(id)}" is not an attachment's id.`),
           );
-        }
-        return file;
+        const key = `${input.as}:${id}`;
+        if (!once.has(key)) once.set(key, resolveOne(resolver, id, input));
+        return once.get(key)!;
       };
       try {
         if (path.length === 2) {
-          if (Array.isArray(value))
-            resolved[path[0]] = await Promise.all(value.map(one));
+          if (Array.isArray(value)) {
+            if (value.length > ATTACHMENT_LIST_MAX)
+              throw new Error(
+                `it names ${value.length} files; a list takes at most ${ATTACHMENT_LIST_MAX}.`,
+              );
+            resolved[path[0]] = await mapBounded(
+              value,
+              ATTACHMENT_RESOLVE_CONCURRENCY,
+              one,
+            );
+          }
         } else if (value !== undefined) {
           resolved[path[0]] = await one(value);
         }
@@ -1323,4 +1364,69 @@ function toJsonSafe(value: unknown): unknown {
   } catch {
     return String(value);
   }
+}
+
+/** What an attachment input is given, once its type is checked against what it accepts (§7.3.11). */
+async function resolveOne(
+  resolver: AttachmentResolver,
+  id: string,
+  input: OUIAttachmentInput,
+): Promise<File | string> {
+  const got = await resolver.resolve(id, input.as);
+  const refuse = (name: string, type: string) =>
+    new Error(
+      `"${name}" is ${type || "of no type"}; this takes ${input.mediaTypes!.join(", ")}.`,
+    );
+  if (typeof got === "string") {
+    if (input.as === "file")
+      throw new Error(
+        "The page's file area gave text where a file was expected.",
+      );
+    // Text with nothing to say what it is: only an input that takes any type takes it.
+    if (input.mediaTypes?.length)
+      throw new Error(
+        "The page's file area gave the file's text without its type, so it cannot be checked against what this takes.",
+      );
+    return got;
+  }
+  if (typeof Blob !== "undefined" && got instanceof Blob) {
+    const name = (got as File).name ?? id;
+    if (!acceptsMediaType(input, got.type)) throw refuse(name, got.type);
+    return input.as === "text" ? await got.text() : (got as File);
+  }
+  if (
+    got &&
+    typeof got === "object" &&
+    typeof (got as AttachmentText).text === "string"
+  ) {
+    const text = got as AttachmentText;
+    if (input.as === "file")
+      throw new Error(
+        "The page's file area gave text where a file was expected.",
+      );
+    if (!acceptsMediaType(input, text.mediaType ?? ""))
+      throw refuse(text.name ?? id, text.mediaType);
+    return text.text;
+  }
+  throw new Error("The page's file area gave nothing that can be used.");
+}
+
+/** `fn` over `items`, at most `limit` at a time, in order. */
+async function mapBounded<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next++;
+      out[index] = await fn(items[index]);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker),
+  );
+  return out;
 }
