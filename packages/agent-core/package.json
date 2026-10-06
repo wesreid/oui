@@ -1,6 +1,6 @@
 {
   "name": "@ouispec/agent-core",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Schema types, entity graph, intent resolution, and protocol definitions for the agent SDK",
   "homepage": "https://github.com/wesreid/oui/tree/main/packages/agent-core#readme",
   "bugs": {

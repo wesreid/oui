@@ -1,6 +1,6 @@
 {
   "name": "@ouispec/agent-worker",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "The agent runtime — any `ai` model, UI actions answered by the client, streaming and tool loops; one core on Lambda + SQS or in a container",
   "homepage": "https://github.com/wesreid/oui/tree/main/packages/agent-worker#readme",
   "bugs": {

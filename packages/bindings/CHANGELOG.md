@@ -1,5 +1,29 @@
 # @ouispec/bindings
 
+## 0.4.0
+
+### Minor Changes
+
+- An action input can take a file the user attached (spec §7.3.11, ADR-0252 §2.13).
+
+  - **oui-spec:** an input declared `{ type: 'string', format: 'oui-attachment', 'x-oui-attachment': { as: 'file' | 'text', mediaTypes } }` is sent the attachment's id.
+    - The runtime resolves the id before the handler runs, through `createSurfaceRuntime({ attachments: { resolve } })`, and hands the handler the `File` or the file's text.
+    - It refuses an id it cannot resolve, or a file of a type the input does not take (`ATTACHMENT_UNAVAILABLE`), and refuses outright when it has no resolver (`ATTACHMENTS_UNSUPPORTED`).
+    - The index describes the input as `file(…)`.
+    - Exports `OUI_ATTACHMENT_FORMAT`, `isAttachmentId`, `attachmentInputOf`, `attachmentInputs` and `attachmentIdsIn`.
+  - **contract:** the JSON Schema subset declares `x-oui-attachment` and documents the format. The control kinds add `file`, and `SchemaProps` adds `accept`.
+  - **bindings:** a `file` control (an upload zone, a file button) derives that input from `accept`. Run by the assistant, its handler receives the file, as from the person's own choice.
+  - **testing:** the kit samples a file, of a type the control accepts, for a control that takes one, and measures an attachment input against the budgets.
+  - **cli:** released again on the new bindings and contract.
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - oui-spec@0.11.0
+  - @ouispec/contract@0.4.0
+  - @ouispec/agent-events@0.8.0
+
 ## 0.3.3
 
 ### Patch Changes

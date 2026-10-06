@@ -67,9 +67,11 @@ What a stopped turn does:
 1. Everything that was waiting ends: the model's stream, a UI action's answer, a job's outcome.
 2. Each call keeps exactly one result. A call that finished keeps its result. A UI action that was out takes one last look for its answer, so an action that did run is stored as run and is not done again; with no answer it is stored as sent with its outcome unknown, and the page is treated as unseen. A request no tab took, and an action that had not been sent, are stored as not run. A job the action started is not cancelled.
 3. `persistMessages` is called with what the turn had produced, and `stopped: { reason, at }`. The last assistant message carries the same marker (`TurnMessage.stopped`). Store it with the message and hand it back in history (`TurnHistoryMessage.stopped`): the model is then told, after that message's text, that the turn was stopped there. A turn that produced nothing still stores one assistant message, whose text is that line.
-4. Only then is the client told: `agent:turn_complete` with `stopReason` `user_stop` or `superseded`. `recordTurnComplete` receives the same `stopReason`, and the runner's outcome is `stopped`, not `failed`.
+4. Only then is the client told: `agent:turn_complete` with `stopReason` `user_stop`, `superseded` or `deadline`. `recordTurnComplete` receives the same `stopReason`, and the runner's outcome is `stopped`, not `failed`.
 
 A stop that arrives once the turn has begun its own end is not one: the turn completes as it would have.
+
+A turn that reaches its deadline (`turnDeadlineMs`) ends on the same path, with `stopReason: 'deadline'`: what it did before it ran out of time is kept, marked, and the next turn is told.
 
 For a message sent while a turn is running (a barge-in), your API stops the running turn (`POST /internal/turns/:turnId/stop` with `superseded`), withdraws a waiting approval (`settle` with `expire`), and puts the ids of the turns it stopped on the new turn's payload as `supersedes`. The hooks then let you order the two:
 
@@ -80,6 +82,31 @@ For a message sent while a turn is running (a barge-in), your API stops the runn
 | `recordTurnStart(...)` | May answer `{ run: false, reason }` when your record of the turn shows it already ended or was given up on, which is what a queue's redelivery of an old turn finds. The turn then does nothing: no model call, no UI action, no event. The runner's outcome is `refused`. |
 
 Every UI action request names its turn (`turnId`). Give the tab's OUI runtime `accept: acceptCurrentTurn(agent.acceptedTurnId)` (`oui-spec`, `@ouispec/agent-react`), and a request a stopped or superseded turn sends late is refused by the tab and stored as not run.
+
+## Files the person attaches
+
+A file is uploaded to your storage first, and a message carries its reference (`AttachmentRef`: id, name, checked media type, kind, size, and an image's size in pixels). Put the turn's files on its payload as `attachments`, and the earlier messages' files on their history messages (`TurnHistoryMessage.attachments`). Then give the runtime your file area:
+
+```ts
+attachments: {
+  store: {
+    describe: (ids, owner) => …,          // the references of these files, if they are the owner's conversation's
+    load: (id, owner, as, range) => …,    // 'image': the model's rendition; 'text': a page of its text; 'document': a PDF's bytes
+    list: (owner) => …,                   // every file of the conversation
+    conversationUsage: (owner) => …,      // optional: tokens earlier turns gave the model, for the conversation's cap
+  },
+  turnTokens: 30_000,                     // the defaults
+  conversationTokens: 300_000,
+  pdfAsDocument: false,                   // a short PDF as a document part, once your provider's document part is proven
+}
+```
+
+- **The turn's files** go to the model with its message: a picture as your model rendition (at most 1,568 px and 1 MB), a text file's text up to 20,000 characters (40,000 a turn), a PDF's text, anything else as its reference line. Earlier files are in history as their reference lines only.
+- **The tools** `attachment_list`, `attachment_view` and `attachment_read` reach every file of the conversation by its id. They are backend tools of the class `attachment` (`ToolPolicyContext.toolClass`), not UI tools: admit the class in your tool policy.
+- **The cost guard** counts what each model step carries, and from the step that would pass `turnTokens` (or what is left of `conversationTokens`) gives the costliest file's line instead of the file. `recordTurnComplete` receives `attachments` with `estimatedTokens`: keep it for the conversation's cap.
+- **An action that takes a file** declares an input with `format: 'oui-attachment'` (OUI spec §7.3.11). The model passes the id; the worker checks it is a file of the turn's conversation before the call runs, and the approval card shows the file by name and size.
+
+No file's bytes or text is in an event, the turn's record or a stored message: bytes go from your store to the model call and nowhere else.
 
 ## Lambda + SQS
 

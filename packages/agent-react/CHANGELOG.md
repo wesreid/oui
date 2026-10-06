@@ -1,5 +1,27 @@
 # @ouispec/agent-react
 
+## 0.8.0
+
+### Minor Changes
+
+- The person can give the assistant files (ADR-0252 phase 2). A file is uploaded to the platform's file area first and travels by reference: no file's bytes go with a message, a turn, an event or a stored record.
+
+  - **agent-core:** `AttachmentRef`, `AttachmentLimits` with the default limits, `attachmentRefusal`, `attachmentReferenceLine`, and the tab's upload seam (`AgentClientConfig.attachments`). `sendMessage` carries `attachments: AttachmentRef[]` (it was `File[]`), and `AgentStoredMessage.attachments` carries a message's files.
+  - **agent-react:** `useAgent().attachments`, the composer's files. A file is uploaded the moment it is attached, refused before upload when it breaks the limits, and shows its progress or why it was refused. `sendMessage` waits for running uploads and sends the ready files.
+  - **agent-worker:**
+    - The host's file area (`attachments.store`) gives the turn's files to the model with its message: a picture as the platform's rendition, text and a PDF's text capped, anything else as its reference line. Earlier files are in history as reference lines.
+    - `attachment_list`, `attachment_view` and `attachment_read` reach every file of the conversation. They are backend tools of the class `attachment` (`ToolPolicyContext.toolClass`).
+    - The cost guard caps what each model step carries, at 30,000 tokens a turn and 300,000 a conversation by default, and reports `attachments` usage to `recordTurnComplete`.
+    - An action's input may take a file (`format: 'oui-attachment'`). The worker checks that each id named is the conversation's before the call runs, and the approval card shows the file by name and size.
+    - The three helpers that add the note, the page's state and the clock to the user's message now keep its non-text parts.
+  - **The deadline is on the stop path (ADR-0252 §6.4).** A turn that reaches its deadline ends with `stopReason: 'deadline'`: what it did is kept and marked, and the next turn is told. `TurnStoppedReason` adds `deadline` to the requestable `TurnStopReason`. `agent:turn_complete` declares it, so a realtime server must take this release before a worker that emits it.
+  - **agent-realtime, agent-mcp:** released with the rest of the SDK at one version.
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/agent-core@0.8.0
+
 ## 0.7.0
 
 0.6.0 was not published; its changes ship in 0.7.0.
