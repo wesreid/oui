@@ -11,7 +11,7 @@ pnpm changeset            # which packages, patch or minor (see VERSIONING.md), 
 pnpm version-packages     # bumps the versions, writes each CHANGELOG.md entry, updates the lockfile
 ```
 
-Commit the result. CI fails a pull request that leaves a changeset unapplied, changes a package's shipped source without a new version, or moves a version backwards (`pnpm release:check`), checks every tarball's contents (`pnpm packs:check`), and installs the packed tarballs into an empty directory and uses them as an outside product would (`pnpm smoke`). So `main` always holds exactly the versions the next release publishes.
+Commit the result. CI fails a pull request that leaves a changeset unapplied, changes a package's shipped source without a new version, moves a version backwards, or leaves a released package depending on an older release of another workspace package than the current one (`pnpm release:check`), checks every tarball's contents (`pnpm packs:check`), and installs the packed tarballs into an empty directory and uses them as an outside product would (`pnpm smoke`). So `main` always holds exactly the versions the next release publishes.
 
 ## 2. On main: tag the release
 

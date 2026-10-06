@@ -1,5 +1,11 @@
 # @ouispec/testing
 
+## 0.3.4
+
+### Patch Changes
+
+- Published again with their dependencies on the current releases. `@ouispec/cli` 0.3.0 still required `@ouispec/bindings ^0.2.3` and `@ouispec/contract ^0.2.0`, and `@ouispec/testing` 0.2.0 required `@ouispec/contract ^0.2.0`. An app on `@ouispec/bindings` 0.3 and `oui-spec` 0.10 therefore got a second, older copy of each through the generator, and `oui generate` built its manifest with bindings 0.2. There is no change of code.
+
 ## 0.2.0
 
 ### Minor Changes
