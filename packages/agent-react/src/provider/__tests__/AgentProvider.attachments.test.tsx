@@ -305,9 +305,32 @@ describe('a file attached while the tab restores its conversation', () => {
     await act(async () => uploads[0](refOf(png, 'att_logo0001')));
     // The open conversation is another one now, and the composer was not cleared for it.
     open = 'conv-B';
-    expect(result.current.takeForSend()).toEqual({ notSent: 'conversation_changed' });
-    expect(result.current.items).toHaveLength(1);
-    open = 'conv-A';
-    expect(result.current.takeForSend()).toEqual({ refs: [refOf(png, 'att_logo0001')] });
+    act(() => {
+      expect(result.current.takeForSend()).toEqual({ notSent: 'conversation_changed' });
+    });
+    // It stays on the message, saying why, and holds it until it is taken off.
+    expect(result.current.items).toEqual([
+      expect.objectContaining({ name: 'logo.png', status: 'refused', error: expect.stringMatching(/attached in another conversation/) }),
+    ]);
+    act(() => {
+      expect(result.current.takeForSend()).toEqual({ notSent: 'file_refused' });
+    });
   });
+
+  it('never freezes the page when the host’s getConversation throws synchronously during the restore', async () => {
+    window.sessionStorage.setItem(KEY, 'conv-R');
+    const getConversation = vi.fn(() => {
+      throw new Error('getConversation is not ready');
+    });
+    const { uploads, createConversation } = setup({ getConversation: getConversation as never });
+    await flush();
+    const png = file('pasted.png', 'image/png', 100);
+    act(() => agent.attachments.attach([png]));
+    await flush();
+    await flush();
+    // The restore failed and was forgotten: the file goes into a new conversation.
+    expect(getConversation).toHaveBeenCalledWith('conv-R');
+    expect(createConversation).toHaveBeenCalledTimes(1);
+    expect(uploads.map((u) => u.conversationId)).toEqual(['conv-1']);
+  }, 5_000);
 });

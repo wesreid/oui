@@ -199,7 +199,12 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   const ensureConversation = useCallback(async (): Promise<string> => {
     // A conversation being restored or opened is the one a message or a file goes to: wait for it,
     // rather than make another (a file pasted while the remembered chat loads belongs to it).
-    while (pendingLoadRef.current) await pendingLoadRef.current;
+    // Each load is waited for once: one that is still pending after it settled is not waited on again.
+    for (let pending = pendingLoadRef.current; pending; ) {
+      await pending;
+      const next = pendingLoadRef.current;
+      pending = next === pending ? null : next;
+    }
     if (conversationIdRef.current) return conversationIdRef.current;
     if (!creatingRef.current) {
       creatingRef.current = (async () => {
@@ -901,7 +906,13 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     const seq = ++loadSeqRef.current;
     setIsLoadingConversation(true);
     addDebugLog('info', 'agent:api', `${restoring ? 'Restoring' : 'Loading'} conversation ${id}`, { conversationId: id });
-    const load = (async () => {
+    // The load is the pending one before anything in it runs, and it clears the pending load only
+    // while it is that load, as it settles: a host whose getConversation throws synchronously
+    // leaves nothing pending.
+    let settle!: () => void;
+    const load = new Promise<void>(resolve => (settle = resolve));
+    pendingLoadRef.current = load;
+    void (async () => {
       try {
         const stored = await getConversation(id);
         if (seq !== loadSeqRef.current) return;
@@ -920,13 +931,11 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
           setHistoryError('That conversation could not be opened.');
         }
       } finally {
-        if (seq === loadSeqRef.current) {
-          setIsLoadingConversation(false);
-          pendingLoadRef.current = null;
-        }
+        if (seq === loadSeqRef.current) setIsLoadingConversation(false);
+        if (pendingLoadRef.current === load) pendingLoadRef.current = null;
+        settle();
       }
     })();
-    pendingLoadRef.current = load;
     return load;
   }, [addDebugLog, setActiveConversation]);
 

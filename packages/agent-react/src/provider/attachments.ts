@@ -89,6 +89,9 @@ interface Running {
 
 let keys = 0;
 
+/** A file's chip, when it went to a conversation other than the one open now. */
+const OTHER_CONVERSATION = 'This file was attached in another conversation. Take it off and attach it here again.';
+
 export function useComposerAttachments({ config, ensureConversation, conversationId, messages, log }: Deps): ComposerAttachmentsState & {
   /**
    * What a Send takes: the references of the ready files, at once when no
@@ -235,7 +238,6 @@ export function useComposerAttachments({ config, ensureConversation, conversatio
     if (waitRef.current) return { notSent: 'waiting' };
     // What this Send is of: the files on the message now. A file attached while it waits stays for the next.
     const sentKeys = new Set(itemsRef.current.map(i => i.key));
-    const from = conversationId();
     const epoch = epochRef.current;
     const take = (): TakeForSend => {
       const mine = itemsRef.current.filter(i => sentKeys.has(i.key));
@@ -243,9 +245,20 @@ export function useComposerAttachments({ config, ensureConversation, conversatio
       if (mine.some(i => i.status === 'refused')) return { notSent: 'file_refused' };
       const ready = mine.filter(i => i.status === 'ready' && i.ref);
       // Each file belongs to the conversation it was uploaded into: one that went elsewhere
-      // cannot go with a message to this one.
+      // cannot go with a message to this one. It says so on its chip, and holds the message
+      // until it is taken off (which removes it from the conversation it went to).
       const now = conversationId();
-      if (ready.some(i => uploadedTo.current.get(i.key) !== now)) return { notSent: 'conversation_changed' };
+      const elsewhere = new Set(ready.filter(i => uploadedTo.current.get(i.key) !== now).map(i => i.key));
+      if (elsewhere.size > 0) {
+        set(prev =>
+          prev.map(i =>
+            elsewhere.has(i.key)
+              ? { ...i, status: 'refused' as const, error: OTHER_CONVERSATION }
+              : i,
+          ),
+        );
+        return { notSent: 'conversation_changed' };
+      }
       const taken = new Set(ready.map(i => i.key));
       if (taken.size > 0) set(prev => prev.filter(i => !taken.has(i.key)));
       for (const key of taken) uploadedTo.current.delete(key);
@@ -267,9 +280,9 @@ export function useComposerAttachments({ config, ensureConversation, conversatio
       };
       waitRef.current = { cancel: reason => finish({ notSent: reason }) };
       void Promise.all(waitingFor).then(() => {
-        const now = conversationId();
-        // The conversation the message was written in is not the open one any more.
-        if (epochRef.current !== epoch || (from !== null && now !== from)) finish({ notSent: 'conversation_changed' });
+        // The composer was cleared for another conversation while it waited. Otherwise `take`
+        // checks each file against the conversation open now.
+        if (epochRef.current !== epoch) finish({ notSent: 'conversation_changed' });
         else finish(take());
       });
     });
