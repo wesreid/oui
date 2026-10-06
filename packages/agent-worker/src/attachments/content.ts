@@ -53,17 +53,18 @@ export const ATTACHMENT_DATA_NOTE = [
  * A file's text inside its `<attachment>` block: anything in it that would
  * open or close a block is escaped, so the file cannot end its own block and
  * write outside it: `</attachment>`, `< /attachment>`, `</ attachment>`, a
- * line break inside the tag, any case, and full-width brackets.
+ * line break or a zero-width character inside the tag, any case, and a
+ * full-width or small-form opening bracket.
  */
+/** Whitespace as a tag reader might skip it: spaces, line breaks, and zero-width and joining characters. */
+const TAG_GAP = '[\\s\\u200B-\\u200D\\u2060\\uFEFF\\u00AD]*';
+/** An opening or closing of the tag: a plain, full-width or small-form `<`, then `attachment`, however spaced. */
+const TAG = new RegExp(`[<\\uFF1C\\uFE64](${TAG_GAP}\\/?${TAG_GAP})(attachment)`, 'gi');
+
 export function escapeAttachmentText(text: string): string {
-  return (
-    text
-      // Full-width and small-form angle brackets read as brackets: they are made plain first.
-      .replace(/[\uFF1C\uFE64]/g, '<')
-      .replace(/[\uFF1E\uFE65]/g, '>')
-      // Any opening or closing of the tag, however spaced or broken across lines, in any case.
-      .replace(/<(\s*\/?\s*)(attachment)/gi, (_m, between: string, tag: string) => `&lt;${between}${tag}`)
-  );
+  // Only a bracket that opens the tag is touched: other text, full-width brackets in a price
+  // ("価格＜100円＞") included, is left as it is.
+  return text.replace(TAG, (_m, between: string, tag: string) => `&lt;${between}${tag}`);
 }
 
 /** The model's part for a file's text: what it is, then the text, closed so it cannot run into what follows. */
