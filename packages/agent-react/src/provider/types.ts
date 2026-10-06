@@ -2,6 +2,8 @@
  * Re-export the config type for convenience.
  */
 export type { AgentClientConfig } from '@ouispec/agent-core';
+import type { AttachmentRef } from '@ouispec/agent-core';
+import type { ComposerAttachmentsState } from './attachments.js';
 import type {
   ApprovalRequiredProtocolEvent,
   SocketLike,
@@ -33,6 +35,8 @@ export interface AgentMessage {
    * the person, or by a newer message. What it had said is kept.
    */
   stopped?: TurnStoppedReason;
+  /** The files the person attached to this message (ADR-0252 §2.8), by reference. */
+  attachments?: AttachmentRef[];
 }
 
 export type DebugLogLevel = 'info' | 'warn' | 'error' | 'event' | 'socket';
@@ -176,8 +180,16 @@ export interface AgentContextValue {
    * Sends the person's message. While a turn is running this is a barge-in
    * (ADR-0252 §2.5): the platform stops the running turn and this message
    * runs next. The tab's turn is the new one from this call on.
+   *
+   * The message carries the composer's ready files (`attachments`), after
+   * waiting for any still uploading, unless references are given here.
    */
-  sendMessage: (content: string, attachments?: File[]) => Promise<{ turnId: string }>;
+  sendMessage: (content: string, attachments?: AttachmentRef[]) => Promise<{ turnId: string }>;
+  /**
+   * The files on the message being written (ADR-0252 §2.14): attach, watch
+   * each upload, remove. `enabled` is false when the platform takes no files.
+   */
+  attachments: ComposerAttachmentsState;
   /**
    * Stops the turn in progress (ADR-0252 §2.14). What it had produced is
    * kept. Does nothing when no turn is running or a stop is already asked.

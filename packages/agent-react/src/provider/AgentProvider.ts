@@ -7,7 +7,8 @@ import type {
   ApprovalDecision,
 } from '@ouispec/agent-core';
 import { APPROVAL_DECIDE_EVENT, TURN_STOP_EVENT } from '@ouispec/agent-core';
-import type { TurnStopPayload, TurnStoppedReason, TurnStopResult } from '@ouispec/agent-core';
+import type { AttachmentRef, TurnStopPayload, TurnStoppedReason, TurnStopResult } from '@ouispec/agent-core';
+import { useComposerAttachments } from './attachments.js';
 import type { AgentProtocolEvent } from '@ouispec/agent-core';
 import { ALL_AGENT_SOCKET_EVENTS, parseSocketEvent } from '@ouispec/agent-core';
 import type { SocketLike } from '@ouispec/agent-core';
@@ -190,6 +191,36 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   }, []);
 
   const clearDebugLogs = useCallback(() => setDebugLogs([]), []);
+
+  // The conversation a message or a file goes to: made on first use, once,
+  // however many files and messages ask for it at the same moment.
+  const creatingRef = useRef<Promise<string> | null>(null);
+  const ensureConversation = useCallback(async (): Promise<string> => {
+    if (conversationIdRef.current) return conversationIdRef.current;
+    if (!creatingRef.current) {
+      creatingRef.current = (async () => {
+        addDebugLog('info', 'agent:api', 'Creating conversation...', {});
+        const result = await configRef.current.createConversation();
+        setActiveConversation(result.conversationId);
+        addDebugLog('info', 'agent:api', `Conversation created: ${result.conversationId}`, { conversationId: result.conversationId });
+        return result.conversationId;
+      })().finally(() => {
+        creatingRef.current = null;
+      });
+    }
+    return creatingRef.current;
+  }, [addDebugLog, setActiveConversation]);
+
+  // The files on the message being written (ADR-0252 §2.14).
+  const messagesRef = useRef<AgentMessage[]>([]);
+  messagesRef.current = messages;
+  const composer = useComposerAttachments({
+    config: () => configRef.current,
+    ensureConversation,
+    messages: () => messagesRef.current,
+    log: (level, message, data) => addDebugLog(level, 'agent:api', message, data),
+  });
+  const { takeForSend, clear: clearComposer, ...composerState } = composer;
 
   // --- Socket connection lifecycle (SDK-owned; the socket is a seam) ---
   useEffect(() => {
@@ -603,17 +634,11 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   }, []);
 
   // --- Start a turn: the user's message, or the continuation after an approval decision ---
-  const startTurn = useCallback(async (content: string, attachments?: File[], approval?: ApprovalContinuation) => {
+  const startTurn = useCallback(async (content: string, attachments?: AttachmentRef[], approval?: ApprovalContinuation) => {
     // A message sent while a conversation loads belongs to that conversation.
     if (pendingLoadRef.current) await pendingLoadRef.current;
-    let convId = conversationIdRef.current;
-    if (!convId) {
-      addDebugLog('info', 'agent:api', 'Creating conversation...', {});
-      const result = await configRef.current.createConversation();
-      convId = result.conversationId;
-      setActiveConversation(convId);
-      addDebugLog('info', 'agent:api', `Conversation created: ${convId}`, { conversationId: convId });
-    }
+    // Read at once when there is one: the message goes out in the same tick it was sent.
+    const convId = conversationIdRef.current ?? (await ensureConversation());
 
     // A click on the approval card continues the turn, but it is not a message.
     if (!approval) {
@@ -622,6 +647,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
         role: 'user',
         content,
         timestamp: Date.now(),
+        ...(attachments?.length ? { attachments } : {}),
       };
       setMessages(prev => [...prev, userMsg]);
       // A new message moves on: a card still waiting belongs to the previous turn.
@@ -658,7 +684,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
         conversationId: convId,
         content,
         context,
-        attachments,
+        ...(attachments?.length ? { attachments } : {}),
         ...(approval ? { approval } : {}),
       });
 
@@ -702,9 +728,17 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
       }]);
       return { turnId: '' };
     }
-  }, [collectContext, subscribeToRoom, addDebugLog, setActiveConversation, handleProtocolEvent]);
+  }, [collectContext, subscribeToRoom, addDebugLog, ensureConversation, handleProtocolEvent]);
 
-  const sendMessage = useCallback((content: string, attachments?: File[]) => startTurn(content, attachments), [startTurn]);
+  // A message carries the composer's ready files, once the uploads still running have finished.
+  const sendMessage = useCallback(
+    (content: string, attachments?: AttachmentRef[]) => {
+      if (attachments) return startTurn(content, attachments);
+      const taken = takeForSend();
+      return Array.isArray(taken) ? startTurn(content, taken) : taken.then(refs => startTurn(content, refs));
+    },
+    [startTurn, takeForSend],
+  );
 
   // --- The person's Stop (ADR-0252 §2.14) ---
   // Asked over the socket, from the turn's room: the server takes it only from there. The turn's
@@ -969,8 +1003,10 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     const switchConversation = useCallback(async (id: string) => {
     if (isStreaming || id === conversationIdRef.current) return;
     leaveTurn();
+    // Files on an unsent message belong to the conversation being left.
+    clearComposer();
     await loadConversation(id, { restoring: false });
-  }, [isStreaming, leaveTurn, loadConversation]);
+  }, [isStreaming, leaveTurn, loadConversation, clearComposer]);
 
   /** Leave the open conversation for a new one. Callers check that no turn is answering. */
   const resetToNewConversation = useCallback(() => {
@@ -980,10 +1016,11 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     leaveTurn();
     setActiveConversation(null);
     setMessages([]);
+    clearComposer();
     setPresentedOptions(null);
     setPendingApproval(null);
     addDebugLog('info', 'agent:state', 'New conversation');
-  }, [leaveTurn, setActiveConversation, addDebugLog]);
+  }, [leaveTurn, setActiveConversation, addDebugLog, clearComposer]);
 
   const startNewConversation = useCallback(() => {
     if (isStreaming) return;
@@ -1076,6 +1113,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     open: useCallback(() => setIsOpen(true), []),
     close: useCallback(() => setIsOpen(false), []),
     sendMessage,
+    attachments: composerState,
     stopTurn,
     isStopping,
     acceptedTurnId,

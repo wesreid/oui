@@ -35,13 +35,16 @@ export function storedToAgentMessages(stored: readonly AgentStoredMessage[]): Ag
       // (the turn was stopped before it said anything) shows as stopped, with no text.
       const stopped = m.role === 'assistant' && m.stopped ? m.stopped.reason : undefined;
       const onlyTheMark = stopped !== undefined && m.content === turnStoppedNote({ reason: stopped });
-      if (m.content || stopped) {
+      // A message may be files with no text.
+      const attachments = m.role === 'user' && m.attachments?.length ? m.attachments : undefined;
+      if (m.content || stopped || attachments) {
         messages.push({
           id: m.id,
           role: m.role === 'user' ? 'user' : 'assistant',
           content: onlyTheMark ? '' : (m.content ?? ''),
           timestamp,
           ...(stopped ? { stopped } : {}),
+          ...(attachments ? { attachments } : {}),
         });
       }
       for (const call of m.toolCalls ?? []) {
