@@ -7,12 +7,13 @@
  * No file's bytes go with the message.
  */
 import React from 'react';
-import { act, render, cleanup } from '@testing-library/react';
+import { act, render, renderHook, cleanup } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_ATTACHMENT_LIMITS, type AgentClientConfig, type AttachmentRef } from '@ouispec/agent-core';
 import { createFakeSocket } from './fake-socket.js';
 
 const { AgentProvider, useAgent } = await import('../AgentProvider.js');
+const { useComposerAttachments } = await import('../attachments.js');
 
 let agent: ReturnType<typeof useAgent>;
 function Probe() {
@@ -248,3 +249,65 @@ describe('a Send that waits for its files', () => {
   });
 });
 
+describe('a file attached while the tab restores its conversation', () => {
+  const KEY = 'agent-sdk.activeConversation';
+  afterEach(() => window.sessionStorage.clear());
+
+  function restoring() {
+    let finish!: () => void;
+    const getConversation = vi.fn(
+      (id: string) =>
+        new Promise<{ conversationId: string; messages: [] }>((resolve) => {
+          finish = () => resolve({ conversationId: id, messages: [] });
+        }),
+    );
+    window.sessionStorage.setItem(KEY, 'conv-R');
+    const t = setup({ getConversation: getConversation as never });
+    return { ...t, getConversation, finish: () => act(async () => finish()) };
+  }
+
+  it('goes into the conversation being restored, not a new one, and is sent with the message to it', async () => {
+    const { uploads, createConversation, sendMessage, finish } = restoring();
+    const png = file('pasted.png', 'image/png', 100);
+    act(() => agent.attachments.attach([png]));
+    await flush();
+    // Nothing is uploaded, and no conversation made, until the restore has said which conversation this is.
+    expect(uploads).toEqual([]);
+    await finish();
+    await flush();
+    expect(createConversation).not.toHaveBeenCalled();
+    expect(uploads.map((u) => u.conversationId)).toEqual(['conv-R']);
+    await act(async () => uploads[0].resolve(refOf(png, 'att_pasted01')));
+    await act(() => agent.sendMessage('This one'));
+    expect(sendMessage).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ conversationId: 'conv-R', attachments: [refOf(png, 'att_pasted01')] }));
+  });
+
+  it('is never sent with a message to a conversation other than the one it went into', async () => {
+    let open: string | null = 'conv-A';
+    const uploads: Array<(ref: AttachmentRef) => void> = [];
+    const { result } = renderHook(() =>
+      useComposerAttachments({
+        config: () => ({
+          createConversation: vi.fn(),
+          sendMessage: vi.fn(),
+          realtime: { url: '' },
+          attachments: { limits: DEFAULT_ATTACHMENT_LIMITS, upload: () => new Promise<AttachmentRef>((resolve) => uploads.push(resolve)) },
+        }) as unknown as AgentClientConfig,
+        ensureConversation: async () => open!,
+        conversationId: () => open,
+        messages: () => [],
+        log: () => {},
+      }),
+    );
+    const png = file('logo.png', 'image/png', 100);
+    act(() => result.current.attach([png]));
+    await flush();
+    await act(async () => uploads[0](refOf(png, 'att_logo0001')));
+    // The open conversation is another one now, and the composer was not cleared for it.
+    open = 'conv-B';
+    expect(result.current.takeForSend()).toEqual({ notSent: 'conversation_changed' });
+    expect(result.current.items).toHaveLength(1);
+    open = 'conv-A';
+    expect(result.current.takeForSend()).toEqual({ refs: [refOf(png, 'att_logo0001')] });
+  });
+});

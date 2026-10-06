@@ -197,6 +197,9 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   // however many files and messages ask for it at the same moment.
   const creatingRef = useRef<Promise<string> | null>(null);
   const ensureConversation = useCallback(async (): Promise<string> => {
+    // A conversation being restored or opened is the one a message or a file goes to: wait for it,
+    // rather than make another (a file pasted while the remembered chat loads belongs to it).
+    while (pendingLoadRef.current) await pendingLoadRef.current;
     if (conversationIdRef.current) return conversationIdRef.current;
     if (!creatingRef.current) {
       creatingRef.current = (async () => {

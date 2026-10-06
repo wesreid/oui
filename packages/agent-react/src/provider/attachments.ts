@@ -242,6 +242,10 @@ export function useComposerAttachments({ config, ensureConversation, conversatio
       // A refused file stays on the message with why, and holds the message until it is taken off.
       if (mine.some(i => i.status === 'refused')) return { notSent: 'file_refused' };
       const ready = mine.filter(i => i.status === 'ready' && i.ref);
+      // Each file belongs to the conversation it was uploaded into: one that went elsewhere
+      // cannot go with a message to this one.
+      const now = conversationId();
+      if (ready.some(i => uploadedTo.current.get(i.key) !== now)) return { notSent: 'conversation_changed' };
       const taken = new Set(ready.map(i => i.key));
       if (taken.size > 0) set(prev => prev.filter(i => !taken.has(i.key)));
       for (const key of taken) uploadedTo.current.delete(key);
