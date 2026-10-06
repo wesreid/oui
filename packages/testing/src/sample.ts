@@ -121,5 +121,10 @@ function object(schema: JsonSchema): Record<string, unknown> {
 function sampleFile(mediaTypes: readonly string[] | undefined): File {
   const type = mediaTypes?.find((t) => !t.endsWith('/*')) ?? (mediaTypes?.[0]?.replace('/*', '/png') || 'application/octet-stream');
   const ext = type.split('/')[1]?.split('+')[0] ?? 'bin';
-  return new File([new Uint8Array([79, 85, 73])], `oui-kit-sample.${ext}`, { type });
+  const bytes = new Uint8Array([79, 85, 73]);
+  const name = `oui-kit-sample.${ext}`;
+  // Where there is no File global (Node 18), a named Blob stands for one, as a page reads it.
+  return typeof File === 'function'
+    ? new File([bytes], name, { type })
+    : (Object.assign(new Blob([bytes], { type }), { name, lastModified: 0 }) as unknown as File);
 }

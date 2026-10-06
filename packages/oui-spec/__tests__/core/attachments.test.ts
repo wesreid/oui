@@ -29,6 +29,9 @@ function surface(handler = vi.fn(async (params: Record<string, unknown>) => ({ s
 
 let requests = 0;
 // Each request its own id: the runtime answers an id it has answered with the same answer.
+/** A file as a page receives it. `File` is not a global on Node 18, which oui-spec supports: a named Blob stands for one. */
+const fileOf = (name: string, type: string) => Object.assign(new Blob([new Uint8Array([1])], { type }), { name, lastModified: 0 }) as unknown as File;
+
 const request = (actionId: string, params: Record<string, unknown>) => ({ requestId: `r-${++requests}`, surfaceId: 'studio', actionId, params, timestamp: 0 });
 const settle = { quietMs: 0, timeoutMs: 20 };
 
@@ -50,7 +53,7 @@ describe('an input that takes an attached file', () => {
   });
 
   it('reaches the handler as the file, or its text, resolved through the host', async () => {
-    const png = new File([new Uint8Array([1])], 'logo.png', { type: 'image/png' });
+    const png = fileOf('logo.png', 'image/png');
     const resolve = vi.fn(async (id: string, as: 'file' | 'text') => (as === 'text' ? '<svg/>' : png));
     const { s, handler } = surface();
     const runtime = createSurfaceRuntime({ announce: false, settle, attachments: { resolve } });
@@ -67,7 +70,7 @@ describe('an input that takes an attached file', () => {
   });
 
   it('is refused, and the handler not run, when the file cannot be had, is not a type it takes, or the page has no way to open files', async () => {
-    const pdf = new File([new Uint8Array([1])], 'deck.pdf', { type: 'application/pdf' });
+    const pdf = fileOf('deck.pdf', 'application/pdf');
     const { s, handler } = surface();
     const runtime = createSurfaceRuntime({
       announce: false,
