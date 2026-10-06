@@ -84,7 +84,7 @@ describe('the composer’s files', () => {
   it('sends the message once the uploads finish, with the ready files’ references and nothing else', async () => {
     const { uploads, sendMessage } = setup();
     const a = file('logo.png', 'image/png', 1000);
-    act(() => agent.attachments.attach([a, file('huge.png', 'image/png', 21 * 1024 * 1024)]));
+    act(() => agent.attachments.attach([a]));
     await flush();
     let sent: Promise<unknown> | undefined;
     act(() => {
@@ -125,3 +125,126 @@ describe('the composer’s files', () => {
     expect(agent.attachments.items).toEqual([]);
   });
 });
+
+describe('a Send that waits for its files', () => {
+  async function waitingSend(text = 'Use this as the logo') {
+    let sent: Promise<{ turnId: string; notSent?: { reason: string; content: string } }> | undefined;
+    act(() => {
+      sent = agent.sendMessage(text);
+    });
+    await flush();
+    return () => sent!;
+  }
+
+  it('is held, keeping the draft, when a file fails after Send: the file keeps its chip and why', async () => {
+    const { uploads, sendMessage } = setup();
+    const a = file('logo.png', 'image/png', 1000);
+    act(() => agent.attachments.attach([a, file('notes.txt', 'text/plain', 10)]));
+    await flush();
+    await act(async () => uploads[0].resolve(refOf(a, 'att_aaaaaaaa')));
+    const sent = await waitingSend();
+    expect(agent.attachments.waitingToSend).toBe(true);
+    await act(async () => uploads[1].reject(new Error('The file did not pass its check.')));
+    await expect(sent()).resolves.toEqual({ turnId: '', notSent: { reason: 'file_refused', content: 'Use this as the logo' } });
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(agent.attachments.waitingToSend).toBe(false);
+    expect(agent.attachments.items.map((i) => [i.name, i.status, i.error])).toEqual([
+      ['logo.png', 'ready', undefined],
+      ['notes.txt', 'refused', 'The file did not pass its check.'],
+    ]);
+  });
+
+  it('is held while a refused file is on the message, until it is taken off', async () => {
+    const { uploads, sendMessage } = setup();
+    const a = file('logo.png', 'image/png', 1000);
+    act(() => agent.attachments.attach([a, file('huge.png', 'image/png', 21 * 1024 * 1024)]));
+    await flush();
+    await act(async () => uploads[0].resolve(refOf(a, 'att_aaaaaaaa')));
+    await expect(act(() => agent.sendMessage('Logo'))).resolves.toMatchObject({ notSent: { reason: 'file_refused', content: 'Logo' } });
+    act(() => agent.attachments.remove(agent.attachments.items[1].key));
+    await act(() => agent.sendMessage('Logo'));
+    expect(sendMessage).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ attachments: [refOf(a, 'att_aaaaaaaa')] }));
+  });
+
+  it('refuses a second Send while it waits, so one message goes, once', async () => {
+    const { uploads, sendMessage } = setup();
+    const a = file('logo.png', 'image/png', 1000);
+    act(() => agent.attachments.attach([a]));
+    await flush();
+    const first = await waitingSend('once');
+    const second = await waitingSend('twice');
+    await expect(second()).resolves.toEqual({ turnId: '', notSent: { reason: 'waiting', content: 'twice' } });
+    await act(async () => {
+      uploads[0].resolve(refOf(a, 'att_aaaaaaaa'));
+      await first();
+    });
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0][0]).toMatchObject({ content: 'once' });
+  });
+
+  it('is dropped, with the draft kept, when the conversation changes while it waits; the files it uploaded are removed', async () => {
+    const { uploads, sendMessage, remove } = setup();
+    const a = file('logo.png', 'image/png', 1000);
+    act(() => agent.attachments.attach([a, file('notes.txt', 'text/plain', 10)]));
+    await flush();
+    await act(async () => uploads[0].resolve(refOf(a, 'att_aaaaaaaa')));
+    const sent = await waitingSend();
+    act(() => agent.startNewConversation());
+    await expect(sent()).resolves.toEqual({ turnId: '', notSent: { reason: 'conversation_changed', content: 'Use this as the logo' } });
+    // The upload that was still running is cancelled even if it never answers; nothing went to the new conversation.
+    expect(uploads[1].signal.aborted).toBe(true);
+    await act(async () => uploads[1].resolve(refOf(file('notes.txt', 'text/plain', 10), 'att_bbbbbbbb')));
+    await flush();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(agent.attachments.items).toEqual([]);
+    // Neither file stays in the file area of the conversation that was left.
+    expect(remove.mock.calls.map(([ref, where]) => [(ref as AttachmentRef).id, where])).toEqual([
+      ['att_aaaaaaaa', { conversationId: 'conv-1' }],
+      ['att_bbbbbbbb', { conversationId: 'conv-1' }],
+    ]);
+  });
+
+  it('ends when Stop gives it up, even when the upload ignores its cancel: nothing sent, the files kept', async () => {
+    const { uploads, sendMessage } = setup();
+    act(() => agent.attachments.attach([file('logo.png', 'image/png', 1000)]));
+    await flush();
+    const sent = await waitingSend();
+    await act(() => agent.stopTurn());
+    await expect(sent()).resolves.toEqual({ turnId: '', notSent: { reason: 'cancelled', content: 'Use this as the logo' } });
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(agent.attachments.waitingToSend).toBe(false);
+    expect(agent.attachments.items).toHaveLength(1);
+    expect(uploads[0].signal.aborted).toBe(false);
+  });
+
+  it('takes only the files that were on the message at Send: one attached while it waits stays for the next', async () => {
+    const { uploads, sendMessage } = setup();
+    const a = file('logo.png', 'image/png', 1000);
+    const b = file('later.png', 'image/png', 1000);
+    act(() => agent.attachments.attach([a]));
+    await flush();
+    const sent = await waitingSend();
+    act(() => agent.attachments.attach([b]));
+    await flush();
+    await act(async () => {
+      uploads[0].resolve(refOf(a, 'att_aaaaaaaa'));
+      await sent();
+    });
+    expect(sendMessage.mock.calls[0][0].attachments).toEqual([refOf(a, 'att_aaaaaaaa')]);
+    expect(agent.attachments.items.map((i) => [i.name, i.status])).toEqual([['later.png', 'uploading']]);
+  });
+
+  it('removes a file whose upload finished after it was taken off the message', async () => {
+    const { uploads, remove } = setup();
+    const a = file('logo.png', 'image/png', 1000);
+    act(() => agent.attachments.attach([a]));
+    await flush();
+    act(() => agent.attachments.remove(agent.attachments.items[0].key));
+    // The platform had it already: its answer arrives after the cancel.
+    await act(async () => uploads[0].resolve(refOf(a, 'att_aaaaaaaa')));
+    await flush();
+    expect(remove).toHaveBeenCalledExactlyOnceWith(refOf(a, 'att_aaaaaaaa'), { conversationId: 'conv-1' });
+    expect(agent.attachments.items).toEqual([]);
+  });
+});
+

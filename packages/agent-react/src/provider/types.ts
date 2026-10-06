@@ -3,7 +3,14 @@
  */
 export type { AgentClientConfig } from '@ouispec/agent-core';
 import type { AttachmentRef } from '@ouispec/agent-core';
-import type { ComposerAttachmentsState } from './attachments.js';
+import type { ComposerAttachmentsState, NotSentReason } from './attachments.js';
+
+/** What `sendMessage` did: the turn it started, or why nothing was sent. */
+export interface SendMessageResult {
+  /** Empty when nothing was sent. */
+  turnId: string;
+  notSent?: { reason: NotSentReason; content: string };
+}
 import type {
   ApprovalRequiredProtocolEvent,
   SocketLike,
@@ -183,8 +190,13 @@ export interface AgentContextValue {
    *
    * The message carries the composer's ready files (`attachments`), after
    * waiting for any still uploading, unless references are given here.
+   *
+   * It is not sent, and `notSent` says why and hands back `content` for the
+   * composer to keep as the draft, when a file on it is refused, when a send
+   * already waits for its files, or when the conversation changes or the
+   * person gives the send up (Stop) while it waits.
    */
-  sendMessage: (content: string, attachments?: AttachmentRef[]) => Promise<{ turnId: string }>;
+  sendMessage: (content: string, attachments?: AttachmentRef[]) => Promise<SendMessageResult>;
   /**
    * The files on the message being written (ADR-0252 §2.14): attach, watch
    * each upload, remove. `enabled` is false when the platform takes no files.

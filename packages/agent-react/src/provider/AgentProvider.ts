@@ -8,7 +8,7 @@ import type {
 } from '@ouispec/agent-core';
 import { APPROVAL_DECIDE_EVENT, TURN_STOP_EVENT } from '@ouispec/agent-core';
 import type { AttachmentRef, TurnStopPayload, TurnStoppedReason, TurnStopResult } from '@ouispec/agent-core';
-import { useComposerAttachments } from './attachments.js';
+import { useComposerAttachments, type TakeForSend } from './attachments.js';
 import type { AgentProtocolEvent } from '@ouispec/agent-core';
 import { ALL_AGENT_SOCKET_EVENTS, parseSocketEvent } from '@ouispec/agent-core';
 import type { SocketLike } from '@ouispec/agent-core';
@@ -28,6 +28,7 @@ import type {
   DebugLogNamespace,
   AgentDebugState,
   PresentedOptions,
+  SendMessageResult,
 } from './types.js';
 import { ApprovalDecisionContext, approvalRefusalText, type ApprovalDecisionState } from '../approvals/decision.js';
 import { annotationRegistry } from '../annotations/singleton.js';
@@ -217,10 +218,13 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   const composer = useComposerAttachments({
     config: () => configRef.current,
     ensureConversation,
+    conversationId: () => conversationIdRef.current,
     messages: () => messagesRef.current,
     log: (level, message, data) => addDebugLog(level, 'agent:api', message, data),
   });
   const { takeForSend, clear: clearComposer, ...composerState } = composer;
+  const cancelWaitingSendRef = useRef(composer.cancelWaitingSend);
+  cancelWaitingSendRef.current = composer.cancelWaitingSend;
 
   // --- Socket connection lifecycle (SDK-owned; the socket is a seam) ---
   useEffect(() => {
@@ -731,13 +735,19 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   }, [collectContext, subscribeToRoom, addDebugLog, ensureConversation, handleProtocolEvent]);
 
   // A message carries the composer's ready files, once the uploads still running have finished.
+  // Nothing is sent when the files say not to: why, with the text, so the composer keeps the draft.
   const sendMessage = useCallback(
-    (content: string, attachments?: AttachmentRef[]) => {
+    (content: string, attachments?: AttachmentRef[]): Promise<SendMessageResult> => {
       if (attachments) return startTurn(content, attachments);
+      const go = (taken: TakeForSend): Promise<SendMessageResult> | SendMessageResult => {
+        if ('refs' in taken) return startTurn(content, taken.refs);
+        addDebugLog('info', 'agent:api', `The message was not sent: ${taken.notSent}`, { reason: taken.notSent });
+        return { turnId: '', notSent: { reason: taken.notSent, content } };
+      };
       const taken = takeForSend();
-      return Array.isArray(taken) ? startTurn(content, taken) : taken.then(refs => startTurn(content, refs));
+      return 'then' in taken ? taken.then(go) : Promise.resolve(go(taken));
     },
-    [startTurn, takeForSend],
+    [startTurn, takeForSend, addDebugLog],
   );
 
   // --- The person's Stop (ADR-0252 §2.14) ---
@@ -746,6 +756,8 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   // ask, or the end has not arrived in time, the platform's API is asked instead and the turn is
   // shown as stopped: the person pressed Stop, and the panel must not go on saying "working".
   const stopTurn = useCallback(async () => {
+    // A send still waiting for its files is given up: nothing was sent, and the draft is kept.
+    cancelWaitingSendRef.current();
     const turnId = liveTurnRef.current.turnId;
     if (!turnId || stoppingRef.current) return;
     const entry: { turnId: string; timer: ReturnType<typeof setTimeout> | null } = { turnId, timer: null };
