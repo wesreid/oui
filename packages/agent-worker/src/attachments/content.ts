@@ -52,10 +52,18 @@ export const ATTACHMENT_DATA_NOTE = [
 /**
  * A file's text inside its `<attachment>` block: anything in it that would
  * open or close a block is escaped, so the file cannot end its own block and
- * write outside it.
+ * write outside it: `</attachment>`, `< /attachment>`, `</ attachment>`, a
+ * line break inside the tag, any case, and full-width brackets.
  */
 export function escapeAttachmentText(text: string): string {
-  return text.replace(/<(\/?)(attachment)/gi, (_m, slash: string, tag: string) => `&lt;${slash}${tag}`);
+  return (
+    text
+      // Full-width and small-form angle brackets read as brackets: they are made plain first.
+      .replace(/[\uFF1C\uFE64]/g, '<')
+      .replace(/[\uFF1E\uFE65]/g, '>')
+      // Any opening or closing of the tag, however spaced or broken across lines, in any case.
+      .replace(/<(\s*\/?\s*)(attachment)/gi, (_m, between: string, tag: string) => `&lt;${between}${tag}`)
+  );
 }
 
 /** The model's part for a file's text: what it is, then the text, closed so it cannot run into what follows. */

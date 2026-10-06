@@ -304,6 +304,12 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
 
   /**
    * Optional: record turn failure. Default: no-op.
+   *
+   * `error.code` is `TURN_DEADLINE_EXCEEDED` for a turn that ran out of time
+   * and whose stop path could not store what it had (ADR-0252 §6.4). When the
+   * store did not finish in time it may still finish after this is called, so
+   * record the failure only over a turn that is still running (a conditional
+   * update from `running`): a turn whose messages did get stored keeps that.
    */
   recordTurnFailure?: (input: {
     turnId: string;

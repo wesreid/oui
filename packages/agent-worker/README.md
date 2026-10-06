@@ -71,7 +71,7 @@ What a stopped turn does:
 
 A stop that arrives once the turn has begun its own end is not one: the turn completes as it would have.
 
-A turn that reaches its deadline (`turnDeadlineMs`) ends on the same path, with `stopReason: 'deadline'`: what it did before it ran out of time is kept, marked, and the next turn is told.
+A turn that reaches its deadline (`turnDeadlineMs`) ends on the same path, with `stopReason: 'deadline'`: what it did before it ran out of time is kept, marked, and the next turn is told. If its store fails or does not finish in time, nothing of it was kept: the runner records it with `recordTurnFailure` as `TURN_DEADLINE_EXCEEDED`, and its outcome carries `stored: false`. A store that timed out may still finish after that, so record the failure only over a turn that is still running (a conditional update from `running`).
 
 For a message sent while a turn is running (a barge-in), your API stops the running turn (`POST /internal/turns/:turnId/stop` with `superseded`), withdraws a waiting approval (`settle` with `expire`), and puts the ids of the turns it stopped on the new turn's payload as `supersedes`. The hooks then let you order the two:
 
