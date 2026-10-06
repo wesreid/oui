@@ -10,6 +10,19 @@
  *   2. prepareStep  — called before each LLM step to control tool selection
  */
 
+/**
+ * A tool the model can be given at a step, as a policy sees it: its name, what
+ * kind of tool it is, and its class when it has one (the SDK's attachment
+ * tools are `attachment`). A policy that picks a step's active tools by name
+ * can keep a whole class, such as the attachment tools, by this.
+ */
+export interface StepTool {
+  name: string;
+  /** `ui`: a page action, or a UI tool (`ui_act`, `ui_describe`, `ui_read`). `backend`: the host's or the SDK's own. `builtin`: the worker's. */
+  kind: 'ui' | 'backend' | 'builtin';
+  toolClass?: string;
+}
+
 export interface TurnPolicy {
   /**
    * Classify the current turn to determine orchestration behavior.
@@ -29,6 +42,8 @@ export interface TurnPolicy {
     steps: Array<{ toolCalls?: Array<{ toolName: string }> }>;
     turnClass: string;
     allToolNames: string[];
+    /** The same tools with their kind and class, in the same order. */
+    allTools: StepTool[];
   }): Promise<{
     toolChoice?: 'auto' | 'none' | 'required' | { type: 'tool'; toolName: string };
     activeTools?: string[];

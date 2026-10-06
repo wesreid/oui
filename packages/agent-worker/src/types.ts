@@ -240,6 +240,13 @@ export interface AgentTurnResult {
    * call with exactly one result, the last assistant message marked.
    */
   stopped?: TurnStoppedMarker;
+  /**
+   * `false` when the turn was stopped and what it had produced could not be
+   * stored (`beforeTurnComplete` failed or ran out of time). A turn that ran
+   * out of time and stored nothing is recorded as such, not as stopped
+   * (ADR-0252 §6.4).
+   */
+  stored?: false;
   /** What the turn gave the model of its files, when the host has a file area (ADR-0252 §2.11). */
   attachments?: AttachmentUsage;
 }

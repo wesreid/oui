@@ -34,7 +34,7 @@ import { stoppedTurnMessages, type RecordedCall, type RecordedStep } from './sto
 import { resultText, stoppedNotRun, stoppedWhileRunning } from './stop/results.js';
 import type { AgentWorkerConfig, AgentTurnInput, AgentTurnResult, TurnMessage, TurnHistoryMessage } from './types.js';
 import type { RegisteredTool, ToolExecutionContext, ToolExecutionResult } from './tools/types.js';
-import { defaultTurnPolicy } from './turn-policy.js';
+import { defaultTurnPolicy, type StepTool } from './turn-policy.js';
 import { evaluateToolPolicySafe } from './authz/tool-policy.js';
 import { createToolInputValidator } from './tools/input-validation.js';
 import { readClientPage, withoutClientUI, type ClientPage } from './ui/snapshot.js';
@@ -43,9 +43,9 @@ import { withNewestPageStateOnly } from './ui/newest-page-state.js';
 import { withClock } from './prompt/clock.js';
 import { withUserText } from './prompt/user-text.js';
 import { AttachmentGuard } from './attachments/guard.js';
-import { turnAttachmentParts, withReferenceLines, withTurnAttachments, withoutLeftOut } from './attachments/content.js';
+import { ATTACHMENT_DATA_NOTE, turnAttachmentParts, withReferenceLines, withTurnAttachments, withoutLeftOut } from './attachments/content.js';
 import { attachmentTools } from './attachments/tools.js';
-import { attachmentIdsIn, type AttachmentRef } from '@ouispec/agent-core';
+import { acceptsMediaType, attachmentIdsIn, attachmentNameForModel, misplacedAttachmentInputs, type AttachmentRef } from '@ouispec/agent-core';
 
 const ATTACHMENT_LIST_HINT = 'attachment_list lists the files that can.';
 import {
@@ -188,7 +188,7 @@ export async function runAgentTurn(
   let conversationFileTokens = 0;
   if (fileArea?.store.conversationUsage) {
     try {
-      conversationFileTokens = await fileArea.store.conversationUsage(fileOwner);
+      conversationFileTokens = await fileArea.store.conversationUsage(fileOwner, { signal: AbortSignal.timeout(5_000) });
     } catch (err) {
       log('warn', 'agent:tool', 'Could not read the conversation’s use of files; only the turn’s cap applies', {
         turnId,
@@ -240,7 +240,8 @@ export async function runAgentTurn(
   const hostPrompt = typeof config.systemPrompt === 'function'
     ? config.systemPrompt({ userId: input.userId, accountId: input.accountId, context: withoutClientUI(input.context) })
     : config.systemPrompt;
-  const systemPrompt = withClientKnowledge(hostPrompt, input.context);
+  // With a file area, the model is told a file's name and content are data, never instructions (ADR-0252 §2.11).
+  const systemPrompt = withClientKnowledge(fileArea ? `${hostPrompt}\n\n${ATTACHMENT_DATA_NOTE}` : hostPrompt, input.context);
 
   log('debug', 'agent:prompt', 'System prompt built', { turnId, promptLength: systemPrompt.length, hostPromptLength: hostPrompt.length });
 
@@ -312,6 +313,8 @@ export async function runAgentTurn(
   const executedToolResults: Array<{ toolCallId: string; toolName: string; result: string }> = [];
   // The pictures results came with, by call: given to the model with that call's result (ui/answer-image.ts).
   const answerImages = new Map<string, { mediaType: string; base64: string }>();
+  // The text results came with (a file's text, read by attachment_read), by call: the model's only, like the pictures.
+  const answerTexts = new Map<string, string>();
 
   // The worker's own record of the turn, kept as it runs: what a stopped turn
   // is stored from (stop/partial.ts). The model stream's own results do not
@@ -484,8 +487,20 @@ export async function runAgentTurn(
     const args = validation.value;
 
     // ── Attached files named in the call (ADR-0252 §2.13) ──
-    // Each must be a file of this turn's conversation, checked before anything
-    // is dispatched; the page then resolves it through its own host.
+    // Each must be a file of this turn's conversation, ready, and of a type the
+    // input takes, checked before anything is dispatched; the page then
+    // resolves it through its own host. An action declaring a file where none
+    // can be checked is not run at all.
+    const misplaced = misplacedAttachmentInputs(schema);
+    if (misplaced.length > 0) {
+      return refused(
+        {
+          error: `"${t.name}" declares an attached file at ${misplaced.join(', ')}, where none can be checked: it cannot be run with a file.`,
+          notRun: true,
+        },
+        args,
+      );
+    }
     const namedFiles = attachmentIdsIn(schema, args);
     const callFiles = new Map<string, AttachmentRef>();
     if (namedFiles.length > 0) {
@@ -493,13 +508,47 @@ export async function runAgentTurn(
         return refused({ error: `"${t.name}" takes an attached file, and this assistant cannot use attached files.`, notRun: true }, args);
       }
       const ids = [...new Set(namedFiles.map((f) => f.id))];
-      const found = await fileArea.store.describe(ids, fileOwner);
-      for (const ref of found) callFiles.set(ref.id, ref);
+      try {
+        for (const ref of await fileArea.store.describe(ids, fileOwner, { signal: abortController.signal })) callFiles.set(ref.id, ref);
+      } catch (err) {
+        log('warn', 'agent:tool', 'Could not check the files a call names; it was not run', {
+          turnId,
+          toolName: t.name,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return refused({ error: `The files "${t.name}" names could not be checked just now. It was not run; try again.`, notRun: true }, args);
+      }
       const missing = ids.filter((id) => !callFiles.has(id) || callFiles.get(id)!.removed);
       if (missing.length > 0) {
         return refused(
           {
             error: `${missing.map((id) => `"${id}"`).join(', ')} ${missing.length === 1 ? 'is not a file' : 'are not files'} of this conversation that can be used. ${ATTACHMENT_LIST_HINT}`,
+            notRun: true,
+          },
+          args,
+        );
+      }
+      const pending = ids.filter((id) => callFiles.get(id)!.pending);
+      if (pending.length > 0) {
+        return refused(
+          {
+            error: `${pending.map((id) => `"${id}"`).join(', ')} ${pending.length === 1 ? 'is' : 'are'} still being checked, and can be used once that is done. It was not run.`,
+            notRun: true,
+          },
+          args,
+        );
+      }
+      // The type each input takes, checked here as the page checks it (OUI spec §7.3.11).
+      const wrongType = namedFiles.filter((f) => !acceptsMediaType(f.input, callFiles.get(f.id)!.mediaType));
+      if (wrongType.length > 0) {
+        return refused(
+          {
+            error: wrongType
+              .map((f) => {
+                const ref = callFiles.get(f.id)!;
+                return `${f.property}: ${attachmentNameForModel(ref.name)} (${f.id}) is ${ref.mediaType}; it takes ${f.input.mediaTypes!.join(', ')}.`;
+              })
+              .join(' '),
             notRun: true,
           },
           args,
@@ -708,6 +757,7 @@ export async function runAgentTurn(
     // A picture in the result is the model's to look at with this call's
     // result, and nothing else's: it is not in the text above, the event or the record.
     if (isWrapped && result.image) answerImages.set(toolUseId, result.image);
+    if (isWrapped && typeof result.modelText === 'string') answerTexts.set(toolUseId, result.modelText);
     return { text: JSON.stringify(modelPayload ?? { error: 'no result' }), ran: true };
   };
 
@@ -718,12 +768,14 @@ export async function runAgentTurn(
   const toModelOutput = ({ toolCallId, output }: { toolCallId: string; output: unknown }) => {
     const text = typeof output === 'string' ? output : JSON.stringify(output ?? null);
     const image = answerImages.get(toolCallId);
-    if (!image) return { type: 'text' as const, value: text };
+    const fileText = answerTexts.get(toolCallId);
+    if (!image && fileText === undefined) return { type: 'text' as const, value: text };
     return {
       type: 'content' as const,
       value: [
         { type: 'text' as const, text },
-        { type: 'file' as const, mediaType: image.mediaType, data: { type: 'data' as const, data: image.base64 } },
+        ...(fileText !== undefined ? [{ type: 'text' as const, text: fileText }] : []),
+        ...(image ? [{ type: 'file' as const, mediaType: image.mediaType, data: { type: 'data' as const, data: image.base64 } }] : []),
       ],
     };
   };
@@ -983,6 +1035,15 @@ export async function runAgentTurn(
         executedToolResults.push({ toolCallId: toolUseId, toolName: UI_ACT_TOOL, result: text });
         return text;
     }
+  }
+
+  /** A tool the model is given, as a turn policy sees it: its name, kind and class. */
+  function describeStepTool(name: string): StepTool {
+    if (name === UI_ACT_TOOL || name === UI_DESCRIBE_TOOL || name === UI_READ_TOOL) return { name, kind: 'ui' };
+    // The SDK's own file tools take their names before the host's (hostTools).
+    const registered = fileTools.find((t) => t.name === name) ?? config.tools.tools.find((t) => t.name === name);
+    if (!registered) return { name, kind: 'builtin' };
+    return { name, kind: registered.kind === 'ui' ? 'ui' : 'backend', ...(registered.toolClass ? { toolClass: registered.toolClass } : {}) };
   }
 
   function assembleTools(): Record<string, AiTool> {
@@ -1257,6 +1318,7 @@ export async function runAgentTurn(
   // The date and time on the user's clock travel with their message too: a
   // model has no clock, and the changing minute must stay out of the cached
   // system prompt (prompt/clock.ts).
+  const turnFilesGiven = !!fileArea && (input.attachments?.length ?? 0) > 0;
   const messages: ModelMessage[] = [
     ...withClock(
       withPageState(
@@ -1266,6 +1328,9 @@ export async function runAgentTurn(
             // history: it takes that call's place.
             [...(input.history ?? []), ...expired.outcomes, ...(continued?.outcome ? [continued.outcome] : [])],
             [input.content, continued?.note].filter(Boolean).join('\n\n'),
+            // The turn's own message, when the history already holds it: its files are given below,
+            // each with its line, so the history's copy of the message does not name them again.
+            turnFilesGiven && input.history?.at(-1)?.role === 'user' ? input.history.length - 1 : null,
           ),
           // Said on the user's message whether or not the host's history already holds that message.
           expired.outcomes.length > 0 ? expiredNote(expired) : null,
@@ -1279,14 +1344,36 @@ export async function runAgentTurn(
     ...(continued?.messages ?? []),
   ];
   // The turn's files go with its message, after everything said about it (ADR-0252 §2.11).
-  if (fileArea && input.attachments?.length) {
-    const files = await turnAttachmentParts(input.attachments, {
-      store: fileArea.store,
-      owner: fileOwner,
-      guard: fileGuard,
-      pdfAsDocument: fileArea.pdfAsDocument ?? false,
-    });
-    messages.splice(0, messages.length, ...withTurnAttachments(messages, files));
+  // A file that cannot be had is named with why; the turn goes on with the others.
+  if (fileArea && turnFilesGiven) {
+    try {
+      const files = await turnAttachmentParts(input.attachments!, {
+        store: fileArea.store,
+        owner: fileOwner,
+        guard: fileGuard,
+        pdfAsDocument: fileArea.pdfAsDocument ?? false,
+        perMessage: fileArea.perMessage,
+        signal: abortController.signal,
+      });
+      if (files.failures.length > 0) {
+        log('warn', 'agent:tool', 'Some of the message’s files could not be loaded; the turn goes on without them', { turnId, failures: files.failures });
+      }
+      messages.splice(0, messages.length, ...withTurnAttachments(messages, files));
+    } catch (err) {
+      log('error', 'agent:tool', 'The message’s files could not be given; the turn goes on with their lines', {
+        turnId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      messages.splice(
+        0,
+        messages.length,
+        ...withTurnAttachments(messages, {
+          parts: [],
+          notes: [withReferenceLines('', input.attachments!), 'These files could not be loaded with this message.'],
+          failures: [],
+        }),
+      );
+    }
   }
 
   // The system prompt goes in `instructions`, NOT in `messages`.
@@ -1368,6 +1455,11 @@ export async function runAgentTurn(
           })),
           turnClass,
           allToolNames: [...Object.keys(aiTools), ...actionIds],
+          // What each tool is, so a policy can choose by class (the attachment tools are `attachment`).
+          allTools: [
+            ...Object.keys(aiTools).map((name) => describeStepTool(name)),
+            ...actionIds.map((name) => ({ name, kind: 'ui' as const })),
+          ],
         });
         // What it constrained, in the model's terms: an action is run through
         // `ui_act`, which holds the step to the actions the policy allowed.
@@ -1691,11 +1783,12 @@ export async function runAgentTurn(
 
     // The store and the announcement each get a limit of their own when the host says how long
     // the process has left: a slow store must not run it to its hard end with nothing announced.
-    const within = async (what: string, keepBackMs: number, work: () => Promise<unknown>): Promise<void> => {
+    /** Whether the work finished within its limit. */
+    const within = async (what: string, keepBackMs: number, work: () => Promise<unknown>): Promise<boolean> => {
       const remaining = input.remainingMs?.();
       if (remaining === undefined) {
         await work();
-        return;
+        return true;
       }
       const limitMs = Math.max(STOP_STEP_FLOOR_MS, remaining - keepBackMs);
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1713,14 +1806,20 @@ export async function runAgentTurn(
           limitMs,
           remainingMs: remaining,
         });
+        return false;
       }
+      return true;
     };
 
+    // Whether what the turn had produced was stored: a deadline stop that could not store it is
+    // not a stopped turn but one that ran out of time with nothing kept (ADR-0252 §6.4).
+    let stored = true;
     if (config.beforeTurnComplete) {
       try {
         // Kept back: time to announce after it.
-        await within('store', STOP_ANNOUNCE_MARGIN_MS, () => config.beforeTurnComplete!({ rounds, usage, newMessages, stopped: marker }));
+        stored = await within('store', STOP_ANNOUNCE_MARGIN_MS, () => config.beforeTurnComplete!({ rounds, usage, newMessages, stopped: marker }));
       } catch (err) {
+        stored = false;
         log('error', 'agent:turn', 'beforeTurnComplete failed; the stopped turn is announced without it', {
           turnId,
           error: err instanceof Error ? err.message : String(err),
@@ -1758,6 +1857,7 @@ export async function runAgentTurn(
       maxRoundsReached: false,
       stopReason: stopped.reason,
       stopped: marker,
+      ...(stored ? {} : { stored: false as const }),
       ...(fileArea ? { attachments: fileGuard.usage() } : {}),
     };
   }
@@ -1809,7 +1909,12 @@ function withPageState(
  * AI_MissingToolResultsError crashes when persistence has gaps (e.g., stopWhen
  * triggered before a tool result was persisted).
  */
-function convertHistoryToCoreMessages(history: TurnHistoryMessage[], currentContent: string): ModelMessage[] {
+function convertHistoryToCoreMessages(
+  history: TurnHistoryMessage[],
+  currentContent: string,
+  /** The history's copy of the turn's own message, whose files the turn gives with their lines. */
+  turnMessageAt: number | null = null,
+): ModelMessage[] {
   const messages: ModelMessage[] = [];
 
   // First pass: collect all tool_call_ids that have results in history
@@ -1854,7 +1959,7 @@ function convertHistoryToCoreMessages(history: TurnHistoryMessage[], currentCont
     const msg = history[idx];
     if (msg.role === 'user') {
       // A message's files are in history as their reference lines, never their content (ADR-0252 §2.11).
-      messages.push({ role: 'user', content: withReferenceLines(msg.content, msg.attachments ?? undefined) });
+      messages.push({ role: 'user', content: idx === turnMessageAt ? msg.content : withReferenceLines(msg.content, msg.attachments ?? undefined) });
     } else if (msg.role === 'assistant') {
       // A stopped turn's last message says so after its text (ADR-0252 §2.3).
       // A message that has only that carries the line as its whole text: an

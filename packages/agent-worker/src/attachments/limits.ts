@@ -14,6 +14,23 @@ export const MODEL_IMAGE_MAX_EDGE = 1568;
 export const MODEL_IMAGE_MAX_BYTES = 1024 * 1024;
 /** The picture types a model is given; the platform re-encodes others. */
 export const MODEL_IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
+/**
+ * Why a picture the store gave cannot go to the model, or null when it can:
+ * a type the model does not take, or more bytes than the rendition may have.
+ * The provider refuses a whole request over its own limit, and a picture in a
+ * tool result is resent on every later step, so it is checked before it goes.
+ */
+export function modelImageRefusal(mediaType: string, bytes: number): string | null {
+  const type = String(mediaType ?? '').split(';')[0].trim().toLowerCase();
+  if (!(MODEL_IMAGE_MEDIA_TYPES as readonly string[]).includes(type)) {
+    return `its picture is ${type || 'of no type'}, and a model is given only ${MODEL_IMAGE_MEDIA_TYPES.join(', ')}`;
+  }
+  if (bytes > MODEL_IMAGE_MAX_BYTES) {
+    return `its picture is ${(bytes / (1024 * 1024)).toFixed(1)} MB, over the ${MODEL_IMAGE_MAX_BYTES / (1024 * 1024)} MB a model is given`;
+  }
+  return null;
+}
+
 /** The provider's limit on images in one message. */
 export const PROVIDER_MAX_IMAGES = 20;
 

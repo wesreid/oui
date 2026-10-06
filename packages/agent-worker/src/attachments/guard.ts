@@ -27,9 +27,16 @@ export interface GuardedPart {
   where: { message: true } | { toolCallId: string };
   /** What the model is given in its place once it is left out. */
   leftOutLine: string;
-  /** The part itself, on the user message, so it can be found and replaced. */
-  part?: unknown;
+  /**
+   * The parts it is on the user message (a picture and the line that
+   * introduces it), so they can be found and replaced: the first by
+   * `leftOutLine`, the rest taken out.
+   */
+  parts?: readonly unknown[];
 }
+
+/** Which cap a part would pass: the turn's, or the conversation's (which the turn's later steps cannot free). */
+export type AttachmentCap = 'turn' | 'conversation';
 
 export interface AttachmentUsage {
   count: number;
@@ -67,6 +74,13 @@ export class AttachmentGuard {
   /** Whether a part of `tokens` fits in the next step as well as what is already given. */
   admits(tokens: number): boolean {
     return this.spent + this.activeTokens() + tokens <= this.cap;
+  }
+
+  /** The cap a part of `tokens` would pass, or null when it fits: what the model is told when it is not given. */
+  passes(tokens: number): AttachmentCap | null {
+    const need = this.spent + this.activeTokens() + tokens;
+    if (need <= this.cap) return null;
+    return need > this.conversationCap ? 'conversation' : 'turn';
   }
 
   /** Give a part from the next step on. */

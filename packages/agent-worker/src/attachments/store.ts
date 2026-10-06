@@ -30,23 +30,45 @@ export type AttachmentContent =
     }
   | {
       ok: false;
-      /** `gone`: removed, or no longer stored. `refused`: not this turn's to read. `unsupported`: nothing of that form exists for it. */
-      reason: 'gone' | 'refused' | 'unsupported';
+      /**
+       * - `gone`: removed, or no longer stored.
+       * - `pending`: still being checked (its malware scan): it can be read once that passes.
+       * - `refused`: not this turn's to read, or the check refused it.
+       * - `unsupported`: nothing of that form exists for it.
+       */
+      reason: 'gone' | 'pending' | 'refused' | 'unsupported';
       message?: string;
     };
 
+/** What every call to the store may be given: the turn's signal, aborted when the turn is stopped or runs out of time. */
+export interface AttachmentStoreCallOptions {
+  signal?: AbortSignal;
+}
+
 export interface AttachmentStore {
-  /** The references of these files, if they are the owner's; ids that are not are left out. */
-  describe(ids: readonly string[], owner: AttachmentOwner): Promise<AttachmentRef[]>;
-  /** A file's content in the form asked for. */
-  load(id: string, owner: AttachmentOwner, as: AttachmentLoadAs, range?: { offset: number; limit: number }): Promise<AttachmentContent>;
-  /** Every file of the conversation, newest last, removed ones marked. */
-  list(owner: AttachmentOwner): Promise<AttachmentRef[]>;
+  /**
+   * The references of these files, if they are the owner's; ids that are not
+   * are left out. A file still being checked is described with `pending`.
+   */
+  describe(ids: readonly string[], owner: AttachmentOwner, options?: AttachmentStoreCallOptions): Promise<AttachmentRef[]>;
+  /**
+   * A file's content in the form asked for. An image is the model's rendition:
+   * PNG, JPEG or WebP, at most 1 MB (`MODEL_IMAGE_MEDIA_TYPES`,
+   * `MODEL_IMAGE_MAX_BYTES`); anything else is not given to the model.
+   */
+  load(
+    id: string,
+    owner: AttachmentOwner,
+    as: AttachmentLoadAs,
+    options?: AttachmentStoreCallOptions & { range?: { offset: number; limit: number } },
+  ): Promise<AttachmentContent>;
+  /** Every file of the conversation, newest last, removed ones marked, ones still being checked `pending`. */
+  list(owner: AttachmentOwner, options?: AttachmentStoreCallOptions): Promise<AttachmentRef[]>;
   /**
    * The estimated attachment tokens the conversation's earlier turns were
    * given, for the conversation's cap. Without it only the turn's cap applies.
    */
-  conversationUsage?(owner: AttachmentOwner): Promise<number>;
+  conversationUsage?(owner: AttachmentOwner, options?: AttachmentStoreCallOptions): Promise<number>;
 }
 
 /** How the worker gives a turn's files to the model (`AgentWorkerConfig.attachments`). */
@@ -56,6 +78,8 @@ export interface AttachmentWorkerConfig {
   turnTokens?: number;
   /** Estimated tokens of attachment input one conversation may give the model. Default 300,000. */
   conversationTokens?: number;
+  /** Files one message gives the model; any more are named as not given. Default 5 (ADR-0252 §6.3). */
+  perMessage?: number;
   /**
    * Give a short PDF to the model as a document part. Off until a live eval
    * of the provider's document part passes (ADR-0252 §2.11): a PDF then goes

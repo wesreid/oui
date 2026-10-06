@@ -105,6 +105,12 @@ export interface ToolExecutionResult {
    * the picture is.
    */
   image?: { mediaType: string; base64: string };
+  /**
+   * Text the model is given beside the result's text, as a text part of the
+   * tool result: a file's text, which is the model's for this call only. Like
+   * `image`, it is in no event, record or stored message: `data` says what it is.
+   */
+  modelText?: string;
 }
 
 export interface ToolRegistry {

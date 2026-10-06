@@ -105,6 +105,47 @@ describe('a stopped turn, through the runner', () => {
     expect(confirmed).toEqual([]);
   });
 
+  it('records a turn that ran out of time as stopped when what it had was stored', async () => {
+    const DEADLINE = { reason: 'deadline', at: 9 } as const;
+    orchestrator.run.mockImplementation(async (config: AgentWorkerConfig) => {
+      const usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, peakPromptTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+      await config.beforeTurnComplete?.({ rounds: 1, usage, newMessages: [], stopped: DEADLINE });
+      return { rounds: 1, usage, newMessages: [], maxRoundsReached: false, stopReason: 'deadline', stopped: DEADLINE };
+    });
+    const recordTurnComplete = vi.fn(async () => {});
+    const recordTurnFailure = vi.fn(async () => {});
+    const { run } = runner({ recordTurnComplete, recordTurnFailure });
+    await expect(run()).resolves.toEqual({ status: 'stopped', turnId: 't1', rounds: 1, stopReason: 'deadline' });
+    expect(recordTurnComplete).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ stopReason: 'deadline' }));
+    expect(recordTurnFailure).not.toHaveBeenCalled();
+  });
+
+  it('records a turn that ran out of time and could not store what it had as having exceeded its deadline, not as stopped (ADR-0252 §6.4)', async () => {
+    const DEADLINE = { reason: 'deadline', at: 9 } as const;
+    const usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, peakPromptTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+    const recordTurnComplete = vi.fn(async () => {});
+    const recordTurnFailure = vi.fn(async () => {});
+
+    // The host's store threw.
+    orchestrator.run.mockImplementation(async (config: AgentWorkerConfig) => {
+      await config.beforeTurnComplete?.({ rounds: 1, usage, newMessages: [], stopped: DEADLINE });
+      return { rounds: 1, usage, newMessages: [], maxRoundsReached: false, stopReason: 'deadline', stopped: DEADLINE };
+    });
+    const threw = runner({ persistMessages: async () => Promise.reject(new Error('connection terminated')), recordTurnComplete, recordTurnFailure });
+    await expect(threw.run()).resolves.toEqual({ status: 'stopped', turnId: 't1', rounds: 1, stopReason: 'deadline', stored: false });
+    expect(recordTurnFailure).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ turnId: 't1', error: expect.objectContaining({ code: 'TURN_DEADLINE_EXCEEDED', recoverable: false }) }),
+    );
+    expect(recordTurnComplete).not.toHaveBeenCalled();
+
+    // The stop path's store did not finish in time: the orchestrator says it was not stored.
+    recordTurnFailure.mockClear();
+    orchestrator.run.mockImplementation(async () => ({ rounds: 1, usage, newMessages: [], maxRoundsReached: false, stopReason: 'deadline', stopped: DEADLINE, stored: false }));
+    await expect(runner({ recordTurnComplete, recordTurnFailure }).run()).resolves.toMatchObject({ stopReason: 'deadline', stored: false });
+    expect(recordTurnFailure).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ error: expect.objectContaining({ code: 'TURN_DEADLINE_EXCEEDED' }) }));
+    expect(recordTurnComplete).not.toHaveBeenCalled();
+  });
+
   it('says nothing of a stop reason for a turn that ended by itself', async () => {
     orchestrator.run.mockImplementation(async () => ({
       rounds: 1,
