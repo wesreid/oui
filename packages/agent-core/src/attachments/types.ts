@@ -1,3 +1,5 @@
+import { isAttachmentId } from 'oui-spec/spec';
+
 /**
  * Files the person gives the assistant (ADR-0252 §2.8–§2.13).
  *
@@ -32,6 +34,11 @@ export interface AttachmentRef {
   /** A PDF's page count. */
   pages?: number;
   removed?: boolean;
+  /**
+   * Set while the platform is still checking the file (its malware scan): it
+   * is in the conversation, and cannot be read, shown or used until it passes.
+   */
+  pending?: boolean;
 }
 
 /**
@@ -119,22 +126,52 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+/** The most characters of a file's name the model is given. */
+export const ATTACHMENT_NAME_MAX_CHARS = 120;
+
+/**
+ * A file's name as the model is given it: a JSON string, so its quotes and
+ * backslashes cannot end it; control, line-breaking and direction-changing
+ * characters taken out, so it cannot start a line of its own or read
+ * backwards; angle brackets escaped, so it cannot open or close a tag; and at
+ * most 120 characters. The name is the person's file's, and
+ * the person may not have chosen it: it is data, never an instruction.
+ */
+export function attachmentNameForModel(name: string): string {
+  const plain = String(name ?? '')
+    // C0 and C1 controls, line and paragraph separators, bidi controls, zero-width joiners and BOM.
+    .replace(/[\p{Cc}\u2028\u2029\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const chars = Array.from(plain);
+  const capped = chars.length > ATTACHMENT_NAME_MAX_CHARS ? `${chars.slice(0, ATTACHMENT_NAME_MAX_CHARS - 1).join('')}…` : plain;
+  // Angle brackets as JSON escapes: a name cannot open or close a tag the model reads.
+  return JSON.stringify(capped || 'unnamed').replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+}
+
+/** A media type as the model is given it: a token of the form `type/subtype`, or `unknown type`. */
+export function mediaTypeForModel(mediaType: string): string {
+  const type = String(mediaType ?? '').split(';')[0].trim().toLowerCase();
+  return /^[a-z0-9][a-z0-9!#$&^_.+-]{0,62}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,62}$/.test(type) ? type : 'unknown type';
+}
+
 /**
  * The line a file leaves in the conversation for the model: its id, name,
  * type and size, and an image's size in pixels. A later turn reads this, not
  * the file: the assistant looks again with `attachment_view` or reads with
- * `attachment_read`.
+ * `attachment_read`. The name is quoted and cleaned (`attachmentNameForModel`).
  */
 export function attachmentReferenceLine(ref: AttachmentRef): string {
+  const name = attachmentNameForModel(ref.name);
+  const id = isAttachmentId(ref.id) ? ref.id : 'unknown';
   const facts = [
-    ref.mediaType,
-    formatBytes(ref.bytes),
-    ref.width && ref.height ? `${ref.width}×${ref.height} px` : null,
-    ref.pages ? `${ref.pages} page${ref.pages === 1 ? '' : 's'}` : null,
+    mediaTypeForModel(ref.mediaType),
+    formatBytes(Number.isFinite(ref.bytes) ? ref.bytes : 0),
+    ref.width && ref.height ? `${Math.round(ref.width)}×${Math.round(ref.height)} px` : null,
+    ref.pages ? `${Math.round(ref.pages)} page${ref.pages === 1 ? '' : 's'}` : null,
   ].filter(Boolean);
-  return ref.removed
-    ? `[Attachment ${ref.id}: "${ref.name}" (removed)]`
-    : `[Attachment ${ref.id}: "${ref.name}", ${facts.join(', ')}]`;
+  if (ref.removed) return `[Attachment ${id}: ${name} (removed)]`;
+  return `[Attachment ${id}: ${name}, ${facts.join(', ')}${ref.pending ? ', still being checked' : ''}]`;
 }
 
 /**
@@ -147,5 +184,7 @@ export {
   isAttachmentId,
   attachmentInputOf,
   attachmentIdsIn,
+  acceptsMediaType,
+  misplacedAttachmentInputs,
   type OUIAttachmentInput,
 } from 'oui-spec/spec';
