@@ -23,6 +23,12 @@ export interface RegisteredTool {
    */
   kind?: 'ui' | 'backend';
   /**
+   * The SDK's class for a tool it owns (ADR-0252 §2.12): `attachment` for the
+   * attachment tools. A host's tool policy may admit a class as well as a name,
+   * so a tool the SDK adds later in that class needs no change in the host.
+   */
+  toolClass?: 'attachment';
+  /**
    * What calling the tool changes (ADR-0226 §2.6). A tool that declares none is
    * treated as a write. Approvals key on this and `destructive` (ADR-0228).
    */

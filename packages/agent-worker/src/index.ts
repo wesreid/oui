@@ -61,6 +61,12 @@ export { buildApprovalPreview } from './approvals/preview.js';
 export { createHttpTurnStopClient, watchTurnStop, stopOf, TurnStopped, DEFAULT_STOP_GRACE_MS } from './stop/turn-stop.js';
 export type { TurnStopClient, HttpTurnStopClientConfig, TurnStopWatch, TurnStopState } from './stop/turn-stop.js';
 export { stoppedTurnMessages } from './stop/partial.js';
+// Files the person attaches (ADR-0252 §2.8–§2.12): the host's file area, the cost guard, the attachment tools.
+export type { AttachmentStore, AttachmentOwner, AttachmentLoadAs, AttachmentContent, AttachmentWorkerConfig } from './attachments/store.js';
+export { AttachmentGuard, type AttachmentUsage, type GuardedPart } from './attachments/guard.js';
+export { attachmentTools, ATTACHMENT_TOOLS, ATTACHMENT_TOOL_CLASS } from './attachments/tools.js';
+export { VIEW_TOOL as ATTACHMENT_VIEW_TOOL, READ_TOOL as ATTACHMENT_READ_TOOL, LIST_TOOL as ATTACHMENT_LIST_TOOL } from './attachments/content.js';
+export * as attachmentLimits from './attachments/limits.js';
 export type { RecordedStep, RecordedCall } from './stop/partial.js';
 
 // UI actions (ADR-0209): the client's surfaces become the turn's UI tools,

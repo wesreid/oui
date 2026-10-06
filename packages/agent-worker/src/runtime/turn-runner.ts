@@ -6,7 +6,7 @@
  * decides how a turn arrives and what a failure means to its transport.
  */
 import { APICallError, RetryError } from 'ai';
-import { AGENT_SOCKET_EVENTS, type TurnStoppedReason, type TurnStoppedMarker } from '@ouispec/agent-core';
+import { AGENT_SOCKET_EVENTS, isAttachmentId, type TurnStoppedReason, type TurnStoppedMarker } from '@ouispec/agent-core';
 import { runAgentTurn } from '../orchestrator.js';
 import { createHttpEmitAdapter } from '../emit/http-adapter.js';
 import { createHttpUIActionChannel } from '../ui/channel.js';
@@ -132,6 +132,10 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
     async run(payload, host = {}) {
       const { turnId, conversationId, userId, accountId, socketRoom, content, context, userToken, approval } = payload;
       const supersedes = Array.isArray(payload.supersedes) ? payload.supersedes.filter((id) => typeof id === 'string' && id) : [];
+      // The message's files, by reference: anything that is not one is left out.
+      const attachments = Array.isArray(payload.attachments)
+        ? payload.attachments.filter((ref) => !!ref && typeof ref === 'object' && isAttachmentId(ref.id) && typeof ref.name === 'string')
+        : [];
       logger.info('[agent-sdk] Processing turn', { turnId, conversationId, userId, ...(supersedes.length ? { supersedes } : {}) });
 
       let db: TDb;
@@ -191,6 +195,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
           history,
           userToken,
           ...(approval ? { approval } : {}),
+          ...(attachments.length > 0 ? { attachments } : {}),
           stopWatch,
           ...(host.remainingMs ? { remainingMs: host.remainingMs } : {}),
         };
@@ -248,6 +253,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
               maxObservationChars: config.uiActions?.maxObservationChars,
               maxIndexChars: config.uiActions?.maxIndexChars,
             },
+            ...(config.attachments ? { attachments: config.attachments } : {}),
           },
           turnInput,
         );
@@ -268,6 +274,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
               rounds: result.rounds,
               usage: result.usage,
               ...(result.stopped ? { stopReason: result.stopped.reason } : {}),
+              ...(result.attachments ? { attachments: result.attachments } : {}),
               db,
             });
           } catch (err) {

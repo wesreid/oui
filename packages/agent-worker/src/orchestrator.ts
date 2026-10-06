@@ -41,6 +41,10 @@ import { readClientPage, withoutClientUI, type ClientPage } from './ui/snapshot.
 import { KNOWLEDGE_TOOL, knowledgeTool, readClientKnowledge, withClientKnowledge } from './ui/knowledge.js';
 import { withNewestPageStateOnly } from './ui/newest-page-state.js';
 import { withClock } from './prompt/clock.js';
+import { withUserText } from './prompt/user-text.js';
+import { AttachmentGuard } from './attachments/guard.js';
+import { turnAttachmentParts, withReferenceLines, withTurnAttachments, withoutLeftOut } from './attachments/content.js';
+import { attachmentTools } from './attachments/tools.js';
 import {
   buildUITools,
   createPageSight,
@@ -171,6 +175,30 @@ export async function runAgentTurn(
 
   // The knowledge the client sent for its page goes after the host's prompt.
   const knowledge = readClientKnowledge(input.context ?? null);
+
+  // ─── Files (ADR-0252 §2.11, §2.12) ─────────────────────────────────────────
+  // With the host's file area, the turn's files go to the model with its
+  // message, the attachment tools reach every file of the conversation, and the
+  // cost guard caps what the model is given of them.
+  const fileArea = config.attachments ?? null;
+  const fileOwner = { userId: input.userId, accountId: input.accountId, conversationId: input.conversationId };
+  let conversationFileTokens = 0;
+  if (fileArea?.store.conversationUsage) {
+    try {
+      conversationFileTokens = await fileArea.store.conversationUsage(fileOwner);
+    } catch (err) {
+      log('warn', 'agent:tool', 'Could not read the conversation’s use of files; only the turn’s cap applies', {
+        turnId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  const fileGuard = new AttachmentGuard({
+    turnTokens: fileArea?.turnTokens,
+    conversationTokens: fileArea?.conversationTokens,
+    conversationUsed: conversationFileTokens,
+  });
+  const fileTools: RegisteredTool[] = fileArea ? attachmentTools({ store: fileArea.store, owner: fileOwner, guard: fileGuard }) : [];
 
   log('info', 'agent:ui', 'UI surfaces for this turn', {
     turnId,
@@ -514,6 +542,7 @@ export async function runAgentTurn(
         turnId,
         hasSideEffects: isSideEffecting,
         toolKind: isUI ? 'ui' : 'backend',
+        ...(t.toolClass ? { toolClass: t.toolClass } : {}),
         effect: requirement.effect,
         destructive: requirement.destructive,
       });
@@ -839,8 +868,10 @@ export async function runAgentTurn(
   // with the id of an action of the page, is withheld (ADR-0209 D6): for a
   // UI-only agent, the page is the authority.
   function hostTools(ui: CurrentUI | null): RegisteredTool[] {
-    if (!ui) return config.tools.tools;
-    const taken = (name: string) => ui.actions.has(name) || name === UI_ACT_TOOL || name === UI_DESCRIBE_TOOL || name === UI_READ_TOOL;
+    const sdkOwned = new Set(fileTools.map((t) => t.name));
+    if (!ui) return [...config.tools.tools.filter((t) => !sdkOwned.has(t.name)), ...fileTools];
+    const taken = (name: string) =>
+      sdkOwned.has(name) || ui.actions.has(name) || name === UI_ACT_TOOL || name === UI_DESCRIBE_TOOL || name === UI_READ_TOOL;
     const withheld = config.tools.tools.filter((t) => taken(t.name)).map((t) => t.name);
     if (withheld.length > 0) {
       log('error', 'agent:ui', 'Host tools collide with UI tools or action ids; the host tools are withheld this turn', {
@@ -848,7 +879,7 @@ export async function runAgentTurn(
         withheld,
       });
     }
-    return config.tools.tools.filter((t) => !taken(t.name));
+    return [...config.tools.tools.filter((t) => !taken(t.name)), ...fileTools];
   }
 
   /** Every tool a call can name: the host's, and the page's actions. What an approved call is looked up in. */
@@ -1218,6 +1249,16 @@ export async function runAgentTurn(
     ),
     ...(continued?.messages ?? []),
   ];
+  // The turn's files go with its message, after everything said about it (ADR-0252 §2.11).
+  if (fileArea && input.attachments?.length) {
+    const files = await turnAttachmentParts(input.attachments, {
+      store: fileArea.store,
+      owner: fileOwner,
+      guard: fileGuard,
+      pdfAsDocument: fileArea.pdfAsDocument ?? false,
+    });
+    messages.splice(0, messages.length, ...withTurnAttachments(messages, files));
+  }
 
   // The system prompt goes in `instructions`, NOT in `messages`.
   //
@@ -1329,9 +1370,19 @@ export async function runAgentTurn(
         // The page's state on the newest answer only: an earlier page is not the page now.
         const trimmed = messages ? withNewestPageStateOnly(messages) : null;
         if (trimmed) pageStatesNotRepeated += trimmed.replaced;
+        // The files this step would carry, within the turn's and the conversation's caps (ADR-0252 §2.11).
+        const leftOutNow = fileGuard.beforeStep();
+        if (leftOutNow.length > 0) {
+          log('info', 'agent:tool', 'Files left out of the next step to keep within the cap', {
+            turnId,
+            attachments: leftOutNow.map((p) => ({ id: p.attachmentId, kind: p.kind, estimatedTokens: p.tokens })),
+          });
+        }
+        const leftOut = fileGuard.leftOutParts();
+        const stepMessages = leftOut.length > 0 && messages ? withoutLeftOut(trimmed?.messages ?? messages, leftOut) : trimmed?.messages;
         return {
           ...constraints,
-          ...(trimmed ? { messages: trimmed.messages } : {}),
+          ...(stepMessages ? { messages: stepMessages } : {}),
           instructions: notes.length
             ? [instructions, ...notes.map((content) => ({ role: 'system' as const, content }))]
             : instructions,
@@ -1468,6 +1519,7 @@ export async function runAgentTurn(
           },
         }
       : {}),
+    ...(fileArea ? { attachments: fileGuard.usage() } : {}),
   });
 
   // The turn's messages, in the host's format, for it to store.
@@ -1510,6 +1562,7 @@ export async function runAgentTurn(
     ...(expired.claimed.length > 0 ? { settledApprovals: expired.claimed } : {}),
     maxRoundsReached: steps.length >= maxRounds,
     stopReason,
+    ...(fileArea ? { attachments: fileGuard.usage() } : {}),
   };
   } finally {
     clearTimeout(deadlineTimer);
@@ -1604,6 +1657,7 @@ export async function runAgentTurn(
       cacheWriteTokens: usage.cacheWriteTokens,
       ...(unsettled.length > 0 ? { unsettledCalls: unsettled } : {}),
       ...(client ? { ui: { ...uiCounts, blindRefusals: sight.refusals(), stopped: sight.stopped() } } : {}),
+      ...(fileArea ? { attachments: fileGuard.usage() } : {}),
     });
 
     // The store and the announcement each get a limit of their own when the host says how long
@@ -1675,6 +1729,7 @@ export async function runAgentTurn(
       maxRoundsReached: false,
       stopReason: stopped.reason,
       stopped: marker,
+      ...(fileArea ? { attachments: fileGuard.usage() } : {}),
     };
   }
 }
@@ -1683,8 +1738,7 @@ export async function runAgentTurn(
 function withNote(messages: ModelMessage[], note: string | null): ModelMessage[] {
   const last = messages[messages.length - 1];
   if (!note || !last || last.role !== 'user') return messages;
-  const text = typeof last.content === 'string' ? last.content : last.content.map((p) => ('text' in p ? p.text : '')).join('');
-  return [...messages.slice(0, -1), { role: 'user', content: text ? `${text}\n\n${note}` : note }];
+  return [...messages.slice(0, -1), withUserText(last, note)];
 }
 
 /**
@@ -1714,10 +1768,7 @@ function withPageState(
     '</page_state>',
   ].join('\n');
 
-  const text = typeof last.content === 'string'
-    ? last.content
-    : last.content.map((p) => ('text' in p ? p.text : '')).join('');
-  return [...messages.slice(0, -1), { role: 'user', content: `${text}\n\n${pageState}` }];
+  return [...messages.slice(0, -1), withUserText(last, pageState)];
 }
 
 /**
@@ -1773,7 +1824,8 @@ function convertHistoryToCoreMessages(history: TurnHistoryMessage[], currentCont
   for (let idx = 0; idx < history.length; idx++) {
     const msg = history[idx];
     if (msg.role === 'user') {
-      messages.push({ role: 'user', content: msg.content });
+      // A message's files are in history as their reference lines, never their content (ADR-0252 §2.11).
+      messages.push({ role: 'user', content: withReferenceLines(msg.content, msg.attachments ?? undefined) });
     } else if (msg.role === 'assistant') {
       // A stopped turn's last message says so after its text (ADR-0252 §2.3).
       // A message that has only that carries the line as its whole text: an

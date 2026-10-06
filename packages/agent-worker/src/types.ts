@@ -1,4 +1,6 @@
-import type { TurnStoppedReason, TurnStoppedMarker } from '@ouispec/agent-core';
+import type { AttachmentRef, TurnStoppedReason, TurnStoppedMarker } from '@ouispec/agent-core';
+import type { AttachmentWorkerConfig } from './attachments/store.js';
+import type { AttachmentUsage } from './attachments/guard.js';
 import type { TurnStopClient, TurnStopWatch } from './stop/turn-stop.js';
 import type { LanguageModel, ProviderOptions } from './model.js';
 import type { RealtimeEmitAdapter } from './emit/types.js';
@@ -103,6 +105,12 @@ export interface AgentWorkerConfig {
    * before its call is stored as sent with its outcome unknown. Default 2 s.
    */
   stopGraceMs?: number;
+  /**
+   * The host's file area (ADR-0252 §3). With it, a turn's files are given to
+   * the model with its message, and the attachment tools reach the
+   * conversation's files. Without it a turn's attachments are left out.
+   */
+  attachments?: AttachmentWorkerConfig;
 }
 
 export interface SystemPromptContext {
@@ -142,6 +150,11 @@ export interface AgentTurnInput {
    * remaining time). A stopped turn stores and announces within it.
    */
   remainingMs?: () => number;
+  /**
+   * The files attached to the turn's message, by reference (ADR-0252 §2.8):
+   * given to the model with it, through `config.attachments`.
+   */
+  attachments?: AttachmentRef[];
 }
 
 /**
@@ -149,7 +162,12 @@ export interface AgentTurnInput {
  * This is the format integrators prepare from their conversation store.
  */
 export type TurnHistoryMessage =
-  | { role: 'user'; content: string }
+  | {
+      role: 'user';
+      content: string;
+      /** The files the person attached to this message: the model reads their reference lines. */
+      attachments?: AttachmentRef[] | null;
+    }
   | {
       role: 'assistant';
       content: string | null;
@@ -222,6 +240,8 @@ export interface AgentTurnResult {
    * call with exactly one result, the last assistant message marked.
    */
   stopped?: TurnStoppedMarker;
+  /** What the turn gave the model of its files, when the host has a file area (ADR-0252 §2.11). */
+  attachments?: AttachmentUsage;
 }
 
 export interface TurnMessage {

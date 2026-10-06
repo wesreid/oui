@@ -15,6 +15,7 @@
  *   cache breakpoints), and one changing minute there would invalidate it on
  *   every turn.
  */
+import { withUserText } from './user-text.js';
 import type { ModelMessage } from 'ai';
 
 /** The key under a turn's context that carries the user's IANA time zone. */
@@ -82,6 +83,5 @@ export function withClock(
 ): ModelMessage[] {
   const last = messages[messages.length - 1];
   if (!last || last.role !== 'user') return messages;
-  const text = typeof last.content === 'string' ? last.content : last.content.map((p) => ('text' in p ? p.text : '')).join('');
-  return [...messages.slice(0, -1), { role: 'user', content: `${text}\n\n${clockText(now, readClientTimeZone(context))}` }];
+  return [...messages.slice(0, -1), withUserText(last, clockText(now, readClientTimeZone(context)))];
 }
