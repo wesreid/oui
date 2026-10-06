@@ -139,12 +139,13 @@ export function attachmentReferenceLine(ref: AttachmentRef): string {
 
 /**
  * The JSON Schema `format` of an action input that takes a file the person
- * attached (ADR-0252 §2.13): the assistant passes the attachment's id, and the
- * page resolves it to what the input declares it takes.
+ * attached, and the shape of an attachment's id (ADR-0252 §2.13): the
+ * protocol's (OUI spec §7.3.11).
  */
-export const ATTACHMENT_FORMAT = 'oui-attachment';
-
-/** Whether a string is an attachment id as platforms issue them: opaque, short, no path characters. */
-export function isAttachmentId(value: unknown): value is string {
-  return typeof value === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(value);
-}
+export {
+  OUI_ATTACHMENT_FORMAT as ATTACHMENT_FORMAT,
+  isAttachmentId,
+  attachmentInputOf,
+  attachmentIdsIn,
+  type OUIAttachmentInput,
+} from 'oui-spec/spec';

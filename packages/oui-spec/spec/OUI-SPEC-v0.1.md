@@ -858,6 +858,33 @@ them now (including what it narrowed at run time):
 - For any other value, data is `{ value, fit? }`, fitted as in §7.3.9.
 - An unknown surface, observation or path is `NOT_FOUND`.
 
+#### 7.3.11 Inputs That Take an Attached File
+
+An action input MAY take a file the user attached to their conversation with the agent. It is a string schema with the format `oui-attachment` and a declaration of what the action takes:
+
+```json
+{
+  "type": "string",
+  "format": "oui-attachment",
+  "x-oui-attachment": {
+    "as": "file",
+    "mediaTypes": ["image/png", "image/jpeg"]
+  }
+}
+```
+
+- `as` is `file` (the action receives a `File`, as the user's own file choice produces) or `text` (the action receives the file's text, for an input that takes markup or JSON).
+- `mediaTypes` lists the types the input accepts; a type ending in `/*` accepts the family. Without it, any file is accepted.
+- Such an input is a property of the action's input, or the items of a list property.
+
+**Requirements:**
+
+- The agent runtime MUST send the attachment's id, never the file's content. An id is 8 to 64 characters of `A–Z`, `a–z`, `0–9`, `_` and `-`.
+- The client MUST resolve each id through its host before the handler runs. The host MUST check that the file is the user's.
+- The client MUST refuse the request without running the handler when an id cannot be resolved or names a file of a type the input does not accept (`ATTACHMENT_UNAVAILABLE`), and when it has no way to resolve files (`ATTACHMENTS_UNSUPPORTED`).
+- An approval (§7.3.6) is of the request as sent: it binds the file by its id.
+- The action's index entry (§7.3.8) MUST describe the input as a file, not as a string.
+
 ### 7.4 Observation Updates
 
 #### 7.4.1 Push Update

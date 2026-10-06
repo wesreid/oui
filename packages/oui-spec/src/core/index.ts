@@ -35,6 +35,7 @@ export type {
   SurfaceForm,
   SurfaceRuntime,
   SurfaceRuntimeOptions,
+  AttachmentResolver,
   SettleOptions,
   MountedSurface,
 } from "./surface-runtime.js";

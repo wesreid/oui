@@ -4,3 +4,4 @@ export { surfacesHash } from "./surfaces-hash.js";
 export { sortedJson } from "./surfaces-hash.js";
 export * from "./index-form.js";
 export * from "./fit.js";
+export * from "./attachments.js";

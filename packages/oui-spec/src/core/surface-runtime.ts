@@ -34,6 +34,7 @@ import type {
   OUISurfaceIndex,
   OUISurfaceSnapshot,
   OUIObservationSnapshot,
+  JSONSchema,
 } from "../spec/index.js";
 import {
   ARGS_HASH_PATTERN,
@@ -41,6 +42,12 @@ import {
   requiresApproval,
 } from "../spec/approval.js";
 import { surfacesHash } from "../spec/surfaces-hash.js";
+import {
+  acceptsMediaType,
+  attachmentIdsIn,
+  attachmentInputs,
+  isAttachmentId,
+} from "../spec/attachments.js";
 import {
   jsonBytes,
   OUI_DESCRIBE_ACTION,
@@ -133,6 +140,25 @@ export interface SurfaceRuntimeOptions {
    * acknowledge — is a repeat answered again. Default 8000 ms.
    */
   reanswerAfterMs?: number;
+
+  /**
+   * The host's file area, for actions whose input takes a file the person
+   * attached (`format: "oui-attachment"`, §7.3.11). The agent sends the
+   * attachment's id; before the handler runs, the runtime resolves it to what
+   * the input declares (`as`): a `File`, or the file's text. The host checks
+   * the file is the person's. Without it, such an action is refused.
+   */
+  attachments?: AttachmentResolver;
+}
+
+/** How a client turns an attachment's id into what an action takes (§7.3.11). */
+export interface AttachmentResolver {
+  /**
+   * The file, as a `File` or as its text. Rejects with an `Error` whose
+   * message says why (it is not the person's, it was removed), which the agent
+   * is told.
+   */
+  resolve(id: string, as: "file" | "text"): Promise<File | string>;
 }
 
 // ─── Public types ────────────────────────────────────────────────────────────
@@ -629,6 +655,63 @@ export function createSurfaceRuntime(
 
   // ─── Execution ────────────────────────────────────────────────────────────
 
+  /**
+   * The params with each attachment id the action takes resolved to the file
+   * or its text (§7.3.11). The approval was checked against the ids: an
+   * approval is of the exact request, and binds the file by its id.
+   */
+  async function withAttachments(
+    action: { input?: JSONSchema } | undefined,
+    params: Record<string, unknown>,
+  ): Promise<
+    | { resolved: Record<string, unknown> }
+    | { error: { code: string; message: string } }
+  > {
+    const wanted = attachmentIdsIn(action?.input, params);
+    if (wanted.length === 0) return { resolved: params };
+    const resolver = options.attachments;
+    if (!resolver) {
+      return {
+        error: {
+          code: "ATTACHMENTS_UNSUPPORTED",
+          message:
+            "This page cannot take attached files: it was not given a way to open them.",
+        },
+      };
+    }
+    const resolved: Record<string, unknown> = { ...params };
+    for (const { path, input } of attachmentInputs(action?.input)) {
+      const value = params[path[0]];
+      const one = async (id: unknown): Promise<unknown> => {
+        if (!isAttachmentId(id))
+          throw new Error(`"${String(id)}" is not an attachment's id.`);
+        const file = await resolver.resolve(id, input.as);
+        if (typeof file !== "string" && !acceptsMediaType(input, file.type)) {
+          throw new Error(
+            `"${file.name}" is ${file.type || "of no type"}; this takes ${input.mediaTypes!.join(", ")}.`,
+          );
+        }
+        return file;
+      };
+      try {
+        if (path.length === 2) {
+          if (Array.isArray(value))
+            resolved[path[0]] = await Promise.all(value.map(one));
+        } else if (value !== undefined) {
+          resolved[path[0]] = await one(value);
+        }
+      } catch (err) {
+        return {
+          error: {
+            code: "ATTACHMENT_UNAVAILABLE",
+            message: `${path[0]}: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        };
+      }
+    }
+    return { resolved };
+  }
+
   async function run(request: OUIActionRequest): Promise<OUIActionResult> {
     const startedAt = Date.now();
     if (request.surfaceId === OUI_RUNTIME_SURFACE)
@@ -665,10 +748,15 @@ export function createSurfaceRuntime(
               message: `"${request.actionId}" was not run: ${refusal}.`,
             },
           }
-        : await entry.surface.executeAction(
-            request.actionId,
-            request.params ?? {},
-            entry.getContext(),
+        : await withAttachments(declared, request.params ?? {}).then(
+            (params) =>
+              "error" in params
+                ? { success: false, error: params.error }
+                : entry.surface.executeAction(
+                    request.actionId,
+                    params.resolved,
+                    entry.getContext(),
+                  ),
           );
       if (result.success) {
         const action = entry.surface.actions.find(

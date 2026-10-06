@@ -5,6 +5,7 @@
  * Everything here is derived from the action's own definition, by rule, so two
  * clients with the same definition produce the same entry and the same hash.
  */
+import { attachmentInputOf } from "./attachments.js";
 import { fnv1a64, sortedJson } from "./surfaces-hash.js";
 import type {
   JSONSchema,
@@ -143,8 +144,15 @@ function valueSummary(schema: JSONSchema): string {
             : "";
     return `${type}${range}${unitOf(schema)}`;
   }
-  if (type === "string")
+  if (type === "string") {
+    // An attached file's id, which the client turns into the file (ADR-0252 §2.13).
+    const file = attachmentInputOf(schema);
+    if (file)
+      return file.mediaTypes?.length
+        ? `file(${file.mediaTypes.join("|")})`
+        : "file";
     return schema.format ? `string(${schema.format})` : "string";
+  }
   if (type === "array")
     return schema.items ? `list of ${valueSummary(schema.items)}` : "list";
   if (type === "object") {
