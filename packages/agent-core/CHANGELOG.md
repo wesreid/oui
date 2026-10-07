@@ -1,5 +1,11 @@
 # @ouispec/agent-core
 
+## 0.8.2
+
+### Patch Changes
+
+- The browser entry exports the attachment helpers. 0.8.1's `dist/browser.js` left out the attachments module, so a browser build of `@ouispec/agent-react` 0.8.0 (Vite, webpack, esbuild: anything honouring the `browser` condition) failed on `DEFAULT_ATTACHMENT_LIMITS`, while tests and typechecks, which resolve the main entry, passed. A test now holds the browser entry to the main entry less the Node-only schema loader.
+
 ## 0.8.1
 
 ### Patch Changes
