@@ -1,5 +1,17 @@
 # @ouispec/agent-worker
 
+## 0.8.1
+
+### Patch Changes
+
+- Two notes from the review of the attachments release (ADR-0252).
+
+  - **agent-worker:** a file's text cannot close its `<attachment>` block with a left-to-right or right-to-left mark (U+200E, U+200F) inside the tag either: direction marks join the characters skipped between `<`, `/` and `attachment`.
+  - **agent-core:** `attachmentRefusal` names the kind it refuses as a sentence does: "an image file", "a text file", "a PDF", "a file" (it said "a image file").
+
+- Updated dependencies
+  - @ouispec/agent-core@0.8.1
+
 ## 0.8.0
 
 ### Minor Changes

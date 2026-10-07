@@ -32,6 +32,14 @@ describe('a file refused before it is uploaded', () => {
     expect(attachmentRefusal({ name: 'a.zip', size: 100 * MB + 1, type: 'application/zip' }, empty)).toMatch(/Too large/);
   });
 
+  it('names the kind of file it refuses as a sentence does', () => {
+    const over = (type: string, size: number) => attachmentRefusal({ name: 'f', size, type }, empty);
+    expect(over('image/png', 20 * MB + 1)).toBe('Too large: an image file may be at most 20 MB.');
+    expect(over('text/plain', 2 * MB + 1)).toBe('Too large: a text file may be at most 2.0 MB.');
+    expect(over('application/pdf', 20 * MB + 1)).toBe('Too large: a PDF may be at most 20 MB.');
+    expect(over('application/zip', 100 * MB + 1)).toBe('Too large: a file may be at most 100 MB.');
+  });
+
   it('is refused past a message’s and a conversation’s limits, and when empty', () => {
     const file = { name: 'a.png', size: 1000, type: 'image/png' };
     expect(attachmentRefusal(file, { ...empty, onMessage: 5 })).toMatch(/at most 5 files/);

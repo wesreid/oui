@@ -97,6 +97,9 @@ export function attachmentKindOf(mediaType: string, limits: Pick<AttachmentLimit
   return 'other';
 }
 
+/** A file of each kind, as a refusal names it. */
+const KIND_PHRASE: Record<AttachmentKind, string> = { image: 'an image file', text: 'a text file', pdf: 'a PDF', other: 'a file' };
+
 /**
  * Why a file is refused before it is uploaded, or null when it may be. The
  * same check the platform makes again; the composer shows the reason on the
@@ -110,7 +113,7 @@ export function attachmentRefusal(
   if (context.onMessage >= limits.perMessage) return `A message takes at most ${limits.perMessage} files.`;
   if (context.inConversation >= limits.perConversation) return `A conversation takes at most ${limits.perConversation} files.`;
   const kind = attachmentKindOf(file.type || 'application/octet-stream', limits);
-  if (file.size > limits.maxBytes[kind]) return `Too large: a ${kind === 'other' ? '' : `${kind} `}file may be at most ${formatBytes(limits.maxBytes[kind])}.`;
+  if (file.size > limits.maxBytes[kind]) return `Too large: ${KIND_PHRASE[kind]} may be at most ${formatBytes(limits.maxBytes[kind])}.`;
   if (context.bytesInConversation + file.size > limits.bytesPerConversation) {
     return `The conversation's files may total at most ${formatBytes(limits.bytesPerConversation)}.`;
   }
