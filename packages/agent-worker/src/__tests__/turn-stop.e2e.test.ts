@@ -182,8 +182,9 @@ describe('a turn stopped by its user', () => {
     // Step two: exactly what was streamed in it. Cut by where step one's text ended, so this is
     // the proof that the library's step text is the concatenation of that step's stream.
     expect(messages[2]).toEqual({ role: 'assistant', content: STEP_TWO.join(''), stopped: expect.objectContaining({ reason: 'user_stop' }) });
-    // And what was stored is what the person saw.
-    expect(streamed()).toBe(STEP_ONE.join('') + STEP_TWO.join(''));
+    // And what was stored is what the person saw: the two rounds, stored as two messages, streamed
+    // as two paragraphs (step one ended in a call, so a break comes before step two's text).
+    expect(streamed()).toBe(STEP_ONE.join('') + '\n\n' + STEP_TWO.join(''));
 
     const done = (await tab.waitForTurn(AGENT_SOCKET_EVENTS.TURN_COMPLETE, turnId)) as { stopReason?: string };
     expect(done.stopReason).toBe('user_stop');

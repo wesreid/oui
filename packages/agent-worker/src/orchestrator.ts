@@ -1167,6 +1167,22 @@ export async function runAgentTurn(
   // Track cumulative text length emitted this turn.
   let totalTextEmitted = 0;
 
+  // ─── Rounds are paragraphs ─────────────────────────────────────────────────
+  // The turn streams as one reply, but the model writes it in rounds: text, a
+  // tool call, then more text. Joined as they come, "Adding the file now." and
+  // "I added it." read "now.I added" (dev, 2026-10-07). Where a round that said
+  // something ended in tool calls, and more text follows, the stream carries a
+  // paragraph break. Positions are in the turn's text (`streamedText`): the SDK
+  // reports a step's end before the next step starts, but the text stream can
+  // still be delivering that step's own text, so the break goes where the step's
+  // text ends, not when its end is reported. The break is only streamed; what
+  // the model said is recorded as it said it.
+  const ROUND_BREAK = '\n\n';
+  /** Where, in the turn's text, a round that said something and then called tools ended. */
+  const roundBreaks: number[] = [];
+  /** The turn's text the steps have reported so far. */
+  let stepTextReported = 0;
+
   // ─── Coalesce token deltas ─────────────────────────────────────────────────
   // Buffer for 50ms or 32 chars, whichever comes first, to avoid one HTTP POST
   // per token delta to the realtime server.
@@ -1510,6 +1526,8 @@ export async function runAgentTurn(
         };
       },
       onStepEnd: async ({ text, toolCalls, usage: stepUsage }) => {
+        stepTextReported += text?.length ?? 0;
+        if (text && (toolCalls?.length ?? 0) > 0) roundBreaks.push(stepTextReported);
         recordedSteps.push({
           text: text ?? '',
           toolCalls: (toolCalls ?? []).map((tc) => ({ toolCallId: tc.toolCallId, toolName: tc.toolName, input: tc.input })),
@@ -1534,8 +1552,21 @@ export async function runAgentTurn(
     // none of the stream's own results: they reject on an abort.
     try {
       for await (const textPart of result.textStream) {
-        streamedText += textPart;
-        tokenBuffer += textPart;
+        let rest = textPart;
+        while (rest) {
+          // Text after a round that ended in tool calls starts a new paragraph.
+          if (roundBreaks.length > 0 && streamedText.length >= roundBreaks[0]) {
+            roundBreaks.shift();
+            if (streamedText.length > 0) tokenBuffer += ROUND_BREAK;
+            continue;
+          }
+          // A piece never runs past the next break, should one reach across it.
+          const upTo = roundBreaks.length > 0 ? roundBreaks[0] - streamedText.length : rest.length;
+          const piece = rest.slice(0, upTo);
+          rest = rest.slice(piece.length);
+          streamedText += piece;
+          tokenBuffer += piece;
+        }
         if (tokenBuffer.length >= COALESCE_CHARS) {
           await flushTokenBuffer();
         } else if (!flushTimer) {

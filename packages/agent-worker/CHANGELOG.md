@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.8.3
+
+### Patch Changes
+
+- A reply written in rounds streams as paragraphs. Where a round that said something ended in tool calls and more text follows, the token stream carries a paragraph break (`\n\n`), so "Adding the file now." and "I added it." no longer reach the person as "now.I added". The break goes where the round's text ends in the turn's text, not when the SDK reports the round's end, because the text stream can still be delivering that round's text. It is only streamed: each round is still stored as the model said it.
+
 ## 0.8.1
 
 ### Patch Changes
