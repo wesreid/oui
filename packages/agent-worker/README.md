@@ -27,12 +27,17 @@ Policy hooks: `turnPolicy`, `toolPolicy`, `uiActions`, `approvals`, `stops`, `lo
 
 ## What a UI client sends with a turn
 
-Two keys on the turn's `context` are for the worker itself, and your persona or `systemPrompt` callback never sees them:
+Three keys on the turn's `context` are for the worker itself, and your persona or `systemPrompt` callback never sees them:
 
 | Key | What the tab puts there | What the worker does with it |
 |---|---|---|
 | `oui` | Its surface snapshot: `ouiRuntime.snapshot()` (ADR-0209) | Builds the turn's UI tools from it, and from nothing else |
 | `uiKnowledge` | Its generated knowledge for the page the user is on: `resolveKnowledge(generatedKnowledge, path)` from `@ouispec/bindings` | Renders it after your prompt: each entry under "Platform Knowledge", then each recipe under "Active Workflows" |
+| `input` | How the person entered the message, when they did not type it: `{ mode: 'voice', language }` for one they spoke, with the language the recogniser detected (ADR-0259 §2.6). `@ouispec/agent-react` sets it from `sendMessage(text, { input })` | Adds one line to the turn's user message, after the person's words: the message was spoken and machine-transcribed, so it may contain recognition errors; the language; and to ask rather than guess when a likely mis-hearing makes the request ambiguous. An unknown mode is read as typed, and a language that is not a BCP 47 tag of at most 16 characters is left out (`readMessageInput` in `@ouispec/agent-core`). A typed message, and the turn an approval card's click starts, get nothing |
+
+`timeZone` (the user's IANA zone, which `@ouispec/agent-react` sends with every turn) is read by the worker too: the date and time on the user's clock are added to the turn's user message.
+
+What the worker adds to the user's message goes on the newest user message only, after its text and before its files, whose parts are kept. The system prompt, the tools and the earlier messages are the cached prefix, and stay byte for byte the same whatever the message says. Store `input` with the user's message if your chat shows how a message was entered (`AgentStoredMessage.input`); the history the worker reads needs no copy of it.
 
 Every other key is the page's context, which a persona prompt shows as the current UI state. A malformed `oui` or `uiKnowledge` fails the turn, naming the bad field. The worker logs `UI surfaces for this turn` with the surface ids and the knowledge's entry and workflow counts.
 

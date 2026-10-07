@@ -16,6 +16,7 @@ import type { ViewAnnotationState } from './api-surface.js';
 import type { ApprovalContinuation, ApprovalGrant } from '../approvals/types.js';
 import type { TurnStoppedMarker } from '../turns/types.js';
 import type { AttachmentLimits, AttachmentRef } from '../attachments/types.js';
+import type { MessageInput } from '../message-input/index.js';
 
 
 /**
@@ -32,6 +33,13 @@ export interface AgentMessageContext {
    * "today" and "yesterday" are the user's days, not the server's.
    */
   timeZone?: string;
+  /**
+   * How the person entered this message, when it was not typed (ADR-0259
+   * §2.6): `{ mode: 'voice', language }` for a message they spoke, with the
+   * language the recogniser detected. Pass it to the worker unchanged on the
+   * turn's `context`, and store it on the user's message (`AgentStoredMessage.input`).
+   */
+  input?: MessageInput;
 }
 
 /**
@@ -148,6 +156,11 @@ export interface AgentStoredMessage {
   stopped?: TurnStoppedMarker | null;
   /** The files the person attached to this message (ADR-0252 §2.8), by reference. */
   attachments?: AttachmentRef[] | null;
+  /**
+   * How the person entered this message, as its turn's `context.input` carried
+   * it (ADR-0259 §2.6): set on a message they spoke. Absent or null when typed.
+   */
+  input?: MessageInput | null;
 }
 
 /** One stored conversation, with its most recent messages in chronological order. */
@@ -187,6 +200,11 @@ export interface AgentClientConfig {
   sendMessage: (params: {
     conversationId: string;
     content: string;
+    /**
+     * The page's context for the turn. Pass it to the worker as the turn
+     * payload's `context`. A message the person spoke carries `input` here
+     * (ADR-0259 §2.6), which the platform also stores on the user's message.
+     */
     context?: AgentMessageContext;
     /**
      * The files attached to this message, already uploaded through

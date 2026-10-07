@@ -41,6 +41,7 @@ import { readClientPage, withoutClientUI, type ClientPage } from './ui/snapshot.
 import { KNOWLEDGE_TOOL, knowledgeTool, readClientKnowledge, withClientKnowledge } from './ui/knowledge.js';
 import { withNewestPageStateOnly } from './ui/newest-page-state.js';
 import { withClock } from './prompt/clock.js';
+import { withSpokenInput } from './prompt/spoken-input.js';
 import { withUserText } from './prompt/user-text.js';
 import { AttachmentGuard } from './attachments/guard.js';
 import { ATTACHMENT_DATA_NOTE, turnAttachmentParts, withReferenceLines, withTurnAttachments, withoutLeftOut } from './attachments/content.js';
@@ -1334,19 +1335,24 @@ export async function runAgentTurn(
   // The date and time on the user's clock travel with their message too: a
   // model has no clock, and the changing minute must stay out of the cached
   // system prompt (prompt/clock.ts).
+  // A message the person spoke says so straight after their words: it may hold a mis-heard word
+  // (prompt/spoken-input.ts). A click on an approval card is not a message, so it says nothing.
   const turnFilesGiven = !!fileArea && (input.attachments?.length ?? 0) > 0;
   const messages: ModelMessage[] = [
     ...withClock(
       withPageState(
         withNote(
-          convertHistoryToCoreMessages(
-            // An approved call's outcome, and an expired one's, is a later result of the call already in the
-            // history: it takes that call's place.
-            [...(input.history ?? []), ...expired.outcomes, ...(continued?.outcome ? [continued.outcome] : [])],
-            [input.content, continued?.note].filter(Boolean).join('\n\n'),
-            // The turn's own message, when the history already holds it: its files are given below,
-            // each with its line, so the history's copy of the message does not name them again.
-            turnFilesGiven && input.history?.at(-1)?.role === 'user' ? input.history.length - 1 : null,
+          withSpokenInput(
+            convertHistoryToCoreMessages(
+              // An approved call's outcome, and an expired one's, is a later result of the call already in the
+              // history: it takes that call's place.
+              [...(input.history ?? []), ...expired.outcomes, ...(continued?.outcome ? [continued.outcome] : [])],
+              [input.content, continued?.note].filter(Boolean).join('\n\n'),
+              // The turn's own message, when the history already holds it: its files are given below,
+              // each with its line, so the history's copy of the message does not name them again.
+              turnFilesGiven && input.history?.at(-1)?.role === 'user' ? input.history.length - 1 : null,
+            ),
+            input.approval ? null : (input.context ?? null),
           ),
           // Said on the user's message whether or not the host's history already holds that message.
           expired.outcomes.length > 0 ? expiredNote(expired) : null,
