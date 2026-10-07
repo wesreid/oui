@@ -8,3 +8,4 @@ export * from './ui-surface/index.js';
 export * from './approvals/index.js';
 export * from './turns/index.js';
 export * from './attachments/index.js';
+export * from './message-input/index.js';

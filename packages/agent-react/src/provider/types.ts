@@ -2,8 +2,26 @@
  * Re-export the config type for convenience.
  */
 export type { AgentClientConfig } from '@ouispec/agent-core';
-import type { AttachmentRef } from '@ouispec/agent-core';
+import type { AttachmentRef, MessageInput } from '@ouispec/agent-core';
 import type { ComposerAttachmentsState, NotSentReason } from './attachments.js';
+
+/** What goes with a message besides its text. */
+export interface SendMessageOptions {
+  /**
+   * The files on the message, by reference. Without them, the message carries
+   * the composer's ready files (`attachments` on `useAgent`), after waiting for
+   * any still uploading.
+   */
+  attachments?: AttachmentRef[];
+  /**
+   * How the person entered the message, when they did not type it (ADR-0259
+   * §2.6): `{ mode: 'voice', language }` for one they spoke, with the language
+   * the recogniser detected. It reaches `config.sendMessage` as
+   * `context.input`, and the message keeps it (`AgentMessage.input`). One that
+   * `readMessageInput` does not recognise is not sent.
+   */
+  input?: MessageInput;
+}
 
 /** What `sendMessage` did: the turn it started, or why nothing was sent. */
 export interface SendMessageResult {
@@ -44,6 +62,8 @@ export interface AgentMessage {
   stopped?: TurnStoppedReason;
   /** The files the person attached to this message (ADR-0252 §2.8), by reference. */
   attachments?: AttachmentRef[];
+  /** How the person entered this message, when they did not type it: set on one they spoke (ADR-0259 §2.6). */
+  input?: MessageInput;
 }
 
 export type DebugLogLevel = 'info' | 'warn' | 'error' | 'event' | 'socket';
@@ -111,6 +131,7 @@ export interface AgentSessionRecord {
       timestamp: string;
       isStreaming?: boolean;
       toolCall?: AgentToolCallState;
+      input?: MessageInput;
     }>;
   };
   debug: { enabled: boolean; logCount: number; logs: DebugLogEntry[] };
@@ -189,14 +210,19 @@ export interface AgentContextValue {
    * runs next. The tab's turn is the new one from this call on.
    *
    * The message carries the composer's ready files (`attachments`), after
-   * waiting for any still uploading, unless references are given here.
+   * waiting for any still uploading, unless references are given here: as
+   * `options.attachments`, or as the second argument itself (an array).
+   *
+   * A message the person spoke says so with `options.input`
+   * (`{ mode: 'voice', language }`, ADR-0259 §2.6). It is sent like a typed
+   * one, and supersedes a running turn the same way.
    *
    * It is not sent, and `notSent` says why and hands back `content` for the
    * composer to keep as the draft, when a file on it is refused, when a send
    * already waits for its files, or when the conversation changes or the
    * person gives the send up (Stop) while it waits.
    */
-  sendMessage: (content: string, attachments?: AttachmentRef[]) => Promise<SendMessageResult>;
+  sendMessage: (content: string, options?: SendMessageOptions | AttachmentRef[]) => Promise<SendMessageResult>;
   /**
    * The files on the message being written (ADR-0252 §2.14): attach, watch
    * each upload, remove. `enabled` is false when the platform takes no files.

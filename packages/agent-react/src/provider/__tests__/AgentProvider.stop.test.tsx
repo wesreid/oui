@@ -259,17 +259,23 @@ describe('Stop', () => {
 });
 
 describe('barge-in: a message sent while a turn runs', () => {
-  it('makes the new turn the tab’s at once: the old one is shown as stopped, and what it still sends is not shown as in progress', async () => {
+  // A spoken message supersedes a running turn exactly as a typed one does (ADR-0259 §2.5).
+  it.each([
+    ['typed', undefined],
+    ['spoken', { input: { mode: 'voice' as const, language: 'en' } }],
+  ])('makes the new turn the tab’s at once (%s): the old one is shown as stopped, and what it still sends is not shown as in progress', async (_how, options) => {
     const { socket, starts, sendMessage } = await running();
 
     let sending!: Promise<{ turnId: string }>;
     act(() => {
-      sending = agent.sendMessage('Actually, delete it');
+      sending = agent.sendMessage('Actually, delete it', options);
     });
     await act(async () => {
       await Promise.resolve();
     });
     expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect((sendMessage.mock.calls[1] as unknown[])[0]).toMatchObject({ content: 'Actually, delete it' });
+    expect(((sendMessage.mock.calls[1] as unknown[])[0] as { context?: { input?: unknown } }).context?.input).toEqual(options?.input);
     // Shown as stopped before the platform has answered: its room is left when the new one is
     // joined, so its own end may never arrive to say so.
     expect(said()).toEqual([expect.objectContaining({ content: 'I renamed the draft. Next I will ', stopped: 'superseded', isStreaming: false })]);

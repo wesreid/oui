@@ -6,8 +6,8 @@ import type {
   ApprovalDecideResult,
   ApprovalDecision,
 } from '@ouispec/agent-core';
-import { APPROVAL_DECIDE_EVENT, TURN_STOP_EVENT } from '@ouispec/agent-core';
-import type { AttachmentRef, TurnStopPayload, TurnStoppedReason, TurnStopResult } from '@ouispec/agent-core';
+import { APPROVAL_DECIDE_EVENT, TURN_STOP_EVENT, readMessageInput } from '@ouispec/agent-core';
+import type { AttachmentRef, MessageInput, TurnStopPayload, TurnStoppedReason, TurnStopResult } from '@ouispec/agent-core';
 import { useComposerAttachments, type TakeForSend } from './attachments.js';
 import type { AgentProtocolEvent } from '@ouispec/agent-core';
 import { ALL_AGENT_SOCKET_EVENTS, parseSocketEvent } from '@ouispec/agent-core';
@@ -28,6 +28,7 @@ import type {
   DebugLogNamespace,
   AgentDebugState,
   PresentedOptions,
+  SendMessageOptions,
   SendMessageResult,
 } from './types.js';
 import { ApprovalDecisionContext, approvalRefusalText, type ApprovalDecisionState } from '../approvals/decision.js';
@@ -646,7 +647,10 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   }, []);
 
   // --- Start a turn: the user's message, or the continuation after an approval decision ---
-  const startTurn = useCallback(async (content: string, attachments?: AttachmentRef[], approval?: ApprovalContinuation) => {
+  const startTurn = useCallback(async (
+    content: string,
+    { attachments, input, approval }: { attachments?: AttachmentRef[]; input?: MessageInput; approval?: ApprovalContinuation } = {},
+  ) => {
     // A message sent while a conversation loads belongs to that conversation.
     if (pendingLoadRef.current) await pendingLoadRef.current;
     // Read at once when there is one: the message goes out in the same tick it was sent.
@@ -660,6 +664,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
         content,
         timestamp: Date.now(),
         ...(attachments?.length ? { attachments } : {}),
+        ...(input ? { input } : {}),
       };
       setMessages(prev => [...prev, userMsg]);
       // A new message moves on: a card still waiting belongs to the previous turn.
@@ -685,7 +690,8 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     streamBufferRef.current = '';
 
     try {
-      const context = collectContext();
+      // A spoken message says so on its context (ADR-0259 §2.6); a typed one, and a card's click, say nothing.
+      const context: AgentMessageContext = { ...collectContext(), ...(input && !approval ? { input } : {}) };
       addDebugLog('info', 'agent:api', approval ? 'Continuing after an approval decision...' : 'Sending message...', {
         conversationId: convId,
         contentLength: content.length,
@@ -744,11 +750,18 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
 
   // A message carries the composer's ready files, once the uploads still running have finished.
   // Nothing is sent when the files say not to: why, with the text, so the composer keeps the draft.
+  // A spoken message is sent the same way, and says how it was entered (ADR-0259 §2.6).
   const sendMessage = useCallback(
-    (content: string, attachments?: AttachmentRef[]): Promise<SendMessageResult> => {
-      if (attachments) return startTurn(content, attachments);
+    (content: string, options?: SendMessageOptions | AttachmentRef[]): Promise<SendMessageResult> => {
+      const { attachments, input: given } = Array.isArray(options) ? { attachments: options, input: undefined } : (options ?? {});
+      // Only an input the worker and the platform recognise is sent: a typed message says nothing.
+      const input = given === undefined ? undefined : (readMessageInput(given) ?? undefined);
+      if (given !== undefined && !input) {
+        addDebugLog('warn', 'agent:api', 'The message’s input is not one this SDK knows; it is sent as typed', { input: given });
+      }
+      if (attachments) return startTurn(content, { attachments, input });
       const go = (taken: TakeForSend): Promise<SendMessageResult> | SendMessageResult => {
-        if ('refs' in taken) return startTurn(content, taken.refs);
+        if ('refs' in taken) return startTurn(content, { attachments: taken.refs, input });
         addDebugLog('info', 'agent:api', `The message was not sent: ${taken.notSent}`, { reason: taken.notSent });
         return { turnId: '', notSent: { reason: taken.notSent, content } };
       };
@@ -861,13 +874,12 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     }
     setPendingApproval(null);
     setApprovalDeciding(false);
-    await startTurn(
-      '',
-      undefined,
-      result.decision === 'approve'
-        ? { approvalId: result.approvalId, decision: 'approve', token: result.token }
-        : { approvalId: result.approvalId, decision: 'decline' },
-    );
+    await startTurn('', {
+      approval:
+        result.decision === 'approve'
+          ? { approvalId: result.approvalId, decision: 'approve', token: result.token }
+          : { approvalId: result.approvalId, decision: 'decline' },
+    });
   }, [startTurn, addDebugLog]);
 
   const dismissApproval = useCallback(() => {
@@ -1084,6 +1096,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
           timestamp: new Date(m.timestamp).toISOString(),
           isStreaming: m.isStreaming,
           toolCall: m.toolCall,
+          ...(m.input ? { input: m.input } : {}),
         })),
       },
       debug: {

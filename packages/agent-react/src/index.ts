@@ -26,6 +26,7 @@ export type {
   DebugLogEntry,
   DebugLogLevel,
   DebugLogNamespace,
+  SendMessageOptions,
   SendMessageResult,
 } from './provider/types.js';
 

@@ -199,7 +199,8 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
 
         // What the client's UI sent for the worker is not the host's prompt
         // text: its snapshot becomes the turn's UI tools, and its knowledge is
-        // rendered after the host's prompt (orchestrator).
+        // rendered after the host's prompt (orchestrator), and how the message
+        // was entered is said on the message (prompt/spoken-input.ts).
         const promptContext = { userId, accountId, context: withoutClientUI(context) };
         const systemPrompt = config.systemPrompt
           ? config.systemPrompt(promptContext)

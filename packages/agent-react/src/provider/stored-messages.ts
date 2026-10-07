@@ -1,4 +1,4 @@
-import { displayedToolCall, turnStoppedNote, type AgentStoredMessage } from '@ouispec/agent-core';
+import { displayedToolCall, readMessageInput, turnStoppedNote, type AgentStoredMessage } from '@ouispec/agent-core';
 import type { AgentMessage } from './types.js';
 
 /** A stored tool result as the live stream carried it: parsed JSON when it is JSON. */
@@ -14,7 +14,8 @@ function parseResult(content: string | null): unknown {
 /**
  * A stored conversation's messages as the panel shows a live one:
  *
- * - a user or assistant message with text becomes that message;
+ * - a user or assistant message with text becomes that message; a user
+ *   message the person spoke keeps how it was entered (`input`, ADR-0259 §2.6);
  * - each tool an assistant message called becomes a completed tool message,
  *   in call order, as `intent_call` added it live: a UI action run through
  *   `ui_act` is shown as that action, as the live stream named it;
@@ -37,6 +38,8 @@ export function storedToAgentMessages(stored: readonly AgentStoredMessage[]): Ag
       const onlyTheMark = stopped !== undefined && m.content === turnStoppedNote({ reason: stopped });
       // A message may be files with no text.
       const attachments = m.role === 'user' && m.attachments?.length ? m.attachments : undefined;
+      // Stored by the platform from what a browser sent: only what is recognised is shown.
+      const input = m.role === 'user' ? readMessageInput(m.input) : null;
       if (m.content || stopped || attachments) {
         messages.push({
           id: m.id,
@@ -45,6 +48,7 @@ export function storedToAgentMessages(stored: readonly AgentStoredMessage[]): Ag
           timestamp,
           ...(stopped ? { stopped } : {}),
           ...(attachments ? { attachments } : {}),
+          ...(input ? { input } : {}),
         });
       }
       for (const call of m.toolCalls ?? []) {
