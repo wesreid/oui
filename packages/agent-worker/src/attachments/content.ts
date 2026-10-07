@@ -56,8 +56,8 @@ export const ATTACHMENT_DATA_NOTE = [
  * line break or a zero-width character inside the tag, any case, and a
  * full-width or small-form opening bracket.
  */
-/** Whitespace as a tag reader might skip it: spaces, line breaks, and zero-width and joining characters. */
-const TAG_GAP = '[\\s\\u200B-\\u200D\\u2060\\uFEFF\\u00AD]*';
+/** Whitespace as a tag reader might skip it: spaces, line breaks, zero-width and joining characters, and direction marks. */
+const TAG_GAP = '[\\s\\u200B-\\u200F\\u2060\\uFEFF\\u00AD]*';
 /** An opening or closing of the tag: a plain, full-width or small-form `<`, then `attachment`, however spaced. */
 const TAG = new RegExp(`[<\\uFF1C\\uFE64](${TAG_GAP}\\/?${TAG_GAP})(attachment)`, 'gi');
 

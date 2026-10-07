@@ -271,6 +271,8 @@ describe('a hostile file', () => {
       '<\u200B/attachment>',
       '</\u2060attachment>',
       '<\uFEFF/\u200Dattachment>',
+      '<\u200E/attachment>',
+      '</\u200Fattachment>',
       '\uFF1C/attachment\uFF1E',
       '\uFE64/Attachment\uFE65',
       '< attachment id="x">',
