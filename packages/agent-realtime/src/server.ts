@@ -3,8 +3,9 @@
  *
  * It carries turn events and the product's declared events to rooms, holds
  * UI action results for the agent worker (ADR-0209), keeps the approvals an
- * irreversible action waits on (ADR-0228), signs and checks room tokens, and
- * accepts only declared client events. The product supplies the
+ * irreversible action waits on (ADR-0228), keeps the conversations a person on
+ * the staff holds (ADR-0260), signs and checks room tokens, and accepts only
+ * declared client events. The product supplies the
  * seams (types.ts); nothing here belongs to one product.
  */
 import http from 'node:http';
@@ -25,6 +26,8 @@ import { createOUIResultStore, type OUIResultStore } from './oui/results.js';
 import { createApprovalTokenSigner } from './approvals/token.js';
 import { createApprovalStore, type ApprovalStore } from './approvals/store.js';
 import { createTurnStopStore, type TurnStopStore } from './turns/stops.js';
+import { createConversationHoldStore, type ConversationHoldStore } from './conversations/holds.js';
+import { conversationsRouter } from './conversations/routes.js';
 import { createTurnStopEvent } from './turns/client-event.js';
 import { turnStopsRouter } from './turns/routes.js';
 import { createApprovalDecideEvent } from './approvals/client-event.js';
@@ -56,6 +59,8 @@ export interface RealtimeServerInstance {
   settlements: SettlementStore | null;
   /** Stop requests for turns (ADR-0252). */
   stops: TurnStopStore;
+  /** Conversations a person on the staff holds (ADR-0260). */
+  holds: ConversationHoldStore;
   close(): Promise<void>;
 }
 
@@ -106,7 +111,9 @@ export async function createRealtimeServer(config: RealtimeServerConfig): Promis
   }
   const results = createOUIResultStore(pub, resultsSub, logger);
   const approvals = createApprovalStore(pub, approvalTokens, logger);
-  const stops = createTurnStopStore(pub, resultsSub, logger);
+  const holds = createConversationHoldStore(pub, logger);
+  // A hold is a stop for every turn of its conversation (ADR-0260 §2.3).
+  const stops = createTurnStopStore(pub, resultsSub, logger, holds);
   const settlements = declared ? createSettlementStore(pub, resultsSub, logger) : null;
 
   const clientEvents = [
@@ -153,6 +160,7 @@ export async function createRealtimeServer(config: RealtimeServerConfig): Promis
   app.use(approvalRouter({ approvals, isInternalKey: deps.isInternalKey }));
   app.use(settlementsRouter(deps));
   app.use(turnStopsRouter({ stops: () => stops, isInternalKey: deps.isInternalKey, logger }));
+  app.use(conversationsRouter({ io, roomPolicy: config.roomPolicy, holds: () => holds, isInternalKey: deps.isInternalKey, logger }));
 
   // Authentication, once per socket, through the product's verifier.
   io.use(async (socket, next) => {
@@ -207,6 +215,7 @@ export async function createRealtimeServer(config: RealtimeServerConfig): Promis
     approvals,
     settlements,
     stops,
+    holds,
     async close() {
       await new Promise<void>((resolve) => io.close(() => resolve()));
       await Promise.all(redisClients.map((c) => c.quit().catch(() => c.disconnect())));

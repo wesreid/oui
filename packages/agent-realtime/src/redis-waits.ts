@@ -25,9 +25,15 @@ export interface ResultsSubscriber {
 export interface WaitHub {
   /**
    * `read()`'s value once it has one, reading at once, on every publish of
-   * `id`, and at the deadline; null when it has none by `waitMs`.
+   * `id` (or of any of the ids given), and at the deadline; null when it has
+   * none by `waitMs`.
    */
-  wait<T>(id: string, waitMs: number, read: () => Promise<T | null>, onReadError: (err: unknown) => void): Promise<T | null>;
+  wait<T>(
+    id: string | readonly string[],
+    waitMs: number,
+    read: () => Promise<T | null>,
+    onReadError: (err: unknown) => void,
+  ): Promise<T | null>;
   /** Waits in progress on this instance. */
   pendingCount(): number;
 }
@@ -46,9 +52,15 @@ export function createWaitHub(subscriber: ResultsSubscriber, channel: string, lo
   });
 
   return {
-    async wait<T>(id: string, waitMs: number, read: () => Promise<T | null>, onReadError: (err: unknown) => void): Promise<T | null> {
+    async wait<T>(
+      id: string | readonly string[],
+      waitMs: number,
+      read: () => Promise<T | null>,
+      onReadError: (err: unknown) => void,
+    ): Promise<T | null> {
       const now = await read();
       if (now || waitMs <= 0) return now;
+      const ids = [...new Set(typeof id === 'string' ? [id] : id)];
 
       return new Promise<T | null>((resolve) => {
         let done = false;
@@ -56,9 +68,11 @@ export function createWaitHub(subscriber: ResultsSubscriber, channel: string, lo
           if (done) return;
           done = true;
           clearTimeout(timer);
-          const set = waiters.get(id);
-          set?.delete(wake);
-          if (set && set.size === 0) waiters.delete(id);
+          for (const each of ids) {
+            const set = waiters.get(each);
+            set?.delete(wake);
+            if (set && set.size === 0) waiters.delete(each);
+          }
           resolve(value);
         };
         const wake = () => {
@@ -71,12 +85,14 @@ export function createWaitHub(subscriber: ResultsSubscriber, channel: string, lo
           read().then(finish, () => finish(null));
         }, waitMs);
 
-        let set = waiters.get(id);
-        if (!set) {
-          set = new Set();
-          waiters.set(id, set);
+        for (const each of ids) {
+          let set = waiters.get(each);
+          if (!set) {
+            set = new Set();
+            waiters.set(each, set);
+          }
+          set.add(wake);
         }
-        set.add(wake);
         // Close the gap between the first read and registering the waiter: a
         // value stored in between was published before anyone was listening.
         wake();
@@ -84,9 +100,10 @@ export function createWaitHub(subscriber: ResultsSubscriber, channel: string, lo
     },
 
     pendingCount() {
-      let n = 0;
-      for (const set of waiters.values()) n += set.size;
-      return n;
+      // A wait on several ids is one wait.
+      const pending = new Set<() => void>();
+      for (const set of waiters.values()) for (const wake of set) pending.add(wake);
+      return pending.size;
     },
   };
 }

@@ -6,8 +6,9 @@
  * room-token secret, the approval signing key, Redis and its CORS origins,
  * and optionally its event declarations (ADR-0227 §2.2).
  * The server handles: declared client events, room tokens, the UI action
- * result store, the approval store, the emit API (held to the declarations),
- * job settlements, and fan-out across instances.
+ * result store, the approval store, conversation holds (ADR-0260), the emit
+ * API (held to the declarations), job settlements, and fan-out across
+ * instances.
  */
 
 export type {
@@ -44,7 +45,10 @@ export type { OUIResultStore } from './oui/results.js';
 export type { ResultsRedis, ResultsSubscriber } from './redis-waits.js';
 export { createSettlementStore, SETTLEMENT_TTL_SEC } from './events/settlements.js';
 export type { SettlementStore } from './events/settlements.js';
-export { createTurnStopStore, TURN_STOP_TTL_SEC } from './turns/stops.js';
+export { createTurnStopStore, TURN_STOP_TTL_SEC, TURN_STOPS_CHANNEL } from './turns/stops.js';
+export { createConversationHoldStore, HOLD_TTL_SEC } from './conversations/holds.js';
+export type { ConversationHoldStore, HoldRedis, TakeOutcome, ReleaseOutcome } from './conversations/holds.js';
+export { conversationsRouter, SERVER_SENT_CONVERSATION_EVENTS } from './conversations/routes.js';
 export type { TurnStopStore } from './turns/stops.js';
 export { createTurnStopEvent } from './turns/client-event.js';
 export { turnStopsRouter, MAX_STOP_WAIT_MS } from './turns/routes.js';

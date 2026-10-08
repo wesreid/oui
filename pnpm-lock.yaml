@@ -162,6 +162,9 @@ importers:
       '@ouispec/agent-events':
         specifier: workspace:^
         version: link:../agent-events
+      '@ouispec/contract':
+        specifier: workspace:^
+        version: link:../contract
       '@socket.io/redis-adapter':
         specifier: ^8.3.0
         version: 8.3.0(socket.io-adapter@2.5.8)
