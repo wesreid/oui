@@ -8,14 +8,9 @@ import { fileURLToPath } from 'node:url';
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createOpenAI } from '@ai-sdk/openai';
 import { PROMPT_CACHE_BREAKPOINTS, type LanguageModel, type ProviderOptions } from '../../model.js';
+import { replayingFetch, type RecordedExchange } from '../../testing/cassette.js';
 
-export interface RecordedExchange {
-  /** The request path the provider called. */
-  path: string;
-  status: number;
-  contentType: string;
-  bodyBase64: string;
-}
+export type { RecordedExchange } from '../../testing/cassette.js';
 
 export interface FixtureRecording {
   provider: string;
@@ -36,22 +31,7 @@ export interface ReplayedProvider {
 }
 
 /** A fetch that answers each request with the next recorded response, and refuses one more. */
-export function replayFetch(exchanges: RecordedExchange[], requests: unknown[]): typeof fetch {
-  let next = 0;
-  return async (input, init) => {
-    const exchange = exchanges[next++];
-    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
-    if (!exchange) throw new Error(`replay: no recorded response for request ${next} (${url.pathname})`);
-    if (decodeURIComponent(url.pathname) !== exchange.path) {
-      throw new Error(`replay: request ${next} went to ${url.pathname}, the recording to ${exchange.path}`);
-    }
-    requests.push(typeof init?.body === 'string' ? JSON.parse(init.body) : null);
-    return new Response(Buffer.from(exchange.bodyBase64, 'base64'), {
-      status: exchange.status,
-      headers: { 'content-type': exchange.contentType },
-    });
-  };
-}
+export const replayFetch = (exchanges: RecordedExchange[], requests: unknown[]): typeof fetch => replayingFetch(exchanges, requests);
 
 /** Bedrock ConverseStream responses, recorded from a live model (evals/fixture-turn.record.ts). */
 export function bedrockReplay(): ReplayedProvider {

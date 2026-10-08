@@ -56,6 +56,14 @@ describe('a stopped turn’s messages', () => {
     }
   });
 
+  it('stores nothing for a turn a take-over stopped before it produced anything: the take-over is already in the conversation (ADR-0260 §2.3)', () => {
+    const takenOver = { reason: 'taken_over', at: 2 } as const;
+    expect(stoppedTurnMessages({ steps: [], calls: [], streamedText: '', marker: takenOver })).toEqual([]);
+    // What it had produced is kept and marked, as for any stop.
+    const kept = stoppedTurnMessages({ steps: [], calls: [], streamedText: 'Let me check.', marker: takenOver });
+    expect(kept).toEqual([{ role: 'assistant', content: 'Let me check.', stopped: takenOver }]);
+  });
+
   it('drops a step whose text was empty and which made no call, and never stores an empty message', () => {
     const messages = stoppedTurnMessages({ steps: [stepOf(''), stepOf('Said.')], calls: [], streamedText: 'Said.', marker });
     expect(messages).toEqual([{ role: 'assistant', content: 'Said.', stopped: marker }]);

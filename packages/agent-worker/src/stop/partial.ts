@@ -40,7 +40,9 @@ const asArguments = (input: unknown): Record<string, unknown> =>
  * The last assistant message carries the marker. A turn that produced no
  * text and no call still stores one assistant message, whose text is the
  * marker's line: a model provider refuses an empty text block, and the
- * conversation never holds two user messages with nothing between them.
+ * conversation never holds two user messages with nothing between them. The
+ * exception is a turn a take-over stopped (`taken_over`): it stores nothing,
+ * since the conversation already holds the take-over.
  */
 export function stoppedTurnMessages(recorded: {
   steps: readonly RecordedStep[];
@@ -90,10 +92,13 @@ export function stoppedTurnMessages(recorded: {
 
   let last: TurnMessage | undefined;
   for (let i = messages.length - 1; i >= 0 && !last; i--) if (messages[i].role === 'assistant') last = messages[i];
-  if (!last) {
-    messages.push({ role: 'assistant', content: turnStoppedNote(marker), stopped: marker });
-  } else {
+  if (last) {
     last.stopped = marker;
+  } else if (marker.reason !== 'taken_over') {
+    messages.push({ role: 'assistant', content: turnStoppedNote(marker), stopped: marker });
   }
+  // A turn a take-over stopped before it said anything stores nothing: the take-over itself is in the
+  // conversation, as the product's entry (ADR-0260 §2.3), and a marker for every message the customer sent
+  // while a person held it would fill the transcript with stops nobody asked for.
   return messages;
 }

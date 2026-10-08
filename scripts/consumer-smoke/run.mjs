@@ -107,8 +107,11 @@ mkdirSync(join(test, 'support'));
 const copied = ['fixture-turn.e2e.test.ts', ...readdirSync(join(workerTests, 'support')).map(name => `support/${name}`)];
 for (const name of copied) {
   const source = readFileSync(join(workerTests, name), 'utf8');
-  // The worker's own modules, imported by path in its repository, are the installed package here.
-  const text = source.replace(/from '(?:\.\.\/)+(?!fixtures\/)[\w/.-]+\.js'/g, "from '@ouispec/agent-worker'");
+  // The worker's own modules, imported by path in its repository, are the installed package here: its test
+  // support from its `testing` entry, everything else from its main one.
+  const text = source
+    .replace(/from '(?:\.\.\/)+testing\/[\w/.-]+\.js'/g, "from '@ouispec/agent-worker/testing'")
+    .replace(/from '(?:\.\.\/)+(?!fixtures\/)[\w/.-]+\.js'/g, "from '@ouispec/agent-worker'");
   if (/from '\.\.\/\.\.\//.test(text)) throw new Error(`${name} still imports the worker's source by path`);
   writeFileSync(join(test, name), text);
 }

@@ -24,11 +24,11 @@ const SESSIONS: Record<string, { userId: string; accountId: string }> = {
   'session-ana': { userId: 'ana', accountId: 'desk-1' },
 };
 
-/** The product's rooms: `member:{id}` by identity, `chat:turn:{id}` and `export:{id}` by token. */
+/** The product's rooms: `member:{id}` by identity; `chat:turn:{id}`, `chat:conversation:{id}` and `export:{id}` by token. */
 const policy: RoomPolicy = {
-  isValidRoom: (room) => /^member:[a-z0-9-]+$|^chat:turn:[a-zA-Z0-9-]+$|^export:[a-zA-Z0-9-]+$/.test(room),
+  isValidRoom: (room) => /^member:[a-z0-9-]+$|^chat:(turn|conversation):[a-zA-Z0-9-]+$|^export:[a-zA-Z0-9-]+$/.test(room),
   identityRooms: (user) => [`member:${user.userId}`],
-  requiresToken: (room) => room.startsWith('chat:turn:') || room.startsWith('export:'),
+  requiresToken: (room) => room.startsWith('chat:turn:') || room.startsWith('chat:conversation:') || room.startsWith('export:'),
   canJoin: (room, user) => room === `member:${user.userId}`,
 };
 

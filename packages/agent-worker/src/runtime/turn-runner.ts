@@ -6,7 +6,7 @@
  * decides how a turn arrives and what a failure means to its transport.
  */
 import { APICallError, RetryError } from 'ai';
-import { AGENT_SOCKET_EVENTS, isAttachmentId, type TurnStoppedReason, type TurnStoppedMarker } from '@ouispec/agent-core';
+import { AGENT_SOCKET_EVENTS, APPROVAL_CHANNELS, isAttachmentId, type TurnStoppedReason, type TurnStoppedMarker } from '@ouispec/agent-core';
 import { runAgentTurn } from '../orchestrator.js';
 import { createHttpEmitAdapter } from '../emit/http-adapter.js';
 import { createHttpUIActionChannel } from '../ui/channel.js';
@@ -81,6 +81,9 @@ export function payloadRefusal(payload: unknown): string | null {
   if (missing.length > 0) return `the turn payload is missing ${missing.join(', ')}`;
   if (p.context !== undefined && p.context !== null && typeof p.context !== 'object') return 'context must be an object';
   if (p.userToken !== undefined && typeof p.userToken !== 'string') return 'userToken must be a string';
+  if (p.channel !== undefined && !(APPROVAL_CHANNELS as readonly unknown[]).includes(p.channel)) {
+    return `channel must be one of ${APPROVAL_CHANNELS.join(', ')}`;
+  }
   if (p.supersedes !== undefined && !(Array.isArray(p.supersedes) && p.supersedes.every((id) => typeof id === 'string' && id))) {
     return 'supersedes must be a list of turn ids';
   }
@@ -96,6 +99,19 @@ export function payloadRefusal(payload: unknown): string | null {
   return null;
 }
 
+/**
+ * The system prompt the host's configuration gives a turn: its persona through
+ * the SDK's prompt framework, or its own builder. One reading for the runner
+ * and for anything that must know what the model is told (an eval's
+ * recording, ADR-0260 §3.5).
+ */
+export function hostSystemPrompt(
+  config: Pick<AgentRuntimeConfig<unknown>, 'persona' | 'systemPrompt'>,
+  promptContext: { userId: string; accountId: string; context?: Record<string, unknown> | null },
+): string {
+  return config.systemPrompt ? config.systemPrompt(promptContext) : buildAgentSystemPrompt(config.persona!, promptContext);
+}
+
 export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): AgentTurnRunner {
   assertAgentRuntimeConfig(config);
   const logger = config.logger ?? DEFAULT_LOGGER;
@@ -109,7 +125,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
   const turnDeadlineMs = config.turnDeadlineMs ?? 840_000;
   const retries = config.retries ?? 3;
 
-  const emit = createHttpEmitAdapter({ url: config.realtime.url, apiKey: config.realtime.apiKey });
+  const emit = config.realtime.emit ?? createHttpEmitAdapter({ url: config.realtime.url, apiKey: config.realtime.apiKey });
   // UI actions reach the client through the same realtime server, and its
   // answers come back through it (ADR-0209).
   const uiChannel =
@@ -144,7 +160,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
     model,
     logger,
     async run(payload, host = {}) {
-      const { turnId, conversationId, userId, accountId, socketRoom, content, context, userToken, approval } = payload;
+      const { turnId, conversationId, userId, accountId, socketRoom, content, context, userToken, approval, channel } = payload;
       const supersedes = Array.isArray(payload.supersedes) ? payload.supersedes.filter((id) => typeof id === 'string' && id) : [];
       // The message's files, by reference: anything that is not one is left out.
       // Each file once.
@@ -183,7 +199,8 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
 
       // Open before history is read: a stop asked for while the turn waited in the
       // queue, or waits now for the turns it supersedes, is the first thing it hears.
-      const stopWatch = watchTurnStop(stops, turnId, userId);
+      // A person on the staff taking the conversation over stops it too (ADR-0260 §2.3).
+      const stopWatch = watchTurnStop(stops, turnId, userId, conversationId);
       const waiting = new AbortController();
       stopWatch.onStop(() => waiting.abort());
 
@@ -202,9 +219,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
         // rendered after the host's prompt (orchestrator), and how the message
         // was entered is said on the message (prompt/spoken-input.ts).
         const promptContext = { userId, accountId, context: withoutClientUI(context) };
-        const systemPrompt = config.systemPrompt
-          ? config.systemPrompt(promptContext)
-          : buildAgentSystemPrompt(config.persona!, promptContext);
+        const systemPrompt = hostSystemPrompt(config as AgentRuntimeConfig<unknown>, promptContext);
 
         const turnInput: AgentTurnInput = {
           turnId,
@@ -218,6 +233,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
           userToken,
           ...(approval ? { approval } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
+          ...(channel ? { channel } : {}),
           stopWatch,
           ...(host.remainingMs ? { remainingMs: host.remainingMs } : {}),
         };

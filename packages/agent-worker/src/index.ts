@@ -51,7 +51,7 @@ export { defaultToolPolicy, evaluateToolPolicySafe } from './authz/tool-policy.j
 // user gave, bound to the call, kept by the realtime server's approval store.
 export { createHttpApprovalStoreClient } from './approvals/client.js';
 export type { ApprovalStoreClient, HttpApprovalStoreClientConfig } from './approvals/client.js';
-export { approvalRequirement, APPROVAL_TOOL_NOTE } from './approvals/requirement.js';
+export { approvalRequirement, approvalToolNote, APPROVAL_TOOL_NOTE, READBACK_APPROVAL_TOOL_NOTE } from './approvals/requirement.js';
 export type { ApprovalRequirement } from './approvals/requirement.js';
 export { buildApprovalPreview } from './approvals/preview.js';
 
@@ -61,6 +61,10 @@ export { buildApprovalPreview } from './approvals/preview.js';
 export { createHttpTurnStopClient, watchTurnStop, stopOf, TurnStopped, DEFAULT_STOP_GRACE_MS } from './stop/turn-stop.js';
 export type { TurnStopClient, HttpTurnStopClientConfig, TurnStopWatch, TurnStopState } from './stop/turn-stop.js';
 export { stoppedTurnMessages } from './stop/partial.js';
+// A person takes a conversation over and hands it back (ADR-0260 §2): the product API's client for the
+// realtime server's conversation routes.
+export { createHttpConversationClient } from './conversations/client.js';
+export type { ConversationClient, HttpConversationClientConfig } from './conversations/client.js';
 // Files the person attaches (ADR-0252 §2.8–§2.12): the host's file area, the cost guard, the attachment tools.
 export type { AttachmentStore, AttachmentStoreCallOptions, AttachmentOwner, AttachmentLoadAs, AttachmentContent, AttachmentWorkerConfig } from './attachments/store.js';
 export { AttachmentGuard, type AttachmentUsage, type GuardedPart, type AttachmentCap } from './attachments/guard.js';
@@ -124,7 +128,7 @@ export { createHttpEmitAdapter } from './emit/http-adapter.js';
 export type { HttpEmitAdapterConfig } from './emit/http-adapter.js';
 
 // The runtime: one core, two host adapters (Lambda + SQS, container)
-export { createAgentTurnRunner, categorizeError, payloadRefusal, TURN_DEADLINE_EXCEEDED } from './runtime/turn-runner.js';
+export { createAgentTurnRunner, categorizeError, hostSystemPrompt, payloadRefusal, TURN_DEADLINE_EXCEEDED } from './runtime/turn-runner.js';
 export type { AgentTurnRunner, TurnOutcome, CategorizedError } from './runtime/turn-runner.js';
 export { assertAgentRuntimeConfig } from './runtime/config.js';
 export type { AgentRuntimeConfig, LambdaAgentConfig, AgentTurnPayload, HistoryRequest } from './runtime/types.js';

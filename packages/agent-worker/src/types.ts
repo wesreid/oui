@@ -1,4 +1,4 @@
-import type { AttachmentRef, TurnStoppedReason, TurnStoppedMarker } from '@ouispec/agent-core';
+import type { ApprovalChannel, AttachmentRef, StaffSpeaker, TakeoverChange, TurnStoppedReason, TurnStoppedMarker } from '@ouispec/agent-core';
 import type { AttachmentWorkerConfig } from './attachments/store.js';
 import type { AttachmentUsage } from './attachments/guard.js';
 import type { TurnStopClient, TurnStopWatch } from './stop/turn-stop.js';
@@ -155,6 +155,13 @@ export interface AgentTurnInput {
    * given to the model with it, through `config.attachments`.
    */
   attachments?: AttachmentRef[];
+  /**
+   * Where the person is (ADR-0260 §3.3): `ui` (the default), where an approval
+   * is the card; or a conversation channel (`chat`, `sms`, `voice`, `phone`),
+   * where the readback is sent as the turn's last words and the next message
+   * confirms it. The model is told about approvals in that channel's terms.
+   */
+  channel?: ApprovalChannel;
 }
 
 /**
@@ -179,7 +186,14 @@ export type TurnHistoryMessage =
        */
       stopped?: TurnStoppedMarker | null;
     }
-  | { role: 'tool'; content: string; tool_call_id: string; name?: string };
+  | { role: 'tool'; content: string; tool_call_id: string; name?: string }
+  /**
+   * A person on the staff (ADR-0260 §2.5): a message they wrote to the
+   * customer, or, with `takeover` and no content, where they took the
+   * conversation over or handed it back. The model reads it under their name
+   * as the business's side of the conversation, never as its own words.
+   */
+  | { role: 'staff'; content: string | null; speaker: StaffSpeaker; takeover?: TakeoverChange | null };
 
 export interface ToolCallRef {
   id: string;
