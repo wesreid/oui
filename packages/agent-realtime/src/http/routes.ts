@@ -12,6 +12,7 @@ import type { OUIResultStore } from '../oui/results.js';
 import type { RealtimeLogger } from '../logger.js';
 import { declaredRefusal, type DeclaredEvents } from '../events/declared.js';
 import type { SettlementStore } from '../events/settlements.js';
+import { SERVER_SENT_CONVERSATION_EVENTS } from '../conversations/routes.js';
 
 /** The longest a single result wait may hold a request open. Callers ask again until their own deadline. */
 export const MAX_RESULT_WAIT_MS = 25_000;
@@ -80,6 +81,9 @@ export function healthRouter(deps: Pick<RouteDeps, 'io' | 'results'>): Router {
  * accepts, into rooms it is declared for (never a broadcast); anything else is
  * a 400, logged. A completion or failure is then kept as its job's settlement.
  *
+ * A conversation's take-over, hand-back and messages are refused here: the
+ * conversation routes send them, with the hold that makes them true.
+ *
  * With `ackTimeoutMs` (rooms only, at most MAX_RECEIPT_WAIT_MS): the event asks
  * its receivers for a receipt, and the response says how many acknowledged it
  * within that time and how many accepted it (`receipts`). A UI action request
@@ -114,6 +118,12 @@ export function emitRouter(deps: RouteDeps): Router {
         ackTimeoutMs > MAX_RECEIPT_WAIT_MS)
     ) {
       res.status(400).json({ error: `ackTimeoutMs must be a whole number of ms from 1 to ${MAX_RECEIPT_WAIT_MS}` });
+      return;
+    }
+    // A conversation's take-over, hand-back and messages are sent only with the hold that makes them true (ADR-0260 §2.4).
+    if (SERVER_SENT_CONVERSATION_EVENTS.has(event)) {
+      deps.logger.warn({ event }, 'Emit refused');
+      res.status(400).json({ error: `"${event}" is sent only by the server's conversation routes (/internal/conversations/…)` });
       return;
     }
     const targets = (rooms as string[] | undefined) ?? [];

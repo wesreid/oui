@@ -38,6 +38,7 @@
   "dependencies": {
     "@ouispec/agent-core": "workspace:^",
     "@ouispec/agent-events": "workspace:^",
+    "@ouispec/contract": "workspace:^",
     "@socket.io/redis-adapter": "^8.3.0",
     "cors": "^2.8.5",
     "express": "^5.1.0",

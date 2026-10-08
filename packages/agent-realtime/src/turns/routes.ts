@@ -9,9 +9,11 @@
  *   200 — { ok: true, stop: 'requested' | 'already', record }
  *   400 — userId missing, or reason not one of the stop reasons
  *
- * GET /internal/turns/:turnId/stop?userId=&waitMs=
+ * GET /internal/turns/:turnId/stop?userId=&waitMs=&conversationId=
  *   The stop asked for on a turn by its user, waiting up to `waitMs` (capped
- *   at 25 s) for one. A worker holds this open for the life of its turn.
+ *   at 25 s) for one. A worker holds this open for the life of its turn. With
+ *   `conversationId`, a person on the staff holding the conversation is a stop
+ *   too: `taken_over` (ADR-0260 §2.3).
  *   200 — the TurnStopRecord
  *   204 — no stop yet; ask again
  *   400 — userId missing or waitMs invalid
@@ -75,6 +77,7 @@ export function turnStopsRouter(deps: TurnStopRouteDeps): Router {
     const turnId = req.params.turnId as string;
     const userId = typeof req.query.userId === 'string' ? req.query.userId : '';
     const waitMs = req.query.waitMs === undefined ? 0 : Number(req.query.waitMs);
+    const conversationId = typeof req.query.conversationId === 'string' && req.query.conversationId ? req.query.conversationId : undefined;
     if (!userId) {
       res.status(400).json({ error: 'userId is required' });
       return;
@@ -84,7 +87,7 @@ export function turnStopsRouter(deps: TurnStopRouteDeps): Router {
       return;
     }
     try {
-      const record = await store.await(turnId, userId, Math.min(waitMs, MAX_STOP_WAIT_MS));
+      const record = await store.await(turnId, userId, Math.min(waitMs, MAX_STOP_WAIT_MS), conversationId);
       if (!record) {
         res.status(204).end();
         return;
