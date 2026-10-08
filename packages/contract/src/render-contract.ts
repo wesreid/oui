@@ -42,6 +42,8 @@ export const CONTRACT_FILES: readonly ContractFile[] = [
   { file: 'oui-config.json', root: 'OuiConfigFile', heading: '`oui.config.json`' },
   { file: 'approvals.json', root: null, arrays: 'Array', heading: 'Approvals' },
   { file: 'event-declarations.json', root: 'EventDeclarationDocument', heading: 'Event declarations' },
+  { file: 'conversation-takeover.json', root: null, arrays: 'Array', heading: 'Conversation takeover' },
+  { file: 'agent-evals.json', root: 'AgentEvalSuite', heading: 'Agent eval scenarios' },
 ];
 
 export type SchemaDocument = RenderableSchema & { $id: string; title: string; $defs?: Readonly<Record<string, RenderableSchema>> };

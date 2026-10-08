@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.closurestudio.ai/oui/v1/agent-evals.json",
+  "title": "AgentEvalSuite",
+  "description": "A suite of agent eval scenarios, written as data (ADR-0260 §3): what a customer says, turn by turn, and what must hold after each turn. `@ouispec/agent-evals` runs every scenario on every channel the suite names, against the product's real agent configuration (persona, tools, tool policy, turn policy), from recorded model responses in CI or against the live model, and fails on any assertion that does not hold.",
+  "type": "object",
+  "properties": {
+    "version": { "description": "The suite format's version.", "const": 1 },
+    "name": { "description": "The suite's name, as reports show it.", "type": "string", "minLength": 1, "maxLength": 120 },
+    "description": { "type": "string" },
+    "channels": {
+      "description": "The channels every scenario runs on, as the eval configuration names them (`web_chat`, `sms`, `voice`). Default: every channel the configuration names.",
+      "$ref": "#/$defs/AgentEvalChannelList"
+    },
+    "context": {
+      "description": "What every turn of every scenario carries as its context, before the channel's and the scenario's own.",
+      "type": "object",
+      "additionalProperties": true
+    },
+    "stubs": { "description": "What each tool returns, for every scenario; a scenario's own stubs come first.", "$ref": "#/$defs/AgentEvalStubs" },
+    "scenarios": { "type": "array", "items": { "$ref": "#/$defs/AgentEvalScenario" }, "minItems": 1 }
+  },
+  "required": ["version", "name", "scenarios"],
+  "additionalProperties": false,
+  "$defs": {
+    "AgentEvalChannelList": {
+      "description": "Channel names, as the eval configuration names them.",
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "AgentEvalScenario": {
+      "description": "One conversation: its turns in order, and what must hold after each.",
+      "type": "object",
+      "properties": {
+        "id": { "description": "Unique in the suite; names its recordings.", "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$", "maxLength": 80 },
+        "title": { "description": "What it shows, as reports name it.", "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "channels": { "description": "The suite's channels this scenario runs on, when not all of them.", "$ref": "#/$defs/AgentEvalChannelList" },
+        "context": { "description": "What each of its turns carries as its context, after the suite's and the channel's.", "type": "object", "additionalProperties": true },
+        "stubs": { "description": "What each tool returns in this scenario, before the suite's stubs.", "$ref": "#/$defs/AgentEvalStubs" },
+        "turns": { "type": "array", "items": { "$ref": "#/$defs/AgentEvalTurn" }, "minItems": 1 }
+      },
+      "required": ["id", "title", "turns"],
+      "additionalProperties": false
+    },
+    "AgentEvalTurn": {
+      "description": "One step of a scenario: the customer says something, answers the waiting approval, or a person on the staff acts.",
+      "oneOf": [
+        { "$ref": "#/$defs/AgentEvalUserTurn" },
+        { "$ref": "#/$defs/AgentEvalApprovalTurn" },
+        { "$ref": "#/$defs/AgentEvalStaffTurn" }
+      ]
+    },
+    "AgentEvalUserTurn": {
+      "description": "The customer's message: the agent's turn runs, and its expectations are checked.",
+      "type": "object",
+      "properties": {
+        "user": { "type": "string", "minLength": 1 },
+        "expect": { "$ref": "#/$defs/AgentEvalExpectation" },
+        "expectOn": { "$ref": "#/$defs/AgentEvalExpectationsByChannel" }
+      },
+      "required": ["user"],
+      "additionalProperties": false
+    },
+    "AgentEvalApprovalTurn": {
+      "description": "The customer's answer to the approval the last turn stopped at, decided on the channel's approval channel (the card on `ui`; the readback and an affirmative message on a conversation channel). The continuation turn runs, and its expectations are checked.",
+      "type": "object",
+      "properties": {
+        "approval": { "enum": ["approve", "decline"] },
+        "expect": { "$ref": "#/$defs/AgentEvalExpectation" },
+        "expectOn": { "$ref": "#/$defs/AgentEvalExpectationsByChannel" }
+      },
+      "required": ["approval"],
+      "additionalProperties": false
+    },
+    "AgentEvalStaffTurn": {
+      "description": "A person on the staff takes the conversation over, writes to the customer, or hands it back (ADR-0260 §2). No agent turn runs.",
+      "type": "object",
+      "properties": {
+        "staff": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "takeOver": {
+                  "type": "object",
+                  "properties": {
+                    "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+                    "role": { "type": "string", "minLength": 1, "maxLength": 80 },
+                    "userId": { "description": "Default: `staff-` and the display name.", "type": "string", "minLength": 1 }
+                  },
+                  "required": ["displayName"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["takeOver"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": { "say": { "type": "string", "minLength": 1 } },
+              "required": ["say"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": { "handBack": { "const": true } },
+              "required": ["handBack"],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": ["staff"],
+      "additionalProperties": false
+    },
+    "AgentEvalTextMatcher": {
+      "description": "What a reply's text is matched against: a string, found anywhere in it, ignoring case; a regular expression (`pattern`, with `flags`); or a `rubric`, which a judge model decides.",
+      "oneOf": [
+        { "type": "string", "minLength": 1 },
+        {
+          "type": "object",
+          "properties": {
+            "pattern": { "type": "string", "minLength": 1 },
+            "flags": { "description": "Regular-expression flags among `i`, `m`, `s` and `u`.", "type": "string", "pattern": "^[imsu]*$" }
+          },
+          "required": ["pattern"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "rubric": { "description": "What the reply must do, in a sentence a judge reads.", "type": "string", "minLength": 1 } },
+          "required": ["rubric"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "AgentEvalToolCall": {
+      "description": "A tool the agent called: its name, and arguments its call holds (a subset: every key given, with an equal value; nested objects as subsets too).",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "args": { "type": "object", "additionalProperties": true }
+      },
+      "required": ["name"],
+      "additionalProperties": false
+    },
+    "AgentEvalApprovalExpectation": {
+      "description": "The turn stopped at a call that needs the customer's approval (ADR-0228), with a readback present.",
+      "type": "object",
+      "properties": {
+        "tool": { "type": "string", "minLength": 1 },
+        "args": { "description": "A subset of the call's arguments.", "type": "object", "additionalProperties": true },
+        "readback": { "description": "What the readback must say.", "$ref": "#/$defs/AgentEvalTextMatcher" }
+      },
+      "additionalProperties": false
+    },
+    "AgentEvalExpectation": {
+      "description": "What must hold after a turn. Every field given must hold.",
+      "type": "object",
+      "properties": {
+        "says": { "description": "Each must match the reply.", "type": "array", "items": { "$ref": "#/$defs/AgentEvalTextMatcher" } },
+        "mustNotSay": { "description": "None may match the reply.", "type": "array", "items": { "$ref": "#/$defs/AgentEvalTextMatcher" } },
+        "toolCalled": { "description": "Each was called, with these arguments.", "type": "array", "items": { "$ref": "#/$defs/AgentEvalToolCall" } },
+        "toolNotCalled": {
+          "description": "None of these was called; `*` means no tool at all.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "approvalRequested": {
+          "description": "The turn stopped for the customer's approval of this call; `false`: it did not stop for any.",
+          "oneOf": [{ "const": false }, { "$ref": "#/$defs/AgentEvalApprovalExpectation" }]
+        },
+        "refusal": {
+          "description": "The reply declines: `true` for the usual phrasing of a refusal (can't, cannot, unable, not able, won't, not allowed), or a matcher for the agent's own words.",
+          "oneOf": [{ "const": true }, { "$ref": "#/$defs/AgentEvalTextMatcher" }]
+        },
+        "doesNotStore": {
+          "description": "None of these appears in anything the turn stored: its text, its tool calls' arguments, its tool results.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/AgentEvalTextMatcher" }
+        },
+        "held": { "description": "`true`: the turn ran no model call, because a person held the conversation (ADR-0260 §2.3).", "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "AgentEvalExpectationsByChannel": {
+      "description": "What must also hold on one channel, by its name.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/AgentEvalExpectation" }
+    },
+    "AgentEvalStubCase": {
+      "description": "What a tool returns when it is called with arguments that hold `when` (a subset; absent: any call).",
+      "type": "object",
+      "properties": {
+        "when": { "type": "object", "additionalProperties": true },
+        "result": {
+          "type": "object",
+          "properties": {
+            "success": { "type": "boolean" },
+            "data": {},
+            "error": { "type": "string" }
+          },
+          "required": ["success"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["result"],
+      "additionalProperties": false
+    },
+    "AgentEvalStubs": {
+      "description": "What each tool returns, by tool name: its cases in order, the first that matches the call wins. A call to a tool with no matching case fails the scenario: an eval never reaches a real backend.",
+      "type": "object",
+      "additionalProperties": { "type": "array", "items": { "$ref": "#/$defs/AgentEvalStubCase" }, "minItems": 1 }
+    }
+  }
+}

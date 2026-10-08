@@ -1,0 +1,403 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.closurestudio.ai/oui/v1/conversation-takeover.json",
+  "title": "Conversation takeover",
+  "description": "A person on the product's staff takes a live conversation from the agent, answers the customer as themselves, and hands it back (ADR-0260 §2): the shapes the realtime server, the agent worker, the product's API, the customer's tab and the staff console exchange.\n\n1. The product's own route checks that this person may take this conversation, then asks the realtime server to hold it (`POST /internal/conversations/{id}/hold`, `TakeOverRequest`). The server keeps one `ConversationHold`, stops any turn of the conversation that is running, and sends `agent:conversation_taken_over` (`ConversationTakenOverEvent`) to the conversation's room.\n2. While the conversation is held, the agent does not answer: a turn that arrives is not run by the model.\n3. The person's messages are stored by the product with `role: 'staff'` and their speaker, and announced (`POST /internal/conversations/{id}/messages`, `AnnounceMessageRequest`) as `agent:conversation_message` (`ConversationMessageEvent`), only while they hold the conversation.\n4. The holder, or the product on its own authority, hands it back (`POST /internal/conversations/{id}/hold/release`, `HandBackRequest`); `agent:conversation_handed_back` (`ConversationHandedBackEvent`) follows, and the agent's next turn reads the whole exchange in its history.\n\nThe realtime server never decides who may take over: its routes take the internal key, and the product calls them after its own check, as it does before it asks for a room token.",
+  "$defs": {
+    "StaffSpeaker": {
+      "description": "A person on the product's staff, as the conversation names them. `displayName` and `role` are shown to the customer; `userId` is what a hand-back and a staff message are checked against. It reaches the customer's tab, so name an id you are content to show (an opaque staff id).",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "description": "The staff member's id, as the product's realtime identity names them.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "displayName": {
+          "description": "The name the customer sees (\"Jordan\").",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "role": {
+          "description": "What the customer sees beside the name (\"Toyota of Quillhaven sales\").",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        }
+      },
+      "required": [
+        "userId",
+        "displayName"
+      ],
+      "additionalProperties": false
+    },
+    "ConversationHold": {
+      "description": "A conversation a person holds: the agent does not answer it until it is handed back. One holder at a time.",
+      "type": "object",
+      "properties": {
+        "conversationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "holder": {
+          "$ref": "#/$defs/StaffSpeaker"
+        },
+        "since": {
+          "description": "When it was taken, epoch ms by the realtime server's clock.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "conversationId",
+        "holder",
+        "since"
+      ],
+      "additionalProperties": false
+    },
+    "TakeoverChange": {
+      "description": "A conversation changing hands, as its stored entry and its event say: `taken_over` by a person, `handed_back` to the agent.",
+      "enum": [
+        "taken_over",
+        "handed_back"
+      ]
+    },
+    "HandBackCause": {
+      "description": "Who ended a hold: the person who held it (`holder`), or the product on its own authority (`product`: an idle policy, a manager, the end of a shift).",
+      "enum": [
+        "holder",
+        "product"
+      ]
+    },
+    "ConversationMessageRole": {
+      "description": "Who wrote a message of the conversation: the customer (`user`), the agent (`assistant`), or a person on the staff (`staff`).",
+      "enum": [
+        "user",
+        "assistant",
+        "staff"
+      ]
+    },
+    "ConversationMessage": {
+      "description": "A stored message of the conversation, as it is announced to the people watching it.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The product's id for the stored message.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "role": {
+          "$ref": "#/$defs/ConversationMessageRole"
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 100000
+        },
+        "createdAt": {
+          "description": "When it was stored, ISO 8601.",
+          "type": "string",
+          "minLength": 1
+        },
+        "speaker": {
+          "description": "Set on a `staff` message: who wrote it.",
+          "$ref": "#/$defs/StaffSpeaker"
+        }
+      },
+      "required": [
+        "id",
+        "role",
+        "content",
+        "createdAt"
+      ],
+      "additionalProperties": false
+    },
+    "ConversationRooms": {
+      "description": "Where a conversation's event goes: the conversation's room, which the product names and guards with a room token, and any of the product's own (a team's board).",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1,
+      "maxItems": 5,
+      "uniqueItems": true
+    },
+    "TakeOverRequest": {
+      "description": "`POST /internal/conversations/{conversationId}/hold`, from the product's API after its own check that this person may take this conversation.",
+      "type": "object",
+      "properties": {
+        "holder": {
+          "$ref": "#/$defs/StaffSpeaker"
+        },
+        "rooms": {
+          "$ref": "#/$defs/ConversationRooms"
+        }
+      },
+      "required": [
+        "holder",
+        "rooms"
+      ],
+      "additionalProperties": false
+    },
+    "TakeOverResult": {
+      "description": "The answer to a take-over: `taken_over` the first time, `already` when this holder had it; 409 `held` when someone else holds it.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": true
+            },
+            "change": {
+              "enum": [
+                "taken_over",
+                "already"
+              ]
+            },
+            "hold": {
+              "$ref": "#/$defs/ConversationHold"
+            }
+          },
+          "required": [
+            "ok",
+            "change",
+            "hold"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": false
+            },
+            "reason": {
+              "const": "held"
+            },
+            "hold": {
+              "$ref": "#/$defs/ConversationHold"
+            }
+          },
+          "required": [
+            "ok",
+            "reason",
+            "hold"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "HandBackRequest": {
+      "description": "`POST /internal/conversations/{conversationId}/hold/release`. With `userId`, only the holder may hand it back; without it, the product releases it on its own authority.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "description": "The staff member handing it back; must be the holder.",
+          "type": "string",
+          "minLength": 1
+        },
+        "rooms": {
+          "$ref": "#/$defs/ConversationRooms"
+        }
+      },
+      "required": [
+        "rooms"
+      ],
+      "additionalProperties": false
+    },
+    "HandBackResult": {
+      "description": "The answer to a hand-back: `handed_back` with the hold that ended, `not_held` when nobody held it; 409 `not_holder` when someone else holds it.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": true
+            },
+            "change": {
+              "const": "handed_back"
+            },
+            "hold": {
+              "$ref": "#/$defs/ConversationHold"
+            },
+            "by": {
+              "$ref": "#/$defs/HandBackCause"
+            }
+          },
+          "required": [
+            "ok",
+            "change",
+            "hold",
+            "by"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": true
+            },
+            "change": {
+              "const": "not_held"
+            }
+          },
+          "required": [
+            "ok",
+            "change"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": false
+            },
+            "reason": {
+              "const": "not_holder"
+            },
+            "hold": {
+              "$ref": "#/$defs/ConversationHold"
+            }
+          },
+          "required": [
+            "ok",
+            "reason",
+            "hold"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "AnnounceMessageRequest": {
+      "description": "`POST /internal/conversations/{conversationId}/messages`: a message the product has stored, for the people watching the conversation. A `staff` message is announced only while its speaker holds the conversation.",
+      "type": "object",
+      "properties": {
+        "message": {
+          "$ref": "#/$defs/ConversationMessage"
+        },
+        "rooms": {
+          "$ref": "#/$defs/ConversationRooms"
+        }
+      },
+      "required": [
+        "message",
+        "rooms"
+      ],
+      "additionalProperties": false
+    },
+    "AnnounceMessageResult": {
+      "description": "The answer to an announcement: sent, or 409 because its staff speaker does not hold the conversation (`not_held`: nobody does; `not_holder`: someone else does).",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": true
+            }
+          },
+          "required": [
+            "ok"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": false
+            },
+            "reason": {
+              "enum": [
+                "not_held",
+                "not_holder"
+              ]
+            }
+          },
+          "required": [
+            "ok",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ConversationTakenOverEvent": {
+      "description": "`agent:conversation_taken_over`, to the conversation's room: a person took it, and the agent stopped answering.",
+      "type": "object",
+      "properties": {
+        "conversationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hold": {
+          "$ref": "#/$defs/ConversationHold"
+        },
+        "at": {
+          "description": "Epoch ms.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "conversationId",
+        "hold",
+        "at"
+      ],
+      "additionalProperties": false
+    },
+    "ConversationHandedBackEvent": {
+      "description": "`agent:conversation_handed_back`, to the conversation's room: the hold ended, and the agent answers again.",
+      "type": "object",
+      "properties": {
+        "conversationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hold": {
+          "description": "The hold that ended.",
+          "$ref": "#/$defs/ConversationHold"
+        },
+        "by": {
+          "$ref": "#/$defs/HandBackCause"
+        },
+        "at": {
+          "description": "Epoch ms.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "conversationId",
+        "hold",
+        "by",
+        "at"
+      ],
+      "additionalProperties": false
+    },
+    "ConversationMessageEvent": {
+      "description": "`agent:conversation_message`, to the conversation's room: a message the product stored, for the people watching.",
+      "type": "object",
+      "properties": {
+        "conversationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "$ref": "#/$defs/ConversationMessage"
+        },
+        "at": {
+          "description": "Epoch ms.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "conversationId",
+        "message",
+        "at"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
