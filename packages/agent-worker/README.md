@@ -17,7 +17,7 @@ A missing value fails when the adapter is created, and the error names it. Nothi
 
 Optional tuning, with its defaults:
 - `maxRounds`: 12
-- `maxTokens`: 4096
+- `maxTokens`: 32,000 per model response, thinking included. A step cut off there before it says or calls anything runs once more, told to plan less; if that is cut off too, the person is told and the turn ends with `stopReason: 'output_limit'`.
 - `temperature`: 0.3
 - `toolTimeoutMs`: 30 s
 - `turnDeadlineMs`: 14 min (keep it below your host's own limit)

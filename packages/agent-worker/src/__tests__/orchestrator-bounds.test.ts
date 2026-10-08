@@ -144,7 +144,7 @@ describe('Orchestrator Execution Bounds (W7.T1)', () => {
       expect(capturedOpts.maxOutputTokens).toBe(8192);
     });
 
-    it('uses DEFAULT_MAX_TOKENS (4096) when maxTokens not specified', async () => {
+    it('uses DEFAULT_MAX_TOKENS (32,000) when maxTokens not specified', async () => {
       let capturedOpts: Record<string, unknown> = {};
       mockStreamTextImpl = (opts) => {
         capturedOpts = opts;
@@ -158,7 +158,7 @@ describe('Orchestrator Execution Bounds (W7.T1)', () => {
       const config = makeBaseConfig();
       await runAgentTurn(config, makeBaseInput());
 
-      expect(capturedOpts.maxOutputTokens).toBe(4096);
+      expect(capturedOpts.maxOutputTokens).toBe(32_000);
     });
   });
 
