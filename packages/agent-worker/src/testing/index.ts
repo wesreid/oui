@@ -17,3 +17,5 @@ export type { DeskApi, DeskApiOptions, DeskRequest, DeskUser } from './openapi-f
 export { DESK_EVENTS, deskEvents } from './desk-events.js';
 export { recordingFetch, replayingFetch, ReplayExhaustedError, ReplayMismatchError } from './cassette.js';
 export type { RecordedExchange } from './cassette.js';
+export { scriptedChatCompletions, scriptedReplyExchange, scriptedCompletionExchange, chatCompletionsStream, chatCompletionsChunk } from './scripted.js';
+export type { ScriptedReply, ChatRequest } from './scripted.js';

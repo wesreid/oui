@@ -70,6 +70,40 @@ importers:
         specifier: ^3.2.0
         version: 3.2.7(@types/node@22.20.5)(jsdom@26.1.0)(yaml@2.9.1)
 
+  packages/agent-evals:
+    dependencies:
+      '@ouispec/agent-core':
+        specifier: workspace:^
+        version: link:../agent-core
+      '@ouispec/agent-worker':
+        specifier: workspace:^
+        version: link:../agent-worker
+      '@ouispec/contract':
+        specifier: workspace:^
+        version: link:../contract
+      ai:
+        specifier: ^7.0.58
+        version: 7.0.127(zod@4.6.5)
+      yaml:
+        specifier: ^2.7.0
+        version: 2.9.1
+    devDependencies:
+      '@ai-sdk/amazon-bedrock':
+        specifier: ^5.0.50
+        version: 5.0.105(zod@4.6.5)
+      '@ai-sdk/openai':
+        specifier: 4.0.36
+        version: 4.0.36(zod@4.6.5)
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.5
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/node@22.20.5)(jsdom@26.1.0)(yaml@2.9.1)
+
   packages/agent-events:
     dependencies:
       '@ouispec/contract':

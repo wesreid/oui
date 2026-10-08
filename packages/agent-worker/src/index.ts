@@ -8,6 +8,7 @@
  */
 
 export type { AgentWorkerConfig, AgentTurnInput, AgentTurnResult, TurnMessage, TurnHistoryMessage, ToolCallRef, SystemPromptContext } from './types.js';
+export { historyOf } from './history.js';
 export type { RealtimeEmitAdapter } from './emit/types.js';
 export type { ToolRegistry, RegisteredTool, ToolExecutionResult, ToolExecutionContext } from './tools/types.js';
 export { createToolRegistry } from './tools/types.js';

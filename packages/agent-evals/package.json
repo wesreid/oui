@@ -1,0 +1,58 @@
+{
+  "name": "@ouispec/agent-evals",
+  "version": "0.10.0",
+  "description": "Agent evals as data (ADR-0260 §3): scenarios a product writes, run against its real agent configuration (persona, tools, tool policy, turn policy) on every channel it serves, from recorded model responses in CI or against the live model, with a CLI that fails the build on any assertion that does not hold",
+  "homepage": "https://github.com/wesreid/oui/tree/main/packages/agent-evals#readme",
+  "bugs": {
+    "url": "https://github.com/wesreid/oui/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wesreid/oui.git",
+    "directory": "packages/agent-evals"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "agent-evals": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "examples",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist",
+    "record:example": "node dist/cli.js --config examples/dealer/agent-evals.config.mjs --record"
+  },
+  "dependencies": {
+    "@ouispec/agent-core": "workspace:^",
+    "@ouispec/agent-worker": "workspace:^",
+    "@ouispec/contract": "workspace:^",
+    "ai": "^7.0.58",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "@ai-sdk/amazon-bedrock": "^5.0.50",
+    "@ai-sdk/openai": "4.0.36",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
