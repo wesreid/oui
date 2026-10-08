@@ -99,6 +99,11 @@ export interface AgentConversationMatch {
   /** The text around the words searched for, on one line. */
   excerpt: string;
   createdAt: string;
+  /**
+   * How the person entered the matched message, when they spoke it (ADR-0259
+   * §2.6), as stored on it (`AgentStoredMessage.input`). Absent or null when typed.
+   */
+  input?: MessageInput | null;
 }
 
 /** A conversation in the user's history, as the platform lists it. */
@@ -108,6 +113,13 @@ export interface AgentConversationSummary {
   title: string | null;
   /** A short excerpt to name it by when there is no title: usually its first user message. */
   preview?: string | null;
+  /**
+   * How the person entered the message `preview` is taken from, when they
+   * spoke it (ADR-0259 §2.6), as stored on it (`AgentStoredMessage.input`), so
+   * a list can mark a conversation that began by voice. Absent or null when
+   * that message was typed, or when there is no preview.
+   */
+  previewInput?: MessageInput | null;
   createdAt: string;
   updatedAt: string;
   /** When it last had a message; lists are ordered by it. Defaults to `updatedAt`. */

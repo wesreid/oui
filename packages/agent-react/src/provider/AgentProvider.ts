@@ -34,6 +34,7 @@ import type {
 import { ApprovalDecisionContext, approvalRefusalText, type ApprovalDecisionState } from '../approvals/decision.js';
 import { annotationRegistry } from '../annotations/singleton.js';
 import { storedToAgentMessages } from './stored-messages.js';
+import { readConversationSummaries, readConversationSummary } from './conversation-summaries.js';
 import { SDK_PACKAGE, SDK_VERSION } from '../version.js';
 
 const AgentContext = createContext<AgentContextValue | null>(null);
@@ -977,8 +978,9 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
       const page = await listConversations({ limit: HISTORY_PAGE_SIZE, offset: 0, ...asked });
       // A refresh with another filter started since: its answer wins.
       if (asked !== historyFilterRef.current) return;
-      historyConversationsRef.current = page.conversations;
-      setHistoryConversations(page.conversations);
+      const conversations = readConversationSummaries(page.conversations);
+      historyConversationsRef.current = conversations;
+      setHistoryConversations(conversations);
       setHistoryTotal(page.total);
       setHistoryError(null);
     } catch (err) {
@@ -993,7 +995,8 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     async (params: { limit: number; offset: number } & AgentConversationFilter) => {
       const listConversations = configRef.current.listConversations;
       if (!listConversations) throw new Error('This app cannot list conversations.');
-      return listConversations(params);
+      const page = await listConversations(params);
+      return { ...page, conversations: readConversationSummaries(page.conversations) };
     },
     [],
   );
@@ -1022,7 +1025,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     const rename = configRef.current.renameConversation;
     if (!rename) throw new Error('This app cannot rename conversations.');
     addDebugLog('info', 'agent:api', `Renaming conversation ${id}`, { conversationId: id, automatic: title === null });
-    const updated = await rename(id, title);
+    const updated = readConversationSummary(await rename(id, title));
     applyToHistory([updated]);
     return updated;
   }, [addDebugLog, applyToHistory]);
@@ -1031,7 +1034,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     const update = configRef.current.updateConversations;
     if (!update) throw new Error('This app cannot file or archive conversations.');
     addDebugLog('info', 'agent:api', `Updating ${ids.length} conversation(s)`, { conversationIds: ids, changes });
-    const updated = await update(ids, changes);
+    const updated = readConversationSummaries(await update(ids, changes));
     applyToHistory(updated);
     return updated;
   }, [addDebugLog, applyToHistory]);

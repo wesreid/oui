@@ -2,6 +2,8 @@ export { AgentProvider, useAgent, STOP_CONFIRM_TIMEOUT_MS } from './provider/Age
 
 export { useFeedback } from './hooks/useFeedback.js';
 export { storedToAgentMessages } from './provider/stored-messages.js';
+// A listed conversation's spoken marks, as the history hands them on (ADR-0259 §2.6).
+export { readConversationSummary, readConversationSummaries } from './provider/conversation-summaries.js';
 // The composer's files (ADR-0252 §2.14).
 export type { ComposerAttachment, ComposerAttachmentsState, NotSentReason } from './provider/attachments.js';
 // Approvals (ADR-0228): the card where the person approves an irreversible call.
