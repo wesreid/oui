@@ -6,6 +6,9 @@ export { storedToAgentMessages } from './provider/stored-messages.js';
 export { readConversationSummary, readConversationSummaries } from './provider/conversation-summaries.js';
 // The composer's files (ADR-0252 §2.14).
 export type { ComposerAttachment, ComposerAttachmentsState, NotSentReason } from './provider/attachments.js';
+// A person on the staff takes a conversation over and hands it back (ADR-0260 §2.7): the staff console's side.
+export { useStaffConversation } from './staff/useStaffConversation.js';
+export type { StaffConversationState } from './staff/useStaffConversation.js';
 // Approvals (ADR-0228): the card where the person approves an irreversible call.
 export { ApprovalCard } from './approvals/ApprovalCard.js';
 export type {

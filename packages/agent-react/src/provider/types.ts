@@ -31,7 +31,10 @@ export interface SendMessageResult {
 }
 import type {
   ApprovalRequiredProtocolEvent,
+  ConversationHold,
   SocketLike,
+  StaffSpeaker,
+  TakeoverChange,
   AgentConversationChanges,
   AgentConversationFilter,
   AgentConversationSummary,
@@ -50,7 +53,11 @@ export interface AgentToolCallState {
 
 export interface AgentMessage {
   id: string;
-  role: 'user' | 'assistant' | 'tool';
+  /**
+   * `staff`: a person on the staff wrote it, or it marks where they took the
+   * conversation over or handed it back (`takeover`, ADR-0260 §2.7).
+   */
+  role: 'user' | 'assistant' | 'tool' | 'staff';
   content: string | null;
   timestamp: number;
   toolCall?: AgentToolCallState;
@@ -64,6 +71,10 @@ export interface AgentMessage {
   attachments?: AttachmentRef[];
   /** How the person entered this message, when they did not type it: set on one they spoke (ADR-0259 §2.6). */
   input?: MessageInput;
+  /** On a `staff` message: who wrote it, or who took the conversation over or handed it back. */
+  speaker?: StaffSpeaker;
+  /** On a `staff` message with no content: the conversation changed hands here. */
+  takeover?: TakeoverChange;
 }
 
 export type DebugLogLevel = 'info' | 'warn' | 'error' | 'event' | 'socket';
@@ -249,6 +260,7 @@ export interface AgentContextValue {
   conversationId: string | null;
   connected: boolean;
   debug: AgentDebugState;
+  /** True while the agent is answering: a turn runs, and no person on the staff holds the conversation. */
   isProcessing: boolean;
   presentedOptions: PresentedOptions | null;
   selectOption: (value: string) => void;
@@ -260,6 +272,12 @@ export interface AgentContextValue {
   pendingApproval: AgentApprovalRequest | null;
   /** The provider's socket, for the tab's OUI transport. Null when not connected. */
   socket: SocketLike | null;
+  /**
+   * Who holds the open conversation, when a person on the staff has taken it
+   * over (ADR-0260 §2.7): the view shows who is answering. Null while the
+   * agent answers. Followed live when the platform gives `conversationRoom`.
+   */
+  hold: ConversationHold | null;
   /** The user's earlier conversations. */
   history: AgentHistoryState;
   /** True while a conversation's messages are loading (a restore after reload, or a switch). */
