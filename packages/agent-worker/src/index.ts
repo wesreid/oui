@@ -53,7 +53,14 @@ export { defaultToolPolicy, evaluateToolPolicySafe } from './authz/tool-policy.j
 // user gave, bound to the call, kept by the realtime server's approval store.
 export { createHttpApprovalStoreClient } from './approvals/client.js';
 export type { ApprovalStoreClient, HttpApprovalStoreClientConfig } from './approvals/client.js';
-export { approvalRequirement, APPROVAL_TOOL_NOTE } from './approvals/requirement.js';
+export {
+  approvalRequirement,
+  approvalToolNote,
+  APPROVAL_TOOL_NOTE,
+  READBACK_APPROVAL_TOOL_NOTE,
+  SCREEN_APPROVAL_TOOL_NOTE,
+  VOICE_APPROVAL_CHANNELS,
+} from './approvals/requirement.js';
 export type { ApprovalRequirement } from './approvals/requirement.js';
 export { buildApprovalPreview } from './approvals/preview.js';
 // The host's say before an approval is asked for: a check, and the display copy.
@@ -73,6 +80,10 @@ export type {
 export { createHttpTurnStopClient, watchTurnStop, withLocalStop, stopOf, TurnStopped, DEFAULT_STOP_GRACE_MS } from './stop/turn-stop.js';
 export type { TurnStopClient, HttpTurnStopClientConfig, TurnStopWatch, TurnStopState } from './stop/turn-stop.js';
 export { stoppedTurnMessages } from './stop/partial.js';
+// A person takes a conversation over and hands it back: the product API's client for the
+// realtime server's conversation routes.
+export { createHttpConversationClient } from './conversations/client.js';
+export type { ConversationClient, HttpConversationClientConfig } from './conversations/client.js';
 // Files the person attaches: the host's file area, the cost guard, the attachment tools.
 export type { AttachmentStore, AttachmentStoreCallOptions, AttachmentOwner, AttachmentLoadAs, AttachmentContent, AttachmentWorkerConfig } from './attachments/store.js';
 export { AttachmentGuard, type AttachmentUsage, type GuardedPart, type AttachmentCap } from './attachments/guard.js';
@@ -140,7 +151,7 @@ export { teeEmitAdapter } from './emit/tee.js';
 export type { TurnEventObserver } from './emit/tee.js';
 
 // The runtime: one core, two host adapters (Lambda + SQS, container)
-export { createAgentTurnRunner, categorizeError, payloadRefusal, TURN_DEADLINE_EXCEEDED } from './runtime/turn-runner.js';
+export { createAgentTurnRunner, categorizeError, hostSystemPrompt, payloadRefusal, TURN_DEADLINE_EXCEEDED } from './runtime/turn-runner.js';
 export type { AgentTurnRunner, TurnHost, TurnOutcome, CategorizedError } from './runtime/turn-runner.js';
 export { assertAgentRuntimeConfig } from './runtime/config.js';
 export { turnInfoOf, DEFAULT_TURN_CHANNEL } from './runtime/turn-info.js';

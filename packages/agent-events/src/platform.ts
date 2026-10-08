@@ -87,7 +87,15 @@ export const PLATFORM_EVENTS: EventDeclarationDocument = {
   events: {
     [AGENT_TURN_EVENTS.TOKEN]: turnEvent(
       'Reply text as it streams: the next piece, not the whole reply. Each piece belongs to one round, which `step` names.',
-      { text: { type: 'string' }, step },
+      {
+        text: { type: 'string' },
+        step,
+        readback: {
+          type: 'boolean',
+          description:
+            "`true` on the readback of the approval the turn stopped at, sent after every round as the turn's last words on a conversation channel (chat, SMS, voice, phone). It belongs to no round. A consumer that delivers the readback its own way skips it.",
+        },
+      },
       ['text'],
     ),
     [AGENT_TURN_EVENTS.ROUND_END]: turnEvent(

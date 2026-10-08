@@ -26,7 +26,10 @@ import {
   approvalReceiptAudience,
   canonicalJson,
   isTurnEndReason,
+  staffMessageNote,
+  takeoverNote,
   turnStoppedNote,
+  type ApprovalChannel,
   type ApprovalContinuation,
   type ApprovalRequiredEvent,
   type TurnStoppedMarker,
@@ -69,7 +72,7 @@ import { describeSchema } from './ui/outline.js';
 import { createUISequence, type UISlot } from './ui/ui-sequence.js';
 import { createTurnLedger } from './turn-ledger.js';
 import { DEFAULT_PAGE_STATE_CHARS, observationSchemas, observationsText } from './ui/observations.js';
-import { approvalRequirement, APPROVAL_TOOL_NOTE, type ApprovalRequirement } from './approvals/requirement.js';
+import { approvalRequirement, approvalToolNote, VOICE_APPROVAL_CHANNELS, type ApprovalRequirement } from './approvals/requirement.js';
 import { buildApprovalPreview, declaredTitle } from './approvals/preview.js';
 import { readHostPreview, readValidation, type ApprovalHookContext, type ApprovalValidation } from './approvals/hooks.js';
 import { turnInfoOf } from './runtime/turn-info.js';
@@ -172,6 +175,14 @@ export async function runAgentTurn(
   const { turnId, socketRoom } = input;
   // The turn as every host hook is told of it: its id, its channel, how its message was entered.
   const turnInfo = turnInfoOf(input, input.channel);
+  // Where the person is: in a UI an approval is the card; on a conversation channel, the readback.
+  const approvalChannel: ApprovalChannel = input.approvalChannel ?? 'ui';
+  /**
+   * How a call's approval is given: a UI action's always by its card, on every
+   * channel, since the person's page runs it only on its own grant from that
+   * card; any other tool's in the turn's channel.
+   */
+  const confirmedBy = (t: RegisteredTool): ApprovalChannel => (t.kind === 'ui' ? 'ui' : approvalChannel);
 
   log('info', 'agent:turn', 'Turn started', {
     turnId,
@@ -251,7 +262,7 @@ export async function runAgentTurn(
   const turnPolicy = config.turnPolicy ?? defaultTurnPolicy;
   const historyForClassify = input.history?.map((m) => ({
     role: m.role,
-    content: 'content' in m ? (m.content ?? '') : '',
+    content: m.role === 'staff' ? staffEntryText(m) : 'content' in m ? (m.content ?? '') : '',
   })) ?? [];
   const turnClass = turnPolicy.classifyTurn(input.content, historyForClassify, turnInfo);
 
@@ -290,7 +301,8 @@ export async function runAgentTurn(
   // aborts the turn's signal with a typed reason, which is what everything that
   // waits (the model stream, a UI action's answer, a job's outcome) already
   // honours. What the turn had produced is then stored and announced (below).
-  const stopWatch = input.stopWatch ?? watchTurnStop(config.stops, turnId, input.userId);
+  // It hears a person on the staff taking the conversation over, too.
+  const stopWatch = input.stopWatch ?? watchTurnStop(config.stops, turnId, input.userId, input.conversationId);
   /** Set when the turn begins its own end: a stop that lands after is not one. */
   let ending = false;
   /** Kept back from a stopped turn's grace for storing and announcing it. */
@@ -405,7 +417,10 @@ export async function runAgentTurn(
   // the host checks the call and writes its preview (`preparing`), a call that
   // arrives waits for the outcome: held, it is not run; refused, the hold is
   // released and the call goes on as if it had come first.
-  type ApprovalHold = { approvalId: string; title: string; preparing?: Promise<void> };
+  //
+  // `readback` is what the customer is sent on a conversation channel, as the
+  // turn's last words (null when the card is the approval).
+  type ApprovalHold = { approvalId: string; title: string; readback: string | null; preparing?: Promise<void> };
   let approvalHold: ApprovalHold | null = null;
   /** What the host's approval hooks are told of this turn. */
   const approvalHookContext: ApprovalHookContext = {
@@ -716,7 +731,12 @@ export async function runAgentTurn(
     if ((requirement.required || policyRequiresApproval) && !approved) {
       // Claimed before anything is awaited (above).
       let prepared!: () => void;
-      const hold: ApprovalHold = { approvalId: toolUseId, title: declaredTitle(t).title, preparing: new Promise<void>((resolve) => (prepared = resolve)) };
+      const hold: ApprovalHold = {
+        approvalId: toolUseId,
+        title: declaredTitle(t).title,
+        readback: null,
+        preparing: new Promise<void>((resolve) => (prepared = resolve)),
+      };
       approvalHold = hold;
       try {
         const checked = await validateForApproval(t, args);
@@ -725,7 +745,11 @@ export async function runAgentTurn(
           log('info', 'agent:tool', 'The host refused the call before it was asked for', { turnId, toolName: t.name });
           return refused({ error: checked.error, notRun: true, refusedBeforeApproval: true }, args);
         }
-        ledger.record({ tool: t.name, ok: false, error: 'Not run: it waits for the user’s approval on the card' });
+        ledger.record({
+          tool: t.name,
+          ok: false,
+          error: confirmedBy(t) === 'ui' ? 'Not run: it waits for the user’s approval on the card' : 'Not run: it waits for the customer to confirm its readback',
+        });
         return { text: await requestApproval(t, args, toolUseId, requirement, callFiles, hold), ran: false };
       } finally {
         hold.preparing = undefined;
@@ -917,6 +941,9 @@ export async function runAgentTurn(
       preview = written.preview;
       hold.title = preview.title;
     }
+    // On a conversation channel the readback is the confirmation: a voice says the host's spoken words when it wrote them.
+    const by = confirmedBy(t);
+    if (by !== 'ui') hold.readback = (VOICE_APPROVAL_CHANNELS.has(by) ? (preview.spokenReadback ?? preview.readback) : preview.readback).trim() || null;
 
     // The receipt's audience is fixed now, with the call: the API the tool calls. A UI action gets no receipt.
     const isUI = t.kind === 'ui';
@@ -976,8 +1003,12 @@ export async function runAgentTurn(
       awaitingApproval: true,
       approvalId: toolUseId,
       message:
-        `Waiting for the user to approve "${preview.title}" on the approval card. It has not run. ` +
-        'The turn ends here: it runs only if they approve it there, and the next turn tells you the outcome.',
+        hold.readback === null
+          ? `Waiting for the user to approve "${preview.title}" on the approval card. It has not run. ` +
+            'The turn ends here: it runs only if they approve it there, and the next turn tells you the outcome.'
+          : `Waiting for the customer to confirm "${preview.title}". They are sent this readback, word for word, after your reply: ` +
+            `"${hold.readback}" It has not run. The turn ends here: it runs only if they confirm it in their next message, ` +
+            'and the next turn tells you the outcome. Do not repeat the readback.',
     });
   };
 
@@ -1007,7 +1038,7 @@ export async function runAgentTurn(
 
     // A call that needs approval says so in its description, in place of any
     // "confirm first" instruction: the card is the confirmation.
-    const description = approvalRequirement(t).required ? `${t.description}\n\n${APPROVAL_TOOL_NOTE}` : t.description;
+    const description = approvalRequirement(t).required ? `${t.description}\n\n${approvalToolNote(approvalChannel, t.kind)}` : t.description;
     return dynamicTool({
       description,
       inputSchema: jsonSchema(rawSchema),
@@ -2059,6 +2090,18 @@ export async function runAgentTurn(
     ...convertResponseToTurnMessages({ steps: outputLimited ? [...steps, { text: OUTPUT_LIMIT_REPLY, toolCalls: [] }] : steps }, executedToolResults),
   ];
 
+  // On a conversation channel there is no card: the readback is what the customer is sent, verbatim, as the turn's
+  // last words. Sent and stored like the agent's own text, so every channel's adapter delivers it and the next turn
+  // reads it; written by the declaration (or the host's preview), never by the model. Its pieces say they are the
+  // readback, so a consumer that delivers it its own way (the live-call relay's `readback` event) does not say it twice.
+  const readback = (approvalHold as ApprovalHold | null)?.readback ?? null;
+  if (readback) {
+    const text = `${streamedText.trim() ? '\n\n' : ''}${readback}`;
+    streamedText += text;
+    await config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TOKEN, { turnId, text, readback: true, timestamp: Date.now() });
+    newMessages.push({ role: 'assistant', content: readback });
+  }
+
   // The host stores the turn before the client hears it is complete: a message sent the moment
   // it completes must be answered from a history that holds this turn.
   if (config.beforeTurnComplete) {
@@ -2150,10 +2193,12 @@ export async function runAgentTurn(
 
     // A stopped turn leaves no live card: an approval it asked for as the stop came
     // is withdrawn now, and a later turn records it as that.
-    const held = approvalHold as { approvalId: string; title: string } | null;
+    const held = approvalHold as ApprovalHold | null;
     if (held && config.approvals?.withdraw) {
       try {
-        await config.approvals.withdraw(held.approvalId, { userId: input.userId, conversationId: input.conversationId }, 'stopped');
+        // Taken over, the person now answering did not ask for it.
+        const why = stopped.reason === 'taken_over' ? 'taken_over' : 'stopped';
+        await config.approvals.withdraw(held.approvalId, { userId: input.userId, conversationId: input.conversationId }, why);
       } catch (err) {
         log('warn', 'agent:tool', 'Could not withdraw the stopped turn’s approval; it lasts until its time limit', {
           turnId,
@@ -2298,6 +2343,8 @@ function convertHistoryToCoreMessages(
   turnMessageAt: number | null = null,
 ): ModelMessage[] {
   const messages: ModelMessage[] = [];
+  /** The messages made from a person's entries, which a following entry joins. */
+  const staffMessages = new Set<ModelMessage>();
 
   // First pass: collect all tool_call_ids that have results in history
   // AND all tool call IDs from assistant messages (to validate results)
@@ -2339,6 +2386,21 @@ function convertHistoryToCoreMessages(
 
   for (let idx = 0; idx < history.length; idx++) {
     const msg = history[idx];
+    if (msg.role === 'staff') {
+      // A person on the staff (ADR-0260 §2.5): the business's side of the conversation, under their name, in the
+      // assistant's role, where no customer's text ever reaches. A run of entries is one message.
+      const text = staffEntryText(msg);
+      if (!text) continue;
+      const previous = messages[messages.length - 1];
+      if (previous && staffMessages.has(previous) && typeof previous.content === 'string') {
+        previous.content = `${previous.content}\n\n${text}`;
+      } else {
+        const entry: AssistantModelMessage = { role: 'assistant', content: text };
+        staffMessages.add(entry);
+        messages.push(entry);
+      }
+      continue;
+    }
     if (msg.role === 'user') {
       // A message's files are in history as their reference lines, never their content.
       messages.push({ role: 'user', content: idx === turnMessageAt ? msg.content : withReferenceLines(msg.content, msg.attachments ?? undefined) });
@@ -2530,3 +2592,15 @@ function convertResponseToTurnMessages(
   return turnMessages;
 }
 
+
+/**
+ * What the model reads for one of a person's entries (ADR-0260 §2.5): their
+ * message under the line that says whose it is, or the line that says they
+ * took the conversation over or handed it back. Empty for an entry with
+ * neither, which says nothing.
+ */
+function staffEntryText(entry: Extract<TurnHistoryMessage, { role: 'staff' }>): string {
+  if (entry.takeover) return takeoverNote(entry.takeover, entry.speaker);
+  const said = entry.content?.trim() ? entry.content : null;
+  return said ? `${staffMessageNote(entry.speaker)}\n${said}` : '';
+}
