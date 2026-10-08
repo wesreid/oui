@@ -50,6 +50,8 @@ Every schema of the contract is versioned together by `MANIFEST_VERSION`, and th
 | [`oui-config.json`](schemas/oui-config.json) | `OuiConfigFile` | `https://schemas.closurestudio.ai/oui/v1/oui-config.json` |
 | [`approvals.json`](schemas/approvals.json) | its 19 `$defs`, one type each | `https://schemas.closurestudio.ai/oui/v1/approvals.json` |
 | [`event-declarations.json`](schemas/event-declarations.json) | `EventDeclarationDocument` | `https://schemas.closurestudio.ai/agent-sdk/event-declarations/v1.json` |
+| [`conversation-takeover.json`](schemas/conversation-takeover.json) | its 16 `$defs`, one type each | `https://schemas.closurestudio.ai/oui/v1/conversation-takeover.json` |
+| [`agent-evals.json`](schemas/agent-evals.json) | `AgentEvalSuite` | `https://schemas.closurestudio.ai/oui/v1/agent-evals.json` |
 
 Validate any of these files in a build step with `contractProblems(ref, value)` from `@ouispec/contract/validate`, where `ref` is a file name (`control-table.json`) or a generated type's name (`ControlDescriptor`). The generator already validates every control table, room catalog, `oui.config.json`, manifest and knowledge it reads or writes, and fails the build on any problem.
 
@@ -674,7 +676,7 @@ It joins the room the completion declares for one job (`report:{jobId}`), and se
 > | `description` | string | yes |  |
 > | `payload` | EventPayloadSchema | yes | The payload's JSON Schema: an object. |
 > | `typeName` | string |  | The name generated code gives the payload type. |
-> | `rooms` | string[] | yes | The rooms the event is published to: names from the document's `rooms`, or `turn` for the room of the agent turn it belongs to (the host names that room in each turn). |
+> | `rooms` | string[] | yes | The rooms the event is published to: names from the document's `rooms`; `turn` for the room of the agent turn it belongs to (the host names that room in each turn); or `conversation` for the room of the conversation it belongs to (the host names that room too). |
 > | `correlation` | string[] | yes | The payload fields that say which job, or which resource, the event is about (e.g. |
 > | `role` | EventRole | yes |  |
 > | `completes` | string |  | For a completion or failure: the kind of job it settles. |
@@ -841,4 +843,196 @@ A compound control's wrapper is its namespace (`Select`), and its example render
 
 ## Conversations
 
-The agent client never makes HTTP requests; the product supplies callbacks. Beyond `createConversation` and `sendMessage` (which passes an approval continuation through unchanged, as `approval`, and, for a message the person spoke, how it was entered as `context.input`: `{ mode: 'voice', language }`, which the product passes to the worker on the turn's context and stores with the message, so `getConversation` returns it as the message's `input`), two optional callbacks let a person return to earlier conversations: `listConversations({ limit, offset, … })` and `getConversation(id)`. Each conversation `listConversations` returns may say how the message its `preview` is taken from was entered, as `previewInput`, and each search match how its message was, as `input`, both `{ mode: 'voice', language }` for a spoken message, so a list can mark a conversation that began by voice; the client keeps only what it recognises. With `getConversation`, the client also restores the tab's active conversation after a reload. Both must return only the signed-in person's conversations.
+The agent client never makes HTTP requests; the product supplies callbacks. Beyond `createConversation` and `sendMessage` (which passes an approval continuation through unchanged, as `approval`, and, for a message the person spoke, how it was entered as `context.input`: `{ mode: 'voice', language }`, which the product passes to the worker on the turn's context and stores with the message, so `getConversation` returns it as the message's `input`), two optional callbacks let a person return to earlier conversations: `listConversations({ limit, offset, … })` and `getConversation(id)`. Each conversation `listConversations` returns may say how the message its `preview` is taken from was entered, as `previewInput`, and each search match how its message was, as `input`, both `{ mode: 'voice', language }` for a spoken message, so a list can mark a conversation that began by voice; the client keeps only what it recognises. With `getConversation`, the client also restores the tab's active conversation after a reload. Both must return only the signed-in person's conversations. A conversation a person on the staff has taken over also returns its `role: 'staff'` messages and take-over entries, each with its `speaker`, and the current `hold` (see [Staff take over a conversation, and hand it back](#staff-take-over-a-conversation-and-hand-it-back)).
+
+## Staff take over a conversation, and hand it back
+
+A person on the product's staff can take a live conversation from the agent, answer the customer as themselves in the same conversation, and hand it back (ADR-0260 §2). While a person **holds** the conversation the agent does not answer: a turn that is running stops at a safe point and keeps what it had produced, marked `taken_over`; a turn that arrives is not run by the model and stores nothing. On hand-back the agent's next turn reads the whole exchange, the person's messages under their name, in its history.
+
+**Who may take over is yours to decide.** The realtime server keeps the hold and enforces it, and never decides staff permissions: its routes take the internal key, and your API calls them after its own check that this person may take this conversation, as it does before it asks for a room token.
+
+| Your API's route does | Then calls (internal key) |
+|---|---|
+| Take over: check the staff member may; withdraw the conversation's waiting approval (`POST /internal/approvals/{id}/settle` with `expire: 'taken_over'`); store a take-over entry | `POST /internal/conversations/{id}/hold` with `TakeOverRequest` |
+| Send as staff: store the message with `role: 'staff'` and its speaker | `POST /internal/conversations/{id}/messages` with `AnnounceMessageRequest` (refused unless the speaker holds it) |
+| Hand back: store a hand-back entry | `POST /internal/conversations/{id}/hold/release` with `HandBackRequest`: with `userId`, only the holder may; without it, you release it on your own authority (an idle policy, a manager) |
+| Every customer and agent message you store | `POST /internal/conversations/{id}/messages`, so the staff watching see it |
+
+`GET /internal/conversations/{id}/hold` answers who holds it (204: nobody). `createHttpConversationClient({ url, apiKey })` from `@ouispec/agent-worker` calls all of them. The three events they send, `agent:conversation_taken_over`, `agent:conversation_handed_back` and `agent:conversation_message`, are the server's own: `/api/emit` refuses them, so no event says a conversation changed hands when it did not.
+
+**The conversation's room.** The events go to the rooms you name in each request: the conversation's own room (name it as you like, `support:conversation:{id}`, and have your `RoomPolicy` require a token for it), and any of your own (a team's board). The event catalog reserves the room name `conversation` for it, as it reserves `turn`; your declaration document may not declare a room by that name. Mint the conversation room's token for the customer whose conversation it is, and for each staff member who may watch it.
+
+**What you store, and hand back.** A staff message is a stored message with `role: 'staff'`, its `content` and its `speaker` (`StaffSpeaker`). The take-over and the hand-back are stored too, as `role: 'staff'` entries with no content and `takeover: 'taken_over' | 'handed_back'`. `getHistory` returns each as `{ role: 'staff', content, speaker, takeover? }`; `getConversation` returns them on `messages`, and the conversation's current `hold`. The worker gives them to the model as the business's side of the conversation, under the person's name, so the agent knows what they told the customer and never takes their words for its own. A customer cannot forge one: the customer's text only ever reaches the model as the customer's.
+
+**In the customer's tab.** Give `AgentClientConfig` a `conversationRoom(conversationId)` that returns `{ room, roomToken }`. The provider joins the room for the open conversation; `useAgent().hold` says who holds it; a person's messages arrive as messages with `role: 'staff'` and their `speaker`; the take-over and hand-back as `role: 'staff'` messages with `takeover`. The customer keeps typing: their messages reach your API as always, and `isProcessing` stays false while the conversation is held.
+
+**In the staff console.** Give `AgentClientConfig` a `staff` seam (`getConversation`, `takeOver`, `handBack`, `sendMessage`: your routes above) and `conversationRoom`, and use `useStaffConversation(conversationId)` inside the provider: it loads the conversation, follows it live, and takes over, sends and hands back.
+
+**An anonymous customer.** Nothing requires a signed-in user. Issue a website visitor a session token when your widget loads (after your origin check and rate limit), with a visitor id as `userId`; have your `AuthAdapter` verify it, and mint the visitor's conversation-room and turn-room tokens only for its own conversation. Its turns, stops and approvals are then the visitor's.
+
+**What stays yours:** who is on duty, the alert to staff and how long they have to answer it, the mobile take-over screen, warm transfer on a phone call, and when an idle conversation goes back to the agent. Each has its seam above: your route before the hold, the events in your own rooms, `release` without a `userId`.
+
+> **Schema:** [`conversation-takeover.json#/$defs/StaffSpeaker`](schemas/conversation-takeover.json) · `https://schemas.closurestudio.ai/oui/v1/conversation-takeover.json#/$defs/StaffSpeaker` · TypeScript: `StaffSpeaker` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `userId` | string | yes | The staff member's id, as the product's realtime identity names them. |
+> | `displayName` | string | yes | The name the customer sees ("Jordan"). |
+> | `role` | string |  | What the customer sees beside the name ("Toyota of Quillhaven sales"). |
+
+> **Schema:** [`conversation-takeover.json#/$defs/ConversationHold`](schemas/conversation-takeover.json) · `https://schemas.closurestudio.ai/oui/v1/conversation-takeover.json#/$defs/ConversationHold` · TypeScript: `ConversationHold` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `conversationId` | string | yes |  |
+> | `holder` | StaffSpeaker | yes |  |
+> | `since` | number | yes | When it was taken, epoch ms by the realtime server's clock. |
+
+> **Schema:** [`conversation-takeover.json#/$defs/TakeOverRequest`](schemas/conversation-takeover.json) · `https://schemas.closurestudio.ai/oui/v1/conversation-takeover.json#/$defs/TakeOverRequest` · TypeScript: `TakeOverRequest` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `holder` | StaffSpeaker | yes |  |
+> | `rooms` | ConversationRooms | yes |  |
+
+> **Schema:** [`conversation-takeover.json#/$defs/HandBackRequest`](schemas/conversation-takeover.json) · `https://schemas.closurestudio.ai/oui/v1/conversation-takeover.json#/$defs/HandBackRequest` · TypeScript: `HandBackRequest` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `userId` | string |  | The staff member handing it back; must be the holder. |
+> | `rooms` | ConversationRooms | yes |  |
+
+> **Schema:** [`conversation-takeover.json#/$defs/AnnounceMessageRequest`](schemas/conversation-takeover.json) · `https://schemas.closurestudio.ai/oui/v1/conversation-takeover.json#/$defs/AnnounceMessageRequest` · TypeScript: `AnnounceMessageRequest` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `message` | ConversationMessage | yes |  |
+> | `rooms` | ConversationRooms | yes |  |
+
+> **Schema:** [`conversation-takeover.json#/$defs/ConversationMessage`](schemas/conversation-takeover.json) · `https://schemas.closurestudio.ai/oui/v1/conversation-takeover.json#/$defs/ConversationMessage` · TypeScript: `ConversationMessage` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `id` | string | yes | The product's id for the stored message. |
+> | `role` | ConversationMessageRole | yes |  |
+> | `content` | string | yes |  |
+> | `createdAt` | string | yes | When it was stored, ISO 8601. |
+> | `speaker` | StaffSpeaker |  | Set on a `staff` message: who wrote it. |
+
+> **Schema:** [`conversation-takeover.json#/$defs/ConversationTakenOverEvent`](schemas/conversation-takeover.json) · `https://schemas.closurestudio.ai/oui/v1/conversation-takeover.json#/$defs/ConversationTakenOverEvent` · TypeScript: `ConversationTakenOverEvent` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `conversationId` | string | yes |  |
+> | `hold` | ConversationHold | yes |  |
+> | `at` | number | yes | Epoch ms. |
+
+> **Schema:** [`conversation-takeover.json#/$defs/ConversationHandedBackEvent`](schemas/conversation-takeover.json) · `https://schemas.closurestudio.ai/oui/v1/conversation-takeover.json#/$defs/ConversationHandedBackEvent` · TypeScript: `ConversationHandedBackEvent` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `conversationId` | string | yes |  |
+> | `hold` | ConversationHold | yes | The hold that ended. |
+> | `by` | HandBackCause | yes |  |
+> | `at` | number | yes | Epoch ms. |
+
+## Evals: one scenario set, every channel, in CI
+
+`@ouispec/agent-evals` runs scenarios you write as data against your **real** agent configuration (its persona or system prompt, its tools, its `ToolPolicy` and `TurnPolicy`) through the SDK's own turn runner, on every channel you serve, and fails your CI when an assertion does not hold (ADR-0260 §3). In CI it replays recorded model responses: no credentials, no network, the same answer every run.
+
+**A suite** is a JSON or YAML file (`AgentEvalSuite`). A scenario's turns are the customer's messages (`user`), the customer's answer to a waiting approval (`approval: approve | decline`), and a person on the staff taking over, writing and handing back (`staff`). After a turn, `expect` says what must hold, and `expectOn.<channel>` what must also hold on one channel:
+
+| Assertion | Holds when |
+|---|---|
+| `says`, `mustNotSay` | each matcher matches the reply; none does. A string is found ignoring case; `{ pattern, flags }` is a regular expression; `{ rubric }` is decided by a judge model |
+| `toolCalled` | the agent called each tool, its arguments holding the given ones as a subset |
+| `toolNotCalled` | it called none of them (`*`: no tool at all) |
+| `approvalRequested` | the turn stopped for the customer's approval of that call, with a readback that is present and matches (`false`: it stopped for none) |
+| `refusal` | the reply declines (`true`: the usual phrasing; or a matcher) |
+| `doesNotStore` | the matchers appear nowhere the turn stored: its text, its tool arguments, its tool results |
+| `held` | the turn ran no model call, because a person held the conversation |
+
+```yaml
+version: 1
+name: dealer
+stubs:
+  inventory_search:
+    - when: { stock: T2417 }
+      result: { success: true, data: { stock: T2417, price: 31995, status: available } }
+scenarios:
+  - id: price-only
+    title: Quotes the dealer price and no payments
+    turns:
+      - user: Is T2417 still available, and what's the price?
+        expect:
+          toolCalled: [{ name: inventory_search, args: { stock: T2417 } }]
+          says: ["31,995"]
+          mustNotSay: [{ pattern: "per month|/mo|APR", flags: i }]
+```
+
+**Every tool is stubbed.** A stub is data in the suite or the scenario (`when`, a subset of the call's arguments; `result`), first match wins, the scenario's first; or a function in the configuration. A call to a tool with no stub fails the scenario: an eval never reaches your backend.
+
+**Channels.** Your configuration names them, and what each changes: `approvals` (the card, `ui`, or a conversation channel, `chat`, `sms`, `voice`, `phone`, where the readback is sent and the next message confirms it), `input` (what each customer message carries as `context.input`, so a voice channel marks it spoken), and `context`. The turn carries its channel, and the worker tells the model about approvals in that channel's terms. Every scenario runs on every channel of its suite unless it names fewer, so a change that breaks SMS and not web chat fails.
+
+```ts
+// agent-evals.config.mjs
+import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
+import { defineEvals } from '@ouispec/agent-evals';
+import { dealerAgent } from './src/dealer-agent.js'; // the parts your worker runs with
+
+export default defineEvals({
+  root: new URL('.', import.meta.url),
+  suites: ['evals/dealer.evals.yaml'],
+  cassettes: 'evals/cassettes',
+  channels: {
+    web_chat: { approvals: 'ui' },
+    sms: { approvals: 'sms' },
+    voice: { approvals: 'voice', input: { mode: 'voice', language: 'en' } },
+  },
+  model: ({ fetch, mode }) =>
+    createAmazonBedrock({
+      region: 'us-east-1',
+      fetch,
+      ...(mode === 'replay' ? { credentialProvider: async () => ({ accessKeyId: 'replay', secretAccessKey: 'replay' }) } : {}),
+    })('us.anthropic.claude-sonnet-4-6'),
+  agent: ({ channel }) => dealerAgent({ channel }), // persona, tools, toolPolicy, turnPolicy
+});
+```
+
+**Run it.** `agent-evals` (in CI: replays the recordings), `agent-evals --record` (runs the live model and writes them), `agent-evals --live` (runs it and writes nothing). `--channel` and `--scenario` narrow a run; `--json` and `--junit` write reports. It exits 1 when any case fails, listing each failed assertion with its turn, channel and the reply. In a test runner, `evalCases(config)` gives one case per scenario and channel, each throwing with every failure.
+
+**A recording knows what it was recorded against**: your system prompt, your tools' names, descriptions and schemas, the scenario's turns and the channel. Change any of them and its replay fails until you record it again, rather than passing on answers to a question no longer asked.
+
+The package ships an example: a fake dealer tool set, with scenarios for disclosure, price and no payments, an injected instruction, an SSN refused and not stored, a request for a person, a booking that runs only after its readback is confirmed, and a take-over and hand-back, on web chat, SMS and voice.
+
+> **Schema:** [`agent-evals.json`](schemas/agent-evals.json) · `https://schemas.closurestudio.ai/oui/v1/agent-evals.json` · TypeScript: `AgentEvalSuite` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `version` | 1 | yes | The suite format's version. |
+> | `name` | string | yes | The suite's name, as reports show it. |
+> | `description` | string |  |  |
+> | `channels` | AgentEvalChannelList |  | The channels every scenario runs on, as the eval configuration names them (`web_chat`, `sms`, `voice`). |
+> | `context` | object |  | What every turn of every scenario carries as its context, before the channel's and the scenario's own. |
+> | `stubs` | AgentEvalStubs |  | What each tool returns, for every scenario; a scenario's own stubs come first. |
+> | `scenarios` | AgentEvalScenario[] | yes |  |
+
+> **Schema:** [`agent-evals.json#/$defs/AgentEvalExpectation`](schemas/agent-evals.json) · `https://schemas.closurestudio.ai/oui/v1/agent-evals.json#/$defs/AgentEvalExpectation` · TypeScript: `AgentEvalExpectation` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `says` | AgentEvalTextMatcher[] |  | Each must match the reply. |
+> | `mustNotSay` | AgentEvalTextMatcher[] |  | None may match the reply. |
+> | `toolCalled` | AgentEvalToolCall[] |  | Each was called, with these arguments. |
+> | `toolNotCalled` | string[] |  | None of these was called; `*` means no tool at all. |
+> | `approvalRequested` | false \| AgentEvalApprovalExpectation |  | The turn stopped for the customer's approval of this call; `false`: it did not stop for any. |
+> | `refusal` | true \| AgentEvalTextMatcher |  | The reply declines: `true` for the usual phrasing of a refusal (can't, cannot, unable, not able, won't, not allowed), or a matcher for the agent's own words. |
+> | `doesNotStore` | AgentEvalTextMatcher[] |  | None of these appears in anything the turn stored: its text, its tool calls' arguments, its tool results. |
+> | `held` | boolean |  | `true`: the turn ran no model call, because a person held the conversation (ADR-0260 §2.3). |
+
+> **Schema:** [`agent-evals.json#/$defs/AgentEvalStubCase`](schemas/agent-evals.json) · `https://schemas.closurestudio.ai/oui/v1/agent-evals.json#/$defs/AgentEvalStubCase` · TypeScript: `AgentEvalStubCase` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `when` | object |  |  |
+> | `result` | { success: boolean, data?: any, error?: string } | yes |  |

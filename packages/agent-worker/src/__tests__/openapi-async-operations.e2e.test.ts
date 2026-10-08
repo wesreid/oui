@@ -22,22 +22,36 @@ let api: DeskApi;
 /** How the pipeline ends the next export. */
 let ending: { event: 'report:ready'; data: { url: string; pages: number } } | { event: 'report:failed'; data: { error: string } };
 const emitted: Array<{ event: string; status: number }> = [];
+/** The pipeline's pending endings: a job queued by a test that has already finished must not end after the product stops. */
+const pipeline = new Set<{ timer: ReturnType<typeof setTimeout>; started: boolean; done: Promise<void> }>();
 
 beforeAll(async () => {
   product = await startFixtureProduct();
   api = await startDeskApi({
     onReportQueued: (exportId) => {
-      setTimeout(async () => {
-        emitted.push({ event: 'report:progress', status: await product.emit('report:progress', { exportId, progress: 0.5 }, [`export:${exportId}`]) });
-        emitted.push({
-          event: ending.event,
-          status: await product.emit(ending.event, { exportId, ...ending.data }, [`export:${exportId}`, 'member:ana']),
-        });
+      let finish!: () => void;
+      const entry = { timer: undefined as unknown as ReturnType<typeof setTimeout>, started: false, done: new Promise<void>((r) => (finish = r)) };
+      entry.timer = setTimeout(async () => {
+        entry.started = true;
+        try {
+          emitted.push({ event: 'report:progress', status: await product.emit('report:progress', { exportId, progress: 0.5 }, [`export:${exportId}`]) });
+          emitted.push({
+            event: ending.event,
+            status: await product.emit(ending.event, { exportId, ...ending.data }, [`export:${exportId}`, 'member:ana']),
+          });
+        } finally {
+          pipeline.delete(entry);
+          finish();
+        }
       }, 300);
+      pipeline.add(entry);
     },
   });
 }, 20_000);
 afterAll(async () => {
+  // An ending already under way finishes; one not yet started never starts.
+  for (const entry of pipeline) if (!entry.started) clearTimeout(entry.timer);
+  await Promise.all([...pipeline].filter((entry) => entry.started).map((entry) => entry.done));
   await Promise.all([product?.stop(), api?.close()]);
 });
 

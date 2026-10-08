@@ -1482,8 +1482,9 @@ export interface EventDeclaration {
    */
   typeName?: string;
   /**
-   * The rooms the event is published to: names from the document's `rooms`, or `turn` for the
-   * room of the agent turn it belongs to (the host names that room in each turn).
+   * The rooms the event is published to: names from the document's `rooms`; `turn` for the room
+   * of the agent turn it belongs to (the host names that room in each turn); or `conversation`
+   * for the room of the conversation it belongs to (the host names that room too).
    */
   rooms: readonly string[];
   /**
@@ -1501,3 +1502,355 @@ export interface EventDeclaration {
   /** For a failure: where its reason is. */
   reason?: FailureReason;
 }
+
+// ─── Conversation takeover (ADR-0260 §2) ───────────────────────────────────────
+// https://schemas.closurestudio.ai/oui/v1/conversation-takeover.json
+
+/**
+ * A person on the product's staff, as the conversation names them. `displayName` and `role` are
+ * shown to the customer; `userId` is what a hand-back and a staff message are checked against.
+ * It reaches the customer's tab, so name an id you are content to show (an opaque staff id).
+ */
+export interface StaffSpeaker {
+  /** The staff member's id, as the product's realtime identity names them. */
+  userId: string;
+  /** The name the customer sees ("Jordan"). */
+  displayName: string;
+  /** What the customer sees beside the name ("Toyota of Quillhaven sales"). */
+  role?: string;
+}
+
+/**
+ * A conversation a person holds: the agent does not answer it until it is handed back. One
+ * holder at a time.
+ */
+export interface ConversationHold {
+  conversationId: string;
+  holder: StaffSpeaker;
+  /** When it was taken, epoch ms by the realtime server's clock. */
+  since: number;
+}
+
+/**
+ * A conversation changing hands, as its stored entry and its event say: `taken_over` by a
+ * person, `handed_back` to the agent.
+ */
+export type TakeoverChange = 'taken_over' | 'handed_back';
+
+/**
+ * Who ended a hold: the person who held it (`holder`), or the product on its own authority
+ * (`product`: an idle policy, a manager, the end of a shift).
+ */
+export type HandBackCause = 'holder' | 'product';
+
+/**
+ * Who wrote a message of the conversation: the customer (`user`), the agent (`assistant`), or a
+ * person on the staff (`staff`).
+ */
+export type ConversationMessageRole = 'user' | 'assistant' | 'staff';
+
+/** A stored message of the conversation, as it is announced to the people watching it. */
+export interface ConversationMessage {
+  /** The product's id for the stored message. */
+  id: string;
+  role: ConversationMessageRole;
+  content: string;
+  /** When it was stored, ISO 8601. */
+  createdAt: string;
+  /** Set on a `staff` message: who wrote it. */
+  speaker?: StaffSpeaker;
+}
+
+/**
+ * Where a conversation's event goes: the conversation's room, which the product names and
+ * guards with a room token, and any of the product's own (a team's board).
+ */
+export type ConversationRooms = Array<string>;
+
+/**
+ * `POST /internal/conversations/{conversationId}/hold`, from the product's API after its own
+ * check that this person may take this conversation.
+ */
+export interface TakeOverRequest {
+  holder: StaffSpeaker;
+  rooms: ConversationRooms;
+}
+
+/**
+ * The answer to a take-over: `taken_over` the first time, `already` when this holder had it;
+ * 409 `held` when someone else holds it.
+ */
+export type TakeOverResult = {
+  ok: true;
+  change: 'taken_over' | 'already';
+  hold: ConversationHold;
+} | {
+  ok: false;
+  reason: 'held';
+  hold: ConversationHold;
+};
+
+/**
+ * `POST /internal/conversations/{conversationId}/hold/release`. With `userId`, only the holder
+ * may hand it back; without it, the product releases it on its own authority.
+ */
+export interface HandBackRequest {
+  /** The staff member handing it back; must be the holder. */
+  userId?: string;
+  rooms: ConversationRooms;
+}
+
+/**
+ * The answer to a hand-back: `handed_back` with the hold that ended, `not_held` when nobody
+ * held it; 409 `not_holder` when someone else holds it.
+ */
+export type HandBackResult = {
+  ok: true;
+  change: 'handed_back';
+  hold: ConversationHold;
+  by: HandBackCause;
+} | {
+  ok: true;
+  change: 'not_held';
+} | {
+  ok: false;
+  reason: 'not_holder';
+  hold: ConversationHold;
+};
+
+/**
+ * `POST /internal/conversations/{conversationId}/messages`: a message the product has stored,
+ * for the people watching the conversation. A `staff` message is announced only while its
+ * speaker holds the conversation.
+ */
+export interface AnnounceMessageRequest {
+  message: ConversationMessage;
+  rooms: ConversationRooms;
+}
+
+/**
+ * The answer to an announcement: sent, or 409 because its staff speaker does not hold the
+ * conversation (`not_held`: nobody does; `not_holder`: someone else does).
+ */
+export type AnnounceMessageResult = {
+  ok: true;
+} | {
+  ok: false;
+  reason: 'not_held' | 'not_holder';
+};
+
+/**
+ * `agent:conversation_taken_over`, to the conversation's room: a person took it, and the agent
+ * stopped answering.
+ */
+export interface ConversationTakenOverEvent {
+  conversationId: string;
+  hold: ConversationHold;
+  /** Epoch ms. */
+  at: number;
+}
+
+/**
+ * `agent:conversation_handed_back`, to the conversation's room: the hold ended, and the agent
+ * answers again.
+ */
+export interface ConversationHandedBackEvent {
+  conversationId: string;
+  /** The hold that ended. */
+  hold: ConversationHold;
+  by: HandBackCause;
+  /** Epoch ms. */
+  at: number;
+}
+
+/**
+ * `agent:conversation_message`, to the conversation's room: a message the product stored, for
+ * the people watching.
+ */
+export interface ConversationMessageEvent {
+  conversationId: string;
+  message: ConversationMessage;
+  /** Epoch ms. */
+  at: number;
+}
+
+// ─── Agent eval scenarios (ADR-0260 §3) ────────────────────────────────────────
+// https://schemas.closurestudio.ai/oui/v1/agent-evals.json
+
+/**
+ * A suite of agent eval scenarios, written as data (ADR-0260 §3): what a customer says, turn by
+ * turn, and what must hold after each turn. `@ouispec/agent-evals` runs every scenario on every
+ * channel the suite names, against the product's real agent configuration (persona, tools, tool
+ * policy, turn policy), from recorded model responses in CI or against the live model, and
+ * fails on any assertion that does not hold.
+ */
+export interface AgentEvalSuite {
+  /** The suite format's version. */
+  version: 1;
+  /** The suite's name, as reports show it. */
+  name: string;
+  description?: string;
+  /**
+   * The channels every scenario runs on, as the eval configuration names them (`web_chat`,
+   * `sms`, `voice`). Default: every channel the configuration names.
+   */
+  channels?: AgentEvalChannelList;
+  /**
+   * What every turn of every scenario carries as its context, before the channel's and the
+   * scenario's own.
+   */
+  context?: Readonly<Record<string, unknown>>;
+  /** What each tool returns, for every scenario; a scenario's own stubs come first. */
+  stubs?: AgentEvalStubs;
+  scenarios: readonly AgentEvalScenario[];
+}
+
+/** Channel names, as the eval configuration names them. */
+export type AgentEvalChannelList = readonly string[];
+
+/** One conversation: its turns in order, and what must hold after each. */
+export interface AgentEvalScenario {
+  /** Unique in the suite; names its recordings. */
+  id: string;
+  /** What it shows, as reports name it. */
+  title: string;
+  description?: string;
+  /** The suite's channels this scenario runs on, when not all of them. */
+  channels?: AgentEvalChannelList;
+  /** What each of its turns carries as its context, after the suite's and the channel's. */
+  context?: Readonly<Record<string, unknown>>;
+  /** What each tool returns in this scenario, before the suite's stubs. */
+  stubs?: AgentEvalStubs;
+  turns: readonly AgentEvalTurn[];
+}
+
+/**
+ * One step of a scenario: the customer says something, answers the waiting approval, or a
+ * person on the staff acts.
+ */
+export type AgentEvalTurn = AgentEvalUserTurn | AgentEvalApprovalTurn | AgentEvalStaffTurn;
+
+/** The customer's message: the agent's turn runs, and its expectations are checked. */
+export interface AgentEvalUserTurn {
+  user: string;
+  expect?: AgentEvalExpectation;
+  expectOn?: AgentEvalExpectationsByChannel;
+}
+
+/**
+ * The customer's answer to the approval the last turn stopped at, decided on the channel's
+ * approval channel (the card on `ui`; the readback and an affirmative message on a conversation
+ * channel). The continuation turn runs, and its expectations are checked.
+ */
+export interface AgentEvalApprovalTurn {
+  approval: 'approve' | 'decline';
+  expect?: AgentEvalExpectation;
+  expectOn?: AgentEvalExpectationsByChannel;
+}
+
+/**
+ * A person on the staff takes the conversation over, writes to the customer, or hands it back
+ * (ADR-0260 §2). No agent turn runs.
+ */
+export interface AgentEvalStaffTurn {
+  staff: {
+    takeOver: {
+      displayName: string;
+      role?: string;
+      /** Default: `staff-` and the display name. */
+      userId?: string;
+    };
+  } | {
+    say: string;
+  } | {
+    handBack: true;
+  };
+}
+
+/**
+ * What a reply's text is matched against: a string, found anywhere in it, ignoring case; a
+ * regular expression (`pattern`, with `flags`); or a `rubric`, which a judge model decides.
+ */
+export type AgentEvalTextMatcher = string | {
+  pattern: string;
+  /** Regular-expression flags among `i`, `m`, `s` and `u`. */
+  flags?: string;
+} | {
+  /** What the reply must do, in a sentence a judge reads. */
+  rubric: string;
+};
+
+/**
+ * A tool the agent called: its name, and arguments its call holds (a subset: every key given,
+ * with an equal value; nested objects as subsets too).
+ */
+export interface AgentEvalToolCall {
+  name: string;
+  args?: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * The turn stopped at a call that needs the customer's approval (ADR-0228), with a readback
+ * present.
+ */
+export interface AgentEvalApprovalExpectation {
+  tool?: string;
+  /** A subset of the call's arguments. */
+  args?: Readonly<Record<string, unknown>>;
+  /** What the readback must say. */
+  readback?: AgentEvalTextMatcher;
+}
+
+/** What must hold after a turn. Every field given must hold. */
+export interface AgentEvalExpectation {
+  /** Each must match the reply. */
+  says?: readonly AgentEvalTextMatcher[];
+  /** None may match the reply. */
+  mustNotSay?: readonly AgentEvalTextMatcher[];
+  /** Each was called, with these arguments. */
+  toolCalled?: readonly AgentEvalToolCall[];
+  /** None of these was called; `*` means no tool at all. */
+  toolNotCalled?: readonly string[];
+  /**
+   * The turn stopped for the customer's approval of this call; `false`: it did not stop for
+   * any.
+   */
+  approvalRequested?: false | AgentEvalApprovalExpectation;
+  /**
+   * The reply declines: `true` for the usual phrasing of a refusal (can't, cannot, unable, not
+   * able, won't, not allowed), or a matcher for the agent's own words.
+   */
+  refusal?: true | AgentEvalTextMatcher;
+  /**
+   * None of these appears in anything the turn stored: its text, its tool calls' arguments, its
+   * tool results.
+   */
+  doesNotStore?: readonly AgentEvalTextMatcher[];
+  /**
+   * `true`: the turn ran no model call, because a person held the conversation (ADR-0260 §2.3).
+   */
+  held?: boolean;
+}
+
+/** What must also hold on one channel, by its name. */
+export type AgentEvalExpectationsByChannel = Readonly<Record<string, AgentEvalExpectation>>;
+
+/**
+ * What a tool returns when it is called with arguments that hold `when` (a subset; absent: any
+ * call).
+ */
+export interface AgentEvalStubCase {
+  when?: Readonly<Record<string, unknown>>;
+  result: {
+    success: boolean;
+    data?: unknown;
+    error?: string;
+  };
+}
+
+/**
+ * What each tool returns, by tool name: its cases in order, the first that matches the call
+ * wins. A call to a tool with no matching case fails the scenario: an eval never reaches a real
+ * backend.
+ */
+export type AgentEvalStubs = Readonly<Record<string, readonly AgentEvalStubCase[]>>;

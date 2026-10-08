@@ -201,7 +201,7 @@
           "pattern": "^[A-Z][A-Za-z0-9]*$"
         },
         "rooms": {
-          "description": "The rooms the event is published to: names from the document's `rooms`, or `turn` for the room of the agent turn it belongs to (the host names that room in each turn).",
+          "description": "The rooms the event is published to: names from the document's `rooms`; `turn` for the room of the agent turn it belongs to (the host names that room in each turn); or `conversation` for the room of the conversation it belongs to (the host names that room too).",
           "type": "array",
           "items": {
             "type": "string",

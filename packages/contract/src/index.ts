@@ -17,6 +17,8 @@
  * | `oui-config.json` | `oui.config.json` |
  * | `approvals.json` | The approval messages (ADR-0228) |
  * | `event-declarations.json` | A product's event declarations (ADR-0227 §2.4) |
+ * | `conversation-takeover.json` | A person taking a conversation from the agent, and handing it back (ADR-0260 §2) |
+ * | `agent-evals.json` | A suite of agent eval scenarios (ADR-0260 §3) |
  *
  * Browser-safe and dependency-free. Validation is `./validate`; the type
  * renderer is `./codegen`; the files are `./schemas/<file>`; the integrator

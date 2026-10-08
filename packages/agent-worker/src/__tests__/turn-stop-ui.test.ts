@@ -38,10 +38,15 @@ function setup(receipt: UIDispatchReceipt | null = { acknowledged: 1, accepted: 
   const dispatched: OUIActionRequest[] = [];
   const kept = new Map<string, OUIActionResult>();
   const waits: Array<{ requestId: string; signal?: AbortSignal; final?: boolean }> = [];
+  /** Answers the page sends once the turn's stop has begun its last look: after the stop, within the grace. */
+  const answersAfterStop = new Map<string, OUIActionResult>();
   const channel: UIActionChannel = {
     dispatch: async (_room, request) => (dispatched.push(request), receipt),
     awaitResult: async (requestId, { timeoutMs, signal, final }) => {
       waits.push({ requestId, signal, final });
+      // The last look runs on the stop's own signal, never the turn's: the answer lands during it, however slow the clock.
+      const late = answersAfterStop.get(requestId);
+      if (late && signal && signal !== controller.signal) setTimeout(() => kept.set(requestId, late), 0);
       const until = Date.now() + timeoutMs;
       while (!kept.has(requestId) && Date.now() < until && !signal?.aborted) await new Promise((r) => setTimeout(r, 5));
       return kept.get(requestId) ?? null;
@@ -72,6 +77,7 @@ function setup(receipt: UIDispatchReceipt | null = { acknowledged: 1, accepted: 
   return {
     dispatched,
     kept,
+    answersAfterStop,
     waits,
     sight,
     read,
@@ -104,9 +110,9 @@ describe('a UI action out when its turn is stopped', () => {
     const page = setup();
     const running = page.tool('draft_rename').execute({ title: 'A' }, page.ctx('call-1'));
     await settle();
-    page.stopTurn();
     // The page was already running it, and answers a moment after the stop.
-    setTimeout(() => page.kept.set('call-1', answer('call-1')), 25);
+    page.answersAfterStop.set('call-1', answer('call-1'));
+    page.stopTurn();
 
     const result = await running;
     expect(result).toMatchObject({ success: true });

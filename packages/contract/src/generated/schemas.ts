@@ -3173,7 +3173,7 @@ export const CONTRACT_SCHEMAS = {
             "pattern": "^[A-Z][A-Za-z0-9]*$"
           },
           "rooms": {
-            "description": "The rooms the event is published to: names from the document's `rooms`, or `turn` for the room of the agent turn it belongs to (the host names that room in each turn).",
+            "description": "The rooms the event is published to: names from the document's `rooms`; `turn` for the room of the agent turn it belongs to (the host names that room in each turn); or `conversation` for the room of the conversation it belongs to (the host names that room too).",
             "type": "array",
             "items": {
               "type": "string",
@@ -3286,6 +3286,839 @@ export const CONTRACT_SCHEMAS = {
       }
     }
   } as ContractSchemaDocument,
+  'conversation-takeover.json': {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://schemas.closurestudio.ai/oui/v1/conversation-takeover.json",
+    "title": "Conversation takeover",
+    "description": "A person on the product's staff takes a live conversation from the agent, answers the customer as themselves, and hands it back (ADR-0260 §2): the shapes the realtime server, the agent worker, the product's API, the customer's tab and the staff console exchange.\n\n1. The product's own route checks that this person may take this conversation, then asks the realtime server to hold it (`POST /internal/conversations/{id}/hold`, `TakeOverRequest`). The server keeps one `ConversationHold`, stops any turn of the conversation that is running, and sends `agent:conversation_taken_over` (`ConversationTakenOverEvent`) to the conversation's room.\n2. While the conversation is held, the agent does not answer: a turn that arrives is not run by the model.\n3. The person's messages are stored by the product with `role: 'staff'` and their speaker, and announced (`POST /internal/conversations/{id}/messages`, `AnnounceMessageRequest`) as `agent:conversation_message` (`ConversationMessageEvent`), only while they hold the conversation.\n4. The holder, or the product on its own authority, hands it back (`POST /internal/conversations/{id}/hold/release`, `HandBackRequest`); `agent:conversation_handed_back` (`ConversationHandedBackEvent`) follows, and the agent's next turn reads the whole exchange in its history.\n\nThe realtime server never decides who may take over: its routes take the internal key, and the product calls them after its own check, as it does before it asks for a room token.",
+    "$defs": {
+      "StaffSpeaker": {
+        "description": "A person on the product's staff, as the conversation names them. `displayName` and `role` are shown to the customer; `userId` is what a hand-back and a staff message are checked against. It reaches the customer's tab, so name an id you are content to show (an opaque staff id).",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "description": "The staff member's id, as the product's realtime identity names them.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "displayName": {
+            "description": "The name the customer sees (\"Jordan\").",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "role": {
+            "description": "What the customer sees beside the name (\"Toyota of Quillhaven sales\").",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "userId",
+          "displayName"
+        ],
+        "additionalProperties": false
+      },
+      "ConversationHold": {
+        "description": "A conversation a person holds: the agent does not answer it until it is handed back. One holder at a time.",
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "holder": {
+            "$ref": "#/$defs/StaffSpeaker"
+          },
+          "since": {
+            "description": "When it was taken, epoch ms by the realtime server's clock.",
+            "type": "number"
+          }
+        },
+        "required": [
+          "conversationId",
+          "holder",
+          "since"
+        ],
+        "additionalProperties": false
+      },
+      "TakeoverChange": {
+        "description": "A conversation changing hands, as its stored entry and its event say: `taken_over` by a person, `handed_back` to the agent.",
+        "enum": [
+          "taken_over",
+          "handed_back"
+        ]
+      },
+      "HandBackCause": {
+        "description": "Who ended a hold: the person who held it (`holder`), or the product on its own authority (`product`: an idle policy, a manager, the end of a shift).",
+        "enum": [
+          "holder",
+          "product"
+        ]
+      },
+      "ConversationMessageRole": {
+        "description": "Who wrote a message of the conversation: the customer (`user`), the agent (`assistant`), or a person on the staff (`staff`).",
+        "enum": [
+          "user",
+          "assistant",
+          "staff"
+        ]
+      },
+      "ConversationMessage": {
+        "description": "A stored message of the conversation, as it is announced to the people watching it.",
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "The product's id for the stored message.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "role": {
+            "$ref": "#/$defs/ConversationMessageRole"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "createdAt": {
+            "description": "When it was stored, ISO 8601.",
+            "type": "string",
+            "minLength": 1
+          },
+          "speaker": {
+            "description": "Set on a `staff` message: who wrote it.",
+            "$ref": "#/$defs/StaffSpeaker"
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "content",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "ConversationRooms": {
+        "description": "Where a conversation's event goes: the conversation's room, which the product names and guards with a room token, and any of the product's own (a team's board).",
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        },
+        "minItems": 1,
+        "maxItems": 5,
+        "uniqueItems": true
+      },
+      "TakeOverRequest": {
+        "description": "`POST /internal/conversations/{conversationId}/hold`, from the product's API after its own check that this person may take this conversation.",
+        "type": "object",
+        "properties": {
+          "holder": {
+            "$ref": "#/$defs/StaffSpeaker"
+          },
+          "rooms": {
+            "$ref": "#/$defs/ConversationRooms"
+          }
+        },
+        "required": [
+          "holder",
+          "rooms"
+        ],
+        "additionalProperties": false
+      },
+      "TakeOverResult": {
+        "description": "The answer to a take-over: `taken_over` the first time, `already` when this holder had it; 409 `held` when someone else holds it.",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "change": {
+                "enum": [
+                  "taken_over",
+                  "already"
+                ]
+              },
+              "hold": {
+                "$ref": "#/$defs/ConversationHold"
+              }
+            },
+            "required": [
+              "ok",
+              "change",
+              "hold"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "const": false
+              },
+              "reason": {
+                "const": "held"
+              },
+              "hold": {
+                "$ref": "#/$defs/ConversationHold"
+              }
+            },
+            "required": [
+              "ok",
+              "reason",
+              "hold"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "HandBackRequest": {
+        "description": "`POST /internal/conversations/{conversationId}/hold/release`. With `userId`, only the holder may hand it back; without it, the product releases it on its own authority.",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "description": "The staff member handing it back; must be the holder.",
+            "type": "string",
+            "minLength": 1
+          },
+          "rooms": {
+            "$ref": "#/$defs/ConversationRooms"
+          }
+        },
+        "required": [
+          "rooms"
+        ],
+        "additionalProperties": false
+      },
+      "HandBackResult": {
+        "description": "The answer to a hand-back: `handed_back` with the hold that ended, `not_held` when nobody held it; 409 `not_holder` when someone else holds it.",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "change": {
+                "const": "handed_back"
+              },
+              "hold": {
+                "$ref": "#/$defs/ConversationHold"
+              },
+              "by": {
+                "$ref": "#/$defs/HandBackCause"
+              }
+            },
+            "required": [
+              "ok",
+              "change",
+              "hold",
+              "by"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "change": {
+                "const": "not_held"
+              }
+            },
+            "required": [
+              "ok",
+              "change"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "const": false
+              },
+              "reason": {
+                "const": "not_holder"
+              },
+              "hold": {
+                "$ref": "#/$defs/ConversationHold"
+              }
+            },
+            "required": [
+              "ok",
+              "reason",
+              "hold"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "AnnounceMessageRequest": {
+        "description": "`POST /internal/conversations/{conversationId}/messages`: a message the product has stored, for the people watching the conversation. A `staff` message is announced only while its speaker holds the conversation.",
+        "type": "object",
+        "properties": {
+          "message": {
+            "$ref": "#/$defs/ConversationMessage"
+          },
+          "rooms": {
+            "$ref": "#/$defs/ConversationRooms"
+          }
+        },
+        "required": [
+          "message",
+          "rooms"
+        ],
+        "additionalProperties": false
+      },
+      "AnnounceMessageResult": {
+        "description": "The answer to an announcement: sent, or 409 because its staff speaker does not hold the conversation (`not_held`: nobody does; `not_holder`: someone else does).",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "const": true
+              }
+            },
+            "required": [
+              "ok"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "const": false
+              },
+              "reason": {
+                "enum": [
+                  "not_held",
+                  "not_holder"
+                ]
+              }
+            },
+            "required": [
+              "ok",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "ConversationTakenOverEvent": {
+        "description": "`agent:conversation_taken_over`, to the conversation's room: a person took it, and the agent stopped answering.",
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "hold": {
+            "$ref": "#/$defs/ConversationHold"
+          },
+          "at": {
+            "description": "Epoch ms.",
+            "type": "number"
+          }
+        },
+        "required": [
+          "conversationId",
+          "hold",
+          "at"
+        ],
+        "additionalProperties": false
+      },
+      "ConversationHandedBackEvent": {
+        "description": "`agent:conversation_handed_back`, to the conversation's room: the hold ended, and the agent answers again.",
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "hold": {
+            "description": "The hold that ended.",
+            "$ref": "#/$defs/ConversationHold"
+          },
+          "by": {
+            "$ref": "#/$defs/HandBackCause"
+          },
+          "at": {
+            "description": "Epoch ms.",
+            "type": "number"
+          }
+        },
+        "required": [
+          "conversationId",
+          "hold",
+          "by",
+          "at"
+        ],
+        "additionalProperties": false
+      },
+      "ConversationMessageEvent": {
+        "description": "`agent:conversation_message`, to the conversation's room: a message the product stored, for the people watching.",
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "$ref": "#/$defs/ConversationMessage"
+          },
+          "at": {
+            "description": "Epoch ms.",
+            "type": "number"
+          }
+        },
+        "required": [
+          "conversationId",
+          "message",
+          "at"
+        ],
+        "additionalProperties": false
+      }
+    }
+  } as ContractSchemaDocument,
+  'agent-evals.json': {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://schemas.closurestudio.ai/oui/v1/agent-evals.json",
+    "title": "AgentEvalSuite",
+    "description": "A suite of agent eval scenarios, written as data (ADR-0260 §3): what a customer says, turn by turn, and what must hold after each turn. `@ouispec/agent-evals` runs every scenario on every channel the suite names, against the product's real agent configuration (persona, tools, tool policy, turn policy), from recorded model responses in CI or against the live model, and fails on any assertion that does not hold.",
+    "type": "object",
+    "properties": {
+      "version": {
+        "description": "The suite format's version.",
+        "const": 1
+      },
+      "name": {
+        "description": "The suite's name, as reports show it.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 120
+      },
+      "description": {
+        "type": "string"
+      },
+      "channels": {
+        "description": "The channels every scenario runs on, as the eval configuration names them (`web_chat`, `sms`, `voice`). Default: every channel the configuration names.",
+        "$ref": "#/$defs/AgentEvalChannelList"
+      },
+      "context": {
+        "description": "What every turn of every scenario carries as its context, before the channel's and the scenario's own.",
+        "type": "object",
+        "additionalProperties": true
+      },
+      "stubs": {
+        "description": "What each tool returns, for every scenario; a scenario's own stubs come first.",
+        "$ref": "#/$defs/AgentEvalStubs"
+      },
+      "scenarios": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/AgentEvalScenario"
+        },
+        "minItems": 1
+      }
+    },
+    "required": [
+      "version",
+      "name",
+      "scenarios"
+    ],
+    "additionalProperties": false,
+    "$defs": {
+      "AgentEvalChannelList": {
+        "description": "Channel names, as the eval configuration names them.",
+        "type": "array",
+        "items": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$"
+        },
+        "minItems": 1,
+        "uniqueItems": true
+      },
+      "AgentEvalScenario": {
+        "description": "One conversation: its turns in order, and what must hold after each.",
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "Unique in the suite; names its recordings.",
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]*$",
+            "maxLength": 80
+          },
+          "title": {
+            "description": "What it shows, as reports name it.",
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string"
+          },
+          "channels": {
+            "description": "The suite's channels this scenario runs on, when not all of them.",
+            "$ref": "#/$defs/AgentEvalChannelList"
+          },
+          "context": {
+            "description": "What each of its turns carries as its context, after the suite's and the channel's.",
+            "type": "object",
+            "additionalProperties": true
+          },
+          "stubs": {
+            "description": "What each tool returns in this scenario, before the suite's stubs.",
+            "$ref": "#/$defs/AgentEvalStubs"
+          },
+          "turns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AgentEvalTurn"
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "turns"
+        ],
+        "additionalProperties": false
+      },
+      "AgentEvalTurn": {
+        "description": "One step of a scenario: the customer says something, answers the waiting approval, or a person on the staff acts.",
+        "oneOf": [
+          {
+            "$ref": "#/$defs/AgentEvalUserTurn"
+          },
+          {
+            "$ref": "#/$defs/AgentEvalApprovalTurn"
+          },
+          {
+            "$ref": "#/$defs/AgentEvalStaffTurn"
+          }
+        ]
+      },
+      "AgentEvalUserTurn": {
+        "description": "The customer's message: the agent's turn runs, and its expectations are checked.",
+        "type": "object",
+        "properties": {
+          "user": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expect": {
+            "$ref": "#/$defs/AgentEvalExpectation"
+          },
+          "expectOn": {
+            "$ref": "#/$defs/AgentEvalExpectationsByChannel"
+          }
+        },
+        "required": [
+          "user"
+        ],
+        "additionalProperties": false
+      },
+      "AgentEvalApprovalTurn": {
+        "description": "The customer's answer to the approval the last turn stopped at, decided on the channel's approval channel (the card on `ui`; the readback and an affirmative message on a conversation channel). The continuation turn runs, and its expectations are checked.",
+        "type": "object",
+        "properties": {
+          "approval": {
+            "enum": [
+              "approve",
+              "decline"
+            ]
+          },
+          "expect": {
+            "$ref": "#/$defs/AgentEvalExpectation"
+          },
+          "expectOn": {
+            "$ref": "#/$defs/AgentEvalExpectationsByChannel"
+          }
+        },
+        "required": [
+          "approval"
+        ],
+        "additionalProperties": false
+      },
+      "AgentEvalStaffTurn": {
+        "description": "A person on the staff takes the conversation over, writes to the customer, or hands it back (ADR-0260 §2). No agent turn runs.",
+        "type": "object",
+        "properties": {
+          "staff": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "takeOver": {
+                    "type": "object",
+                    "properties": {
+                      "displayName": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80
+                      },
+                      "role": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80
+                      },
+                      "userId": {
+                        "description": "Default: `staff-` and the display name.",
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "displayName"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "takeOver"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "say": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "say"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "handBack": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "handBack"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "staff"
+        ],
+        "additionalProperties": false
+      },
+      "AgentEvalTextMatcher": {
+        "description": "What a reply's text is matched against: a string, found anywhere in it, ignoring case; a regular expression (`pattern`, with `flags`); or a `rubric`, which a judge model decides.",
+        "oneOf": [
+          {
+            "type": "string",
+            "minLength": 1
+          },
+          {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string",
+                "minLength": 1
+              },
+              "flags": {
+                "description": "Regular-expression flags among `i`, `m`, `s` and `u`.",
+                "type": "string",
+                "pattern": "^[imsu]*$"
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "rubric": {
+                "description": "What the reply must do, in a sentence a judge reads.",
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "rubric"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "AgentEvalToolCall": {
+        "description": "A tool the agent called: its name, and arguments its call holds (a subset: every key given, with an equal value; nested objects as subsets too).",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "args": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "AgentEvalApprovalExpectation": {
+        "description": "The turn stopped at a call that needs the customer's approval (ADR-0228), with a readback present.",
+        "type": "object",
+        "properties": {
+          "tool": {
+            "type": "string",
+            "minLength": 1
+          },
+          "args": {
+            "description": "A subset of the call's arguments.",
+            "type": "object",
+            "additionalProperties": true
+          },
+          "readback": {
+            "description": "What the readback must say.",
+            "$ref": "#/$defs/AgentEvalTextMatcher"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentEvalExpectation": {
+        "description": "What must hold after a turn. Every field given must hold.",
+        "type": "object",
+        "properties": {
+          "says": {
+            "description": "Each must match the reply.",
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AgentEvalTextMatcher"
+            }
+          },
+          "mustNotSay": {
+            "description": "None may match the reply.",
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AgentEvalTextMatcher"
+            }
+          },
+          "toolCalled": {
+            "description": "Each was called, with these arguments.",
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AgentEvalToolCall"
+            }
+          },
+          "toolNotCalled": {
+            "description": "None of these was called; `*` means no tool at all.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "approvalRequested": {
+            "description": "The turn stopped for the customer's approval of this call; `false`: it did not stop for any.",
+            "oneOf": [
+              {
+                "const": false
+              },
+              {
+                "$ref": "#/$defs/AgentEvalApprovalExpectation"
+              }
+            ]
+          },
+          "refusal": {
+            "description": "The reply declines: `true` for the usual phrasing of a refusal (can't, cannot, unable, not able, won't, not allowed), or a matcher for the agent's own words.",
+            "oneOf": [
+              {
+                "const": true
+              },
+              {
+                "$ref": "#/$defs/AgentEvalTextMatcher"
+              }
+            ]
+          },
+          "doesNotStore": {
+            "description": "None of these appears in anything the turn stored: its text, its tool calls' arguments, its tool results.",
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AgentEvalTextMatcher"
+            }
+          },
+          "held": {
+            "description": "`true`: the turn ran no model call, because a person held the conversation (ADR-0260 §2.3).",
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentEvalExpectationsByChannel": {
+        "description": "What must also hold on one channel, by its name.",
+        "type": "object",
+        "additionalProperties": {
+          "$ref": "#/$defs/AgentEvalExpectation"
+        }
+      },
+      "AgentEvalStubCase": {
+        "description": "What a tool returns when it is called with arguments that hold `when` (a subset; absent: any call).",
+        "type": "object",
+        "properties": {
+          "when": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "result": {
+            "type": "object",
+            "properties": {
+              "success": {
+                "type": "boolean"
+              },
+              "data": {},
+              "error": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "success"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false
+      },
+      "AgentEvalStubs": {
+        "description": "What each tool returns, by tool name: its cases in order, the first that matches the call wins. A call to a tool with no matching case fails the scenario: an eval never reaches a real backend.",
+        "type": "object",
+        "additionalProperties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AgentEvalStubCase"
+          },
+          "minItems": 1
+        }
+      }
+    }
+  } as ContractSchemaDocument,
 } as const;
 
 export type ContractSchemaFile = keyof typeof CONTRACT_SCHEMAS;
@@ -3383,6 +4216,36 @@ export const CONTRACT_TYPES = {
   EventRole: 'event-declarations.json#/$defs/EventRole',
   FailureReason: 'event-declarations.json#/$defs/FailureReason',
   EventDeclaration: 'event-declarations.json#/$defs/EventDeclaration',
+  StaffSpeaker: 'conversation-takeover.json#/$defs/StaffSpeaker',
+  ConversationHold: 'conversation-takeover.json#/$defs/ConversationHold',
+  TakeoverChange: 'conversation-takeover.json#/$defs/TakeoverChange',
+  HandBackCause: 'conversation-takeover.json#/$defs/HandBackCause',
+  ConversationMessageRole: 'conversation-takeover.json#/$defs/ConversationMessageRole',
+  ConversationMessage: 'conversation-takeover.json#/$defs/ConversationMessage',
+  ConversationRooms: 'conversation-takeover.json#/$defs/ConversationRooms',
+  TakeOverRequest: 'conversation-takeover.json#/$defs/TakeOverRequest',
+  TakeOverResult: 'conversation-takeover.json#/$defs/TakeOverResult',
+  HandBackRequest: 'conversation-takeover.json#/$defs/HandBackRequest',
+  HandBackResult: 'conversation-takeover.json#/$defs/HandBackResult',
+  AnnounceMessageRequest: 'conversation-takeover.json#/$defs/AnnounceMessageRequest',
+  AnnounceMessageResult: 'conversation-takeover.json#/$defs/AnnounceMessageResult',
+  ConversationTakenOverEvent: 'conversation-takeover.json#/$defs/ConversationTakenOverEvent',
+  ConversationHandedBackEvent: 'conversation-takeover.json#/$defs/ConversationHandedBackEvent',
+  ConversationMessageEvent: 'conversation-takeover.json#/$defs/ConversationMessageEvent',
+  AgentEvalSuite: 'agent-evals.json',
+  AgentEvalChannelList: 'agent-evals.json#/$defs/AgentEvalChannelList',
+  AgentEvalScenario: 'agent-evals.json#/$defs/AgentEvalScenario',
+  AgentEvalTurn: 'agent-evals.json#/$defs/AgentEvalTurn',
+  AgentEvalUserTurn: 'agent-evals.json#/$defs/AgentEvalUserTurn',
+  AgentEvalApprovalTurn: 'agent-evals.json#/$defs/AgentEvalApprovalTurn',
+  AgentEvalStaffTurn: 'agent-evals.json#/$defs/AgentEvalStaffTurn',
+  AgentEvalTextMatcher: 'agent-evals.json#/$defs/AgentEvalTextMatcher',
+  AgentEvalToolCall: 'agent-evals.json#/$defs/AgentEvalToolCall',
+  AgentEvalApprovalExpectation: 'agent-evals.json#/$defs/AgentEvalApprovalExpectation',
+  AgentEvalExpectation: 'agent-evals.json#/$defs/AgentEvalExpectation',
+  AgentEvalExpectationsByChannel: 'agent-evals.json#/$defs/AgentEvalExpectationsByChannel',
+  AgentEvalStubCase: 'agent-evals.json#/$defs/AgentEvalStubCase',
+  AgentEvalStubs: 'agent-evals.json#/$defs/AgentEvalStubs',
 } as const;
 
 export type ContractTypeName = keyof typeof CONTRACT_TYPES;
