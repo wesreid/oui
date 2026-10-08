@@ -26,7 +26,9 @@ export class TurnStopped extends Error {
         ? 'The turn was superseded by a newer message'
         : reason === 'deadline'
           ? 'The turn ran out of time'
-          : 'The turn was stopped by the person',
+          : reason === 'taken_over'
+            ? 'A person on the staff took the conversation over'
+            : 'The turn was stopped by the person',
     );
     this.name = 'TurnStopped';
   }

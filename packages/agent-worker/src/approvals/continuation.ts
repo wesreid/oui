@@ -72,6 +72,7 @@ export function approvedExpiredMarker(now: Date = new Date()): ApprovalMarker {
 const WITHDRAWN_BECAUSE: Record<ApprovalWithdrawReason, string> = {
   superseded: 'the user sent a new message',
   stopped: 'the user stopped the turn that asked for it',
+  taken_over: 'a person on the staff took the conversation over',
 };
 
 /**

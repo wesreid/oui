@@ -34,3 +34,13 @@ export const EVENT_DECLARATIONS_VERSION = 1;
 
 /** The room an agent turn's events go to; each host names it in the turn. */
 export const TURN_ROOM = 'turn';
+
+/**
+ * The room a conversation's events go to (ADR-0260 §2.4): the people watching
+ * one conversation, the customer and the staff. Each host names it, as it
+ * names a turn's.
+ */
+export const CONVERSATION_ROOM = 'conversation';
+
+/** The rooms each host names itself, which a declaration document may not declare. */
+export const HOST_NAMED_ROOMS: readonly string[] = [TURN_ROOM, CONVERSATION_ROOM];
