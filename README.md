@@ -12,9 +12,10 @@
 | [`@ouispec/agent-core`](packages/agent-core) | What the agent SDK shares: the turn protocol, tool and entity types, approval types. |
 | [`@ouispec/agent-events`](packages/agent-events) | Event contracts the product declares, and the catalog the server, the worker and the UI follow. |
 | [`@ouispec/agent-worker`](packages/agent-worker) | The agent: runs a turn with any `ai` model, UI tools from the tab's surfaces, API tools generated from an OpenAPI document, approvals. Lambda + SQS and container adapters. |
-| [`@ouispec/agent-realtime`](packages/agent-realtime) | The realtime server between the agent and the browser: rooms, room tokens, UI action results, approvals, declared events. |
-| [`@ouispec/agent-react`](packages/agent-react) | The agent in a React app: the provider, the chat hooks, the approval card. |
+| [`@ouispec/agent-realtime`](packages/agent-realtime) | The realtime server between the agent and the browser: rooms, room tokens, UI action results, approvals, declared events, and the hold of a conversation a person on the staff has taken over. |
+| [`@ouispec/agent-react`](packages/agent-react) | The agent in a React app: the provider, the chat hooks, the approval card, and the staff console's take-over. |
 | [`@ouispec/agent-mcp`](packages/agent-mcp) | A Model Context Protocol server for the generated API tools, each call as the client's own principal. |
+| [`@ouispec/agent-evals`](packages/agent-evals) | Agent evals as data: scenarios run against the product's real agent configuration on every channel, from recordings in CI, as a gate. |
 
 A product supplies the seams (its model, auth, persistence, event declarations, OpenAPI document, persona) and the packages supply the rest: start with [the integrator guide](packages/contract/INTEGRATOR-GUIDE.md).
 
@@ -29,6 +30,9 @@ npm install --save-dev @ouispec/cli @ouispec/testing
 
 # the server side
 npm install @ouispec/agent-worker @ouispec/agent-realtime @ouispec/agent-events
+
+# evals in CI
+npm install --save-dev @ouispec/agent-evals
 ```
 
 Every package is published from this repository by CI, with an npm provenance statement that links the tarball to the commit and workflow that built it. Check one with `npm audit signatures`.

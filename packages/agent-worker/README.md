@@ -61,6 +61,16 @@ In a browser, the turn after the decision comes from `ApprovalCard` (`@ouispec/a
 
 Declare a host tool's approval needs on the tool itself: `effect`, `destructive`, `title`, `consequence`, and `argsSensitive: false` when its arguments may be logged. Without an approval store, such a call is refused and never runs. The runtime uses the realtime server's store unless you pass `approvals.store`.
 
+**On a conversation channel** there is no card. Give the turn payload `channel: 'chat' | 'sms' | 'voice' | 'phone'` (default `ui`). The model is then told that calling the tool sends the customer a readback of exactly its arguments, and the readback, word for word, is the turn's last words: emitted as `agent:token` and stored as an assistant message, so your channel's adapter sends or speaks it like the rest of the reply. When your classifier reads the customer's next message as confirming it, decide for them (`POST /internal/approvals/:id/decide` with the channel) and send the continuation turn with the token, as the card would (ADR-0228 D7, ADR-0260 §3.3).
+
+## A person takes the conversation over (ADR-0260 §2)
+
+A person on your staff can take a conversation from the agent, answer the customer as themselves, and hand it back. The hold is kept by the realtime server; your API takes and releases it after its own permission check, with `createHttpConversationClient({ url, apiKey })` (`takeOver`, `handBack`, `announce`, `hold`).
+
+- **The agent does not answer a held conversation.** The turn's stop watch asks for its conversation's hold too: a turn running when the conversation is taken over stops at a safe point, keeps what it had produced marked `taken_over`, and its tab is told `agent:turn_complete` with `stopReason: 'taken_over'`; a turn that arrives while it is held makes no model call and stores nothing (`persistMessages` is called with no messages and the `taken_over` marker, so you can settle its row).
+- **The staff's words are in the history.** Store a person's message with `role: 'staff'` and its `speaker` (`{ userId, displayName, role? }`), and the take-over and hand-back as `staff` entries with `takeover: 'taken_over' | 'handed_back'` and no content. `getHistory` returns them as `{ role: 'staff', content, speaker, takeover? }`; the model reads them as the business's side of the conversation, under the person's name, never as its own words or the customer's. After the hand-back the agent answers from the whole exchange.
+- `historyOf(messages)` maps the messages a turn stored back to the history form, for a host that keeps them as given.
+
 ## Stopping a turn
 
 A turn can be stopped by the person, or superseded by their next message. The request is kept by the realtime server (`@ouispec/agent-realtime`, "Stopping a turn"), and the turn asks for it there for as long as it runs. Nothing needs configuring: the runtime uses the realtime server you already gave it. `stops.graceMs` (default 2 s) is how long an answer already on its way is still waited for.
@@ -232,4 +242,5 @@ Header parameters are never model input: `actAs` supplies them, and a call fails
 - `pnpm test` includes the fixture turn. It runs on both adapters and on two providers, replaying recorded responses through each provider's real `ai` package, against the SDK realtime server on Redis.
 - `pnpm record:fixture-turn` re-records the Bedrock responses from a live model.
 - `pnpm eval:live` runs the live operating-rules eval.
+- `@ouispec/agent-worker/testing` has what a product's own tests use: `recordingFetch` and `replayingFetch` (recorded model responses through a provider's real package), `scriptedChatCompletions` (a model whose every answer a test states), and the Desk fixture API.
 - Both of those live commands need Bedrock credentials in the environment.

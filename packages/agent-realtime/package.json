@@ -1,7 +1,7 @@
 {
   "name": "@ouispec/agent-realtime",
-  "version": "0.10.0",
-  "description": "Realtime server for agent turns and UI actions \u2014 declared client events, room tokens, the UI action result store, the approval store, declared product events and their job settlements, Redis fan-out; the product supplies auth, room policy and keys",
+  "version": "0.11.0",
+  "description": "Realtime server for agent turns and UI actions — declared client events, room tokens, the UI action result store, the approval store, declared product events and their job settlements, Redis fan-out; the product supplies auth, room policy and keys",
   "homepage": "https://github.com/wesreid/oui/tree/main/packages/agent-realtime#readme",
   "bugs": {
     "url": "https://github.com/wesreid/oui/issues"

@@ -1,5 +1,24 @@
 # @ouispec/agent-events
 
+## 0.11.0
+
+### Minor Changes
+
+- A person on the staff can take a live conversation from the agent, answer the customer as themselves, and hand it back (ADR-0260 §2).
+
+  - **contract:** `conversation-takeover.json`: `StaffSpeaker`, `ConversationHold`, the take-over, hand-back and announce requests and results, and the three conversation events. `event-declarations.json` names the `conversation` room.
+  - **agent-events:** a reserved room, `conversation` (`CONVERSATION_ROOM`), beside `turn`: a declaration document may no longer declare a room by that name. `PLATFORM_EVENTS` declares `agent:conversation_taken_over`, `agent:conversation_handed_back` and `agent:conversation_message` (`AGENT_CONVERSATION_EVENTS`) to it, and `agent:turn_complete` may end `taken_over`.
+  - **agent-realtime:** conversation holds in Redis, one holder at a time, and their routes: `GET`/`POST /internal/conversations/:id/hold`, `POST …/hold/release`, `POST …/messages`. A hold is a stop for every turn of the conversation (`GET /internal/turns/:id/stop?conversationId=` answers `taken_over`); only the holder hands back (or the product, with no `userId`) and announces staff messages; `/api/emit` refuses the conversation events. The approval store's expire-now takes `taken_over`.
+  - **agent-worker:** the stop watch asks for the turn's conversation's hold: a running turn stops and keeps what it had, marked `taken_over`; a turn that arrives while the conversation is held makes no model call and stores nothing. `TurnHistoryMessage` gains `{ role: 'staff', content, speaker, takeover? }`, which the model reads under the person's name in the assistant's role. `createHttpConversationClient` for the product's API, and `historyOf`.
+  - **agent-core:** the takeover types, `CONVERSATION_EVENTS`, `staffLabel`, `staffMessageNote`, `takeoverNote` and readers; `TurnStoppedReason` and `ApprovalWithdrawReason` gain `taken_over`; `AgentStoredMessage` gains `speaker` and `takeover`, `AgentStoredConversation` gains `hold`; the client config gains `conversationRoom` and `staff`.
+  - **agent-react:** `useAgent().hold`, staff messages with their `speaker`, take-over and hand-back entries, and the conversation's room followed live; `useStaffConversation` for the staff console.
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - @ouispec/contract@0.5.0
+
 ## 0.8.0
 
 ### Minor Changes

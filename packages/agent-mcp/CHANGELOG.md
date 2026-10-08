@@ -1,5 +1,17 @@
 # @ouispec/agent-mcp
 
+## 0.11.0
+
+### Patch Changes
+
+- Released again so each depends on the current release of the contract and the agent SDK, and an app on the latest of everything has one copy of each.
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @ouispec/bindings@0.5.0
+  - @ouispec/agent-worker@0.11.0
+  - @ouispec/agent-core@0.11.0
+
 ## 0.10.0
 
 ### Patch Changes

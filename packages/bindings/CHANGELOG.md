@@ -1,5 +1,15 @@
 # @ouispec/bindings
 
+## 0.5.0
+
+### Patch Changes
+
+- Released again so each depends on the current release of the contract and the agent SDK, and an app on the latest of everything has one copy of each.
+- Updated dependencies
+- Updated dependencies
+  - @ouispec/contract@0.5.0
+  - @ouispec/agent-events@0.11.0
+
 ## 0.4.0
 
 ### Minor Changes

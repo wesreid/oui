@@ -1,5 +1,24 @@
 # @ouispec/contract
 
+## 0.5.0
+
+### Minor Changes
+
+- Agent evals as data, on every channel, as a gate in CI (ADR-0260 §3).
+
+  - **agent-evals (new):** scenarios a product writes as JSON or YAML, run against its real agent configuration through the SDK's own turn runner on every channel it serves, from recorded model responses (no network, no credentials) or the live model. Assertions: says and must not say (text, pattern or a judged rubric), a tool called with given arguments, a tool not called, an approval asked for with its readback, a refusal, nothing kept that must not be, and a turn not run while a person holds the conversation. A recording knows what it was recorded against, and fails when the configuration changes. Every tool is stubbed. The `agent-evals` CLI (`--record`, `--live`, `--json`, `--junit`) and `evalCases` for a test runner. An example dealer suite, recorded from Claude on Bedrock.
+  - **contract:** `agent-evals.json`, the suite format (`AgentEvalSuite`).
+  - **agent-worker:** a turn's `channel` (`ui`, or `chat`, `sms`, `voice`, `phone`): on a conversation channel the model is told an approval is a readback the customer confirms, and the readback is the turn's last words, sent and stored verbatim. `realtime.emit` overrides how turn events are sent; `hostSystemPrompt`; and `@ouispec/agent-worker/testing` gains `recordingFetch`, `replayingFetch` and `scriptedChatCompletions`.
+
+- A person on the staff can take a live conversation from the agent, answer the customer as themselves, and hand it back (ADR-0260 §2).
+
+  - **contract:** `conversation-takeover.json`: `StaffSpeaker`, `ConversationHold`, the take-over, hand-back and announce requests and results, and the three conversation events. `event-declarations.json` names the `conversation` room.
+  - **agent-events:** a reserved room, `conversation` (`CONVERSATION_ROOM`), beside `turn`: a declaration document may no longer declare a room by that name. `PLATFORM_EVENTS` declares `agent:conversation_taken_over`, `agent:conversation_handed_back` and `agent:conversation_message` (`AGENT_CONVERSATION_EVENTS`) to it, and `agent:turn_complete` may end `taken_over`.
+  - **agent-realtime:** conversation holds in Redis, one holder at a time, and their routes: `GET`/`POST /internal/conversations/:id/hold`, `POST …/hold/release`, `POST …/messages`. A hold is a stop for every turn of the conversation (`GET /internal/turns/:id/stop?conversationId=` answers `taken_over`); only the holder hands back (or the product, with no `userId`) and announces staff messages; `/api/emit` refuses the conversation events. The approval store's expire-now takes `taken_over`.
+  - **agent-worker:** the stop watch asks for the turn's conversation's hold: a running turn stops and keeps what it had, marked `taken_over`; a turn that arrives while the conversation is held makes no model call and stores nothing. `TurnHistoryMessage` gains `{ role: 'staff', content, speaker, takeover? }`, which the model reads under the person's name in the assistant's role. `createHttpConversationClient` for the product's API, and `historyOf`.
+  - **agent-core:** the takeover types, `CONVERSATION_EVENTS`, `staffLabel`, `staffMessageNote`, `takeoverNote` and readers; `TurnStoppedReason` and `ApprovalWithdrawReason` gain `taken_over`; `AgentStoredMessage` gains `speaker` and `takeover`, `AgentStoredConversation` gains `hold`; the client config gains `conversationRoom` and `staff`.
+  - **agent-react:** `useAgent().hold`, staff messages with their `speaker`, take-over and hand-back entries, and the conversation's room followed live; `useStaffConversation` for the staff console.
+
 ## 0.4.2
 
 ### Patch Changes

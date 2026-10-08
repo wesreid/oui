@@ -15,9 +15,11 @@ npm install @ouispec/agent-events
 import { createEventCatalog, PLATFORM_EVENTS } from '@ouispec/agent-events';
 import declarations from './events.json' with { type: 'json' };
 
-// The platform's own turn events, with the product's.
+// The platform's own turn and conversation events, with the product's.
 export const catalog = createEventCatalog(PLATFORM_EVENTS, declarations);
 ```
+
+Two room names are the host's to name and a declaration may not use: `turn`, the room of the agent turn an event belongs to, and `conversation`, the room of the conversation (ADR-0260 §2.4). `PLATFORM_EVENTS` declares the turn's events to the first, and a conversation's take-over, hand-back and stored messages (`AGENT_CONVERSATION_EVENTS`) to the second.
 
 | Entry | What it has |
 |---|---|
