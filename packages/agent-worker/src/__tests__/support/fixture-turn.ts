@@ -7,6 +7,7 @@
 import type { SQSEvent } from 'aws-lambda';
 import { AGENT_SOCKET_EVENTS } from '@ouispec/agent-core';
 import { createLambdaAgentHandler } from '../../lambda/handler.js';
+import { historyOf } from '../../history.js';
 import { startContainerAgentWorker } from '../../container/server.js';
 import { createHttpUIActionChannel } from '../../ui/channel.js';
 import type { AgentRuntimeConfig } from '../../runtime/types.js';
@@ -52,20 +53,7 @@ export class FixtureConversation {
   }
 
   persist(messages: TurnMessage[]): void {
-    for (const m of messages) {
-      if (m.role === 'assistant') {
-        this.history.push({
-          role: 'assistant',
-          content: m.content,
-          ...(m.stopped ? { stopped: m.stopped } : {}),
-          ...(m.toolCalls?.length
-            ? { tool_calls: m.toolCalls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.arguments) } })) }
-            : {}),
-        });
-      } else {
-        this.history.push({ role: 'tool', content: m.content ?? '', tool_call_id: m.toolCallId ?? '', name: m.name });
-      }
-    }
+    this.history.push(...historyOf(messages));
   }
 }
 

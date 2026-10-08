@@ -72,7 +72,7 @@ describe('a person on the staff holds the conversation (ADR-0260 §2.3)', () => 
     const lookup: RegisteredTool = {
       name: 'inventory_lookup',
       description: 'Look a vehicle up by stock number',
-      effect: { kind: 'read' },
+      effect: 'view',
       inputSchema: { type: 'object', properties: { stock: { type: 'string' } }, required: ['stock'] },
       execute: (_input, ctx) =>
         new Promise((resolve) => {

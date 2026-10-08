@@ -9,6 +9,13 @@ import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createOpenAI } from '@ai-sdk/openai';
 import { PROMPT_CACHE_BREAKPOINTS, type LanguageModel, type ProviderOptions } from '../../model.js';
 import { replayingFetch, type RecordedExchange } from '../../testing/cassette.js';
+import {
+  chatCompletionsChunk,
+  chatCompletionsStream,
+  scriptedChatCompletions,
+  type ChatRequest,
+  type ScriptedReply,
+} from '../../testing/scripted.js';
 
 export type { RecordedExchange } from '../../testing/cassette.js';
 
@@ -57,15 +64,10 @@ export function bedrockReplay(): ReplayedProvider {
 // ─── OpenAI Chat Completions ────────────────────────────────────────────────
 
 /** One Chat Completions streaming response, from its chunks. */
-export function sse(chunks: unknown[]): RecordedExchange {
-  const body = [...chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`), 'data: [DONE]\n\n'].join('');
-  return { path: '/v1/chat/completions', status: 200, contentType: 'text/event-stream', bodyBase64: Buffer.from(body).toString('base64') };
-}
+export const sse = chatCompletionsStream;
 
 /** One Chat Completions stream chunk. */
-export function chunk(choices: unknown[], extra: Record<string, unknown> = {}) {
-  return { id: 'chatcmpl-fx', object: 'chat.completion.chunk', created: 1790700000, model: 'gpt-fixture', choices, ...extra };
-}
+export const chunk = chatCompletionsChunk;
 
 /** A turn in OpenAI's format: one tool call, then a text reply. */
 export interface OpenAIScript {
@@ -130,17 +132,7 @@ export function scriptedOpenAI(exchanges: RecordedExchange[], expected: FixtureR
 
 // ─── A scripted model ───────────────────────────────────────────────────────
 
-export interface ScriptedReply {
-  /** Text the model says; before its tool calls when it makes both. */
-  text?: string;
-  toolCalls?: Array<{ id: string; name: string; args: Record<string, unknown> }>;
-}
-
-/** A Chat Completions request as the provider sent it. */
-export interface ChatRequest {
-  messages: Array<{ role: string; content?: unknown; tool_calls?: unknown; tool_call_id?: string }>;
-  tools?: Array<{ function: { name: string; description?: string } }>;
-}
+export type { ScriptedReply, ChatRequest } from '../../testing/scripted.js';
 
 /**
  * OpenAI Chat Completions through the real `@ai-sdk/openai` package, each
@@ -152,39 +144,7 @@ export function respondingOpenAI(script: (request: ChatRequest, index: number) =
   model: LanguageModel;
   requests: ChatRequest[];
 } {
-  const requests: ChatRequest[] = [];
-  const scriptedFetch: typeof fetch = async (_input, init) => {
-    const request = JSON.parse(String(init?.body)) as ChatRequest;
-    const index = requests.push(request) - 1;
-    const reply = script(request, index);
-    if (!reply) throw new Error(`scripted model: no reply for request ${index}`);
-    const chunks: unknown[] = [];
-    if (reply.text) chunks.push(chunk([{ index: 0, delta: { role: 'assistant', content: reply.text }, finish_reason: null }]));
-    if (reply.toolCalls?.length) {
-      chunks.push(
-        chunk([
-          {
-            index: 0,
-            delta: {
-              role: 'assistant',
-              content: null,
-              tool_calls: reply.toolCalls.map((c, i) => ({
-                index: i,
-                id: c.id,
-                type: 'function',
-                function: { name: c.name, arguments: JSON.stringify(c.args) },
-              })),
-            },
-            finish_reason: null,
-          },
-        ]),
-      );
-    }
-    chunks.push(chunk([{ index: 0, delta: {}, finish_reason: reply.toolCalls?.length ? 'tool_calls' : 'stop' }]));
-    chunks.push(chunk([], { usage: { prompt_tokens: 500, completion_tokens: 20, total_tokens: 520 } }));
-    const exchange = sse(chunks);
-    return new Response(Buffer.from(exchange.bodyBase64, 'base64'), { status: 200, headers: { 'content-type': exchange.contentType } });
-  };
-  const provider = createOpenAI({ apiKey: 'fixture-scripted-key', fetch: scriptedFetch });
-  return { model: provider.chat('gpt-fixture'), requests };
+  const scripted = scriptedChatCompletions(script);
+  const provider = createOpenAI({ apiKey: 'fixture-scripted-key', fetch: scripted.fetch });
+  return { model: provider.chat('gpt-fixture'), requests: scripted.requests };
 }
