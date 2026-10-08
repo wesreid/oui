@@ -1,4 +1,11 @@
-import { displayedToolCall, readMessageInput, turnStoppedNote, type AgentStoredMessage } from '@ouispec/agent-core';
+import {
+  displayedToolCall,
+  isTakeoverChange,
+  readMessageInput,
+  readStaffSpeaker,
+  turnStoppedNote,
+  type AgentStoredMessage,
+} from '@ouispec/agent-core';
 import type { AgentMessage } from './types.js';
 
 /** A stored tool result as the live stream carried it: parsed JSON when it is JSON. */
@@ -20,7 +27,10 @@ function parseResult(content: string | null): unknown {
  *   in call order, as `intent_call` added it live: a UI action run through
  *   `ui_act` is shown as that action, as the live stream named it;
  * - a stored `tool` message fills in its call's result (by `toolCallId`, else
- *   the next call without one), so a `present_options` choice renders again.
+ *   the next call without one), so a `present_options` choice renders again;
+ * - a person on the staff's message (ADR-0260 §2.5) is a `staff` message with
+ *   its `speaker`; a take-over or hand-back is a `staff` message with
+ *   `takeover` and no content. One that names no speaker is left out.
  *
  * Messages with no text and no tool calls are left out, as the live stream
  * drops empty assistant bubbles.
@@ -62,6 +72,19 @@ export function storedToAgentMessages(stored: readonly AgentStoredMessage[]): Ag
         };
         messages.push(toolMessage);
         awaitingResult.push(toolMessage);
+      }
+    } else if (m.role === 'staff') {
+      const speaker = readStaffSpeaker(m.speaker);
+      const takeover = isTakeoverChange(m.takeover) ? m.takeover : undefined;
+      if (speaker && (takeover || m.content)) {
+        messages.push({
+          id: m.id,
+          role: 'staff',
+          content: takeover ? null : (m.content ?? ''),
+          timestamp,
+          speaker,
+          ...(takeover ? { takeover } : {}),
+        });
       }
     } else if (m.role === 'tool') {
       const index = m.toolCallId

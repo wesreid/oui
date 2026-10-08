@@ -7,6 +7,9 @@ export { storedToAgentMessages } from './provider/stored-messages.js';
 export { readConversationSummary, readConversationSummaries } from './provider/conversation-summaries.js';
 // The composer's files.
 export type { ComposerAttachment, ComposerAttachmentsState, NotSentReason } from './provider/attachments.js';
+// A person on the staff takes a conversation over and hands it back: the staff console's side.
+export { useStaffConversation } from './staff/useStaffConversation.js';
+export type { StaffConversationState } from './staff/useStaffConversation.js';
 // Approvals: the card where the person approves an irreversible call.
 export { ApprovalCard } from './approvals/ApprovalCard.js';
 export type {
