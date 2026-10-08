@@ -81,7 +81,26 @@ import {
 } from './approvals/continuation.js';
 
 const DEFAULT_MAX_ROUNDS = 12;
-const DEFAULT_MAX_TOKENS = 4096;
+/**
+ * The most one step may write. A model that thinks before it answers (Claude
+ * Sonnet 5.5 does unless told not to) spends its thinking from this budget
+ * before it says or calls anything. At 4,096, a request that needed planning
+ * (a five-part animation, dev, 2026-10-08) used all of it thinking, twice, and
+ * the turn ended having said and done nothing.
+ */
+const DEFAULT_MAX_TOKENS = 32_000;
+/**
+ * How many times a step cut off at the output limit, having said and called
+ * nothing, is run again. Its output is discarded, and the step that replaces it
+ * is told to plan less before it acts.
+ */
+const OUTPUT_LIMIT_RETRIES = 1;
+/** What a step cut off at the output limit, having said and called nothing, is told when it runs again. */
+const OUTPUT_LIMIT_NOTE =
+  'Your last attempt at this step reached the output limit while you were still working out what to do, before you said or called anything, so it was discarded. Plan less before acting: say in one sentence what you will do first, make those calls, and take the rest in later steps.';
+/** What the person is told when every attempt at a step was cut off that way. */
+const OUTPUT_LIMIT_REPLY =
+  'I ran out of room while working out how to do this, before I could start, so nothing was changed. Could you ask for it one part at a time?';
 const DEFAULT_TEMPERATURE = 0.3;
 const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
 const DEFAULT_UI_RESULT_TIMEOUT_MS = 20_000;
@@ -1428,6 +1447,10 @@ export async function runAgentTurn(
   let segments = 0;
   let responseMessageCount = 0;
   const usageTotals = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  // A step cut off at the output limit having said and called nothing (DEFAULT_MAX_TOKENS).
+  let outputLimitRetries = 0;
+  let outputLimitNote: string | null = null;
+  let outputLimited = false;
 
   for (;;) {
     segments++;
@@ -1507,7 +1530,7 @@ export async function runAgentTurn(
         // ai carries an instructions override forward to later steps, so a step
         // without a note sets the plain instructions back.
         // So does the turn's record, once a call has not succeeded.
-        const notes = [note, forced ? `This step: call ${UI_ACT_TOOL} with action "${forced}".` : null, ledger.note()].filter(
+        const notes = [note, forced ? `This step: call ${UI_ACT_TOOL} with action "${forced}".` : null, ledger.note(), outputLimitNote].filter(
           (n): n is string => !!n,
         );
         // The page's state on the newest answer only: an earlier page is not the page now.
@@ -1531,7 +1554,7 @@ export async function runAgentTurn(
             : instructions,
         };
       },
-      onStepEnd: async ({ text, toolCalls, usage: stepUsage }) => {
+      onStepEnd: async ({ text, toolCalls, usage: stepUsage, finishReason }) => {
         stepTextReported += text?.length ?? 0;
         if (text && (toolCalls?.length ?? 0) > 0) roundBreaks.push(stepTextReported);
         recordedSteps.push({
@@ -1549,6 +1572,8 @@ export async function runAgentTurn(
           textLength: text?.length ?? 0,
           toolCallCount: toolCalls?.length ?? 0,
           totalTextEmitted,
+          finishReason,
+          outputTokens: stepUsage?.outputTokens ?? 0,
         });
       },
     });
@@ -1592,8 +1617,34 @@ export async function runAgentTurn(
       usageTotals.outputTokens += segmentUsage?.outputTokens ?? 0;
       usageTotals.cacheReadTokens += segmentUsage?.inputTokenDetails?.cacheReadTokens ?? 0;
       usageTotals.cacheWriteTokens += segmentUsage?.inputTokenDetails?.cacheWriteTokens ?? 0;
-      responseMessageCount += response.messages.length;
-      conversation = [...conversation, ...response.messages];
+
+      // A step cut off at the output limit before it said or called anything
+      // ends the stream as if the turn were done. Its output (thinking, at most)
+      // is discarded: each step's messages are its own, so the conversation
+      // takes the segment's earlier steps only. It runs again, told to plan
+      // less, in a new segment; if that is cut off too, the person is told.
+      const last = steps.at(-1);
+      const cutOff = last?.finishReason === 'length' && !last.text && (last.toolCalls?.length ?? 0) === 0;
+      const kept = cutOff ? steps.slice(0, -1).flatMap((step) => step.response.messages) : response.messages;
+      responseMessageCount += kept.length;
+      conversation = [...conversation, ...kept];
+      if (cutOff) {
+        const retry = outputLimitRetries < OUTPUT_LIMIT_RETRIES && allSteps.length < maxRounds;
+        log('warn', 'agent:llm', 'Step cut off at the output limit before it said or did anything', {
+          turnId,
+          segment: segments,
+          maxTokens,
+          outputTokens: last.usage?.outputTokens ?? 0,
+          reasoningTokens: last.usage?.outputTokenDetails?.reasoningTokens ?? 0,
+          retry,
+        });
+        if (retry) {
+          outputLimitRetries++;
+          outputLimitNote = OUTPUT_LIMIT_NOTE;
+          continue;
+        }
+        outputLimited = true;
+      }
     } catch (err) {
       if (!stopOf(abortController.signal)) throw err;
     }
@@ -1601,6 +1652,15 @@ export async function runAgentTurn(
     // The model's tools no longer change with the page (ADR-0245 §2.2): what
     // the page offers reaches it in each answer, so the turn runs as one segment.
     break;
+  }
+
+  // Every attempt was cut off: the person hears so, rather than nothing.
+  if (outputLimited && !stopOf(abortController.signal)) {
+    const reply = (streamedText ? ROUND_BREAK : '') + OUTPUT_LIMIT_REPLY;
+    roundBreaks.length = 0;
+    streamedText += reply;
+    tokenBuffer += reply;
+    await flushTokenBuffer();
   }
 
   // ─── Stopped, or ending ────────────────────────────────────────────────────
@@ -1620,6 +1680,8 @@ export async function runAgentTurn(
   let stopReason: AgentTurnResult['stopReason'] = 'complete';
   if (approvalHold) {
     stopReason = 'awaiting_approval';
+  } else if (outputLimited) {
+    stopReason = 'output_limit';
   } else if (steps.length >= maxRounds) {
     stopReason = 'step_count';
   } else if (steps.some((s: { toolCalls?: Array<{ toolName: string }> }) => s.toolCalls?.some(tc => (USER_INPUT_TOOLS as readonly string[]).includes(tc.toolName)))) {
@@ -1681,7 +1743,11 @@ export async function runAgentTurn(
   });
 
   // The turn's messages, in the host's format, for it to store.
-  const newMessages = [...expired.persisted, ...(continued?.persisted ?? []), ...convertResponseToTurnMessages({ steps }, executedToolResults)];
+  const newMessages = [
+    ...expired.persisted,
+    ...(continued?.persisted ?? []),
+    ...convertResponseToTurnMessages({ steps: outputLimited ? [...steps, { text: OUTPUT_LIMIT_REPLY, toolCalls: [] }] : steps }, executedToolResults),
+  ];
 
   // The host stores the turn before the client hears it is complete: a message sent the moment
   // it completes must be answered from a history that holds this turn.

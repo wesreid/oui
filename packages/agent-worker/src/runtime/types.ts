@@ -142,7 +142,11 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
   /** Max tool-use rounds per turn. Default: 12 */
   maxRounds?: number;
 
-  /** Max tokens per model response. Default: 4096 */
+  /**
+   * The most one model response may write, thinking included. Default: 32,000.
+   * A model that thinks spends its thinking from this before it says or calls
+   * anything, so a low cap can end a step with nothing.
+   */
   maxTokens?: number;
 
   /** Temperature. Default: 0.3. `null` sends none, for a model that does not take one. */

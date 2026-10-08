@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.10.1
+
+### Patch Changes
+
+- A step that reaches the output limit before it says or calls anything no longer ends the turn silently. The default output limit is 32,000 tokens per response (was 4,096): a model that thinks spends its thinking from it, and on dev a request that needed planning used all 4,096 thinking, twice, so the turn ended having said, done and stored nothing. Such a step's output is discarded and it runs once more, told to plan less; if that is cut off too, the person is told and the turn ends with `stopReason: 'output_limit'`. The runtime no longer sets its own 4,096 default over the orchestrator's. `Step completed` logs carry `finishReason` and `outputTokens`.
+
 ## 0.10.0
 
 ### Patch Changes

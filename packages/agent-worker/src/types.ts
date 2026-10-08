@@ -33,6 +33,7 @@ export interface AgentWorkerConfig {
    */
   promptCacheBreakpoint?: ProviderOptions;
   maxToolRounds?: number;
+  /** The most one model response may write, thinking included. Default 32,000. */
   maxTokens?: number;
   /**
    * The sampling temperature. Default 0.3. `null` sends none: for a model that
@@ -232,6 +233,8 @@ export interface AgentTurnResult {
     | 'step_count'
     | 'token_budget'
     | 'deadline'
+    // Every attempt at a step reached the output limit before it said or called anything.
+    | 'output_limit'
     | 'complete'
     | 'error'
     | TurnStoppedReason;
