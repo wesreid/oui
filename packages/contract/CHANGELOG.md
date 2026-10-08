@@ -1,5 +1,11 @@
 # @ouispec/contract
 
+## 0.4.2
+
+### Patch Changes
+
+- A conversation that began by voice says so in the history (ADR-0259 §2.6). `AgentConversationSummary.previewInput` is how the message its `preview` is taken from was entered, and `AgentConversationMatch.input` how a matched message was: `{ mode: 'voice', language }` for one the person spoke. `@ouispec/agent-react`'s history (`refresh`, `query`, `rename`, `update`) keeps only what `readMessageInput` recognises (`readConversationSummary`, exported), so a list can mark a spoken conversation and match. The integrator guide names both fields.
+
 ## 0.4.1
 
 ### Patch Changes
