@@ -19,7 +19,7 @@ export function createDeclaredEvents(catalog: EventCatalog): DeclaredEvents {
 function declaredRooms(events: DeclaredEvents, event: string): string {
   return events.catalog
     .get(event)!
-    .rooms.map((r) => r.pattern ?? "the turn's room")
+    .rooms.map((r) => r.pattern ?? `the ${r.name}'s room`)
     .join(', ');
 }
 

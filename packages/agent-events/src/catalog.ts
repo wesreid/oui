@@ -12,7 +12,7 @@ import { isObjectSchema, payloadShape } from './payload-shape.js';
 import { formatRoom, roomPatternsRegExp, roomPlaceholders } from './rooms.js';
 import type { Settlement, SettlementOutcome } from './settlement.js';
 import {
-  TURN_ROOM,
+  HOST_NAMED_ROOMS,
   type EventDeclaration,
   type EventDeclarationDocument,
   type EventRole,
@@ -24,7 +24,10 @@ import {
 
 export interface DeclaredRoom {
   name: string;
-  /** Null for `turn`: the room of the agent turn, which each host names. */
+  /**
+   * Null for a room each host names: `turn`, the room of the agent turn, and
+   * `conversation`, the room of the conversation (ADR-0260 §2.4).
+   */
   pattern: string | null;
 }
 
@@ -101,7 +104,7 @@ export interface EventCatalog {
   settlement(event: string, payload: unknown): Settlement | null;
   /** The result a completion carries, or the reason a failure gives. */
   outcome(settlement: Settlement): SettlementOutcome;
-  /** Whether `room` is one of the rooms `event` is declared to go to. A turn room is any room the host names. */
+  /** Whether `room` is one of the rooms `event` is declared to go to. A turn's or a conversation's room is any room the host names. */
   allowsRoom(event: string, room: string): boolean;
   /** The room to join to follow one job of `kind`; throws when the kind has none. */
   followRoom(kind: string, id: string): string;
@@ -160,8 +163,10 @@ function checkDocument(doc: EventDeclarationDocument): Checked {
 
   const problems: string[] = [];
   const defs = doc.$defs ?? {};
-  if (TURN_ROOM in doc.rooms) {
-    problems.push(`${where}: rooms/${TURN_ROOM} is reserved for the agent turn's room, which each host names`);
+  for (const reserved of HOST_NAMED_ROOMS) {
+    if (reserved in doc.rooms) {
+      problems.push(`${where}: rooms/${reserved} is reserved for the agent ${reserved}'s room, which each host names`);
+    }
   }
   const typeNames = new Map<string, string>(Object.keys(defs).map((name) => [name, `$defs/${name}`]));
   const events: DeclaredEvent[] = [];
@@ -175,7 +180,7 @@ function checkDocument(doc: EventDeclarationDocument): Checked {
 
     const rooms: DeclaredRoom[] = [];
     for (const room of decl.rooms) {
-      if (room === TURN_ROOM) rooms.push({ name: room, pattern: null });
+      if (HOST_NAMED_ROOMS.includes(room)) rooms.push({ name: room, pattern: null });
       else if (doc.rooms[room]) rooms.push({ name: room, pattern: doc.rooms[room].pattern });
       else problems.push(`${at}: room '${room}' is not declared in rooms (declared: ${Object.keys(doc.rooms).join(', ') || 'none'})`);
     }

@@ -7,8 +7,9 @@
  * Every catalog a realtime server or client uses includes this document
  * beside the product's (`createEventCatalog(PLATFORM_EVENTS, productEvents)`).
  */
+import { CONTRACT_SCHEMAS } from '@ouispec/contract';
 import { OUI_WIRE } from './oui-wire.js';
-import { TURN_ROOM, type EventDeclarationDocument, type JsonSchema } from './types.js';
+import { CONVERSATION_ROOM, TURN_ROOM, type EventDeclarationDocument, type JsonSchema } from './types.js';
 
 /**
  * The agent's turn events on the wire. A client parses all of them
@@ -28,6 +29,30 @@ export const AGENT_TURN_EVENTS = {
   APPROVAL_REQUIRED: 'agent:approval_required',
 } as const;
 
+/**
+ * A conversation's events (ADR-0260 §2.4): a person on the staff took it over,
+ * handed it back, or a message of it was stored. They go to the
+ * conversation's room, which each host names, and only the realtime server's
+ * conversation routes send them: its emit API refuses them, so an event never
+ * says a conversation changed hands when it did not.
+ */
+export const AGENT_CONVERSATION_EVENTS = {
+  TAKEN_OVER: 'agent:conversation_taken_over',
+  HANDED_BACK: 'agent:conversation_handed_back',
+  MESSAGE: 'agent:conversation_message',
+} as const;
+
+/** The takeover shapes, as the contract defines them; the conversation events' payloads refer to them. */
+const TAKEOVER_DEFS = CONTRACT_SCHEMAS['conversation-takeover.json'].$defs as unknown as Record<string, JsonSchema>;
+
+const conversationEvent = (description: string, def: string) => ({
+  description,
+  payload: { $ref: `#/$defs/${def}` } satisfies JsonSchema,
+  rooms: [CONVERSATION_ROOM],
+  correlation: ['conversationId'],
+  role: 'notice' as const,
+});
+
 const turnId: JsonSchema = { type: 'string', minLength: 1, description: 'The turn the event belongs to.' };
 const timestamp: JsonSchema = { type: 'number', description: 'When it happened, epoch ms.' };
 
@@ -46,7 +71,9 @@ const turnEvent = (description: string, properties: Record<string, JsonSchema>, 
 export const PLATFORM_EVENTS: EventDeclarationDocument = {
   version: 1,
   product: 'agent-sdk',
-  description: "The agent worker's turn events and UI action dispatches, emitted to the room of the turn they belong to.",
+  description:
+    "The agent worker's turn events and UI action dispatches, emitted to the room of the turn they belong to; and a conversation's take-over, hand-back and stored messages, emitted to the room of the conversation.",
+  $defs: TAKEOVER_DEFS,
   rooms: {},
   events: {
     [AGENT_TURN_EVENTS.TOKEN]: turnEvent(
@@ -81,9 +108,9 @@ export const PLATFORM_EVENTS: EventDeclarationDocument = {
         usage: { type: 'object', description: 'Token usage.' },
         stopReason: {
           type: 'string',
-          enum: ['user_stop', 'superseded', 'deadline'],
+          enum: ['user_stop', 'superseded', 'deadline', 'taken_over'],
           description:
-            'Set when the turn did not end by itself (ADR-0252): the person stopped it, a newer message superseded it, or it ran out of time.',
+            'Set when the turn did not end by itself (ADR-0252): the person stopped it, a newer message superseded it, it ran out of time, or a person on the staff took the conversation over (ADR-0260).',
         },
       },
       [],
@@ -120,6 +147,18 @@ export const PLATFORM_EVENTS: EventDeclarationDocument = {
         expiresAt: { type: 'number', description: 'Epoch ms.' },
       },
       ['conversationId', 'approvalId', 'tool', 'effect', 'destructive', 'preview', 'expiresAt'],
+    ),
+    [AGENT_CONVERSATION_EVENTS.TAKEN_OVER]: conversationEvent(
+      'A person on the staff took the conversation over: the agent stopped answering it (ADR-0260 §2).',
+      'ConversationTakenOverEvent',
+    ),
+    [AGENT_CONVERSATION_EVENTS.HANDED_BACK]: conversationEvent(
+      'The person who held the conversation, or the product, handed it back: the agent answers it again.',
+      'ConversationHandedBackEvent',
+    ),
+    [AGENT_CONVERSATION_EVENTS.MESSAGE]: conversationEvent(
+      "A message of the conversation was stored: the customer's, the agent's, or a person's on the staff, for the people watching it.",
+      'ConversationMessageEvent',
     ),
     [OUI_WIRE.dispatch]: {
       description: "A UI action request for the tab that sent the turn (ADR-0209). The tab answers on OUI's result event.",

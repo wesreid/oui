@@ -17,6 +17,7 @@ import type { ApprovalContinuation, ApprovalGrant } from '../approvals/types.js'
 import type { TurnStoppedMarker } from '../turns/types.js';
 import type { AttachmentLimits, AttachmentRef } from '../attachments/types.js';
 import type { MessageInput } from '../message-input/index.js';
+import type { ConversationHold, StaffSpeaker, TakeoverChange } from '../takeover/index.js';
 
 
 /**
@@ -153,10 +154,14 @@ export interface AgentConversationChanges {
  * A message as the platform stored it. An assistant message that called tools
  * carries them in `toolCalls`; each call's result follows as a `tool` message,
  * in the same order (or matched by `toolCallId` when the platform keeps it).
+ *
+ * A person on the staff who took the conversation over (ADR-0260 §2.5) writes
+ * `staff` messages, each with its `speaker`; the take-over and the hand-back
+ * are `staff` entries too, with `takeover` and no content.
  */
 export interface AgentStoredMessage {
   id: string;
-  role: 'user' | 'assistant' | 'tool' | (string & {});
+  role: 'user' | 'assistant' | 'tool' | 'staff' | (string & {});
   content: string | null;
   toolCalls?: Array<{ id: string; name: string; arguments?: Record<string, unknown> }> | null;
   toolCallId?: string | null;
@@ -173,6 +178,10 @@ export interface AgentStoredMessage {
    * it (ADR-0259 §2.6): set on a message they spoke. Absent or null when typed.
    */
   input?: MessageInput | null;
+  /** On a `staff` message or entry: the person on the staff (ADR-0260 §2.5). */
+  speaker?: StaffSpeaker | null;
+  /** On a `staff` entry with no content: the conversation was taken over here, or handed back. */
+  takeover?: TakeoverChange | null;
 }
 
 /** One stored conversation, with its most recent messages in chronological order. */
@@ -180,6 +189,43 @@ export interface AgentStoredConversation {
   conversationId: string;
   title: string | null;
   messages: AgentStoredMessage[];
+  /**
+   * Who holds the conversation now (ADR-0260 §2.1), as the realtime server
+   * says (`GET /internal/conversations/{id}/hold`); null or absent when the
+   * agent answers it.
+   */
+  hold?: ConversationHold | null;
+}
+
+/**
+ * A conversation as a person on the staff sees it (ADR-0260 §2.7): every
+ * stored message (the customer's, the agent's and the staff's), who holds it
+ * now, and who the viewer would be as its holder.
+ */
+export interface StaffConversation extends AgentStoredConversation {
+  hold: ConversationHold | null;
+  /** The staff member viewing it, as they would hold it. */
+  self: StaffSpeaker;
+}
+
+/**
+ * The staff console's routes, on the product's API (ADR-0260 §2.2): each
+ * checks the staff member's permission itself, then calls the realtime
+ * server's conversation routes. The SDK never decides staff permissions.
+ */
+export interface StaffConsoleSeam {
+  /** The conversation as staff see it. Rejects when this staff member may not see it. */
+  getConversation(conversationId: string): Promise<StaffConversation>;
+  /**
+   * Take it over: the product checks the permission, withdraws a waiting
+   * approval, stores the take-over entry and holds the conversation. Resolves
+   * with the hold; rejects (with why) when someone else holds it or it is refused.
+   */
+  takeOver(conversationId: string): Promise<ConversationHold>;
+  /** Hand it back: the product stores the hand-back entry and releases the hold. */
+  handBack(conversationId: string): Promise<void>;
+  /** Write to the customer as staff: the product stores the message, then announces it. Resolves with it as stored. */
+  sendMessage(params: { conversationId: string; content: string }): Promise<AgentStoredMessage>;
 }
 
 /**
@@ -301,6 +347,22 @@ export interface AgentClientConfig {
    * Default: "agent-sdk.activeConversation".
    */
   activeConversationKey?: string | false;
+
+  /**
+   * The conversation's room, and the token to join it (ADR-0260 §2.4): the
+   * product's API mints it for the customer whose conversation it is, or for a
+   * staff member it lets watch it. With it, the customer's tab follows a
+   * take-over, a person's messages and a hand-back as they happen, and the
+   * staff console follows the conversation live. Without it, neither does.
+   */
+  conversationRoom?: (conversationId: string) => Promise<{ room: string; roomToken?: string }>;
+
+  /**
+   * The staff console's routes (ADR-0260 §2.7), for `useStaffConversation`:
+   * take a conversation over, write as staff, hand it back. A customer-facing
+   * app leaves it out.
+   */
+  staff?: StaffConsoleSeam;
 
   /**
    * Realtime connection config. The SDK creates and manages its own Socket.IO

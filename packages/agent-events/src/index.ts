@@ -22,7 +22,7 @@ export type {
   JsonSchema,
   JsonType,
 } from './types.js';
-export { EVENT_DECLARATIONS_VERSION, TURN_ROOM } from './types.js';
+export { EVENT_DECLARATIONS_VERSION, TURN_ROOM, CONVERSATION_ROOM, HOST_NAMED_ROOMS } from './types.js';
 export { EVENT_DECLARATIONS_SCHEMA, EVENT_DECLARATIONS_SCHEMA_ID, EVENT_NAME_PATTERN } from './schema.js';
 export {
   createEventCatalog,
@@ -36,6 +36,6 @@ export type { EventCatalog, DeclaredEvent, DeclaredRoom, JobKind, AsyncBinding, 
 export type { Settlement, SettlementOutcome, SettlementRequest, EventWaiter } from './settlement.js';
 export { roomPlaceholders, roomPatternsRegExp, formatRoom, ROOM_ID_CHARS } from './rooms.js';
 export { payloadShape } from './payload-shape.js';
-export { PLATFORM_EVENTS, AGENT_TURN_EVENTS } from './platform.js';
+export { PLATFORM_EVENTS, AGENT_TURN_EVENTS, AGENT_CONVERSATION_EVENTS } from './platform.js';
 export { OUI_WIRE } from './oui-wire.js';
 export type { OuiWire } from './oui-wire.js';

@@ -84,7 +84,8 @@ function assertRelayable(events: NonNullable<RealtimeServerConfig['events']>, na
       `[agent-sdk-realtime] relay["${name}"]: a ${declared.role} event is sent only by the server; a client may relay only a notice`,
     );
   }
-  if (declared.rooms.some((r) => r.pattern === null)) {
-    throw new Error(`[agent-sdk-realtime] relay["${name}"]: it goes to a turn's room, which only the server sends to`);
+  const hostNamed = declared.rooms.find((r) => r.pattern === null);
+  if (hostNamed) {
+    throw new Error(`[agent-sdk-realtime] relay["${name}"]: it goes to a ${hostNamed.name}'s room, which only the server sends to`);
   }
 }

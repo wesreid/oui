@@ -73,7 +73,11 @@ describe('a stopped turn (ADR-0252)', () => {
     expect(isTurnStopReason('deadline')).toBe(false);
     // Nobody asks for a deadline stop; a turn that ran out of time ends on the stop path with that reason.
     expect(isTurnStoppedReason('deadline')).toBe(true);
-    expect(TURN_STOPPED_REASONS).toEqual(['user_stop', 'superseded', 'deadline']);
+    expect(TURN_STOPPED_REASONS).toEqual(['user_stop', 'superseded', 'taken_over', 'deadline']);
     expect(turnStoppedNote({ reason: 'deadline' })).toMatch(/ran out of time/);
+    // Nobody asks for a take-over stop either: the realtime server answers it from the conversation's hold (ADR-0260).
+    expect(isTurnStopReason('taken_over')).toBe(false);
+    expect(isTurnStoppedReason('taken_over')).toBe(true);
+    expect(turnStoppedNote({ reason: 'taken_over' })).toMatch(/person on the staff took this conversation over/);
   });
 });
