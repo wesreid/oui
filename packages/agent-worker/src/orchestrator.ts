@@ -40,6 +40,7 @@ import { createToolInputValidator } from './tools/input-validation.js';
 import { readClientPage, withoutClientUI, type ClientPage } from './ui/snapshot.js';
 import { KNOWLEDGE_TOOL, knowledgeTool, readClientKnowledge, withClientKnowledge } from './ui/knowledge.js';
 import { withNewestPageStateOnly } from './ui/newest-page-state.js';
+import { stepMessages as forStep } from './step-messages.js';
 import { withClock } from './prompt/clock.js';
 import { withSpokenInput } from './prompt/spoken-input.js';
 import { withUserText } from './prompt/user-text.js';
@@ -1244,11 +1245,18 @@ export async function runAgentTurn(
   // The system prompt has to travel as a message rather than the top-level
   // `system` field, because only a message carries `providerOptions`.
   //
-  // Two breakpoints, both on content that is append-only:
+  // Three breakpoints, each on content that is append-only:
   //   1. system (+ tools) — identical for every round of a segment, and for
   //      every turn on the same page.
   //   2. the end of the incoming history — stable across the rounds that follow
   //      it, since a round appends rather than rewrites.
+  //   3. the end of the conversation as each step sends it, moved forward every
+  //      step, so the next step reads this one's calls and answers from the
+  //      cache. With only the first two, everything after the user's message
+  //      went uncached at every step: on dev a turn's UI answers (up to tens of
+  //      thousands of tokens each) were paid in full again on every later step.
+  // What a step alone is told (its notes) goes after the third, so it never
+  // changes a prefix (step-messages.ts).
   //
   // Caching is a PREFIX match: one byte earlier in the prefix invalidates
   // everything after it. Nothing volatile may move ahead of these points — no
@@ -1526,10 +1534,12 @@ export async function runAgentTurn(
               }
             : {}),
         };
-        // The policy's note goes after the system prompt, for this step only.
-        // ai carries an instructions override forward to later steps, so a step
-        // without a note sets the plain instructions back.
-        // So does the turn's record, once a call has not succeeded.
+        // The policy's note, the forced action and the turn's record (once a call
+        // has not succeeded) are for this step only. They go at the end of what
+        // the model reads, after the moving cache breakpoint, never in the system
+        // prompt: a note there changed the prefix of the whole conversation, so
+        // the step that carried one, and the step after it, wrote the conversation
+        // to the cache again instead of reading it.
         const notes = [note, forced ? `This step: call ${UI_ACT_TOOL} with action "${forced}".` : null, ledger.note(), outputLimitNote].filter(
           (n): n is string => !!n,
         );
@@ -1545,13 +1555,11 @@ export async function runAgentTurn(
           });
         }
         const leftOut = fileGuard.leftOutParts();
-        const stepMessages = leftOut.length > 0 && messages ? withoutLeftOut(trimmed?.messages ?? messages, leftOut) : trimmed?.messages;
+        const stepMessages = leftOut.length > 0 && messages ? withoutLeftOut(trimmed?.messages ?? messages, leftOut) : trimmed?.messages ?? messages;
         return {
           ...constraints,
-          ...(stepMessages ? { messages: stepMessages } : {}),
-          instructions: notes.length
-            ? [instructions, ...notes.map((content) => ({ role: 'system' as const, content }))]
-            : instructions,
+          ...(stepMessages ? { messages: forStep(stepMessages, notes, cachePoint) } : {}),
+          instructions,
         };
       },
       onStepEnd: async ({ text, toolCalls, usage: stepUsage, finishReason }) => {
@@ -1574,6 +1582,10 @@ export async function runAgentTurn(
           totalTextEmitted,
           finishReason,
           outputTokens: stepUsage?.outputTokens ?? 0,
+          // How this step's input was billed: read from the cache, written to it, or neither.
+          inputTokens: stepUsage?.inputTokens ?? 0,
+          cacheReadTokens: stepUsage?.inputTokenDetails?.cacheReadTokens ?? 0,
+          cacheWriteTokens: stepUsage?.inputTokenDetails?.cacheWriteTokens ?? 0,
         });
       },
     });

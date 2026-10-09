@@ -467,7 +467,7 @@ describe('a turn policy speaks of the page’s actions', () => {
     const saw: Array<Record<string, unknown>> = [];
     let prepared: Awaited<ReturnType<StreamOpts['prepareStep']>> | undefined;
     model = async (opts) => {
-      prepared = await opts.prepareStep({ steps: [] });
+      prepared = await opts.prepareStep({ steps: [], messages: [{ role: 'user', content: 'Add a layer' }] } as never);
       saw.push(JSON.parse(await opts.tools.ui_act.execute({ action: 'studio_layer_add', input: { name: 'x' } }, { toolCallId: 'p1' })));
       saw.push(JSON.parse(await opts.tools.ui_act.execute({ action: 'studio_layers_query', input: {} }, { toolCallId: 'p2' })));
       // The next step: the policy is shown the call as the action it ran.
@@ -479,7 +479,7 @@ describe('a turn policy speaks of the page’s actions', () => {
 
     expect(seen.names[0]).toEqual(expect.arrayContaining(['ui_act', 'ui_describe', 'ui_read', 'studio_layers_query', 'studio_layer_add']));
     expect(prepared!.toolChoice).toEqual({ type: 'tool', toolName: 'ui_act' });
-    expect(JSON.stringify(prepared!.instructions)).toContain('call ui_act with action \\"studio_layers_query\\"');
+    expect(JSON.stringify((prepared as { messages?: unknown[] }).messages?.at(-1))).toContain('call ui_act with action \\"studio_layers_query\\"');
     expect(String(saw[0].error)).toContain('This step runs "studio_layers_query" and nothing else');
     expect(saw[1]).toMatchObject({ result: { total: 6 } });
     expect(seen.steps[1]).toEqual([{ toolCalls: [{ toolName: 'studio_layers_query' }] }]);

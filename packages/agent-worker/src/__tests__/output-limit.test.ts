@@ -120,9 +120,10 @@ describe('a step cut off at the output limit before it said or called anything',
     const { result, reply } = await turn(model);
 
     expect(prompts).toHaveLength(3);
-    // The cut-off step had the plain instructions; the step that replaced it is told why it runs again.
-    expect(systemText(prompts[1])).not.toContain('reached the output limit');
-    expect(systemText(prompts[2])).toContain('reached the output limit');
+    // The cut-off step had no note; the step that replaced it is told why it runs again, after its conversation.
+    expect(text(prompts[1])).not.toContain('reached the output limit');
+    expect(text(prompts[2].slice(-1))).toContain('reached the output limit');
+    expect(systemText(prompts[2])).toBe(systemText(prompts[1]));
     // It keeps what the turn did before the cut-off, and none of the cut-off step's output.
     expect(prompts[2].some((m) => m.role === 'tool')).toBe(true);
     expect(text(prompts[2])).not.toContain(CUT_OFF_THINKING);
