@@ -127,7 +127,7 @@ export type { HttpEmitAdapterConfig } from './emit/http-adapter.js';
 export { createAgentTurnRunner, categorizeError, payloadRefusal, TURN_DEADLINE_EXCEEDED } from './runtime/turn-runner.js';
 export type { AgentTurnRunner, TurnOutcome, CategorizedError } from './runtime/turn-runner.js';
 export { assertAgentRuntimeConfig } from './runtime/config.js';
-export type { AgentRuntimeConfig, LambdaAgentConfig, AgentTurnPayload, HistoryRequest } from './runtime/types.js';
+export type { AgentRuntimeConfig, LambdaAgentConfig, AgentTurnPayload, HistoryRequest, TurnHistory } from './runtime/types.js';
 export { createLambdaAgentHandler } from './lambda/handler.js';
 export { startContainerAgentWorker } from './container/server.js';
 export type { ContainerAgentConfig, ContainerAgentWorker } from './container/server.js';

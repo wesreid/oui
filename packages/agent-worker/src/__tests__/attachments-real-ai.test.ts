@@ -97,7 +97,9 @@ function input(overrides: Partial<AgentTurnInput> = {}): AgentTurnInput {
   };
 }
 
-const lastUser = (prompt: PromptMessage[]) => [...prompt].reverse().find((m) => m.role === 'user')!;
+/** The person's newest message: the last user message that is not the step's own tail (step-messages.ts). */
+const lastUser = (prompt: PromptMessage[]) =>
+  [...prompt].reverse().find((m) => m.role === 'user' && !JSON.stringify((m as { providerOptions?: unknown }).providerOptions ?? {}).includes('"stepTail":true'))!;
 const userParts = (prompt: PromptMessage[]) => lastUser(prompt).content as PromptPart[];
 const hasPicture = (prompt: PromptMessage[]) => userParts(prompt).some((p) => p.type === 'file');
 

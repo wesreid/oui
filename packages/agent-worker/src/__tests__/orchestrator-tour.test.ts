@@ -170,7 +170,7 @@ describe('Custom TurnPolicy integration', () => {
     );
   });
 
-  it('adds the policy’s note after the system prompt for that step only', async () => {
+  it('adds the policy’s note after the conversation for that step only, never to the system prompt', async () => {
     const note = 'You have used this turn’s steps. Say what is done and what is left, then offer to continue.';
     const customPolicy: TurnPolicy = {
       classifyTurn: () => 'normal',
@@ -179,11 +179,12 @@ describe('Custom TurnPolicy integration', () => {
     };
     const prepared: Array<Record<string, unknown>> = [];
     mockStreamTextImpl = (opts: Record<string, unknown>) => {
-      const ps = opts.prepareStep as (ctx: { steps: unknown[] }) => Promise<Record<string, unknown>>;
+      const ps = opts.prepareStep as (ctx: { steps: unknown[]; messages: unknown[] }) => Promise<Record<string, unknown>>;
+      const messages = [{ role: 'user', content: 'do it' }];
       const p = (async () => {
-        prepared.push(await ps({ steps: [] }));
-        prepared.push(await ps({ steps: [{ toolCalls: [{ toolName: 'search' }] }] }));
-        prepared.push(await ps({ steps: [{ toolCalls: [] }, { toolCalls: [] }] }));
+        prepared.push(await ps({ steps: [], messages }));
+        prepared.push(await ps({ steps: [{ toolCalls: [{ toolName: 'search' }] }], messages }));
+        prepared.push(await ps({ steps: [{ toolCalls: [] }, { toolCalls: [] }], messages }));
       })();
       return {
         textStream: (async function* () {
@@ -211,10 +212,15 @@ describe('Custom TurnPolicy integration', () => {
     expect(base.role).toBe('system');
     expect(base.content).toContain('You are a test assistant.');
     expect(prepared[1].toolChoice).toEqual({ type: 'tool', toolName: 'present_options' });
-    expect(prepared[1].instructions).toEqual([base, { role: 'system', content: note }]);
-    expect(prepared[1]).not.toHaveProperty('note');
-    // The next step is back to the plain system prompt.
+    // The system prompt is the same every step: a note there would change the prefix the cache holds.
+    expect(prepared[1].instructions).toBe(base);
     expect(prepared[2].instructions).toBe(base);
+    expect(prepared[1]).not.toHaveProperty('note');
+    const lastOf = (p: Record<string, unknown>) => (p.messages as Array<{ role: string; content: unknown }>).at(-1)!;
+    expect(lastOf(prepared[1])).toMatchObject({ role: 'user' });
+    expect(JSON.stringify(lastOf(prepared[1]).content)).toContain(`<step_note>\\n${note}\\n</step_note>`);
+    // The next step carries no note.
+    expect(JSON.stringify(prepared[2].messages)).not.toContain('<step_note>');
   });
 
   it('custom policy can force tool choice', async () => {

@@ -2,14 +2,13 @@
  * A message the person spoke says so to the model (ADR-0259 §2.6): it was
  * transcribed by speech recognition, it may hold a mis-heard word, the
  * language it was spoken in, and that an ambiguity a mis-hearing causes is
- * asked about rather than guessed at. Said on the newest user message only,
- * so the cached prefix (system prompt, tools, earlier messages) is the same
- * for a spoken message as for a typed one.
+ * asked about rather than guessed at. Said after the conversation, with what
+ * else is true only for this turn, so everything before it (system prompt,
+ * tools, every message) is the same for a spoken message as for a typed one.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ModelMessage } from 'ai';
 import type { AttachmentRef } from '@ouispec/agent-core';
-import { readClientMessageInput, spokenInputText, withSpokenInput } from '../prompt/spoken-input.js';
+import { readClientMessageInput, spokenInputText } from '../prompt/spoken-input.js';
 import { buildAgentSystemPrompt } from '../prompt/builder.js';
 import { withoutClientUI } from '../ui/snapshot.js';
 import type { AgentWorkerConfig, AgentTurnInput, SystemPromptContext } from '../types.js';
@@ -17,7 +16,7 @@ import { createToolRegistry } from '../tools/types.js';
 import type { AttachmentStore } from '../attachments/store.js';
 
 const SPOKEN_FRENCH =
-  '<input>The user spoke this message and speech recognition transcribed it, so it may contain recognition errors. ' +
+  '<input>The user spoke their newest message and speech recognition transcribed it, so it may contain recognition errors. ' +
   'The language detected was French (fr). ' +
   'If a likely mis-hearing makes the request ambiguous, ask the user what they meant rather than guess.</input>';
 
@@ -53,49 +52,6 @@ describe('readClientMessageInput', () => {
   });
 });
 
-describe('withSpokenInput', () => {
-  const history: ModelMessage[] = [
-    { role: 'user', content: 'make the logo bigger' },
-    { role: 'assistant', content: 'Done.' },
-    { role: 'user', content: 'now change the colour to tile' },
-  ];
-
-  it('puts the line after the person’s words on the newest message, and leaves every earlier one as it was', () => {
-    const out = withSpokenInput(history, { input: { mode: 'voice', language: 'en' } });
-    expect(out.slice(0, 2)).toEqual(history.slice(0, 2));
-    expect(out[0]).toBe(history[0]);
-    expect(out[2].content).toBe(`now change the colour to tile\n\n${spokenInputText({ mode: 'voice', language: 'en' })}`);
-  });
-
-  it('gives a typed message nothing', () => {
-    expect(withSpokenInput(history, { currentPath: '/vector', timeZone: 'Europe/Paris' })).toBe(history);
-    expect(withSpokenInput(history, null)).toBe(history);
-  });
-
-  it('gives a message whose input is malformed nothing', () => {
-    for (const input of [{ mode: 'telepathy' }, 'voice', ['voice'], 42, null, {}]) {
-      expect(withSpokenInput(history, { input })).toBe(history);
-    }
-  });
-
-  it('keeps the message’s pictures, adding the line to its text', () => {
-    const picture = { type: 'image' as const, image: new Uint8Array([1, 2, 3]), mediaType: 'image/png' };
-    const file = { type: 'file' as const, data: new Uint8Array([4]), mediaType: 'application/pdf' };
-    const messages: ModelMessage[] = [{ role: 'user', content: [{ type: 'text', text: 'what is in this?' }, picture, file] }];
-    const out = withSpokenInput(messages, { input: { mode: 'voice', language: 'de' } });
-    expect(out[0].content).toEqual([
-      { type: 'text', text: `what is in this?\n\n${spokenInputText({ mode: 'voice', language: 'de' })}` },
-      picture,
-      file,
-    ]);
-  });
-
-  it('leaves messages that do not end with the user’s as they are', () => {
-    const messages: ModelMessage[] = [{ role: 'assistant', content: 'ok' }];
-    expect(withSpokenInput(messages, { input: { mode: 'voice' } })).toBe(messages);
-  });
-});
-
 describe('the host’s prompt never sees how the message was entered', () => {
   it('is left out of the context a persona prompt renders, which would change the cached prefix per message', () => {
     const context = { currentPath: '/vector', input: { mode: 'voice', language: 'fr' } };
@@ -111,7 +67,11 @@ describe('the host’s prompt never sees how the message was entered', () => {
 
 type Part = { type: string; text?: string; data?: unknown; mediaType?: string };
 type Msg = { role: string; content: string | Part[] };
-type StreamOpts = { messages: Msg[]; instructions: { content: string } };
+type StreamOpts = {
+  messages: Msg[];
+  instructions: { content: string };
+  prepareStep: (o: { steps: unknown[]; messages: Msg[] }) => Promise<{ messages?: Msg[] }>;
+};
 let seen: StreamOpts | null = null;
 
 vi.mock('ai', () => ({
@@ -163,6 +123,11 @@ const turn = (context: Record<string, unknown>, overrides: Partial<AgentTurnInpu
 });
 
 const lastUser = (messages: Msg[]) => [...messages].reverse().find((m) => m.role === 'user')!;
+/** What the first step of the turn `opts` began sends: the conversation, and after it the step's tail. */
+async function firstStep(opts: StreamOpts): Promise<{ conversation: Msg[]; tail: string }> {
+  const sent = (await opts.prepareStep({ steps: [], messages: opts.messages })).messages!;
+  return { conversation: sent.slice(0, -1), tail: textOf(sent.at(-1)!) };
+}
 const textOf = (m: Msg) => (typeof m.content === 'string' ? m.content : m.content.map((p) => p.text ?? '').join('\n'));
 
 describe('a spoken message, through a turn', () => {
@@ -171,23 +136,25 @@ describe('a spoken message, through a turn', () => {
     promptContexts.length = 0;
   });
 
-  it('is said to be spoken on the model’s newest message, after the words and before the clock; the cached prefix is the typed one’s', async () => {
+  it('is said to be spoken after the conversation; everything before that is the typed turn’s, byte for byte', async () => {
     const { runAgentTurn } = await import('../orchestrator.js');
     const page = { currentPath: '/vector', timeZone: 'Europe/Paris' };
 
     await runAgentTurn(config(), turn(page));
-    const typed = seen!;
+    const typed = await firstStep(seen!);
+    const typedInstructions = seen!.instructions;
     await runAgentTurn(config(), turn({ ...page, input: { mode: 'voice', language: 'fr' } }));
-    const spoken = seen!;
+    const spoken = await firstStep(seen!);
 
-    const said = textOf(lastUser(spoken.messages));
-    expect(said.startsWith(`${SAID}\n\n${SPOKEN_FRENCH}\n\n<now>`)).toBe(true);
-    expect(textOf(lastUser(typed.messages))).not.toContain('<input>');
+    expect(spoken.tail).toContain(SPOKEN_FRENCH);
+    expect(typed.tail).not.toContain('<input>');
+    // The user's message is their words alone, as the next turn will send it.
+    expect(textOf(lastUser(spoken.conversation))).toBe(SAID);
 
-    // Everything before the newest message, and the system prompt, are byte for byte the typed turn's.
-    expect(spoken.instructions.content).toBe(typed.instructions.content);
-    expect(spoken.instructions.content).not.toMatch(/voice|<input>/);
-    expect(spoken.messages.slice(0, -1)).toEqual(typed.messages.slice(0, -1));
+    // The system prompt and every message are byte for byte the typed turn's.
+    expect(seen!.instructions.content).toBe(typedInstructions.content);
+    expect(seen!.instructions.content).not.toMatch(/voice|<input>/);
+    expect(JSON.stringify(spoken.conversation)).toBe(JSON.stringify(typed.conversation));
     // The host's prompt callback is given the page's context, never how the message was entered.
     expect(promptContexts.at(-1)!.context).toEqual(page);
   });
@@ -195,7 +162,7 @@ describe('a spoken message, through a turn', () => {
   it('says nothing for a malformed input', async () => {
     const { runAgentTurn } = await import('../orchestrator.js');
     await runAgentTurn(config(), turn({ input: { mode: 'telepathy', language: 'fr' } }));
-    expect(textOf(lastUser(seen!.messages))).not.toContain('<input>');
+    expect((await firstStep(seen!)).tail).not.toContain('<input>');
   });
 
   it('says nothing on the turn an approval card’s click starts, which is not a message', async () => {
@@ -205,7 +172,8 @@ describe('a spoken message, through a turn', () => {
       turn({ input: { mode: 'voice', language: 'fr' } }, { content: '', approval: { approvalId: 'apr_1', decision: 'decline' } }),
     );
     expect(seen).not.toBeNull();
-    expect(seen!.messages.some((m) => textOf(m).includes('<input>'))).toBe(false);
+    const step = await firstStep(seen!);
+    expect([...step.conversation.map(textOf), step.tail].some((t) => t.includes('<input>'))).toBe(false);
   });
 
   it('keeps the picture the person attached to the spoken message', async () => {
@@ -228,9 +196,11 @@ describe('a spoken message, through a turn', () => {
         },
       ),
     );
-    const parts = lastUser(seen!.messages).content as Part[];
+    const step = await firstStep(seen!);
+    const parts = lastUser(step.conversation).content as Part[];
     expect(parts[0]).toMatchObject({ type: 'text' });
-    expect(parts[0].text!.startsWith(`${SAID}\n\n${SPOKEN_FRENCH}`)).toBe(true);
+    expect(parts[0].text!.startsWith(SAID)).toBe(true);
     expect(parts.find((p) => p.type === 'file')).toEqual({ type: 'file', mediaType: 'image/png', data: bytes });
+    expect(step.tail).toContain(SPOKEN_FRENCH);
   });
 });

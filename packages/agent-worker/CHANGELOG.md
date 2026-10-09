@@ -1,5 +1,19 @@
 # @ouispec/agent-worker
 
+## 0.11.0
+
+### Minor Changes
+
+- Every step reads the conversation from the prompt cache (ADR-0263). On dev, 49% of PA input was written to the cache again or sent uncached.
+
+  - A breakpoint on the conversation's end moves forward every step, so the next step and the next turn read it. A turn's own calls were paid in full at every later step.
+  - What is true only now goes after the conversation, in one message per step that is never cached or stored: the page's values (`<page_state>`), the clock, that the message was spoken, expired approvals, the host's step context and the step's notes (`<step_note>`). Notes in the system prompt, and per-turn additions to the user's message, made a turn write the conversation again.
+  - The page's index follows the system prompt (`<page_index>`), with its own breakpoint.
+  - Every answer gives its page state up the same way, as it arrives and when stored (`pageState`), so an answer never changes once sent. The newest state of the turn is read in `<page_state>`.
+  - `getHistory` may return `{ messages, stepContext }`; `AgentTurnInput.stepContext` is read at the end of every step.
+  - `Step completed` logs carry `inputTokens`, `cacheReadTokens` and `cacheWriteTokens`; the turn's usage log reports `pageStatesMoved`.
+  - New live eval `evals/prompt-cache.live-eval.ts`.
+
 ## 0.10.1
 
 ### Patch Changes

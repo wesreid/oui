@@ -125,29 +125,41 @@ describe('UI tools from the client snapshot', () => {
     const { runAgentTurn } = await import('../orchestrator.js');
     await runAgentTurn(makeConfig(channel, [hostNavigate]), makeInput([shell, projects]));
 
-    // The model's tools do not grow with the page: it gets the index on the
-    // message, and three tools to work it with (ADR-0245 §2.2).
+    // The model's tools do not grow with the page: it gets the index after the
+    // system prompt, and three tools to work it with (ADR-0245 §2.2).
     const tools = seenOpts[0].tools;
     expect(Object.keys(tools).sort()).toEqual(['ui_act', 'ui_describe', 'ui_read']);
-    const message = String(seenOpts[0].messages.at(-1)!.content);
-    expect(message).toContain('- navigate: Go to a page (takes path: string)');
-    expect(message).toContain('- projects_create: Create a project (takes nothing)');
+    const index = JSON.stringify(seenOpts[0].instructions);
+    expect(index).toContain('- navigate: Go to a page (takes path: string)');
+    expect(index).toContain('- projects_create: Create a project (takes nothing)');
     // The host's `navigate` would be a second thing with the action's id: withheld.
     expect(errors.mock.calls.some((c) => String(c[0]).includes('Host tools collide with UI tools or action ids'))).toBe(true);
     errors.mockRestore();
   });
 
-  it('puts the page state on the user message, not in the system prompt', async () => {
+  it('puts the page’s index after the system prompt and its values after the conversation, never on the user’s message', async () => {
     const { channel } = makeChannel(() => null);
-    segmentImpls = [async () => [{ text: 'ok', toolCalls: [] }]];
+    let sent: Array<{ role: string; content: unknown }> = [];
+    segmentImpls = [
+      async (opts) => {
+        sent = ((await opts.prepareStep({ steps: [], messages: opts.messages })).messages ?? []) as typeof sent;
+        return [{ text: 'ok', toolCalls: [] }];
+      },
+    ];
     const { runAgentTurn } = await import('../orchestrator.js');
     await runAgentTurn(makeConfig(channel), makeInput([shell, home], { home: { characters: 6 } }));
 
-    const last = seenOpts[0].messages.at(-1)!;
-    expect(last.role).toBe('user');
-    expect(String(last.content)).toContain('<page_state>');
-    expect(String(last.content)).toContain('App Shell (app-shell)');
-    expect(String(last.content)).toContain('"characters":6');
+    // The index: a system message of its own, after the host's prompt, with its own cache breakpoint.
+    const instructions = seenOpts[0].instructions as Array<{ role: string; content: string }>;
+    expect(instructions).toHaveLength(2);
+    expect(instructions[1].content).toContain('<page_index>');
+    expect(instructions[1].content).toContain('App Shell (app-shell)');
+    // The values: after the conversation, where the step alone reads them.
+    const tail = JSON.stringify(sent.at(-1)!.content);
+    expect(tail).toContain('<page_state>');
+    expect(tail).toContain('\\"characters\\":6');
+    // The user's message is their words alone.
+    expect(sent.at(-2)!.content).toBe('take me to create a video production');
   });
 
   it('refuses a turn that carries surfaces when there is no channel to answer them', async () => {
@@ -373,7 +385,7 @@ describe('a turn of many actions (session 24611234)', () => {
     expect(JSON.parse(outputs[4])).toMatchObject({ repeatedCall: true });
   });
 
-  it('sends the page’s state with the newest answer only: 20 actions cost about what one does, plus what each did', async () => {
+  it('sends the page’s state once, after the conversation, never in an answer: 20 actions cost about what one does, plus what each did', async () => {
     const { channel } = makeChannel(answer);
     let one = 0;
     let twenty = 0;
@@ -403,15 +415,19 @@ describe('a turn of many actions (session 24611234)', () => {
     const answers = sent
       .filter((m) => m.role === 'tool')
       .map((m) => JSON.parse((m.content as Array<{ output: { value: string } }>)[0].output.value));
-    const { SUPERSEDED_STATE } = await import('../ui/newest-page-state.js');
-    // The newest answer has the page; every earlier one says where it is, and keeps what it did.
-    expect(JSON.stringify(answers[19].state)).toContain('Chapter');
-    for (const earlier of answers.slice(0, 19)) {
-      expect(earlier.state).toBe(SUPERSEDED_STATE);
-      expect(earlier.result.changed[0].list).toBe('slides');
+    const { STATE_AT_END } = await import('../ui/page-state-at-end.js');
+    // Every answer says where the page is, and keeps what it did; none holds the page itself.
+    for (const answer of answers) {
+      expect(answer).not.toHaveProperty('state');
+      expect(answer.pageState).toBe(STATE_AT_END);
+      expect(answer.result.changed[0].list).toBe('slides');
     }
+    // The newest answer's page is read after the conversation.
+    const tail = (sent.at(-1)!.content as Array<{ text: string }>)[0].text;
+    expect(tail).toContain('<page_state>');
+    expect(tail).toContain('Chapter');
     // Twenty answers add only what each did: far less than twenty pages.
-    const page = JSON.stringify(answers[19].state).length;
+    const page = tail.length;
     expect(page).toBeGreaterThan(3_000);
     // With every page kept, the nineteen later answers would add nineteen pages.
     expect(twenty - one).toBeLessThan(19 * 1_000);

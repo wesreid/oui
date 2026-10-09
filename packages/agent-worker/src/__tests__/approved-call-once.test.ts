@@ -19,7 +19,10 @@ import type { AgentTurnInput, AgentWorkerConfig, TurnHistoryMessage } from '../t
 import type { ApprovalSettlement } from '@ouispec/agent-core';
 import { createHttpApprovalStoreClient, type ApprovalStoreClient } from '../approvals/client.js';
 
-type StreamOpts = { messages: ModelMessage[] };
+type StreamOpts = {
+  messages: ModelMessage[];
+  prepareStep: (o: { steps: unknown[]; messages: ModelMessage[] }) => Promise<{ messages?: ModelMessage[] }>;
+};
 let seen: StreamOpts | null = null;
 
 vi.mock('ai', () => ({
@@ -254,8 +257,10 @@ describe('a call still stored as waiting, at the start of a later turn', () => {
   ];
   const expired = { decided: 'expired', ran: false, summary: 'The approval expired before it was used. It was not run.' };
   const marker = (text: string | undefined) => (JSON.parse(text ?? '{}') as { approval?: Record<string, unknown> }).approval;
-  const lastUserText = () => {
-    const last = seen!.messages[seen!.messages.length - 1];
+  /** What the turn's first step reads after the conversation: what is true only for this turn. */
+  const tailText = async () => {
+    const sent = (await seen!.prepareStep({ steps: [], messages: seen!.messages })).messages!;
+    const last = sent[sent.length - 1];
     return typeof last.content === 'string' ? last.content : JSON.stringify(last.content);
   };
   /** A store that answers `settleExpired` as given, and records what it was asked. */
@@ -293,8 +298,8 @@ describe('a call still stored as waiting, at the start of a later turn', () => {
     expect(marker(results()[0].output?.value)).not.toHaveProperty('expired');
     expect(JSON.parse(results()[0].output!.value!).message).toMatch(/Do not run it again unless the user asks for it again\.$/);
     expect(JSON.stringify(seen!.messages)).not.toContain('awaitingApproval');
-    // And said beside the user's message.
-    expect(lastUserText()).toMatch(/<approval>An approval asked for earlier in this conversation expired before the user decided it, so that action did not run\./);
+    // And said after the conversation, for this turn.
+    expect(await tailText()).toMatch(/<approval>An approval asked for earlier in this conversation expired before the user decided it, so that action did not run\./);
 
     // Stored once, under the call's own id; the host confirms it after persisting.
     const stored = result.newMessages.filter((m) => m.role === 'tool');
@@ -331,8 +336,8 @@ describe('a call still stored as waiting, at the start of a later turn', () => {
     expect(given).toMatchObject({ success: false, notRun: true });
     expect(given.message).toMatch(/Ask the user before running it again\.$/);
     // The note's other wording: the user did decide.
-    expect(lastUserText()).toMatch(/The user approved an action earlier in this conversation, but the approval expired before it ran; it did not run, so ask before running it again\./);
-    expect(lastUserText()).not.toMatch(/before the user decided/);
+    expect(await tailText()).toMatch(/The user approved an action earlier in this conversation, but the approval expired before it ran; it did not run, so ask before running it again\./);
+    expect(await tailText()).not.toMatch(/before the user decided/);
 
     const stored = result.newMessages.filter((m) => m.role === 'tool');
     expect(stored).toHaveLength(1);
@@ -354,8 +359,8 @@ describe('a call still stored as waiting, at the start of a later turn', () => {
     expect(marker(results()[0].output?.value)).not.toHaveProperty('by');
     expect(given).toMatchObject({ success: false, notRun: true });
     expect(given.message).not.toMatch(/expired before/);
-    expect(lastUserText()).toMatch(/was withdrawn before it ran, because the user sent a new message or stopped that turn; that action did not run\./);
-    expect(lastUserText()).not.toMatch(/expired before the user decided/);
+    expect(await tailText()).toMatch(/was withdrawn before it ran, because the user sent a new message or stopped that turn; that action did not run\./);
+    expect(await tailText()).not.toMatch(/expired before the user decided/);
 
     // Stored once, under the call's own id, and confirmed like any expiry.
     const stored = result.newMessages.filter((m) => m.role === 'tool');
@@ -407,7 +412,7 @@ describe('a call still stored as waiting, at the start of a later turn', () => {
     const { runAgentTurn } = await import('../orchestrator.js');
     const result = await runAgentTurn({ ...config, approvals: settling(() => outcome).store }, turn(waiting));
     expect(results().map((r) => r.output?.value)).toEqual([WAITING]);
-    expect(lastUserText()).not.toContain('<approval>');
+    expect(await tailText()).not.toContain('<approval>');
     expect(result.newMessages.filter((m) => m.role === 'tool')).toEqual([]);
     expect(result.settledApprovals).toBeUndefined();
   });

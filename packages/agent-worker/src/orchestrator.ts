@@ -37,12 +37,12 @@ import type { RegisteredTool, ToolExecutionContext, ToolExecutionResult } from '
 import { defaultTurnPolicy, type StepTool } from './turn-policy.js';
 import { evaluateToolPolicySafe } from './authz/tool-policy.js';
 import { createToolInputValidator } from './tools/input-validation.js';
-import { readClientPage, withoutClientUI, type ClientPage } from './ui/snapshot.js';
+import { readClientPage, withoutClientUI } from './ui/snapshot.js';
 import { KNOWLEDGE_TOOL, knowledgeTool, readClientKnowledge, withClientKnowledge } from './ui/knowledge.js';
-import { withNewestPageStateOnly } from './ui/newest-page-state.js';
-import { withClock } from './prompt/clock.js';
-import { withSpokenInput } from './prompt/spoken-input.js';
-import { withUserText } from './prompt/user-text.js';
+import { answerWithoutState, withStatesAtEnd } from './ui/page-state-at-end.js';
+import { stepMessages as forStep, STEP_NOTE_CLOSE, STEP_NOTE_OPEN } from './step-messages.js';
+import { clockText, readClientTimeZone } from './prompt/clock.js';
+import { readClientMessageInput, spokenInputText } from './prompt/spoken-input.js';
 import { AttachmentGuard } from './attachments/guard.js';
 import { ATTACHMENT_DATA_NOTE, turnAttachmentParts, withReferenceLines, withTurnAttachments, withoutLeftOut } from './attachments/content.js';
 import { attachmentTools } from './attachments/tools.js';
@@ -193,8 +193,8 @@ export async function runAgentTurn(
   // Whether the page can be seen (ADR-0245 §2.5): nothing that changes it runs while it cannot.
   const sight = createPageSight();
   const uiCounts = { describes: 0, reads: 0, acts: 0, guides: 0 };
-  // Earlier answers' page states replaced, summed over the turn's steps.
-  let pageStatesNotRepeated = 0;
+  // Answers whose page state was moved to the end of what the model reads, summed over the turn's steps.
+  let pageStatesMoved = 0;
 
   // The knowledge the client sent for its page goes after the host's prompt.
   const knowledge = readClientKnowledge(input.context ?? null);
@@ -1244,11 +1244,18 @@ export async function runAgentTurn(
   // The system prompt has to travel as a message rather than the top-level
   // `system` field, because only a message carries `providerOptions`.
   //
-  // Two breakpoints, both on content that is append-only:
+  // Three breakpoints, each on content that is append-only:
   //   1. system (+ tools) — identical for every round of a segment, and for
   //      every turn on the same page.
   //   2. the end of the incoming history — stable across the rounds that follow
   //      it, since a round appends rather than rewrites.
+  //   3. the end of the conversation as each step sends it, moved forward every
+  //      step, so the next step reads this one's calls and answers from the
+  //      cache. With only the first two, everything after the user's message
+  //      went uncached at every step: on dev a turn's UI answers (up to tens of
+  //      thousands of tokens each) were paid in full again on every later step.
+  // What a step alone is told (its notes) goes after the third, so it never
+  // changes a prefix (step-messages.ts).
   //
   // Caching is a PREFIX match: one byte earlier in the prefix invalidates
   // everything after it. Nothing volatile may move ahead of these points — no
@@ -1346,41 +1353,26 @@ export async function runAgentTurn(
   const stoppedBeforeModel = stopOf(abortController.signal);
   if (stoppedBeforeModel) return await finishStopped(stoppedBeforeModel, { expired, continued });
 
-  // Convert history to AI SDK CoreMessage format. The page the user is on
-  // travels with their message, not in the system prompt: it changes on every
-  // page, and in the system prompt it would invalidate the cached prefix. An
-  // approved call that ran is the result of the call the model made (see
+  // Convert history to AI SDK CoreMessage format. Everything before the end
+  // of the conversation is sent exactly as it was sent before, so the prompt
+  // cache reads it (step-messages.ts). What is true only now — the page's
+  // index and values, the user's clock, a note on calls whose approval
+  // expired, the host's step context — is not added to the user's message,
+  // where the next turn would send that message without it and write the
+  // conversation from there to the cache again: the index goes after the
+  // system prompt, the rest after the conversation (`stepTail`). An approved
+  // call that ran is the result of the call the model made (see
   // continueApproval).
-  // The date and time on the user's clock travel with their message too: a
-  // model has no clock, and the changing minute must stay out of the cached
-  // system prompt (prompt/clock.ts).
-  // A message the person spoke says so straight after their words: it may hold a mis-heard word
-  // (prompt/spoken-input.ts). A click on an approval card is not a message, so it says nothing.
   const turnFilesGiven = !!fileArea && (input.attachments?.length ?? 0) > 0;
   const messages: ModelMessage[] = [
-    ...withClock(
-      withPageState(
-        withNote(
-          withSpokenInput(
-            convertHistoryToCoreMessages(
-              // An approved call's outcome, and an expired one's, is a later result of the call already in the
-              // history: it takes that call's place.
-              [...(input.history ?? []), ...expired.outcomes, ...(continued?.outcome ? [continued.outcome] : [])],
-              [input.content, continued?.note].filter(Boolean).join('\n\n'),
-              // The turn's own message, when the history already holds it: its files are given below,
-              // each with its line, so the history's copy of the message does not name them again.
-              turnFilesGiven && input.history?.at(-1)?.role === 'user' ? input.history.length - 1 : null,
-            ),
-            input.approval ? null : (input.context ?? null),
-          ),
-          // Said on the user's message whether or not the host's history already holds that message.
-          expired.outcomes.length > 0 ? expiredNote(expired) : null,
-        ),
-        client,
-        config.ui?.maxObservationChars ?? DEFAULT_PAGE_STATE_CHARS,
-        config.ui?.maxIndexChars ?? DEFAULT_INDEX_CHARS,
-      ),
-      input.context ?? null,
+    ...convertHistoryToCoreMessages(
+      // An approved call's outcome, and an expired one's, is a later result of the call already in the
+      // history: it takes that call's place.
+      [...(input.history ?? []), ...expired.outcomes, ...(continued?.outcome ? [continued.outcome] : [])],
+      [input.content, continued?.note].filter(Boolean).join('\n\n'),
+      // The turn's own message, when the history already holds it: its files are given below,
+      // each with its line, so the history's copy of the message does not name them again.
+      turnFilesGiven && input.history?.at(-1)?.role === 'user' ? input.history.length - 1 : null,
     ),
     ...(continued?.messages ?? []),
   ];
@@ -1427,11 +1419,72 @@ export async function runAgentTurn(
   // `instructions` takes `string | SystemModelMessage | SystemModelMessage[]`,
   // and the message form carries `providerOptions`, so the breakpoint travels
   // with it. (`system` is the deprecated alias for the same type.)
-  const instructions = {
+  const systemMessage = {
     role: 'system' as const,
     content: systemPrompt,
     ...(cachePoint ? { providerOptions: cachePoint } : {}),
   };
+  // What the page offers, after the system prompt with a breakpoint of its own:
+  // it is the same for every step and every turn on the same page, so it is
+  // read from the cache, and when the page changes only it and what follows are
+  // written again. A change during the turn reaches the model in the answer
+  // that made it (ui-tools.ts `forModel`).
+  const pageIndex =
+    client && client.page.length > 0
+      ? {
+          role: 'system' as const,
+          content: [
+            '<page_index>',
+            `The user's screen offers these surfaces and actions. Run an action with ${UI_ACT_TOOL}; ${UI_DESCRIBE_TOOL} says what one takes.`,
+            indexText(client.page, config.ui?.maxIndexChars ?? DEFAULT_INDEX_CHARS),
+            '</page_index>',
+          ].join('\n'),
+          ...(cachePoint ? { providerOptions: cachePoint } : {}),
+        }
+      : null;
+  const instructions = pageIndex ? [systemMessage, pageIndex] : systemMessage;
+
+  // ─── What is true now, after the conversation (step-messages.ts) ───────────
+  // The turn's own message: answers after it are this turn's, and only those
+  // are newer than the page the turn began on.
+  const turnMessageAt = messages.map((m) => m.role).lastIndexOf('user');
+  const turnClock = clockText(new Date(), readClientTimeZone(input.context ?? null));
+  const turnSpoken = input.approval ? null : readClientMessageInput(input.context ?? null);
+  const turnPageValues =
+    client && client.page.length > 0
+      ? [
+          observationsText(client.observations, config.ui?.maxObservationChars ?? DEFAULT_PAGE_STATE_CHARS, {
+            schemas: observationSchemas(client.page),
+          }),
+          client.fit?.observations?.length ? `Not shown: ${fitNotes(client.fit.observations).join(' ')}` : null,
+        ]
+      : null;
+  /** The page's state from this turn's newest answer that carried one; until then, as the user's screen sent it. */
+  let newestAnswerState: unknown;
+  const stepTail = (notes: readonly string[]): string[] => [
+    ...(turnPageValues
+      ? [
+          [
+            '<page_state>',
+            sight.blind()
+              ? `Not current: an answer came without the page's state (${sight.blind()}). These values are from before it, so read the page before you change anything.`
+              : newestAnswerState !== undefined
+                ? 'The page as it is now, from the newest answer that carried its state.'
+                : 'The page as it was when the user sent their message.',
+            `Current values: ${newestAnswerState !== undefined ? JSON.stringify(newestAnswerState) : turnPageValues[0]}`,
+            ...(newestAnswerState === undefined && turnPageValues[1] ? [turnPageValues[1]] : []),
+            '</page_state>',
+          ].join('\n'),
+        ]
+      : []),
+    turnClock,
+    // A message the person spoke may hold a mis-heard word (prompt/spoken-input.ts). A click on an
+    // approval card is not a message, so it says nothing.
+    ...(turnSpoken ? [spokenInputText(turnSpoken)] : []),
+    ...(expired.outcomes.length > 0 ? [expiredNote(expired)] : []),
+    ...(input.stepContext?.trim() ? [input.stepContext.trim()] : []),
+    ...(notes.length > 0 ? [[STEP_NOTE_OPEN, ...notes, STEP_NOTE_CLOSE].join('\n')] : []),
+  ];
 
   const withCachePoint = (msgs: ModelMessage[]): ModelMessage[] => !cachePoint ? msgs : [
     ...msgs.slice(0, -1),
@@ -1526,16 +1579,21 @@ export async function runAgentTurn(
               }
             : {}),
         };
-        // The policy's note goes after the system prompt, for this step only.
-        // ai carries an instructions override forward to later steps, so a step
-        // without a note sets the plain instructions back.
-        // So does the turn's record, once a call has not succeeded.
+        // The policy's note, the forced action and the turn's record (once a call
+        // has not succeeded) are for this step only. They go at the end of what
+        // the model reads, after the moving cache breakpoint, never in the system
+        // prompt: a note there changed the prefix of the whole conversation, so
+        // the step that carried one, and the step after it, wrote the conversation
+        // to the cache again instead of reading it.
         const notes = [note, forced ? `This step: call ${UI_ACT_TOOL} with action "${forced}".` : null, ledger.note(), outputLimitNote].filter(
           (n): n is string => !!n,
         );
-        // The page's state on the newest answer only: an earlier page is not the page now.
-        const trimmed = messages ? withNewestPageStateOnly(messages) : null;
-        if (trimmed) pageStatesNotRepeated += trimmed.replaced;
+        // Every answer gives its page state up the same way; the newest of this turn's is read at the end.
+        const trimmed = messages ? withStatesAtEnd(messages, turnMessageAt) : null;
+        if (trimmed) {
+          pageStatesMoved += trimmed.moved;
+          if (trimmed.newest !== undefined) newestAnswerState = trimmed.newest;
+        }
         // The files this step would carry, within the turn's and the conversation's caps (ADR-0252 §2.11).
         const leftOutNow = fileGuard.beforeStep();
         if (leftOutNow.length > 0) {
@@ -1545,13 +1603,11 @@ export async function runAgentTurn(
           });
         }
         const leftOut = fileGuard.leftOutParts();
-        const stepMessages = leftOut.length > 0 && messages ? withoutLeftOut(trimmed?.messages ?? messages, leftOut) : trimmed?.messages;
+        const stepMessages = leftOut.length > 0 && messages ? withoutLeftOut(trimmed?.messages ?? messages, leftOut) : trimmed?.messages ?? messages;
         return {
           ...constraints,
-          ...(stepMessages ? { messages: stepMessages } : {}),
-          instructions: notes.length
-            ? [instructions, ...notes.map((content) => ({ role: 'system' as const, content }))]
-            : instructions,
+          ...(stepMessages ? { messages: forStep(stepMessages, stepTail(notes), cachePoint) } : {}),
+          instructions,
         };
       },
       onStepEnd: async ({ text, toolCalls, usage: stepUsage, finishReason }) => {
@@ -1574,6 +1630,10 @@ export async function runAgentTurn(
           totalTextEmitted,
           finishReason,
           outputTokens: stepUsage?.outputTokens ?? 0,
+          // How this step's input was billed: read from the cache, written to it, or neither.
+          inputTokens: stepUsage?.inputTokens ?? 0,
+          cacheReadTokens: stepUsage?.inputTokenDetails?.cacheReadTokens ?? 0,
+          cacheWriteTokens: stepUsage?.inputTokenDetails?.cacheWriteTokens ?? 0,
         });
       },
     });
@@ -1734,7 +1794,7 @@ export async function runAgentTurn(
             // What bounds the model: the page's index as it reads it, against the most it is given
             // before the furthest surfaces are listed by id only.
             indexChars: indexText(client.page, Infinity).length,
-            pageStatesNotRepeated,
+            pageStatesMoved,
             maxIndexChars: config.ui?.maxIndexChars ?? DEFAULT_INDEX_CHARS,
           },
         }
@@ -1964,43 +2024,6 @@ export async function runAgentTurn(
       ...(fileArea ? { attachments: fileGuard.usage() } : {}),
     };
   }
-}
-
-/** Put a note for the model on the turn's user message, after what the user said. */
-function withNote(messages: ModelMessage[], note: string | null): ModelMessage[] {
-  const last = messages[messages.length - 1];
-  if (!note || !last || last.role !== 'user') return messages;
-  return [...messages.slice(0, -1), withUserText(last, note)];
-}
-
-/**
- * Put the client's page on the user's message: what it offers, as an index of
- * its actions, and its latest observations. The model reads it as part of what
- * the user said, where it is true for this message only. The index has its own
- * budget, so it never crowds the page's state out (ADR-0245 §2.2).
- */
-function withPageState(
-  messages: ModelMessage[],
-  client: ClientPage | null,
-  maxChars: number,
-  maxIndexChars: number,
-): ModelMessage[] {
-  if (!client || client.page.length === 0) return messages;
-  const last = messages[messages.length - 1];
-  if (!last || last.role !== 'user') return messages;
-
-  const observations = observationsText(client.observations, maxChars, { schemas: observationSchemas(client.page) });
-  const notShown = client.fit?.observations?.length ? fitNotes(client.fit.observations) : [];
-  const pageState = [
-    '<page_state>',
-    `The user's screen offers these surfaces and actions. Run an action with ${UI_ACT_TOOL}; ${UI_DESCRIBE_TOOL} says what one takes.`,
-    indexText(client.page, maxIndexChars),
-    `Current values: ${observations}`,
-    ...(notShown.length ? [`Not shown: ${notShown.join(' ')}`] : []),
-    '</page_state>',
-  ].join('\n');
-
-  return [...messages.slice(0, -1), withUserText(last, pageState)];
 }
 
 /**
@@ -2239,7 +2262,8 @@ function convertResponseToTurnMessages(
         const tracked = executedToolResults[resultIdx++];
         turnMessages.push({
           role: 'tool',
-          content: tracked.result,
+          // Stored as the model is sent it, so the history sends it the same way every turn.
+          content: answerWithoutState(tracked.result),
           toolCallId: tracked.toolCallId,
           name: tracked.toolName,
         });

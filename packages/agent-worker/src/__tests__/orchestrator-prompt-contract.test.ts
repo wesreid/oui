@@ -104,17 +104,20 @@ describe('the request survives the real ai prompt validation', () => {
     });
   });
 
-  it('keeps the cache breakpoint on the last message', async () => {
+  it('keeps the cache breakpoint on the conversation’s last message, before what is true only for this step', async () => {
     const { runAgentTurn } = await import('../orchestrator.js');
     await runAgentTurn(makeConfig(), makeInput());
-    const prompt = lastCall!.prompt as Array<{ role: string; providerOptions?: unknown }>;
+    const prompt = lastCall!.prompt as Array<{ role: string; content: unknown; providerOptions?: unknown }>;
     const nonSystem = prompt.filter((m) => m.role !== 'system');
-    expect(nonSystem.at(-1)!.providerOptions).toEqual({
+    expect(nonSystem.at(-2)!.providerOptions).toEqual({
       amazonBedrock: { cachePoint: { type: 'default' } },
     });
+    // The step's tail (here, the clock) comes after it, unmarked.
+    expect(JSON.stringify(nonSystem.at(-1)!.content)).toContain('<now>');
+    expect(JSON.stringify(nonSystem.at(-1)!.providerOptions ?? {})).not.toContain('cachePoint');
   });
 
-  it('delivers a turn policy’s note as a second system message, after the cached system prompt', async () => {
+  it('delivers a turn policy’s note after the conversation, leaving the cached system prompt as it is', async () => {
     const { runAgentTurn } = await import('../orchestrator.js');
     const note = 'You have used this turn’s steps. Say what is done and what is left.';
     const result = await runAgentTurn(
@@ -123,10 +126,16 @@ describe('the request survives the real ai prompt validation', () => {
     );
     expect(result.stopReason).toBe('complete');
     const prompt = lastCall!.prompt as Array<{ role: string; content: unknown; providerOptions?: unknown }>;
+    // One system message, the same one every step, so no note changes the prefix the cache holds.
     const system = prompt.filter((m) => m.role === 'system');
-    expect(system).toHaveLength(2);
+    expect(system).toHaveLength(1);
     expect(JSON.stringify(system[0].content)).toContain('You are the persona agent.');
     expect(system[0].providerOptions).toEqual({ amazonBedrock: { cachePoint: { type: 'default' } } });
-    expect(system[1].content).toBe(note);
+    // The note is the last thing read, after the conversation's cache breakpoint.
+    const last = prompt.at(-1)!;
+    expect(last.role).toBe('user');
+    expect(JSON.stringify(last.content)).toContain(`<step_note>\\n${note}\\n</step_note>`);
+    expect(JSON.stringify(last.providerOptions ?? {})).not.toContain('cachePoint');
+    expect(prompt.at(-2)!.providerOptions).toEqual({ amazonBedrock: { cachePoint: { type: 'default' } } });
   });
 });

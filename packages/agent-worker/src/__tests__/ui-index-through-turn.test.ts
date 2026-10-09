@@ -231,13 +231,20 @@ const act = (action: string, input?: Record<string, unknown>) => ({ tool: 'ui_ac
 describe('what the model is given on a page of 427 actions', () => {
   it('is three UI tools and an index, small enough for any model, where the definitions were 600 KB', async () => {
     const page = studio();
-    model = async () => [{ text: 'ok', toolCalls: [] }];
+    let tail = '';
+    model = async (opts) => {
+      const sent = (await opts.prepareStep({ steps: [], messages: opts.messages } as never)) as { messages?: Array<{ content: unknown }> };
+      tail = ((sent.messages?.at(-1)?.content ?? []) as Array<{ text?: string }>).map((p) => p.text ?? '').join('\n');
+      return [{ text: 'ok', toolCalls: [] }];
+    };
     const { runAgentTurn } = await import('../orchestrator.js');
     await runAgentTurn(config(page.channel), turn(page));
 
-    const { tools, messages } = seenOpts[0];
+    const { tools } = seenOpts[0];
     expect(Object.keys(tools).sort()).toEqual(['ui_act', 'ui_describe', 'ui_read']);
-    const message = String(messages.at(-1)!.content);
+    // The index follows the system prompt; the page's values are read after the conversation.
+    const message = String((seenOpts[0] as unknown as { instructions: Array<{ content: string }> }).instructions[1].content) + tail;
+    expect(message).toContain('<page_index>');
     expect(message).toContain('<page_state>');
     expect(message).toContain('- studio_effect_add: Adds an effect to a layer. (takes one of 60 shapes by effect)');
     expect(message).toContain('- studio_layer_add: Adds a layer on top of the stack. (takes name: string)');
@@ -467,7 +474,7 @@ describe('a turn policy speaks of the page’s actions', () => {
     const saw: Array<Record<string, unknown>> = [];
     let prepared: Awaited<ReturnType<StreamOpts['prepareStep']>> | undefined;
     model = async (opts) => {
-      prepared = await opts.prepareStep({ steps: [] });
+      prepared = await opts.prepareStep({ steps: [], messages: [{ role: 'user', content: 'Add a layer' }] } as never);
       saw.push(JSON.parse(await opts.tools.ui_act.execute({ action: 'studio_layer_add', input: { name: 'x' } }, { toolCallId: 'p1' })));
       saw.push(JSON.parse(await opts.tools.ui_act.execute({ action: 'studio_layers_query', input: {} }, { toolCallId: 'p2' })));
       // The next step: the policy is shown the call as the action it ran.
@@ -479,7 +486,7 @@ describe('a turn policy speaks of the page’s actions', () => {
 
     expect(seen.names[0]).toEqual(expect.arrayContaining(['ui_act', 'ui_describe', 'ui_read', 'studio_layers_query', 'studio_layer_add']));
     expect(prepared!.toolChoice).toEqual({ type: 'tool', toolName: 'ui_act' });
-    expect(JSON.stringify(prepared!.instructions)).toContain('call ui_act with action \\"studio_layers_query\\"');
+    expect(JSON.stringify((prepared as { messages?: unknown[] }).messages?.at(-1))).toContain('call ui_act with action \\"studio_layers_query\\"');
     expect(String(saw[0].error)).toContain('This step runs "studio_layers_query" and nothing else');
     expect(saw[1]).toMatchObject({ result: { total: 6 } });
     expect(seen.steps[1]).toEqual([{ toolCalls: [{ toolName: 'studio_layers_query' }] }]);

@@ -132,6 +132,13 @@ export interface AgentTurnInput {
   content: string;
   context?: Record<string, unknown> | null;
   history?: TurnHistoryMessage[];
+  /**
+   * What the model reads at the end of every step and nowhere else: memory the
+   * host keeps beside the conversation, such as an index of work notes. It is
+   * never stored as part of a message, so the messages before it are sent the
+   * same way every turn and read from the prompt cache.
+   */
+  stepContext?: string;
   userToken?: string;
   /**
    * Set on the turn that follows the user's decision on an approval card: the

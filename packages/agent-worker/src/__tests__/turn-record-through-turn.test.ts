@@ -15,7 +15,7 @@ type StreamOpts = {
   temperature?: number;
   tools: Record<string, { execute: (args: unknown, o: { toolCallId: string }) => Promise<string> }>;
   instructions: Instructions;
-  prepareStep: (o: { steps: unknown[] }) => Promise<{ instructions: Instructions }>;
+  prepareStep: (o: { steps: unknown[]; messages?: unknown[] }) => Promise<{ instructions: Instructions; messages?: unknown[] }>;
 };
 let segmentImpls: Array<(opts: StreamOpts) => Promise<Array<{ text: string; toolCalls: Array<{ toolName: string; toolCallId: string }> }>>>;
 let seenOpts: StreamOpts[];
@@ -107,10 +107,14 @@ const input = (): AgentTurnInput => ({
   context: { currentPath: '/vector/b1', oui: { surfaces: [room], observations: { [room.id]: { document: { selection: [], layers: layers(3) } } } } },
 });
 
-const systemNotes = (instructions: Instructions) =>
-  (Array.isArray(instructions) ? instructions : [instructions])
-    .map((part) => (typeof part === 'string' ? part : String((part as { content?: unknown }).content ?? '')))
-    .join('\n');
+/** What a step was told for itself: the note after its conversation. */
+const STEP_MESSAGES = [{ role: 'user', content: 'Check the layers.' }];
+const stepNotes = (prepared: { messages?: unknown[] }) => {
+  const last = (prepared.messages ?? []).at(-1) as { content?: Array<{ text?: string }> } | undefined;
+  const text = Array.isArray(last?.content) ? (last!.content[0]?.text ?? '') : '';
+  const at = text.indexOf('<step_note>');
+  return at >= 0 ? text.slice(at) : '';
+};
 
 beforeEach(() => {
   segmentImpls = [];
@@ -146,11 +150,11 @@ describe('a turn that reads, fails and edits', () => {
     const notes: string[] = [];
     segmentImpls = [
       async (opts) => {
-        notes.push(systemNotes((await opts.prepareStep({ steps: [] })).instructions));
+        notes.push(stepNotes(await opts.prepareStep({ steps: [], messages: STEP_MESSAGES })));
         await opts.tools.ui_act.execute({ action: 'vector_studio_inspect', input: { refs: [layerId(0)] } }, { toolCallId: 'a' });
-        notes.push(systemNotes((await opts.prepareStep({ steps: [] })).instructions));
+        notes.push(stepNotes(await opts.prepareStep({ steps: [], messages: STEP_MESSAGES })));
         await opts.tools.ui_act.execute({ action: 'vector_studio_select', input: { ids: ['Anim 03'] } }, { toolCallId: 'b' });
-        notes.push(systemNotes((await opts.prepareStep({ steps: [] })).instructions));
+        notes.push(stepNotes(await opts.prepareStep({ steps: [], messages: STEP_MESSAGES })));
         return [{ text: 'Done.', toolCalls: [] }];
       },
     ];
@@ -171,7 +175,7 @@ describe('a turn that reads, fails and edits', () => {
     segmentImpls = [
       async (opts) => {
         refusal = await opts.tools.ui_act.execute({ action: 'vector_studio_rename', input: { id: layerId(0) } }, { toolCallId: 'bad' });
-        note = systemNotes((await opts.prepareStep({ steps: [] })).instructions);
+        note = stepNotes(await opts.prepareStep({ steps: [], messages: STEP_MESSAGES }));
         return [{ text: '', toolCalls: [] }];
       },
     ];
