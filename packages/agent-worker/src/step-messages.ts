@@ -1,6 +1,7 @@
 /**
  * What one step of a turn sends after the conversation: a cache breakpoint at
- * the conversation's end, and the notes that step alone is told.
+ * the conversation's end, and after it what is true only for that step (the
+ * page's state, the clock, the host's step context, the step's notes).
  *
  * `ai` carries the messages a step was given into the next step, so whatever
  * a step adds for itself would stay: its note would become part of the
@@ -18,7 +19,7 @@ export const STEP_NOTE_CLOSE = '</step_note>';
 /** The key under which the runtime marks what it added. Providers read only their own key, so it never reaches one. */
 const RUNTIME_KEY = 'ouispec';
 
-type Marks = { stepNote?: true; breakpoint?: { before: ProviderOptions | null } };
+type Marks = { stepTail?: true; breakpoint?: { before: ProviderOptions | null } };
 
 const marksOf = (m: ModelMessage): Marks | undefined => (m.providerOptions?.[RUNTIME_KEY] as Marks | undefined) ?? undefined;
 
@@ -30,7 +31,7 @@ function carries(m: ModelMessage, breakpoint: ProviderOptions): boolean {
 /** `messages` without what an earlier step added for itself. */
 function withoutStepAdditions(messages: readonly ModelMessage[]): ModelMessage[] {
   return messages
-    .filter((m) => !marksOf(m)?.stepNote)
+    .filter((m) => !marksOf(m)?.stepTail)
     .map((m) => {
       const added = marksOf(m)?.breakpoint;
       if (!added) return m;
@@ -40,11 +41,11 @@ function withoutStepAdditions(messages: readonly ModelMessage[]): ModelMessage[]
 }
 
 /**
- * The conversation as this step sends it: an earlier step's note and
+ * The conversation as this step sends it: an earlier step's tail and
  * breakpoint taken off, a breakpoint on its last message (unless that message
- * has one), and this step's notes after it, where they change no prefix.
+ * has one), and this step's tail after it, where it changes no prefix.
  */
-export function stepMessages(messages: readonly ModelMessage[], notes: readonly string[], breakpoint: ProviderOptions | undefined): ModelMessage[] {
+export function stepMessages(messages: readonly ModelMessage[], tail: readonly string[], breakpoint: ProviderOptions | undefined): ModelMessage[] {
   const conversation = withoutStepAdditions(messages);
   const last = conversation.at(-1);
   const marked =
@@ -57,13 +58,13 @@ export function stepMessages(messages: readonly ModelMessage[], notes: readonly 
             providerOptions: { ...(last.providerOptions ?? {}), ...breakpoint, [RUNTIME_KEY]: { breakpoint: { before: last.providerOptions ?? null } } },
           } as ModelMessage,
         ];
-  if (notes.length === 0) return marked;
+  if (tail.length === 0) return marked;
   return [
     ...marked,
     {
       role: 'user',
-      content: [{ type: 'text', text: [STEP_NOTE_OPEN, ...notes, STEP_NOTE_CLOSE].join('\n') }],
-      providerOptions: { [RUNTIME_KEY]: { stepNote: true } },
+      content: [{ type: 'text', text: tail.join('\n\n') }],
+      providerOptions: { [RUNTIME_KEY]: { stepTail: true } },
     },
   ];
 }

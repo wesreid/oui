@@ -104,14 +104,17 @@ describe('the request survives the real ai prompt validation', () => {
     });
   });
 
-  it('keeps the cache breakpoint on the last message', async () => {
+  it('keeps the cache breakpoint on the conversation’s last message, before what is true only for this step', async () => {
     const { runAgentTurn } = await import('../orchestrator.js');
     await runAgentTurn(makeConfig(), makeInput());
-    const prompt = lastCall!.prompt as Array<{ role: string; providerOptions?: unknown }>;
+    const prompt = lastCall!.prompt as Array<{ role: string; content: unknown; providerOptions?: unknown }>;
     const nonSystem = prompt.filter((m) => m.role !== 'system');
-    expect(nonSystem.at(-1)!.providerOptions).toEqual({
+    expect(nonSystem.at(-2)!.providerOptions).toEqual({
       amazonBedrock: { cachePoint: { type: 'default' } },
     });
+    // The step's tail (here, the clock) comes after it, unmarked.
+    expect(JSON.stringify(nonSystem.at(-1)!.content)).toContain('<now>');
+    expect(JSON.stringify(nonSystem.at(-1)!.providerOptions ?? {})).not.toContain('cachePoint');
   });
 
   it('delivers a turn policy’s note after the conversation, leaving the cached system prompt as it is', async () => {

@@ -217,7 +217,8 @@ describe('Custom TurnPolicy integration', () => {
     expect(prepared[2].instructions).toBe(base);
     expect(prepared[1]).not.toHaveProperty('note');
     const lastOf = (p: Record<string, unknown>) => (p.messages as Array<{ role: string; content: unknown }>).at(-1)!;
-    expect(lastOf(prepared[1])).toMatchObject({ role: 'user', content: [{ type: 'text', text: `<step_note>\n${note}\n</step_note>` }] });
+    expect(lastOf(prepared[1])).toMatchObject({ role: 'user' });
+    expect(JSON.stringify(lastOf(prepared[1]).content)).toContain(`<step_note>\\n${note}\\n</step_note>`);
     // The next step carries no note.
     expect(JSON.stringify(prepared[2].messages)).not.toContain('<step_note>');
   });

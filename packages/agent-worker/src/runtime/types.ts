@@ -60,6 +60,18 @@ export interface AgentTurnPayload {
   attachments?: AttachmentRef[];
 }
 
+/**
+ * History with what goes beside it: `stepContext` is read by the model at the
+ * end of every step (an index of work notes, say) and is not part of any
+ * message. Put such memory there, not on the newest message: a message is sent
+ * the same way every turn only if nothing is added to it for one turn, and a
+ * changed message makes the prompt cache write the conversation from there on.
+ */
+export interface TurnHistory {
+  messages: TurnHistoryMessage[];
+  stepContext?: string | null;
+}
+
 /** What `getHistory` is told of the turn it reads for. */
 export interface HistoryRequest {
   turnId: string;
@@ -250,7 +262,7 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
    *
    * The SDK handles appending the current user message — don't include it.
    */
-  getHistory: (conversationId: string, db: TDb, turn: HistoryRequest) => Promise<TurnHistoryMessage[]>;
+  getHistory: (conversationId: string, db: TDb, turn: HistoryRequest) => Promise<TurnHistoryMessage[] | TurnHistory>;
 
   /**
    * Persists the new messages generated during this turn. Called once, before

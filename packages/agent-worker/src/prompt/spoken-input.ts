@@ -11,15 +11,14 @@
  * - **What is read:** `readMessageInput` from `@ouispec/agent-core` keeps only
  *   a known mode and a well-formed language tag; anything else is read as
  *   typed, and a typed message is given nothing.
- * - **Where it goes:** on the turn's user message, right after the person's
- *   words, never in the system prompt or on an earlier message. The system
- *   prompt and the tools are a cached prefix, and the earlier messages are
- *   sent again unchanged on the next turn, so this changes only the newest
- *   message, as the clock does (`clock.ts`).
+ * - **Where it goes:** after the conversation, with what else is true only
+ *   for this turn (step-messages.ts), never in the system prompt or on the
+ *   message itself. The system prompt and the tools are a cached prefix, and
+ *   the next turn sends the message as the host stored it, without this line:
+ *   on the message, it made that turn write the conversation from there to the
+ *   cache again.
  */
 import { MESSAGE_INPUT_CONTEXT_KEY, readMessageInput, type MessageInput } from '@ouispec/agent-core';
-import type { ModelMessage } from 'ai';
-import { withUserText } from './user-text.js';
 
 /** How the turn's message was entered, from the turn's context; null when typed. */
 export function readClientMessageInput(context: Record<string, unknown> | null | undefined): MessageInput | null {
@@ -40,22 +39,7 @@ export function spokenInputText(input: MessageInput): string {
   const name = input.language ? languageName(input.language) : null;
   const language = input.language ? ` The language detected was ${name ? `${name} (${input.language})` : input.language}.` : '';
   return (
-    `<input>The user spoke this message and speech recognition transcribed it, so it may contain recognition errors.${language} ` +
+    `<input>The user spoke their newest message and speech recognition transcribed it, so it may contain recognition errors.${language} ` +
     'If a likely mis-hearing makes the request ambiguous, ask the user what they meant rather than guess.</input>'
   );
-}
-
-/**
- * Say on the turn's user message that it was spoken, when the turn's context
- * says so. A typed message, and messages that do not end with the user's (a
- * continuation the worker runs itself), are left as they are.
- */
-export function withSpokenInput(
-  messages: ModelMessage[],
-  context: Record<string, unknown> | null | undefined,
-): ModelMessage[] {
-  const input = readClientMessageInput(context);
-  const last = messages[messages.length - 1];
-  if (!input || !last || last.role !== 'user') return messages;
-  return [...messages.slice(0, -1), withUserText(last, spokenInputText(input))];
 }

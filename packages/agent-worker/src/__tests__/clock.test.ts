@@ -7,7 +7,7 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { ModelMessage } from 'ai';
-import { clockText, readClientTimeZone, withClock } from '../prompt/clock.js';
+import { clockText, readClientTimeZone } from '../prompt/clock.js';
 import type { AgentWorkerConfig, AgentTurnInput } from '../types.js';
 import { createToolRegistry } from '../tools/types.js';
 
@@ -49,27 +49,21 @@ describe('readClientTimeZone', () => {
   });
 });
 
-describe('withClock', () => {
-  it('puts the clock on the user’s message, after what they said and the page state', () => {
-    const messages: ModelMessage[] = [
-      { role: 'user', content: 'earlier' },
-      { role: 'assistant', content: 'ok' },
-      { role: 'user', content: 'restore yesterday’s version\n\n<page_state>…</page_state>' },
-    ];
-    const out = withClock(messages, { timeZone: 'Europe/Paris' }, NOW);
-    expect(out.slice(0, 2)).toEqual(messages.slice(0, 2));
-    expect(out[2].content).toMatch(/^restore yesterday’s version\n\n<page_state>…<\/page_state>\n\n<now>\nIt is Saturday 3 October 2026/);
-  });
-
-  it('leaves messages that do not end with the user’s as they are', () => {
-    const messages: ModelMessage[] = [{ role: 'assistant', content: 'ok' }];
-    expect(withClock(messages, {}, NOW)).toBe(messages);
-  });
-});
-
 // ─── Through a whole turn ────────────────────────────────────────────────────
 
-type StreamOpts = { messages: ModelMessage[]; instructions: { content: string } };
+type StreamOpts = {
+  messages: ModelMessage[];
+  instructions: { content: string };
+  prepareStep: (o: { steps: unknown[]; messages: ModelMessage[] }) => Promise<{ messages?: ModelMessage[] }>;
+};
+
+/** What the first step sends after the conversation: what is true only now. */
+async function firstStepTail(): Promise<{ text: string; conversation: ModelMessage[] }> {
+  const step = await seen!.prepareStep({ steps: [], messages: seen!.messages });
+  const sent = step.messages!;
+  const tail = sent.at(-1)!;
+  return { text: JSON.stringify(tail.content), conversation: sent.slice(0, -1) };
+}
 let seen: StreamOpts | null = null;
 
 vi.mock('ai', () => ({
@@ -116,18 +110,18 @@ describe('a turn’s context names today’s date in the user’s zone', () => {
     vi.setSystemTime(NOW);
   });
 
-  it('on the user’s message, and never in the cached system prompt', async () => {
+  it('after the conversation, never on the user’s message or in the cached system prompt', async () => {
     try {
       const { runAgentTurn } = await import('../orchestrator.js');
       await runAgentTurn(config, turn({ currentPath: '/vector', timeZone: 'Europe/Paris' }));
     } finally {
       vi.useRealTimers();
     }
-    const last = seen!.messages[seen!.messages.length - 1];
-    expect(last.role).toBe('user');
-    expect(last.content).toContain('What is today’s date?');
-    expect(last.content).toContain('It is Saturday 3 October 2026 (2026-10-03), 01:30');
-    expect(last.content).toContain('Europe/Paris (UTC+02:00)');
+    const { text, conversation } = await firstStepTail();
+    expect(text).toContain('It is Saturday 3 October 2026 (2026-10-03), 01:30');
+    expect(text).toContain('Europe/Paris (UTC+02:00)');
+    // The user's message is sent as they wrote it, so the next turn sends it the same way and the cache reads it.
+    expect(conversation.at(-1)!.content).toBe('What is today’s date?');
     // The system prompt is a cached prefix: no date or time in it.
     expect(seen!.instructions.content).not.toMatch(/2026|October|<now>/);
   });
@@ -139,7 +133,6 @@ describe('a turn’s context names today’s date in the user’s zone', () => {
     } finally {
       vi.useRealTimers();
     }
-    const last = seen!.messages[seen!.messages.length - 1];
-    expect(last.content).toContain('It is Friday 2 October 2026 (2026-10-02), 23:30 UTC');
+    expect((await firstStepTail()).text).toContain('It is Friday 2 October 2026 (2026-10-02), 23:30 UTC');
   });
 });

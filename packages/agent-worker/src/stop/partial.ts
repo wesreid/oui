@@ -10,6 +10,7 @@
 import { turnStoppedNote, type TurnStoppedMarker } from '@ouispec/agent-core';
 import type { TurnMessage } from '../types.js';
 import { resultText, stoppedWhileRunning } from './results.js';
+import { answerWithoutState } from '../ui/page-state-at-end.js';
 
 /** A step the turn saw end: its text, and the calls the model made in it. */
 export interface RecordedStep {
@@ -67,7 +68,7 @@ export function stoppedTurnMessages(recorded: {
     for (const call of stepCalls) {
       messages.push({
         role: 'tool',
-        content: byId.get(call.toolCallId)?.text ?? resultText(stoppedWhileRunning(call.toolName)),
+        content: answerWithoutState(byId.get(call.toolCallId)?.text ?? resultText(stoppedWhileRunning(call.toolName))),
         toolCallId: call.toolCallId,
         name: call.toolName,
       });

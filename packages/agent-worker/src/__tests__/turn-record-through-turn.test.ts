@@ -112,7 +112,8 @@ const STEP_MESSAGES = [{ role: 'user', content: 'Check the layers.' }];
 const stepNotes = (prepared: { messages?: unknown[] }) => {
   const last = (prepared.messages ?? []).at(-1) as { content?: Array<{ text?: string }> } | undefined;
   const text = Array.isArray(last?.content) ? (last!.content[0]?.text ?? '') : '';
-  return text.startsWith('<step_note>') ? text : '';
+  const at = text.indexOf('<step_note>');
+  return at >= 0 ? text.slice(at) : '';
 };
 
 beforeEach(() => {

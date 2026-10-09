@@ -10,7 +10,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
-import type { AgentTurnInput, AgentWorkerConfig } from '../types.js';
+import type { AgentTurnInput, AgentWorkerConfig, TurnHistoryMessage } from '../types.js';
 import { createToolRegistry, type RegisteredTool } from '../tools/types.js';
 import { PROMPT_CACHE_BREAKPOINTS } from '../model.js';
 
@@ -51,7 +51,7 @@ const tool = (name: string, ok: boolean): RegisteredTool => ({
   execute: vi.fn(async () => (ok ? { success: true, data: { rows: 'x'.repeat(2_000) } } : { success: false, error: 'The layer is locked' })),
 });
 
-async function turn(model: unknown) {
+async function turn(model: unknown, overrides: Partial<AgentTurnInput> = {}) {
   const config: AgentWorkerConfig = {
     tools: createToolRegistry([tool('layers_read', true), tool('layer_edit', false)]),
     emit: { emit: vi.fn(async () => {}) },
@@ -71,6 +71,7 @@ async function turn(model: unknown) {
       { role: 'assistant', content: 'Hi.' },
       { role: 'user', content: 'Read the layers, then edit one' },
     ],
+    ...overrides,
   };
   const { runAgentTurn } = await import('../orchestrator.js');
   return runAgentTurn(config, input);
@@ -78,8 +79,10 @@ async function turn(model: unknown) {
 
 const marked = (m: PromptMessage) => JSON.stringify(m.providerOptions ?? {}).includes('cachePoint');
 const isNote = (m: PromptMessage) => JSON.stringify(m.content).includes('<step_note>');
-/** What a step sends of the conversation: no system prompt, no note of its own. */
-const conversation = (prompt: PromptMessage[]) => prompt.filter((m) => m.role !== 'system' && !isNote(m));
+/** What a step sends after the conversation, for itself alone. */
+const isTail = (m: PromptMessage) => JSON.stringify(m.providerOptions ?? {}).includes('"stepTail":true');
+/** What a step sends of the conversation: no system prompt, no tail of its own. */
+const conversation = (prompt: PromptMessage[]) => prompt.filter((m) => m.role !== 'system' && !isTail(m));
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -112,6 +115,7 @@ describe('a turn’s steps and the prompt cache', () => {
     const systems = prompts.map((p) => JSON.stringify(p.filter((m) => m.role === 'system')));
     expect(new Set(systems).size).toBe(1);
     // The call that failed is reported to the steps after it, as the last thing they read, unmarked.
+    expect(isTail(prompts[0].at(-1)!)).toBe(true);
     expect(isNote(prompts[0].at(-1)!)).toBe(false);
     for (const prompt of prompts.slice(1)) {
       const last = prompt.at(-1)!;
@@ -121,6 +125,45 @@ describe('a turn’s steps and the prompt cache', () => {
       expect(marked(prompt.at(-2)!)).toBe(true);
     }
     // A note is never carried into a later step's conversation, so it never changes a prefix.
-    expect(prompts[2].filter(isNote)).toHaveLength(1);
+    expect(prompts[2].filter(isTail)).toHaveLength(1);
+  });
+});
+
+describe('a turn and the next one', () => {
+  it('sends the next turn everything the last step of this one sent, byte for byte, so the cache reads it', async () => {
+    const first = scripted(['layers_read', 'layers_read']);
+    const spoken = { context: { timeZone: 'Europe/Paris', input: { mode: 'voice', language: 'en' } }, stepContext: '<work_notes>\n- the slide\n</work_notes>' };
+    const one = await turn(first.model, spoken);
+
+    // The next turn's history: what the host stored of this one, then the person's next message.
+    const history: TurnHistoryMessage[] = [
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Hi.' },
+      { role: 'user', content: 'Read the layers, then edit one' },
+      ...one.newMessages.map((m): TurnHistoryMessage =>
+        m.role === 'tool'
+          ? { role: 'tool', content: m.content ?? '', tool_call_id: m.toolCallId!, name: m.name }
+          : {
+              role: 'assistant',
+              content: m.content,
+              ...(m.toolCalls?.length
+                ? { tool_calls: m.toolCalls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.arguments) } })) }
+                : {}),
+            },
+      ),
+      { role: 'user', content: 'Now the other one' },
+    ];
+    const second = scripted([]);
+    await turn(second.model, { content: 'Now the other one', history, context: { timeZone: 'Europe/Paris' }, stepContext: '<work_notes>\n- the slide\n- the video\n</work_notes>' });
+
+    // The last step of turn one, without its tail: a prefix of turn two's first step.
+    const sentBefore = conversation(first.prompts.at(-1)!).map((m) => JSON.stringify(m.content));
+    const sentNow = conversation(second.prompts[0]).map((m) => JSON.stringify(m.content));
+    expect(sentNow.slice(0, sentBefore.length)).toEqual(sentBefore);
+    // What was true only for turn one (the spoken line, the clock, the notes) was never part of it.
+    expect(JSON.stringify(sentBefore)).not.toMatch(/<input>|<now>|<work_notes>/);
+    expect(JSON.stringify(first.prompts.at(-1)!.at(-1)!.content)).toMatch(/<input>[\s\S]*<work_notes>/);
+    // And the system prompt is the same for both turns.
+    expect(JSON.stringify(second.prompts[0].filter((m) => m.role === 'system'))).toBe(JSON.stringify(first.prompts[0].filter((m) => m.role === 'system')));
   });
 });

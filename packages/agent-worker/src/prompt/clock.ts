@@ -10,13 +10,11 @@
  *   (`context.timeZone`, an IANA name), so "today" and "yesterday" are the
  *   days their wall clock shows, not the server's. An unknown or missing zone
  *   is UTC, and the note says so.
- * - **Where it goes:** on the user's message, never in the system prompt. The
- *   system prompt and the tools are a cached prefix (see the orchestrator's
- *   cache breakpoints), and one changing minute there would invalidate it on
- *   every turn.
+ * - **Where it goes:** after the conversation, with what else is true only
+ *   now (step-messages.ts). Never in the system prompt, where one changing
+ *   minute would invalidate the cached prefix on every turn, and never on the
+ *   user's message, which the next turn sends without it.
  */
-import { withUserText } from './user-text.js';
-import type { ModelMessage } from 'ai';
 
 /** The key under a turn's context that carries the user's IANA time zone. */
 export const CLIENT_TIME_ZONE_KEY = 'timeZone';
@@ -69,19 +67,4 @@ export function clockText(now: Date, timeZone: string | null): string {
       'A date or time in the page’s data or a tool’s result is UTC unless it carries its own offset: convert it to this zone before saying which day it falls on.',
     '</now>',
   ].join('\n');
-}
-
-/**
- * Put the clock on the turn's user message: true for this message only, as
- * the page state is. Messages that do not end with the user's (a continuation
- * the worker runs itself) are left as they are.
- */
-export function withClock(
-  messages: ModelMessage[],
-  context: Record<string, unknown> | null | undefined,
-  now: Date = new Date(),
-): ModelMessage[] {
-  const last = messages[messages.length - 1];
-  if (!last || last.role !== 'user') return messages;
-  return [...messages.slice(0, -1), withUserText(last, clockText(now, readClientTimeZone(context)))];
 }
