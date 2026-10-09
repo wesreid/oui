@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.12.1
+
+### Patch Changes
+
+- `@ouispec/agent-worker/history` exports `answerWithoutState` and `STATE_AT_END` from a module with no runtime imports, and answers a CommonJS resolver (`default`). A host's history code, and its tests, fit stored answers without loading the model SDK.
+
 ## 0.12.0
 
 ### Minor Changes

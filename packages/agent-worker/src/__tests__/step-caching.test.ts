@@ -167,3 +167,21 @@ describe('a turn and the next one', () => {
     expect(JSON.stringify(second.prompts[0].filter((m) => m.role === 'system'))).toBe(JSON.stringify(first.prompts[0].filter((m) => m.role === 'system')));
   });
 });
+
+describe('the history entry a host loads to fit stored answers', () => {
+  it('gives an answer its state up exactly as the worker sends and stores it, and needs nothing of the turn runtime', async () => {
+    const { answerWithoutState, STATE_AT_END } = await import('../history.js');
+    const stored = JSON.stringify({ result: { changed: [{ ref: 'layer-1' }] }, page: { surfaces: ['Canvas'] }, state: { document: { layers: 12 } } });
+    expect(answerWithoutState(stored)).toBe(JSON.stringify({ result: { changed: [{ ref: 'layer-1' }] }, page: { surfaces: ['Canvas'] }, pageState: STATE_AT_END }));
+    // Already without one, or not an answer: as it is.
+    expect(answerWithoutState(answerWithoutState(stored))).toBe(answerWithoutState(stored));
+    expect(answerWithoutState('not json "state"')).toBe('not json "state"');
+    // Its module, and what that imports, import nothing at run time.
+    const { readFileSync } = await import('node:fs');
+    for (const file of ['../history.ts', '../ui/page-state-at-end.ts']) {
+      const source = readFileSync(new URL(file, import.meta.url), 'utf8');
+      const runtimeImports = [...source.matchAll(/^(?:import|export) (?!type )[^;]*from '([^']+)'/gm)].map((m) => m[1]);
+      expect(runtimeImports.filter((from) => !from.startsWith('./'))).toEqual([]);
+    }
+  });
+});
