@@ -1,5 +1,16 @@
 # @ouispec/agent-worker
 
+## 0.12.0
+
+### Minor Changes
+
+- A forced step on a model that refuses a forced tool choice, and a budget for what the model reads of one action's result (ADR-0263 §5).
+
+  - `forcedToolChoice: false` (worker and runtime config), for a model that answers 400 to a forced choice (Claude Sonnet 5.5: "tool_choice: type "tool" and "any" are not supported"). A step the turn policy forces to a tool is sent no tool choice: it is given only that tool and told to call it. A turn that reached its step limit failed outright.
+  - An action's result is fitted to 24,000 characters for the model (`ui.maxAnswerDataChars`, `answer-fit.ts`). Over it, the longest lists are cut to their first rows, then the longest texts, and `resultCut` says what each had. On dev, answers of 88 KB and 107 KB made one step 168,155 tokens.
+  - `answerWithoutState` is exported, for a host that fits answers stored before 0.11.
+  - New live eval `evals/forced-step.live-eval.ts`.
+
 ## 0.11.0
 
 ### Minor Changes

@@ -117,6 +117,8 @@ export { runAgentTurn } from './orchestrator.js';
 
 // The model seam: any `ai` library model; the worker imports no provider.
 export { PROMPT_CACHE_BREAKPOINTS, describeModel } from './model.js';
+// An answer as the model is sent it and as it is stored, for a host that fits answers stored before 0.11 (ADR-0263 §2.2).
+export { answerWithoutState } from './ui/page-state-at-end.js';
 export type { LanguageModel, ProviderOptions } from './model.js';
 export type { TurnPolicy, StepTool } from './turn-policy.js';
 export { defaultTurnPolicy } from './turn-policy.js';
