@@ -24,6 +24,8 @@ Optional tuning, with its defaults:
 - `turnDeadlineMs`: 14 min (keep it below your host's own limit)
 - `retries`: 3
 
+A host that fits its stored history loads `@ouispec/agent-worker/history` (`answerWithoutState`): a module with no runtime imports, which also answers a CommonJS resolver.
+
 Policy hooks: `turnPolicy`, `toolPolicy`, `uiActions`, `approvals`, `stops`, `logger`.
 
 ## What a UI client sends with a turn
