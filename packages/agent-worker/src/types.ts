@@ -44,6 +44,13 @@ export interface AgentWorkerConfig {
   toolTimeoutMs?: number;
   turnDeadlineMs?: number;
   retries?: number;
+  /**
+   * Whether the model takes a forced tool choice. Default true. `false`, for a
+   * model that refuses one (Claude Sonnet 5.5 answers 400 to `tool` and
+   * `required`): a step a turn policy forces to a tool is given only that tool
+   * and told to call it, and no tool choice is sent.
+   */
+  forcedToolChoice?: boolean;
   /** Optional turn policy for product-specific step control. */
   turnPolicy?: TurnPolicy;
   /**
@@ -77,6 +84,8 @@ export interface AgentWorkerConfig {
     jobWaitMs?: number;
     /** Largest page-state payload given to the model, in characters. Default 12000 (`DEFAULT_PAGE_STATE_CHARS`). */
     maxObservationChars?: number;
+    /** How much of one action's result the model is given, in characters of JSON. Default 24000 (`DEFAULT_ANSWER_DATA_CHARS`): over it, the longest lists are cut to their first rows and the model is told. */
+    maxAnswerDataChars?: number;
     /** Largest index of the page's actions given to the model, in characters. Default 60000 (`DEFAULT_INDEX_CHARS`). */
     maxIndexChars?: number;
   };

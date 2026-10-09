@@ -164,6 +164,13 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
   /** Temperature. Default: 0.3. `null` sends none, for a model that does not take one. */
   temperature?: number | null;
 
+  /**
+   * Whether the model takes a forced tool choice. Default true. `false` for a
+   * model that refuses one (Claude Sonnet 5.5): a step the turn policy forces
+   * to a tool is given only that tool and told to call it.
+   */
+  forcedToolChoice?: boolean;
+
   /** Per-tool execution timeout in ms. Default: 30000 */
   toolTimeoutMs?: number;
 
@@ -218,6 +225,8 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
     jobWaitMs?: number;
     /** Largest page-state payload given to the model, in characters. Default 12000 (`DEFAULT_PAGE_STATE_CHARS`). */
     maxObservationChars?: number;
+    /** How much of one action's result the model is given, in characters of JSON. Default 24000 (`DEFAULT_ANSWER_DATA_CHARS`). */
+    maxAnswerDataChars?: number;
     /** Longest the page's index is in the model's context, in characters, before its furthest surfaces are listed by action id only. Default 60000 (`DEFAULT_INDEX_CHARS`, ADR-0245). */
     maxIndexChars?: number;
   };

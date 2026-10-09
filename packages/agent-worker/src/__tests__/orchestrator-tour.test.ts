@@ -223,6 +223,62 @@ describe('Custom TurnPolicy integration', () => {
     expect(JSON.stringify(prepared[2].messages)).not.toContain('<step_note>');
   });
 
+  it('holds a forced step by its tools, with no tool choice, for a model that refuses a forced choice', async () => {
+    // Claude Sonnet 5.5 answers 400 to a forced choice ("tool_choice: type "tool" and "any" are not supported").
+    const customPolicy: TurnPolicy = {
+      classifyTurn: () => 'normal',
+      prepareStep: async ({ steps }) =>
+        steps.length === 1 ? { toolChoice: { type: 'tool', toolName: 'present_options' }, note: 'Hand the turn back.' } : {},
+    };
+    const prepared: Array<Record<string, unknown>> = [];
+    mockStreamTextImpl = (opts: Record<string, unknown>) => {
+      const ps = opts.prepareStep as (ctx: { steps: unknown[]; messages: unknown[] }) => Promise<Record<string, unknown>>;
+      const messages = [{ role: 'user', content: 'do it' }];
+      const p = (async () => {
+        prepared.push(await ps({ steps: [], messages }));
+        prepared.push(await ps({ steps: [{ toolCalls: [{ toolName: 'search' }] }], messages }));
+      })();
+      return {
+        textStream: (async function* () {
+          await p;
+          yield 'Done.';
+        })(),
+        steps: p.then(() => [{ text: 'Done.', toolCalls: [], toolResults: [] }]),
+        usage: Promise.resolve({ inputTokens: 1, outputTokens: 1 }),
+        response: Promise.resolve({ messages: [{ role: 'assistant', content: 'Done.' }] }),
+      };
+    };
+    const run = async (forcedToolChoice?: boolean) => {
+      prepared.length = 0;
+      const { runAgentTurn } = await import('../orchestrator.js');
+      await runAgentTurn(
+        {
+          tools: createToolRegistry(makeTools(['search', 'present_options'])),
+          emit: { emit: vi.fn(async () => {}) },
+          model: 'test-model',
+          systemPrompt: 'You are a test assistant.',
+          turnPolicy: customPolicy,
+          ...(forcedToolChoice === undefined ? {} : { forcedToolChoice }),
+        },
+        { turnId: 't-held', conversationId: 'c', userId: 'u', accountId: 'a', socketRoom: 'r', content: 'do it' },
+      );
+      return prepared[1];
+    };
+    const tail = (p: Record<string, unknown>) => JSON.stringify((p.messages as unknown[]).at(-1));
+
+    // By default the choice is forced, as the policy asked.
+    const forced = await run();
+    expect(forced.toolChoice).toEqual({ type: 'tool', toolName: 'present_options' });
+    expect(forced).not.toHaveProperty('activeTools');
+
+    // For a model that refuses one: no tool choice, only that tool, and told to call it.
+    const held = await run(false);
+    expect(held).not.toHaveProperty('toolChoice');
+    expect(held.activeTools).toEqual(['present_options']);
+    expect(tail(held)).toContain('This step: call present_options. It is the only tool this step has.');
+    expect(tail(held)).toContain('Hand the turn back.');
+  });
+
   it('custom policy can force tool choice', async () => {
     const customPolicy: TurnPolicy = {
       classifyTurn: () => 'forced',

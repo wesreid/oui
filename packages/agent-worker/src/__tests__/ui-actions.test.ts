@@ -183,6 +183,38 @@ describe('a UI action is answered', () => {
     vi.useRealTimers();
   });
 
+  it('gives the model the first rows of a result too large to read, says how many there were, and stores it that way', async () => {
+    // Dev, 2026-10-08: deleting an artboard of 779 layers answered with 88 KB of removed rows.
+    const changed = Array.from({ length: 779 }, (_, i) => ({ list: 'document/layers', ref: `vector-${String(i).padStart(4, '0')}-8db1-4272-b364-3bea48eb0b0b`, removed: true }));
+    const { channel } = makeChannel((req) => ({
+      requestId: req.requestId,
+      success: true,
+      data: { navigatedTo: '/media-projects', changed },
+      timestamp: 1,
+      surfaces: [shell, home],
+      settled: true,
+    }));
+    let modelSaw = '';
+    segmentImpls = [
+      async (opts) => {
+        modelSaw = await opts.tools.ui_act.execute({ action: 'navigate', input: { path: '/media-projects' } }, { toolCallId: 'call-big' });
+        return [{ text: 'done', toolCalls: [{ toolName: 'ui_act', toolCallId: 'call-big' }] }];
+      },
+    ];
+    const { runAgentTurn } = await import('../orchestrator.js');
+    const result = await runAgentTurn(makeConfig(channel), makeInput([shell, home]));
+
+    const answer = JSON.parse(modelSaw);
+    expect(modelSaw.length).toBeLessThan(30_000);
+    expect(answer.result.navigatedTo).toBe('/media-projects');
+    expect(answer.result.changed.length).toBeLessThan(779);
+    expect(answer.result.changed[0]).toEqual(changed[0]);
+    expect(answer.resultCut).toEqual([expect.stringMatching(/^result\.changed had 779 rows; the first \d+ are here\. The action did all of them\./)]);
+    // What is stored is what the model read, so the history sends it the same way.
+    const stored = result.newMessages.find((m) => m.role === 'tool')!;
+    expect(JSON.parse(stored.content!).resultCut).toEqual(answer.resultCut);
+  });
+
   it('sends the request to the turn room with the tool call id, and returns the real result', async () => {
     // The clock stands still, so the first wait is the whole result window: the
     // worker takes its deadline before it dispatches and measures what is left

@@ -31,6 +31,7 @@ import {
 import type { RegisteredTool, ToolExecutionContext, ToolExecutionResult } from '../tools/types.js';
 import type { UIActionChannel } from './channel.js';
 import { boundObservations, DEFAULT_PAGE_STATE_CHARS, observationSchemas } from './observations.js';
+import { answerCutNotes, DEFAULT_ANSWER_DATA_CHARS, fitAnswerData } from './answer-fit.js';
 import { describeSchema } from './outline.js';
 import {
   definitionKey,
@@ -132,6 +133,8 @@ export interface UIToolDependencies {
   onResult(result: OUIActionResult, page: readonly PageSurface[] | undefined): void;
   /** Largest observation payload returned to the model, in characters. */
   maxObservationChars?: number;
+  /** How much of an action's result the model is given, in characters of JSON. Default 24,000 (answer-fit.ts). */
+  maxAnswerDataChars?: number;
   /**
    * When the turn must stop waiting for work an action started, so the model
    * still has time to answer: epoch ms. An action that is still running then is
@@ -602,7 +605,7 @@ async function runAction(
   const lifted = liftAnswerImage(answer.result.data);
   const shown: OUIActionResult = lifted.data === answer.result.data ? answer.result : { ...answer.result, data: lifted.data };
   const data = {
-    ...forModel(shown, before, answer.page, deps.maxObservationChars ?? DEFAULT_PAGE_STATE_CHARS, surface.id),
+    ...forModel(shown, before, answer.page, deps.maxObservationChars ?? DEFAULT_PAGE_STATE_CHARS, surface.id, deps.maxAnswerDataChars ?? DEFAULT_ANSWER_DATA_CHARS),
     ...(final === 'running' ? { status: 'running', note: stillRunningNote(entry) } : {}),
   };
   const image = lifted.image ? { image: lifted.image } : {};
@@ -749,6 +752,7 @@ function forModel(
   page: readonly PageSurface[] | undefined,
   maxObservationChars: number,
   actingSurfaceId: string,
+  maxAnswerDataChars: number,
 ) {
   const after = page ?? before;
   const was = new Set(before.map((s) => s.id));
@@ -758,8 +762,12 @@ function forModel(
   const { added, removed } = indexDiff(stayed(before), stayed(after));
   const closed = before.filter((s) => !after.some((a) => a.id === s.id)).map((s) => s.name);
 
+  // What the action returned, within what a model should read of it (answer-fit.ts).
+  const fitted = fitAnswerData(result.data, maxAnswerDataChars);
+
   return {
-    ...(result.data !== undefined ? { result: result.data } : {}),
+    ...(fitted.data !== undefined ? { result: fitted.data } : {}),
+    ...(fitted.cuts.length ? { resultCut: answerCutNotes(fitted.cuts) } : {}),
     ...(result.error ? { error: result.error } : {}),
     ...(result.interim ? { status: 'started' } : {}),
     ...(result.settled === false

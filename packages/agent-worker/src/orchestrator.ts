@@ -930,6 +930,7 @@ export async function runAgentTurn(
       channel: config.ui.channel,
       resultTimeoutMs: uiResultTimeoutMs,
       maxObservationChars: config.ui.maxObservationChars,
+      maxAnswerDataChars: config.ui.maxAnswerDataChars,
       waitDeadline: uiWaitDeadline,
       jobWaitMs: uiJobWaitMs,
       currentPage: () => currentPage,
@@ -1568,16 +1569,25 @@ export async function runAgentTurn(
           forced,
           only: allowed && allowed.length < actionIds.length ? new Set(allowed) : null,
         };
+        // The tool the policy forces, as the model knows it: an action is run through `ui_act`.
+        const forcedTool = forced ? UI_ACT_TOOL : typeof policy.toolChoice === 'object' ? policy.toolChoice.toolName : null;
+        const mustCall = forcedTool !== null || policy.toolChoice === 'required';
+        // A model that refuses a forced choice (Claude Sonnet 5.5 answers 400 to `tool` and
+        // `required`) is held to the step another way: it is given only the forced tool, and
+        // told to call it. It can still answer in words instead, which a forced choice cannot.
+        const held = mustCall && config.forcedToolChoice === false;
         const constraints = {
-          ...(policy.toolChoice ? { toolChoice: forced ? ({ type: 'tool', toolName: UI_ACT_TOOL } as const) : policy.toolChoice } : {}),
-          ...(policy.activeTools
-            ? {
-                activeTools: [
-                  ...policy.activeTools.filter((n) => !isAction(n)),
-                  ...(allowed && allowed.length > 0 && !policy.activeTools.includes(UI_ACT_TOOL) ? [UI_ACT_TOOL] : []),
-                ],
-              }
-            : {}),
+          ...(policy.toolChoice && !held ? { toolChoice: forced ? ({ type: 'tool', toolName: UI_ACT_TOOL } as const) : policy.toolChoice } : {}),
+          ...(held && forcedTool
+            ? { activeTools: [forcedTool] }
+            : policy.activeTools
+              ? {
+                  activeTools: [
+                    ...policy.activeTools.filter((n) => !isAction(n)),
+                    ...(allowed && allowed.length > 0 && !policy.activeTools.includes(UI_ACT_TOOL) ? [UI_ACT_TOOL] : []),
+                  ],
+                }
+              : {}),
         };
         // The policy's note, the forced action and the turn's record (once a call
         // has not succeeded) are for this step only. They go at the end of what
@@ -1585,7 +1595,14 @@ export async function runAgentTurn(
         // prompt: a note there changed the prefix of the whole conversation, so
         // the step that carried one, and the step after it, wrote the conversation
         // to the cache again instead of reading it.
-        const notes = [note, forced ? `This step: call ${UI_ACT_TOOL} with action "${forced}".` : null, ledger.note(), outputLimitNote].filter(
+        const stepCall = forced
+          ? `This step: call ${UI_ACT_TOOL} with action "${forced}".`
+          : held
+            ? forcedTool
+              ? `This step: call ${forcedTool}. It is the only tool this step has.`
+              : 'This step: call a tool.'
+            : null;
+        const notes = [note, stepCall, ledger.note(), outputLimitNote].filter(
           (n): n is string => !!n,
         );
         // Every answer gives its page state up the same way; the newest of this turn's is read at the end.
