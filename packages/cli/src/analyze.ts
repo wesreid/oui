@@ -43,6 +43,7 @@ import {
   type JsxOpening,
   type Source,
 } from './program.js';
+import { listedPackage } from './specifier.js';
 import type { LoadedMapping, Tier2PartInfo } from './tier2.js';
 
 /** A dialog on the page, whose openers are found once the whole page is read. */
@@ -166,6 +167,8 @@ export class PageAnalyzer {
   private readonly controls: Controls;
   /** The design systems, and each bound module under its key. */
   private readonly designSystem: readonly string[];
+  /** Every package an import is read against: the design systems, the mapped packages and the room packages. */
+  private readonly packages: readonly string[];
   /** The packages whose tables were read, and each bound module. */
   private readonly tablesRead: ReadonlySet<string>;
   /** Each bound module, by its file and by its key; each mapping, by the package it maps. */
@@ -184,8 +187,8 @@ export class PageAnalyzer {
     designSystem: readonly string[],
     /** The design-system packages whose tables were read. */
     tablesRead: ReadonlySet<string> = new Set(designSystem),
-    /** A package's person-only components (`oui.personOnly`), by export name, with why. */
-    private readonly personOnly: (pkg: string) => ReadonlyMap<string, string> = () => new Map(),
+    /** The person-only components (`oui.personOnly`) of the package an import names, by export name, with why. */
+    private readonly personOnly: (specifier: string) => ReadonlyMap<string, string> = () => new Map(),
     /** The app's tier 2 mappings, each with its bound module (ADR-0226 §2.3). */
     mappings: readonly LoadedMapping[] = [],
   ) {
@@ -198,6 +201,9 @@ export class PageAnalyzer {
     }
     this.controls = all;
     this.designSystem = [...designSystem, ...mappings.map(m => m.key)];
+    this.packages = [
+      ...new Set([...designSystem, ...mappings.map(m => m.package), ...catalogs.filter(c => !c.appModule).map(c => c.package)]),
+    ];
     this.tablesRead = new Set([...tablesRead, ...mappings.map(m => m.key)]);
     this.boundByModule = new Map(mappings.map(m => [m.module, m]));
     this.boundByKey = new Map(mappings.map(m => [m.key, m]));
@@ -379,9 +385,10 @@ export class PageAnalyzer {
   }
 
   /**
-   * The package a JSX tag or identifier is imported from, when it is a bare
-   * package specifier; a bound module's key (`bound:<package>`) when it comes
-   * from a tier 2 bound module, however the app imports that module.
+   * The package a JSX tag or identifier is imported from: a bound module's key
+   * (`bound:<package>`) when it comes from a tier 2 bound module, however the
+   * app imports that module; else the import's specifier, read as the
+   * package it names (`packageOf`).
    */
   private importSource(node: ts.Node): string | null {
     const bound = this.boundModuleOf(node);
@@ -394,7 +401,17 @@ export class PageAnalyzer {
     let n: ts.Node | undefined = decl;
     while (n && !ts.isImportDeclaration(n)) n = n.parent;
     if (!n || !ts.isImportDeclaration(n) || !ts.isStringLiteral(n.moduleSpecifier)) return null;
-    return n.moduleSpecifier.text;
+    return this.packageOf(n.moduleSpecifier.text);
+  }
+
+  /**
+   * The design system, mapped package or room package an import specifier
+   * names: the package itself, or a subpath export of it (`@acme/kit/react`
+   * is `@acme/kit`'s), the longest listed name winning. Any other specifier
+   * is returned as written.
+   */
+  private packageOf(specifier: string): string {
+    return listedPackage(specifier, this.packages) ?? specifier;
   }
 
   /** The bound module a tag or identifier comes from, through any alias or namespace import of it. */
@@ -438,7 +455,7 @@ export class PageAnalyzer {
     this.importsChecked.add(sf.fileName);
     for (const statement of sf.statements) {
       if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
-      const mapping = this.mappedByPackage.get(statement.moduleSpecifier.text);
+      const mapping = this.mappedByPackage.get(this.packageOf(statement.moduleSpecifier.text));
       const bindings = statement.importClause?.namedBindings;
       if (!mapping || !bindings || statement.importClause?.isTypeOnly) continue;
       const names: { name: string; node: ts.Node }[] = [];

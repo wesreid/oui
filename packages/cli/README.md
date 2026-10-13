@@ -55,6 +55,8 @@ Each package in `designSystem` must resolve from the app and name its control ta
 
 `closure.agentControls` is also read during the transition. A package declaring both is an error. A room package names its catalog the same way, under `oui.agentCatalog` (or `closure.agentCatalog`).
 
+A package's subpath exports are the package's: a control imported from `@acme/ui/react` is read against `@acme/ui`'s control table, and the same holds for a room package's hosts, a person-only component and a mapped package. When `designSystem` lists a package and a subpath of it, an import takes the longest name it is under. A package whose name only starts the same (`@acme/ui-extras`) is a different package.
+
 ## Third-party design systems (tier 2, ADR-0226 §2.3)
 
 An app on MUI, Mantine or shadcn/Radix maps that design system's controls in a JSON file per package (`tier2-mapping.json` in `@ouispec/contract`: `kind`, `callbacks`, `valueFrom`, `controlled`, `options`, `titleProps`, and `parts` for a control under a namespace or made of parts). For each mapping `oui generate` writes `<out>/bound/<package>.ts` (`@mantine/core` → `mantine-core.ts`) and its control table beside it:
@@ -84,7 +86,7 @@ The app imports mapped controls from the bound module. Each use is read as a tie
 - A control table entry of a kind the table does not register, or a registration that is not valid.
 - A room recipe naming an entry the room does not have.
 - On an enforced page, a mapped control imported straight from its package (§2.5 row 6): the error names the bound import.
-- A mapping that does not match its schema, names a package the app cannot resolve, maps a package also in `designSystem`, maps a package another mapping maps, uses a kind no design system registers, or does not fit the package's types (an export it does not have, a prop its component does not take).
+- A mapping that does not match its schema, names a package the app cannot resolve, maps a package also in `designSystem` (or one of its subpaths, or a package one of whose subpaths `designSystem` lists), maps a package another mapping maps, uses a kind no design system registers, or does not fit the package's types (an export it does not have, a prop its component does not take).
 - A stale bound module or control table, or a file in `<out>/bound/` no mapping emits (`--check`; writing removes it).
 
 ## Person-only components (ADR-0228)
