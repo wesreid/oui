@@ -1,5 +1,11 @@
 # @ouispec/bindings
 
+## 0.4.4
+
+### Patch Changes
+
+- A choice or tabs control whose live options are all gone (none given, or every one disabled) is not offered and is listed unavailable, as a disabled control is; a clearable one can still be cleared. Its schema's enum is empty rather than missing, so the assistant is never offered a free string that the page would take for an option's value.
+
 ## 0.4.0
 
 ### Minor Changes

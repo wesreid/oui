@@ -97,6 +97,22 @@ const INPUT_FORMATS: Readonly<Record<string, string>> = {
  */
 export const MAX_DESCRIBED_OPTIONS = 20;
 
+/**
+ * A choice or tabs control whose live options are all gone (none given, or
+ * every one disabled) has nothing to choose, so it cannot be used: it is not
+ * offered and the page state lists it as unavailable, as a disabled control is.
+ * A clearable choice can still be cleared. A control that gives no options
+ * live at all is left to the schema its binding declares.
+ *
+ * Before: its schema had no enum, so the assistant was offered a free string,
+ * and a name it typed was handed to the page as an option's value (an id).
+ */
+export function hasNothingToChoose(kind: AnyControlKind, props: SchemaProps = {}): boolean {
+  if (kind !== 'choice' && kind !== 'tabs') return false;
+  if (!props.options || (kind === 'choice' && props.clearable)) return false;
+  return props.options.every(o => o.disabled);
+}
+
 export function deriveValueSchema(kind: AnyControlKind, props: SchemaProps = {}): JsonSchema | null {
   if (isRegisteredKind(kind)) return registeredValueSchema(kind, props);
   switch (kind) {
@@ -150,7 +166,8 @@ export function deriveValueSchema(kind: AnyControlKind, props: SchemaProps = {})
           (kind === 'tabs' ? 'The tab to select' : 'The option to choose') +
           (described.length ? `: ${described.join('; ')}` : '') +
           (unnamed > 0 ? `; and ${unnamed} more, any of which may be chosen` : ''),
-        ...(values.length ? { enum: props.clearable ? [...values, null] : values } : {}),
+        // Options given live are the whole choice, even when none is left: an empty enum, not a free string.
+        ...(props.options ? { enum: props.clearable ? [...values, null] : values } : {}),
       };
       if (props.clearable) {
         return { ...schema, type: [schema.type as 'string' | 'number', 'null'] };
