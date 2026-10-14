@@ -38,6 +38,7 @@ import {
   type JsxOpening,
   type Source,
 } from './program.js';
+import { packageName } from './specifier.js';
 
 /** A package's directory, found the way the app resolves it. */
 function packageDir(root: string, pkg: string): string | null {
@@ -80,12 +81,17 @@ function configFinding(message: string): Finding {
  * The components a package says only the person may use (`oui.personOnly`:
  * export name → why), such as the approval card (ADR-0228): the assistant
  * must never be offered a way to operate them, so the generator refuses an
- * `agent` binding on one. Read on first use of each package the app imports;
- * a package that declares none has none.
+ * `agent` binding on one. Read on first use of each package the app imports,
+ * from its root or a subpath export of it (`@acme/agent-react/approval` reads
+ * `@acme/agent-react`'s); a package that declares none has none, and a
+ * specifier that names no package (a relative path) has none.
  */
-export function personOnlyLookup(config: GeneratorConfig): (pkg: string) => ReadonlyMap<string, string> {
+export function personOnlyLookup(config: GeneratorConfig): (specifier: string) => ReadonlyMap<string, string> {
   const cache = new Map<string, ReadonlyMap<string, string>>();
-  return pkg => {
+  const none: ReadonlyMap<string, string> = new Map();
+  return specifier => {
+    const pkg = packageName(specifier);
+    if (!pkg) return none;
     let found = cache.get(pkg);
     if (!found) {
       const dir = packageDir(config.root, pkg);

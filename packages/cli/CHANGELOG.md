@@ -1,5 +1,17 @@
 # @ouispec/cli
 
+## 0.4.3
+
+### Patch Changes
+
+- A control imported from a subpath export of a design-system package is read against that package's control table.
+
+  A design system that declares its control table once in its package.json (`"oui": { "agentControls": … }`) but exports its React controls from a subpath (`@acme/kit/react`) was never recognised: `oui generate` compared each import's specifier with the `designSystem` names exactly, so every bound control imported from the subpath failed as "neither a design-system control nor a room host", and a binding on it never reached the manifest.
+
+  - An import whose specifier is a listed package, or a subpath of one (`<package>/<anything>`), is that package's: its controls are bound against the package's table, and an unbound one on an enforced page is reported as before. When `designSystem` lists a package and a subpath of it, the longest name the import is under wins. A package whose name only starts the same (`@acme/kit-extras` for `@acme/kit`) is not a match.
+  - The same holds for a room package's hosts and catalog, for a person-only component (`oui.personOnly` is read from the package a subpath belongs to), and for a mapped package: a mapped control imported from a subpath of its package is reported as imported straight from the package, naming the bound import.
+  - A mapping of a package that overlaps a `designSystem` entry through a subpath (`acme` and `acme/kit`, either way round) is refused, as a mapping of a listed package already was.
+
 ## 0.4.0
 
 ### Patch Changes

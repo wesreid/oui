@@ -32,6 +32,7 @@ import type { Finding } from './analyze.js';
 import { CONFIG_FILE, type GeneratorConfig } from './config.js';
 import { contractFindings } from './contract.js';
 import type { Source } from './program.js';
+import { listedPackage } from './specifier.js';
 
 /** Where the bound wrappers' runtime is imported from, in every emitted module. */
 export const BINDINGS_REACT_MODULE = '@ouispec/bindings/react';
@@ -114,9 +115,19 @@ export function loadMappings(config: GeneratorConfig): { mappings: LoadedMapping
     }
     const mapping = raw as Tier2Mapping;
     const before = errors.length;
-    if (config.designSystem.includes(mapping.package)) {
+    // A subpath export is its package's (`@acme/kit/react` is `@acme/kit`'s), so a mapping
+    // over a design system's subpath, or a design system's over a mapped one, is both too.
+    const tier1 = config.designSystem.find(
+      pkg => listedPackage(mapping.package, [pkg]) !== null || listedPackage(pkg, [mapping.package]) !== null,
+    );
+    if (tier1 !== undefined) {
       errors.push(
-        finding(file, `maps ${mapping.package}, which "designSystem" also lists: a package is a tier 1 design system or mapped, never both`),
+        finding(
+          file,
+          tier1 === mapping.package
+            ? `maps ${mapping.package}, which "designSystem" also lists: a package is a tier 1 design system or mapped, never both`
+            : `maps ${mapping.package}, which overlaps ${tier1} in "designSystem" (a subpath export is its package's): a package is a tier 1 design system or mapped, never both`,
+        ),
       );
     }
     const slug = boundModuleSlug(mapping.package);

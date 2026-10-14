@@ -63,6 +63,26 @@ describe('a mapping is checked', () => {
     );
   });
 
+  it('refuses a package one of whose subpaths is a tier 1 design system, or the other way round', async () => {
+    for (const designSystem of ['acme-kit/react', 'acme']) {
+      const mapped = designSystem === 'acme' ? withMapping(m => ({ ...m, package: 'acme/kit' })) : SETTINGS;
+      const result = await generate(
+        resolveConfig(APP, { ...mapped, designSystem: [designSystem] }, { controlTables: { [designSystem]: {} }, catalogs: [] }),
+      );
+      const pkg = designSystem === 'acme' ? 'acme/kit' : 'acme-kit';
+      expect(messages(result), designSystem).toContain(
+        `maps ${pkg}, which overlaps ${designSystem} in "designSystem" (a subpath export is its package's): a package is a tier 1 design system or mapped, never both`,
+      );
+    }
+  });
+
+  it('leaves a tier 1 design system whose name merely starts the same as the mapped package', async () => {
+    const result = await generate(
+      resolveConfig(APP, { ...SETTINGS, designSystem: ['acme-kit-icons'] }, { controlTables: { 'acme-kit-icons': {} }, catalogs: [] }),
+    );
+    expect(messages(result).filter(m => m.includes('"designSystem"'))).toEqual([]);
+  });
+
   it('refuses two mappings of one package', async () => {
     const twin = withMapping(m => m);
     const result = await generate(resolveConfig(APP, { ...SETTINGS, mappings: ['oui/acme-kit.mapping.json', ...(twin.mappings as string[])] }));
@@ -200,6 +220,13 @@ describe('§2.5 row 6: a mapped control imported straight from its package', () 
     expect(result.errors.map(e => `${e.file}:${e.line}: ${e.message}`)).toEqual([
       'src/pages/DirectPage.tsx:2: Press is imported straight from acme-kit, which oui/acme-kit.mapping.json maps: import it from "../agent/generated/bound/acme-kit", whose Press carries the assistant’s binding (on DirectPage, whose bindings are enforced)',
       'src/pages/DirectPage.tsx:3: Picker is imported straight from acme-kit, which oui/acme-kit.mapping.json maps: import it from "../agent/generated/bound/acme-kit", whose Picker carries the assistant’s binding (on DirectPage, whose bindings are enforced)',
+    ]);
+  });
+
+  it('fails the same when it is imported from a subpath export of its package', async () => {
+    const result = await generate(resolveConfig(APP, { ...SETTINGS, routes: 'src/subpath-routes.tsx' }));
+    expect(result.errors.map(e => `${e.file}:${e.line}: ${e.message}`)).toEqual([
+      'src/pages/SubpathPage.tsx:2: Picker is imported straight from acme-kit, which oui/acme-kit.mapping.json maps: import it from "../agent/generated/bound/acme-kit", whose Picker carries the assistant’s binding (on SubpathPage, whose bindings are enforced)',
     ]);
   });
 
