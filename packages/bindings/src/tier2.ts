@@ -62,7 +62,8 @@ export function tier2ControlTable(mapping: Tier2Mapping): ControlTableFile {
 
 /**
  * A control's options from the value of the prop its mapping names: each
- * entry an object with the named value and title keys, a string or number
+ * entry an object with the named value and title keys (and description key,
+ * when the mapping names one), a string or number
  * (its own title), or a group (an object with an `items` array of entries,
  * and no value of its own). `null` when any entry cannot be read, so a
  * schema is never narrower than the control.
@@ -86,9 +87,11 @@ export function mappedOptions(source: OptionsSource, raw: unknown): ControlOptio
     }
     if (typeof value !== 'string' && typeof value !== 'number') return null;
     const title = rec[source.title];
+    const description = source.description ? rec[source.description] : undefined;
     out.push({
       value,
       title: typeof title === 'string' && title.trim() ? title : String(value),
+      ...(typeof description === 'string' && description.trim() ? { description } : {}),
       ...(rec.disabled === true ? { disabled: true } : {}),
     });
   }

@@ -23,6 +23,7 @@ import {
   type AgentBinding,
   type AnyControlKind,
   type ControlDescriptor,
+  type ControlOption,
   type ReachStep,
   type SchemaProps,
 } from '@ouispec/bindings';
@@ -1317,20 +1318,27 @@ export class PageAnalyzer {
   private options(
     el: JsxOpening,
     descriptor: ControlDescriptor,
-  ): { value: string | number; title: string; disabled?: boolean }[] {
+  ): ControlOption[] {
     const tier2 = this.tier2Of.get(descriptor);
     if (tier2) return this.tier2Options(el, descriptor, tier2.mapping, tier2.info);
     if (!descriptor.options) return [];
     const v = evaluate(this.source.checker, asExpr(jsxAttribute(el, descriptor.options.prop)));
     if (!Array.isArray(v)) return [];
-    const out: { value: string | number; title: string; disabled?: boolean }[] = [];
+    const source = descriptor.options;
+    const out: ControlOption[] = [];
     for (const o of v) {
       if (!o || typeof o !== 'object') return [];
       const rec = o as Record<string, unknown>;
-      const value = rec[descriptor.options.value];
-      const title = rec[descriptor.options.title];
+      const value = rec[source.value];
+      const title = rec[source.title];
+      const description = source.description ? rec[source.description] : undefined;
       if ((typeof value !== 'string' && typeof value !== 'number') || typeof title !== 'string') return [];
-      out.push({ value, title, ...(rec.disabled === true ? { disabled: true } : {}) });
+      out.push({
+        value,
+        title,
+        ...(typeof description === 'string' && description.trim() ? { description } : {}),
+        ...(rec.disabled === true ? { disabled: true } : {}),
+      });
     }
     return out;
   }

@@ -53,6 +53,10 @@ describe('generate', () => {
     });
     const language = create.actions.find(a => a.name === 'create_language')!;
     expect(language.input.properties?.value?.enum).toEqual(['en', 'fr']);
+    // An option's description, read from the source as its title is, says what choosing it means.
+    expect(language.input.properties?.value?.description).toBe(
+      'The option to choose: en = English; fr = French (Spoken as in France)',
+    );
   });
 
   it('builds a description from constants written once, and adds the field’s own hint and placeholder', () => {

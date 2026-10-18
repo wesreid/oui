@@ -341,6 +341,11 @@ export type SchemaPropName = 'min' | 'max' | 'step' | 'unit' | 'wrap' | 'options
 export interface ControlOption {
   value: string | number;
   title: string;
+  /**
+   * What choosing the option means, as the control shows it beside its title. The input schema
+   * names it with the option, so the agent reads what the person reads.
+   */
+  description?: string;
   disabled?: boolean;
 }
 
@@ -498,12 +503,13 @@ export interface ControlDescriptor {
 
 /**
  * Where a control's options come from: the prop that holds them, and the keys of each option's
- * value and title.
+ * value, title and, when it has one, description.
  */
 export interface OptionsSource {
   prop: string;
   value: string;
   title: string;
+  description?: string;
 }
 
 /**

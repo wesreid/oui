@@ -121,6 +121,28 @@ export function renderClientKnowledge(knowledge: ClientKnowledge, maxChars = KNO
  * entry, a page at a time, or a workflow in full. It reads only what the turn's
  * client sent, so it changes nothing and needs no approval.
  */
+/** A title without the route a page's entry names after it: "Project Editor (/projects/:id)" → "Project Editor". */
+function withoutRoute(title: string): string {
+  return title.replace(/\s*\(\/[^)]*\)\s*$/, '');
+}
+
+/**
+ * The item a name the model gave means: its exact name, then the name in any case, then the one
+ * item whose name less its route is that name ("Project Editor" for "Project Editor
+ * (/projects/:id/editor)"), then the one item whose name starts with it. A name two
+ * items could mean finds neither, and the error lists them all.
+ */
+export function findNamed<T>(items: readonly T[], nameOf: (item: T) => string, name: string): T | undefined {
+  const lower = name.toLowerCase();
+  const only = (matches: T[]) => (matches.length === 1 ? matches[0] : undefined);
+  return (
+    items.find((item) => nameOf(item) === name) ??
+    items.find((item) => nameOf(item).toLowerCase() === lower) ??
+    only(items.filter((item) => withoutRoute(nameOf(item)).toLowerCase() === lower)) ??
+    only(items.filter((item) => nameOf(item).toLowerCase().startsWith(lower)))
+  );
+}
+
 export function knowledgeTool(knowledge: ClientKnowledge): RegisteredTool {
   const titles = knowledge.entries.map((e) => e.title);
   const names = knowledge.workflows.map((w) => w.name);
@@ -146,14 +168,12 @@ export function knowledgeTool(knowledge: ClientKnowledge): RegisteredTool {
       const workflow = typeof input.workflow === 'string' ? input.workflow.trim() : '';
       const entry = typeof input.entry === 'string' ? input.entry.trim() : '';
       if (workflow) {
-        const found = knowledge.workflows.find((w) => w.name === workflow) ??
-          knowledge.workflows.find((w) => w.name.toLowerCase() === workflow.toLowerCase());
+        const found = findNamed(knowledge.workflows, (w) => w.name, workflow);
         if (!found) return { success: false, error: `No workflow is named "${workflow}". Workflows: ${listed(names)}.` };
         return { success: true, data: { workflow: found.name, text: workflowText(found) } };
       }
       if (entry) {
-        const found = knowledge.entries.find((e) => e.title === entry) ??
-          knowledge.entries.find((e) => e.title.toLowerCase() === entry.toLowerCase());
+        const found = findNamed(knowledge.entries, (e) => e.title, entry);
         if (!found) return { success: false, error: `No knowledge entry has the title "${entry}". Entries: ${listed(titles)}.` };
         const from = typeof input.from === 'number' && input.from > 0 ? Math.min(input.from, found.content.length) : 0;
         const text = cutAt(found.content.slice(from), KNOWLEDGE_PAGE_CHARS);
