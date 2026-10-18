@@ -679,6 +679,10 @@ export const CONTRACT_SCHEMAS = {
           "title": {
             "type": "string"
           },
+          "description": {
+            "description": "What choosing the option means, as the control shows it beside its title. The input schema names it with the option, so the agent reads what the person reads.",
+            "type": "string"
+          },
           "disabled": {
             "type": "boolean"
           }
@@ -963,7 +967,7 @@ export const CONTRACT_SCHEMAS = {
         "additionalProperties": false
       },
       "OptionsSource": {
-        "description": "Where a control's options come from: the prop that holds them, and the keys of each option's value and title.",
+        "description": "Where a control's options come from: the prop that holds them, and the keys of each option's value, title and, when it has one, description.",
         "type": "object",
         "properties": {
           "prop": {
@@ -975,6 +979,10 @@ export const CONTRACT_SCHEMAS = {
             "minLength": 1
           },
           "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
             "type": "string",
             "minLength": 1
           }

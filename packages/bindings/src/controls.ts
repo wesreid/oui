@@ -13,6 +13,7 @@ import type {
   AnyControlKind,
   ControlKind,
   ControlKindRegistration,
+  ControlOption,
   ControlTable,
   JsonSchema,
   RegisteredControlKind,
@@ -98,6 +99,17 @@ const INPUT_FORMATS: Readonly<Record<string, string>> = {
 export const MAX_DESCRIBED_OPTIONS = 20;
 
 /**
+ * One option as an input schema names it: its value and title (`token = Recipient token`, or the
+ * title alone when it is the value), then what choosing it means when the control shows that
+ * (`token = Recipient token (a field of the recipient, such as {{firstName}})`).
+ */
+export function describeOption(option: ControlOption): string {
+  const named = String(option.value) === option.title ? option.title : `${option.value} = ${option.title}`;
+  const meaning = option.description?.trim();
+  return meaning ? `${named} (${meaning})` : named;
+}
+
+/**
  * A choice or tabs control whose live options are all gone (none given, or
  * every one disabled) has nothing to choose, so it cannot be used: it is not
  * offered and the page state lists it as unavailable, as a disabled control is.
@@ -138,7 +150,7 @@ export function deriveValueSchema(kind: AnyControlKind, props: SchemaProps = {})
     case 'multi-choice': {
       const options = (props.options ?? []).filter(o => !o.disabled);
       const values = options.map(o => o.value);
-      const described = options.map(o => (String(o.value) === o.title ? o.title : `${o.value} = ${o.title}`));
+      const described = options.map(describeOption);
       return {
         type: 'array',
         description:
@@ -158,7 +170,7 @@ export function deriveValueSchema(kind: AnyControlKind, props: SchemaProps = {})
       // Named in the description up to a limit; every value stays in the enum.
       const described = options
         .slice(0, MAX_DESCRIBED_OPTIONS)
-        .map(o => (String(o.value) === o.title ? o.title : `${o.value} = ${o.title}`));
+        .map(describeOption);
       const unnamed = options.length - described.length;
       const schema: JsonSchema = {
         type: values.every(v => typeof v === 'number') && values.length > 0 ? 'number' : 'string',

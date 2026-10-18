@@ -18,6 +18,10 @@ import { buildAgentSystemPrompt } from '../../src/prompt/index.js';
 import { createToolRegistry } from '../../src/tools/types.js';
 import { loadBuiltinTools } from '../../src/tools/builtin-tools.js';
 import type { UIActionChannel } from '../../src/ui/channel.js';
+import { CLIENT_KNOWLEDGE_KEY } from '../../src/ui/knowledge.js';
+import type { TurnHistoryMessage } from '../../src/types.js';
+import type { AgentPersonaConfig } from '../../src/prompt/types.js';
+import type { ResolvedKnowledge } from '@ouispec/bindings';
 import { LIVE_MODEL_ID, liveBedrock } from './bedrock.js';
 
 export interface LiveAction {
@@ -134,14 +138,27 @@ export interface LiveTurn {
 }
 
 /** One turn, as a product runs it: the SDK's prompt, the page's index, a live model. */
-export async function liveTurn(page: LivePage, request: string, options: { maxRounds?: number; path?: string } = {}): Promise<LiveTurn> {
+export async function liveTurn(
+  page: LivePage,
+  request: string,
+  options: {
+    maxRounds?: number;
+    path?: string;
+    /** The conversation before this message, as the host stores it. */
+    before?: TurnHistoryMessage[];
+    /** What the client's generator knows about the page (`context.uiKnowledge`). */
+    knowledge?: ResolvedKnowledge;
+    /** A product's own persona, to measure the SDK's rules under it. Default: a neutral design app's. */
+    persona?: AgentPersonaConfig;
+  } = {},
+): Promise<LiveTurn> {
   const result = await runAgentTurn(
     {
       tools: createToolRegistry(loadBuiltinTools().filter((t) => t.name === 'present_options')),
       emit: { emit: async () => {} },
       model: bedrock(LIVE_MODEL_ID),
       promptCacheBreakpoint: PROMPT_CACHE_BREAKPOINTS.bedrock,
-      systemPrompt: buildAgentSystemPrompt(PERSONA as never),
+      systemPrompt: buildAgentSystemPrompt((options.persona ?? PERSONA) as never),
       maxToolRounds: options.maxRounds ?? 12,
       // A model that takes no temperature (Claude Sonnet 5.5 on Bedrock) is sent none.
       ...(process.env.EVAL_TEMPERATURE === 'none' ? { temperature: null } : {}),
@@ -155,8 +172,12 @@ export async function liveTurn(page: LivePage, request: string, options: { maxRo
       accountId: 'eval-account',
       socketRoom: 'agent:turn:eval',
       content: request,
-      history: [{ role: 'user', content: request }],
-      context: { currentPath: options.path ?? '/canvas', oui: page.snapshot() },
+      history: [...(options.before ?? []), { role: 'user', content: request }],
+      context: {
+        currentPath: options.path ?? '/canvas',
+        oui: page.snapshot(),
+        ...(options.knowledge ? { [CLIENT_KNOWLEDGE_KEY]: options.knowledge } : {}),
+      },
     },
   );
   const said = result.newMessages.filter((m) => m.role === 'assistant' && typeof m.content === 'string' && m.content).map((m) => m.content as string);

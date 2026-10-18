@@ -12,6 +12,7 @@ import {
   CLIENT_KNOWLEDGE_KEY,
   KNOWLEDGE_PROMPT_CHARS,
   KNOWLEDGE_TOOL,
+  findNamed,
   knowledgeTool,
   readClientKnowledge,
   renderClientKnowledge,
@@ -170,5 +171,49 @@ describe('knowledge larger than the prompt holds', () => {
       success: false,
       error: expect.stringContaining('"Use the dialog 0"'),
     });
+  });
+});
+
+describe('the entry a name the model gives means', () => {
+  // As Closure's Experience Studio sends them (2026-10-18): the model asked for
+  // "Experience Studio" and was told no entry had that title.
+  const titles = [
+    'The app’s pages',
+    'Experience Studio (/distribution/experiences/:partId)',
+    'Experience Studio: how things relate',
+    'Experiences',
+    'Engagement Studio',
+  ];
+  const find = (name: string) => findNamed(titles, (t) => t, name);
+
+  it('is the exact title, then the title in any case', () => {
+    expect(find('Experiences')).toBe('Experiences');
+    expect(find('engagement studio')).toBe('Engagement Studio');
+  });
+
+  it('is the page entry whose title, less its route, is the name', () => {
+    expect(find('Experience Studio')).toBe('Experience Studio (/distribution/experiences/:partId)');
+    expect(find('experience studio')).toBe('Experience Studio (/distribution/experiences/:partId)');
+  });
+
+  it('is the one entry a name begins, and none when two could be meant', () => {
+    expect(find('Experience Studio:')).toBe('Experience Studio: how things relate');
+    expect(find('Experience')).toBeUndefined();
+    expect(find('Nothing like it')).toBeUndefined();
+  });
+
+  it('reads the page entry through ui_guide when asked for it without its route', async () => {
+    const guide = knowledgeTool({
+      entries: [
+        { title: 'Project Editor (/media-projects/:id/editor)', content: 'The Project Editor page.' },
+        { title: 'Project Editor: how things relate', content: 'A clip names an asset.' },
+      ],
+      workflows: [],
+    });
+    const page = (await guide.execute({ entry: 'Project Editor' }, {} as never)) as {
+      success: boolean;
+      data: { entry: string };
+    };
+    expect(page).toMatchObject({ success: true, data: { entry: 'Project Editor (/media-projects/:id/editor)' } });
   });
 });

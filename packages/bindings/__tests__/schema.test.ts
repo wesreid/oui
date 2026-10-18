@@ -69,6 +69,25 @@ describe('deriveInputSchema', () => {
     expect(schema.properties?.value?.description).toContain('user = My Voices');
   });
 
+  it('says what each option means where the control shows it, so the agent reads what the person reads', () => {
+    // Closure's Experience Studio (2026-10-18): the Select showed each choice's meaning, the schema
+    // carried only its title, and the PA could not say what a "Data source" binding is.
+    const options = [
+      { value: 'none', title: 'Not bound', description: 'The slot plays the video’s own value' },
+      { value: 'token', title: 'Recipient token', description: 'A field of the recipient, such as {{firstName}}' },
+      { value: 'literal', title: 'Fixed value' },
+      { value: 'Plain', title: 'Plain', description: '  ' },
+    ];
+    expect(deriveInputSchema('choice', { options }).properties!.value!.description).toBe(
+      'The option to choose: none = Not bound (The slot plays the video’s own value); ' +
+        'token = Recipient token (A field of the recipient, such as {{firstName}}); literal = Fixed value; Plain',
+    );
+    expect(deriveInputSchema('multi-choice', { options: options.slice(0, 2) }).properties!.value!.description).toBe(
+      'The options to choose, replacing the ones chosen now; [] for none: none = Not bound (The slot plays the video’s own value); ' +
+        'token = Recipient token (A field of the recipient, such as {{firstName}})',
+    );
+  });
+
   it('lets a clearable choice be cleared with null', () => {
     const value = deriveInputSchema('choice', { options: [{ value: 'arc', title: 'Arc' }], clearable: true })
       .properties?.value;

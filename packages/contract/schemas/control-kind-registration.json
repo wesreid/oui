@@ -96,6 +96,10 @@
         "title": {
           "type": "string"
         },
+        "description": {
+          "description": "What choosing the option means, as the control shows it beside its title. The input schema names it with the option, so the agent reads what the person reads.",
+          "type": "string"
+        },
         "disabled": {
           "type": "boolean"
         }

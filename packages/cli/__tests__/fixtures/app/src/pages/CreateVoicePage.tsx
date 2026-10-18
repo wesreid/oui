@@ -36,7 +36,7 @@ export function CreateVoicePage() {
         value="en"
         options={[
           { value: 'en', label: 'English' },
-          { value: 'fr', label: 'French' },
+          { value: 'fr', label: 'French', description: 'Spoken as in France' },
         ]}
         onChange={() => {}}
         agent={{ id: 'create.language', description: 'Language it speaks' }}

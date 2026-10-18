@@ -26,7 +26,8 @@ function loadInteractionTools(): RegisteredTool[] {
     {
       name: 'present_options',
       description:
-        'Present a set of options to the user as clickable choices. Use when the user needs to pick from a discrete set (e.g. which item to use, a style, a name). Returns the selected value.',
+        'Present a set of options to the user as clickable choices. Use when the user needs to pick from a discrete set (e.g. which item to use, a style, a name). Returns the selected value. ' +
+        'Never call it in place of answering a question the user asked: answer it in your reply first, then offer a choice only if one follows.',
       inputSchema: {
         type: 'object',
         properties: {

@@ -39,7 +39,7 @@ export const TABLE: ControlTable = {
   Select: {
     kind: 'choice',
     callbacks: ['onChange'],
-    options: { prop: 'options', value: 'value', title: 'label' },
+    options: { prop: 'options', value: 'value', title: 'label', description: 'description' },
     titleProps: ['label'],
   },
   NumericScrubField: {
