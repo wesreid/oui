@@ -250,3 +250,17 @@ describe('a turn that supersedes others', () => {
     expect(payloadRefusal({ ...payload, supersedes: [''] })).toMatch(/supersedes/);
   });
 });
+
+describe('the runner’s time for a turn (ADR-0269 §2.1)', () => {
+  it('gives the orchestrator the deadline and the hand-back reserve it was configured with', async () => {
+    const { run } = runner({ turnDeadlineMs: 240_000, handBackReserveMs: 20_000 });
+    await run();
+    expect(orchestrator.run.mock.calls[0][0]).toMatchObject({ turnDeadlineMs: 240_000, handBackReserveMs: 20_000 });
+  });
+
+  it('leaves the reserve to the orchestrator’s default when none is configured', async () => {
+    const { run } = runner();
+    await run();
+    expect(orchestrator.run.mock.calls[0][0]).not.toHaveProperty('handBackReserveMs');
+  });
+});

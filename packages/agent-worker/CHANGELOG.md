@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.13.0
+
+### Minor Changes
+
+- A turn hands back before its time runs out (ADR-0269 §2.1). Before each step the worker checks that a step as long as the turn's longest so far, plus `handBackReserveMs` (default 30 s, at most a quarter of the deadline), still fits before `turnDeadlineMs`. When it does not, that step is the turn's last: the model is told to say what is done and what is left and to offer to continue (`present_options` when the host gives it, in words otherwise), the turn policy is not asked about it, and the turn ends with `stopReason: 'time_limit'`. The deadline still stops a step that runs longer than any before it. The runner takes `handBackReserveMs` and passes it on.
+
 ## 0.12.2
 
 ### Patch Changes

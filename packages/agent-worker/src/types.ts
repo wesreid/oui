@@ -43,6 +43,14 @@ export interface AgentWorkerConfig {
   temperature?: number | null;
   toolTimeoutMs?: number;
   turnDeadlineMs?: number;
+  /**
+   * Time kept back, before the turn's deadline, for a last step that says what
+   * is done and offers to continue (ADR-0269 §2.1). A step starts as the last
+   * when a step as long as the turn's longest so far would leave less than this.
+   * Default 30 s (`DEFAULT_HAND_BACK_RESERVE_MS`), never more than a quarter of
+   * the turn's deadline.
+   */
+  handBackReserveMs?: number;
   retries?: number;
   /**
    * Whether the model takes a forced tool choice. Default true. `false`, for a
@@ -247,6 +255,8 @@ export interface AgentTurnResult {
     | 'present_options'
     | 'awaiting_approval'
     | 'step_count'
+    // Time was short, so the turn's last step said what was done and offered to continue (ADR-0269 §2.1).
+    | 'time_limit'
     | 'token_budget'
     | 'deadline'
     // Every attempt at a step reached the output limit before it said or called anything.
