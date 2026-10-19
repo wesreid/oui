@@ -177,6 +177,13 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
   /** Total turn deadline in ms. Default: 840000 (14 min). Keep it below the host's own limit. */
   turnDeadlineMs?: number;
 
+  /**
+   * Time kept back before the deadline for a last step that says what is done
+   * and offers to continue (ADR-0269 §2.1). Default 30 s, never more than a
+   * quarter of `turnDeadlineMs`.
+   */
+  handBackReserveMs?: number;
+
   /** Retries of a transient model error. Default: 3 */
   retries?: number;
 

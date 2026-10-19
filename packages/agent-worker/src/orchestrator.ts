@@ -34,7 +34,8 @@ import { stoppedTurnMessages, type RecordedCall, type RecordedStep } from './sto
 import { resultText, stoppedNotRun, stoppedWhileRunning } from './stop/results.js';
 import type { AgentWorkerConfig, AgentTurnInput, AgentTurnResult, TurnMessage, TurnHistoryMessage } from './types.js';
 import type { RegisteredTool, ToolExecutionContext, ToolExecutionResult } from './tools/types.js';
-import { defaultTurnPolicy, type StepTool } from './turn-policy.js';
+import { defaultTurnPolicy, type StepTool, type TurnPolicy } from './turn-policy.js';
+import { createStepClock, timeHandBackNote } from './time-hand-back.js';
 import { evaluateToolPolicySafe } from './authz/tool-policy.js';
 import { createToolInputValidator } from './tools/input-validation.js';
 import { readClientPage, withoutClientUI } from './ui/snapshot.js';
@@ -112,6 +113,9 @@ const UI_ANSWER_MARGIN_MS = 45_000;
  * the model must not carry on as if the user had already answered.
  */
 const USER_INPUT_TOOLS = ['present_options', 'confirm_action', 'request_user_decision'] as const;
+
+/** What a step is held to: the host's policy, or the hand-back for time. */
+type StepPolicy = Awaited<ReturnType<TurnPolicy['prepareStep']>>;
 
 type AgentLogNamespace = 'agent:turn' | 'agent:llm' | 'agent:tool' | 'agent:prompt' | 'agent:stream' | 'agent:ui';
 
@@ -314,6 +318,14 @@ export async function runAgentTurn(
   // The turn's deadline ends it on the same path (ADR-0252 §6.4): what it did
   // before it ran out of time is kept, marked, and the next turn is told.
   const deadlineTimer = setTimeout(() => stopTurn(new TurnStopped('deadline', Date.now())), turnDeadlineMs);
+  // Before the deadline, the turn hands back with an answer when time is short (ADR-0269 §2.1).
+  const stepClock = createStepClock({
+    deadlineAt: turnStartedAt + turnDeadlineMs,
+    turnDeadlineMs,
+    reserveMs: config.handBackReserveMs,
+  });
+  /** Set at the step that hands the turn back for time: it is the turn's last. */
+  let handedBackForTime = false;
 
   // Build tool execution context
   const toolCtx: ToolExecutionContext = {
@@ -1531,6 +1543,8 @@ export async function runAgentTurn(
         ...USER_INPUT_TOOLS.map((name) => hasToolCall(name)),
         // A call is waiting for the user's approval: the turn ends here (ADR-0228).
         () => approvalHold !== null,
+        // The step that handed the turn back for time was its last (ADR-0269 §2.1).
+        () => handedBackForTime,
       ],
       ...(temperature !== undefined ? { temperature } : {}),
       telemetry: {
@@ -1542,24 +1556,43 @@ export async function runAgentTurn(
         // has: a `ui_act` call is shown to it as the action it ran, and the
         // actions are among the tool names it may choose from.
         const actionIds = [...(currentUI()?.actions.keys() ?? [])];
-        const { note, ...policy } = await turnPolicy.prepareStep({
-          // The policy counts steps across the whole turn, not per segment.
-          steps: [...previousSteps, ...steps].map((step) => ({
-            toolCalls: (step.toolCalls as Array<{ toolName: string; input?: unknown }> | undefined)?.map((tc) => ({
-              toolName:
-                tc.toolName === UI_ACT_TOOL && typeof (tc.input as { action?: unknown } | undefined)?.action === 'string'
-                  ? (tc.input as { action: string }).action
-                  : tc.toolName,
-            })),
-          })),
-          turnClass,
-          allToolNames: [...Object.keys(aiTools), ...actionIds],
-          // What each tool is, so a policy can choose by class (the attachment tools are `attachment`).
-          allTools: [
-            ...Object.keys(aiTools).map((name) => describeStepTool(name)),
-            ...actionIds.map((name) => ({ name, kind: 'ui' as const })),
-          ],
-        });
+        // Time comes before the host's policy: a step that would not leave time to answer is the last.
+        const timing = stepClock.stepStarting();
+        if (timing.handBack && !handedBackForTime) {
+          log('warn', 'agent:turn', 'Time is short; this step hands the turn back', {
+            turnId,
+            step: previousSteps.length + steps.length + 1,
+            remainingMs: timing.remainingMs,
+            longestStepMs: timing.longestStepMs,
+            reserveMs: timing.reserveMs,
+          });
+        }
+        handedBackForTime ||= timing.handBack;
+        const canOfferChoices = 'present_options' in aiTools;
+        const stepPolicy: StepPolicy = handedBackForTime
+          ? {
+              note: timeHandBackNote(canOfferChoices),
+              toolChoice: canOfferChoices ? { type: 'tool', toolName: 'present_options' } : 'none',
+            }
+          : await turnPolicy.prepareStep({
+              // The policy counts steps across the whole turn, not per segment.
+              steps: [...previousSteps, ...steps].map((step) => ({
+                toolCalls: (step.toolCalls as Array<{ toolName: string; input?: unknown }> | undefined)?.map((tc) => ({
+                  toolName:
+                    tc.toolName === UI_ACT_TOOL && typeof (tc.input as { action?: unknown } | undefined)?.action === 'string'
+                      ? (tc.input as { action: string }).action
+                      : tc.toolName,
+                })),
+              })),
+              turnClass,
+              allToolNames: [...Object.keys(aiTools), ...actionIds],
+              // What each tool is, so a policy can choose by class (the attachment tools are `attachment`).
+              allTools: [
+                ...Object.keys(aiTools).map((name) => describeStepTool(name)),
+                ...actionIds.map((name) => ({ name, kind: 'ui' as const })),
+              ],
+            });
+        const { note, ...policy } = stepPolicy;
         // What it constrained, in the model's terms: an action is run through
         // `ui_act`, which holds the step to the actions the policy allowed.
         const isAction = (name: string) => actionIds.includes(name);
@@ -1759,6 +1792,8 @@ export async function runAgentTurn(
     stopReason = 'awaiting_approval';
   } else if (outputLimited) {
     stopReason = 'output_limit';
+  } else if (handedBackForTime) {
+    stopReason = 'time_limit';
   } else if (steps.length >= maxRounds) {
     stopReason = 'step_count';
   } else if (steps.some((s: { toolCalls?: Array<{ toolName: string }> }) => s.toolCalls?.some(tc => (USER_INPUT_TOOLS as readonly string[]).includes(tc.toolName)))) {

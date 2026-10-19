@@ -269,6 +269,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
             ...(config.forcedToolChoice === false ? { forcedToolChoice: false } : {}),
             toolTimeoutMs,
             turnDeadlineMs,
+            ...(config.handBackReserveMs !== undefined ? { handBackReserveMs: config.handBackReserveMs } : {}),
             retries,
             turnPolicy: config.turnPolicy,
             toolPolicy: config.toolPolicy,
