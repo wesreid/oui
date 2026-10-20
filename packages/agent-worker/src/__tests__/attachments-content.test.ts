@@ -1,5 +1,5 @@
 /**
- * The turn's files as the model is given them (ADR-0252 §2.11): through the
+ * The turn's files as the model is given them: through the
  * host's store, for the turn's own conversation, capped by the guard, and as
  * reference lines everywhere else.
  */

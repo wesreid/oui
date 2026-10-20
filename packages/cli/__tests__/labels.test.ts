@@ -1,5 +1,5 @@
 /**
- * A control's label, read from its JSX (ADR-0248 §2.7).
+ * A control's label, read from its JSX.
  *
  * The label names the action to the assistant. Read carelessly it came out as
  * an icon's class name ("animate-spin Render WAV", "text-[10px] shrink-0"), a

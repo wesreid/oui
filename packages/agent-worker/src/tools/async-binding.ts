@@ -1,5 +1,5 @@
 /**
- * Async tools bound to declared events (W9, ADR-0227 §2.4).
+ * Async tools bound to declared events.
  *
  * A tool whose work outlives its call (a GPU job, an export) names the
  * declared completion it waits on, and optionally its failure and the field

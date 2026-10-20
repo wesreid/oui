@@ -1,5 +1,5 @@
 /**
- * What the model is given of a file, in one place (ADR-0252 §2.11).
+ * What the model is given of a file, in one place.
  *
  * Ours, and the tighter of ours and the provider's. Claude on Amazon Bedrock
  * through the Converse API (checked 2026-10-06, "Message", Bedrock API
@@ -48,7 +48,7 @@ export const PDF_DOCUMENT_MAX_BYTES = 4.5 * 1024 * 1024;
 /** The provider's limit on documents in one message. */
 export const PROVIDER_MAX_DOCUMENTS = 5;
 
-/** The cost guard's caps on attachment input, in estimated tokens (ADR-0252 §6.3). */
+/** The cost guard's caps on attachment input, in estimated tokens. */
 export const DEFAULT_TURN_ATTACHMENT_TOKENS = 30_000;
 export const DEFAULT_CONVERSATION_ATTACHMENT_TOKENS = 300_000;
 

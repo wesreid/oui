@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * A session's export can be replayed (ADR-0244 §2.7): every call the
+ * A session's export can be replayed: every call the
  * assistant made is in it with the arguments it was made with — a call that
  * ran, a call that was refused, and a call reloaded from a stored
  * conversation — and it names the package and the version that wrote it.
@@ -122,7 +122,7 @@ describe('the session export', () => {
     });
   });
 
-  it('shows a UI action run through ui_act as that action, as the live stream named it (ADR-0245)', () => {
+  it('shows a UI action run through ui_act as that action, as the live stream named it', () => {
     const stored: AgentStoredMessage[] = [
       {
         id: 'm1',

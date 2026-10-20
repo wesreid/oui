@@ -29,7 +29,7 @@ const { AGENT_SOCKET_EVENTS } = await import('@ouispec/agent-core');
 
 // ─── Harness ─────────────────────────────────────────────────────────────────
 
-// The SDK's own default: it names no product (ADR-0227 §2.2).
+// The SDK's own default: it names no product.
 const KEY = 'agent-sdk.activeConversation';
 
 const STORED: Record<string, AgentStoredConversation> = {

@@ -1,5 +1,5 @@
 /**
- * What a page offers, read from its component tree (ADR-0220 §2.4).
+ * What a page offers, read from its component tree.
  *
  * From the route's page component, through the app's own components, every
  * design-system control is recorded with its binding, the props its schema
@@ -104,7 +104,7 @@ export interface Finding {
   message: string;
 }
 
-/** One use of a mapped control's root (ADR-0226 §2.3), and whether it shows its value. */
+/** One use of a mapped control's root, and whether it shows its value. */
 export interface Tier2Found {
   /** The mapped control's name in its mapping (`Select`). */
   component: string;
@@ -190,7 +190,7 @@ export class PageAnalyzer {
     tablesRead: ReadonlySet<string> = new Set(designSystem),
     /** The person-only components (`oui.personOnly`) of the package an import names, by export name, with why. */
     private readonly personOnly: (specifier: string) => ReadonlyMap<string, string> = () => new Map(),
-    /** The app's tier 2 mappings, each with its bound module (ADR-0226 §2.3). */
+    /** The app's tier 2 mappings, each with its bound module. */
     mappings: readonly LoadedMapping[] = [],
   ) {
     const all = new Map(controls);
@@ -447,7 +447,7 @@ export class PageAnalyzer {
 
   /**
    * On an enforced page, a mapped control is imported from its bound module,
-   * never straight from its package (ADR-0226 §2.3, §2.5 row 6): the
+   * never straight from its package: the
    * package's own control carries no binding. Each import that does is
    * unbound, naming the import to use instead.
    */
@@ -667,7 +667,7 @@ export class PageAnalyzer {
   }
 
   /**
-   * A component only the person may use (ADR-0228 §2.2.3): it takes no `agent`
+   * A component only the person may use: it takes no `agent`
    * binding, not even `nonAgent`, and no spread, which could carry one the
    * build cannot read. What it renders is the package's own and never bound,
    * so its callbacks are not something the assistant is missing.
@@ -1523,7 +1523,7 @@ export class PageAnalyzer {
 
   /**
    * A destructive step runs only on the person's approval of that call
-   * (ADR-0228), so the control that only opens the dialog where it is
+   *, so the control that only opens the dialog where it is
    * confirmed must not be destructive too: the person would approve opening a
    * dialog, then approve the step itself. A control that does something of
    * its own before the dialog shows is approved for that, and is left alone.

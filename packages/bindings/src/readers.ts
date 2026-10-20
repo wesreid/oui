@@ -1,5 +1,5 @@
 /**
- * A room's readers (ADR-0244 §2.2): how the assistant reads what the room
+ * A room's readers: how the assistant reads what the room
  * holds, built from the room's own declaration of its lists so they can never
  * fall behind it.
  *
@@ -8,11 +8,11 @@
  * rows are now, and everything about one row. From that come
  *
  * - the `x-rows` annotation of the list in the room's observation, so a list
- *   too long for the page state keeps an index of every row (§2.1);
+ *   too long for the page state keeps an index of every row;
  * - `inspect`, which returns everything about the rows it is given;
  * - `query`, which lists a list's rows, filtered, a page at a time;
  * - the resolution of a row's title wherever an action takes its id (`x-ref`);
- * - the rows an edit changed, as its result reports them (§2.5).
+ * - the rows an edit changed, as its result reports them.
  *
  * Plain TypeScript: no React, no OUI runtime.
  */
@@ -378,7 +378,7 @@ function refsIn(schema: JsonSchema | undefined, path: string): { path: string; l
 }
 
 /**
- * What is wrong with how a catalog declares its lists (ADR-0244 §2.2), in
+ * What is wrong with how a catalog declares its lists, in
  * words: a list of things with ids that does not say how its rows are
  * addressed, lists with no readers, and an input that addresses a list the
  * room does not have. A generator fails on any of them, and the conformance
@@ -441,7 +441,7 @@ function unitlessNumbers(schema: JsonSchema | undefined, path: string, inherited
 
 /**
  * The numbers a catalog takes that do not say what they are measured in
- * (ADR-0244 §2.3), in words: each field's value and each action's input must
+ *, in words: each field's value and each action's input must
  * give every `number` a unit (`x-unit`). An `integer` counts things and needs
  * none. A generator fails on any of them: a number set without knowing its
  * unit is set by guessing.

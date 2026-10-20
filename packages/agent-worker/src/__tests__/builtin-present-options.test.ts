@@ -1,7 +1,7 @@
 /**
  * A question stands on its own: the card the user sees carries why it is asked.
  *
- * Measured live (ADR-0245, pa-scale "not in the catalogue"): after looking an
+ * Measured live (pa-scale "not in the catalogue"): after looking an
  * effect up, the model sometimes handed the turn back with only "Which
  * substitute should I add?", never saying the effect asked for does not exist.
  * Prompt wording moved that between 1 in 6 and 6 in 6 runs; a required

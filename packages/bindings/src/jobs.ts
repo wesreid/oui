@@ -1,6 +1,6 @@
 /**
- * The app's job tracker, built from the product's event declarations (W9,
- * ADR-0227 §2.4): the `JobTracker` that `connectBindings({ jobs })` reads a
+ * The app's job tracker, built from the product's event declarations: the
+ * `JobTracker` that `connectBindings({ jobs })` reads a
  * `{ kind: 'job' }` action's outcome from.
  *
  * A job of the declared kind is followed in the room its completion declares

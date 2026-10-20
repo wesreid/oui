@@ -1,5 +1,5 @@
 /**
- * The fixture app on the broken design system (ADR-0226 §3.2, the fourth
+ * The fixture app on the broken design system (the fourth
  * rule): its page is the same source, so its generated manifest is the same,
  * but the broken `Button` drops the binding of a ghost button. The manifest
  * then declares an action no state of the page mounts, which the kit reports

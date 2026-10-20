@@ -1,6 +1,6 @@
 /**
  * The tab's OUI surfaces, built from the build's generated manifest and what
- * is mounted right now (ADR-0220 §2.2, ADR-0209).
+ * is mounted right now.
  *
  * A turn's UI tools are the intersection of the two: an action the build
  * declares whose control (or room) is on screen. Each action runs the
@@ -482,7 +482,7 @@ function controlAction(
 
 /**
  * How an action whose work outlives the call settles, when it declares so:
- * a `job`, and a `transaction` (modelled on it, ADR-0226 §2.6).
+ * a `job`, and a `transaction` (modelled on it).
  */
 function settlement(action: ManifestAction): { estimatedDuration?: string; timeoutMs?: number } | null {
   const effect = action.effect;
@@ -517,7 +517,7 @@ function settlingResult(actionId: string, result: RoomResult, timeoutMs: number,
  * What the action is called and what it does, as the browser and the agent
  * runtime read them: a `transaction`, and a destructive write, run only on the
  * person's approval of the exact request, which OUI's runtime checks before
- * any handler here runs (ADR-0228).
+ * any handler here runs.
  */
 function declared(action: ManifestAction): { title: string; effect?: ActionEffectKind } {
   return { title: action.title, ...(action.effect ? { effect: effectKind(action.effect) } : {}) };
@@ -553,7 +553,7 @@ function jobPolling(timeoutMs: number, runs: JobRuns): NonNullable<ActionDefinit
       runs.ended(jobId);
       // A failed job ends its action as a failure, with the declared reason: the
       // assistant's record of the call, and anyone reading the chat later, see
-      // that it failed (ADR-0244's verify-after-act reads that record).
+      // that it failed (verify-after-act reads that record).
       if (outcome.status === 'failed') {
         return { done: true, data: outcome, error: { code: 'JOB_FAILED', message: outcome.error } };
       }
@@ -610,7 +610,8 @@ function roomAction(
     ...settlingDefinition(job, timeoutMs, runs),
     handler: async params => {
       try {
-        // A name given where a row's id is taken is the row's id, when one row has it (ADR-0244 §2.2).
+        // A name given where a row's id is taken is the row's id, when one row
+        // has it.
         const resolved = addresses
           ? resolveInputRefs(action.input, params, observationLookup(surface.observations, reported()))
           : { input: params };
@@ -659,7 +660,7 @@ function toHandlerResult(result: RoomResult): ActionHandlerResult {
   if (!result.ok) return fail(result.code, result.message);
   // Work that outlives the call is started, not done: say so, so it is never reported finished.
   const started = result.pending ? { ...result.data, status: 'started', jobId: result.pending.jobId } : result.data;
-  // What it changed, as it is now: what the assistant checks its edit against (ADR-0244 §2.5).
+  // What it changed, as it is now: what the assistant checks its edit against.
   const data = result.changed?.length ? { ...started, changed: result.changed } : started;
   return { success: true, ...(data ? { data } : {}) };
 }

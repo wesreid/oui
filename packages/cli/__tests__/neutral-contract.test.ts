@@ -1,5 +1,5 @@
 /**
- * The neutral contract (ADR-0226 §2.6, W2), from a product that is not a
+ * The neutral contract, from a product that is not a
  * creative tool: a trading screen on its own design system, with a ledger
  * room that has no timeline. Nothing in what it generates may assume
  * animation, layers or fonts, and its irreversible order is a `transaction`.
@@ -271,7 +271,7 @@ describe('what the contract refuses', () => {
   });
 });
 
-describe('what a build may offer the assistant, by size (ADR-0245 §2.6)', () => {
+describe('what a build may offer the assistant, by size', () => {
   it('fails an action whose definition one answer cannot carry, and one whose index entry is over its line, each by name', async () => {
     const symbols = Array.from({ length: 40_000 }, (_, i) => `SYM-${String(i).padStart(6, '0')}`);
     const room = {
@@ -306,7 +306,7 @@ describe('what a build may offer the assistant, by size (ADR-0245 §2.6)', () =>
   });
 });
 
-describe('what a room’s numbers are measured in (ADR-0244 §2.3)', () => {
+describe('what a room’s numbers are measured in', () => {
   it('fails a field and an action input that take a number without saying its unit, and not an integer or a unit given on the array', async () => {
     const room = {
       ...LEDGER,
@@ -340,7 +340,7 @@ describe('what a room’s numbers are measured in (ADR-0244 §2.3)', () => {
   });
 });
 
-describe('a room’s lists (ADR-0244 §2.2)', () => {
+describe('a room’s lists', () => {
   const POSITIONS = {
     id: 'positions',
     description: 'Every open position.',

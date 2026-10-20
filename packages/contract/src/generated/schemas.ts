@@ -142,15 +142,15 @@ export const CONTRACT_SCHEMAS = {
         "type": "string"
       },
       "x-space": {
-        "description": "The frame a length, a point or a fraction is measured in, in the room's own words: `artboard` (from its top left), `canvas`, `layer` (the layer's own content), `artboard-fraction` (0–1 of the artboard's width and height). A room names its spaces in its description or a recipe (ADR-0244 §2.3).",
+        "description": "The frame a length, a point or a fraction is measured in, in the room's own words: `artboard` (from its top left), `canvas`, `layer` (the layer's own content), `artboard-fraction` (0–1 of the artboard's width and height). A room names its spaces in its description or a recipe.",
         "type": "string"
       },
       "x-rows": {
-        "description": "On an array of objects in an observation: the list is a collection the assistant addresses rows of (a document's layers, its artboards). It names the property each row is addressed by and the one a person calls it by, so a list too long for the page state keeps an index of every row instead of a count, and a title given where an id is expected resolves to its row (ADR-0244 §2.1, §2.2).",
+        "description": "On an array of objects in an observation: the list is a collection the assistant addresses rows of (a document's layers, its artboards). It names the property each row is addressed by and the one a person calls it by, so a list too long for the page state keeps an index of every row instead of a count, and a title given where an id is expected resolves to its row.",
         "$ref": "#/$defs/RowList"
       },
       "x-ref": {
-        "description": "On a string (or the items of an array of strings) in an action's input: the value addresses a row of one of the surface's `x-rows` lists, each named `<observation id>/<list property>`, or `<observation id>` when the observation itself is the list. The row's id, or its exact title when one row has it (ADR-0244 §2.2).",
+        "description": "On a string (or the items of an array of strings) in an action's input: the value addresses a row of one of the surface's `x-rows` lists, each named `<observation id>/<list property>`, or `<observation id>` when the observation itself is the list. The row's id, or its exact title when one row has it.",
         "type": "array",
         "items": {
           "type": "string",
@@ -163,7 +163,7 @@ export const CONTRACT_SCHEMAS = {
         "type": "number"
       },
       "x-oui-attachment": {
-        "description": "On a string with `format: oui-attachment`: what the action takes once the client resolves the attachment's id (ADR-0252 §2.13). `as`: `file` (a `File`, as the user's own file choice produces) or `text` (the file's text, for an input that takes markup or JSON). `mediaTypes`: the types it accepts, `type/*` for a family; any when absent.",
+        "description": "On a string with `format: oui-attachment`: what the action takes once the client resolves the attachment's id. `as`: `file` (a `File`, as the user's own file choice produces) or `text` (the file's text, for an input that takes markup or JSON). `mediaTypes`: the types it accepts, `type/*` for a family; any when absent.",
         "type": "object",
         "properties": {
           "as": {
@@ -238,7 +238,7 @@ export const CONTRACT_SCHEMAS = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://schemas.closurestudio.ai/oui/v1/action-effect.json",
     "title": "ActionEffect",
-    "description": "What using an action does (ADR-0226 §2.6): one vocabulary for a design-system control's binding, a room catalog's entry and a generated API tool, so a page control, a room action and an API call are told apart by what they change, never by where they are declared.\n\n| Effect | What it changes | ADR-0210 access |\n|---|---|---|\n| `view`, `selection`, `navigate`, `open` | What is shown | read |\n| `edit` | The document, one undo step | write |\n| `file` | Imports or exports a file | write |\n| `mutate` | Backend data, through an API operation | write |\n| `job` | Starts work that outlives the call, settled on its outcome | write |\n| `transaction` | An irreversible external act: an order, a payment, a send, a publish | write, approved |\n\nA `transaction`, and any `write` declared `destructive`, runs only on an approval the person gave, bound to the call (ADR-0228).",
+    "description": "What using an action does: one vocabulary for a design-system control's binding, a room catalog's entry and a generated API tool, so a page control, a room action and an API call are told apart by what they change, never by where they are declared.\n\n| Effect | What it changes | Access |\n|---|---|---|\n| `view`, `selection`, `navigate`, `open` | What is shown | read |\n| `edit` | The document, one undo step | write |\n| `file` | Imports or exports a file | write |\n| `mutate` | Backend data, through an API operation | write |\n| `job` | Starts work that outlives the call, settled on its outcome | write |\n| `transaction` | An irreversible external act: an order, a payment, a send, a publish | write, approved |\n\nA `transaction`, and any `write` declared `destructive`, runs only on an approval the person gave, bound to the call.",
     "oneOf": [
       {
         "$ref": "#/$defs/SimpleEffect"
@@ -318,7 +318,7 @@ export const CONTRACT_SCHEMAS = {
         "additionalProperties": false
       },
       {
-        "description": "An irreversible external act: an order placed, a payment made, a message sent, something published. Modelled on `job`: its handler may return `pending: { jobId }` and it settles on the outcome. It always needs the person's approval of the exact call (ADR-0228), which no policy waives.\n\n- `operation`: the API operation it goes through, when it is one.\n- `approvalMinutes`: how long an approval of it lasts, at most 30 (default 5).",
+        "description": "An irreversible external act: an order placed, a payment made, a message sent, something published. Modelled on `job`: its handler may return `pending: { jobId }` and it settles on the outcome. It always needs the person's approval of the exact call, which no policy waives.\n\n- `operation`: the API operation it goes through, when it is one.\n- `approvalMinutes`: how long an approval of it lasts, at most 30 (default 5).",
         "type": "object",
         "properties": {
           "kind": {
@@ -372,14 +372,14 @@ export const CONTRACT_SCHEMAS = {
         ]
       },
       "EffectAccess": {
-        "description": "Whether an effect only changes what is shown (`read`), or changes something (`write`), as ADR-0210 names it. An action that declares no effect is a `write`.",
+        "description": "Whether an effect only changes what is shown (`read`), or changes something (`write`). An action that declares no effect is a `write`.",
         "enum": [
           "read",
           "write"
         ]
       },
       "JobStatus": {
-        "description": "Where an action whose effect is `job` or `transaction` is (plan §2.3, #205/#209):\n\n- `started`: the handler returned; the job is tracked from this moment, so an outcome that arrives before the first poll is kept.\n- `running`: still going; the runtime polls the app's `JobTracker`.\n- `complete`: the job's declared completion arrived; the result exists.\n- `failed`: its declared failure arrived; the result never will.\n- `timeout`: it did not finish within `timeoutMs`. A failure, never a late success.\n- `unverified`: no `JobTracker`, or no job id to follow: the work was started but cannot be confirmed from the page.",
+        "description": "Where an action whose effect is `job` or `transaction` is:\n\n- `started`: the handler returned; the job is tracked from this moment, so an outcome that arrives before the first poll is kept.\n- `running`: still going; the runtime polls the app's `JobTracker`.\n- `complete`: the job's declared completion arrived; the result exists.\n- `failed`: its declared failure arrived; the result never will.\n- `timeout`: it did not finish within `timeoutMs`. A failure, never a late success.\n- `unverified`: no `JobTracker`, or no job id to follow: the work was started but cannot be confirmed from the page.",
         "enum": [
           "started",
           "running",
@@ -491,7 +491,7 @@ export const CONTRACT_SCHEMAS = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://schemas.closurestudio.ai/oui/v1/agent-binding.json",
     "title": "AgentBinding",
-    "description": "The semantic binding a design-system control carries (ADR-0220 §2.2): what the control means, in the user's terms, declared where the page uses it, as its `agent` prop.\n\nIt uses a room catalog entry's vocabulary (id, title and description; `ActionEffect`; `destructive`), so to the generator a page control and a room entry look the same. What is never written: the input schema, which is derived from the control's own props, and where the control is, which the generator derives from the page's component tree.\n\n**Every value is a build-time constant** (#203). The generator reads bindings from source without running it, so each value is a literal, a `const` it can follow, a property of a constant object, a template literal or `+` over those, or a single-literal type read through the type checker. A value built by a call (`t('save')`, `format(...)`) is refused, naming the binding. A field's build-time `hint` and `placeholder` are added to its tool description the same way.",
+    "description": "The semantic binding a design-system control carries: what the control means, in the user's terms, declared where the page uses it, as its `agent` prop.\n\nIt uses a room catalog entry's vocabulary (id, title and description; `ActionEffect`; `destructive`), so to the generator a page control and a room entry look the same. What is never written: the input schema, which is derived from the control's own props, and where the control is, which the generator derives from the page's component tree.\n\n**Every value is a build-time constant**. The generator reads bindings from source without running it, so each value is a literal, a `const` it can follow, a property of a constant object, a template literal or `+` over those, or a single-literal type read through the type checker. A value built by a call (`t('save')`, `format(...)`) is refused, naming the binding. A field's build-time `hint` and `placeholder` are added to its tool description the same way.",
     "type": "object",
     "properties": {
       "id": {
@@ -509,11 +509,11 @@ export const CONTRACT_SCHEMAS = {
         "minLength": 1
       },
       "effect": {
-        "description": "What using it does: what reach paths, data and verification are derived from (ADR-0226 §2.6).",
+        "description": "What using it does: what reach paths, data and verification are derived from.",
         "$ref": "action-effect.json"
       },
       "destructive": {
-        "description": "It removes or replaces something the person made; running it needs the person's approval (ADR-0228).",
+        "description": "It removes or replaces something the person made; running it needs the person's approval.",
         "type": "boolean"
       },
       "confirm": {
@@ -585,7 +585,7 @@ export const CONTRACT_SCHEMAS = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://schemas.closurestudio.ai/oui/v1/control-kind-registration.json",
     "title": "ControlKindRegistration",
-    "description": "A control kind a design system adds (ADR-0226 §2.6). `ControlKind` is closed: a design system adds a kind only by registering it, under an `x-` name. The registration ships in the design system's control table (`$kinds`), where the generator reads it, and the design system registers it at run time with `registerControlKind`, so the browser and the generator derive the same schema.",
+    "description": "A control kind a design system adds. `ControlKind` is closed: a design system adds a kind only by registering it, under an `x-` name. The registration ships in the design system's control table (`$kinds`), where the generator reads it, and the design system registers it at run time with `registerControlKind`, so the browser and the generator derive the same schema.",
     "type": "object",
     "properties": {
       "kind": {
@@ -609,7 +609,7 @@ export const CONTRACT_SCHEMAS = {
     "additionalProperties": false,
     "$defs": {
       "ControlKind": {
-        "description": "The built-in control kinds, closed:\n\n- `button`: press it (buttons, toolbar buttons, menu items, a row's action).\n- `toggle`: set it on or off (switches, checkboxes).\n- `text`: type into it (inputs, text areas).\n- `number`: set a number (sliders, scrub fields).\n- `choice`: choose one of its options (selects, radio groups, preset tiles).\n- `multi-choice`: choose any of its options (multi-selects, checkbox groups, filter chips).\n- `color`: set a colour or paint (colour pickers, swatches).\n- `font`: choose a family and style (font pickers).\n- `tabs`: select a tab.\n- `date`: set a date.\n- `date-range`: set a start and an end date.\n- `file`: give it a file (upload zones, file buttons): the user's attached file, by its id, which the client resolves to a `File` (ADR-0252 §2.13).\n- `dialog`: close it. Opening is its trigger's.",
+        "description": "The built-in control kinds, closed:\n\n- `button`: press it (buttons, toolbar buttons, menu items, a row's action).\n- `toggle`: set it on or off (switches, checkboxes).\n- `text`: type into it (inputs, text areas).\n- `number`: set a number (sliders, scrub fields).\n- `choice`: choose one of its options (selects, radio groups, preset tiles).\n- `multi-choice`: choose any of its options (multi-selects, checkbox groups, filter chips).\n- `color`: set a colour or paint (colour pickers, swatches).\n- `font`: choose a family and style (font pickers).\n- `tabs`: select a tab.\n- `date`: set a date.\n- `date-range`: set a start and an end date.\n- `file`: give it a file (upload zones, file buttons): the user's attached file, by its id, which the client resolves to a `File`.\n- `dialog`: close it. Opening is its trigger's.",
         "enum": [
           "button",
           "toggle",
@@ -786,7 +786,7 @@ export const CONTRACT_SCHEMAS = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://schemas.closurestudio.ai/oui/v1/control-table.json",
     "title": "ControlTableFile",
-    "description": "A design-system package's control table as it ships (`agent-controls.json`, ADR-0226 §2.2 rule 4): each interactive export's `ControlDescriptor` by export name, and under `$kinds` the control kinds the design system registers, if any. The package declares the table next to its controls, writes it at build time, and names it in its `package.json` under `oui.agentControls` (`closure.agentControls` is read during the transition; declaring both is an error). The conformance kit holds every listed component to registering with the kind declared here.",
+    "description": "A design-system package's control table as it ships (`agent-controls.json`): each interactive export's `ControlDescriptor` by export name, and under `$kinds` the control kinds the design system registers, if any. The package declares the table next to its controls, writes it at build time, and names it in its `package.json` under `oui.agentControls` (`closure.agentControls` is read during the transition; declaring both is an error). The conformance kit holds every listed component to registering with the kind declared here.",
     "type": "object",
     "properties": {
       "$kinds": {
@@ -995,7 +995,7 @@ export const CONTRACT_SCHEMAS = {
         "additionalProperties": false
       },
       "OuiPackageDeclaration": {
-        "description": "What a package declares to the generator under the `oui` key of its `package.json` (ADR-0226 §2.2): its control table, its room catalog, and the components only the person may use. During the transition the generator and the kit also read `closure.agentControls` and `closure.agentCatalog`; a package declaring a key under both `oui` and `closure` is an error.",
+        "description": "What a package declares to the generator under the `oui` key of its `package.json`: its control table, its room catalog, and the components only the person may use. During the transition the generator and the kit also read `closure.agentControls` and `closure.agentCatalog`; a package declaring a key under both `oui` and `closure` is an error.",
         "type": "object",
         "properties": {
           "agentControls": {
@@ -1007,7 +1007,7 @@ export const CONTRACT_SCHEMAS = {
             "$ref": "room-catalog-data.json#/$defs/AgentCatalogManifestEntry"
           },
           "personOnly": {
-            "description": "Export name → why only the person may use it, such as the approval card (ADR-0228). The generator refuses an `agent` binding on one.",
+            "description": "Export name → why only the person may use it, such as the approval card. The generator refuses an `agent` binding on one.",
             "type": "object",
             "additionalProperties": {
               "type": "string",
@@ -1069,7 +1069,7 @@ export const CONTRACT_SCHEMAS = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://schemas.closurestudio.ai/oui/v1/tier2-mapping.json",
     "title": "Tier2Mapping",
-    "description": "A tier 2 mapping (ADR-0226 §2.3): how an app binds the controls of a third-party design system it does not own (MUI, Mantine, shadcn/Radix). It is a declaration, not handler code: `oui generate` emits one module per mapping into `<out>/bound/`. Each wrapper accepts `agent`, calls `useAgentBinding` with the app's own callback, returns that callback's result (§2.2 rule 3), and renders the third-party component unchanged. The emitted module ships its own control table and is treated exactly like a tier 1 package. On an enforced page, importing a mapped component straight from the third-party package fails the build.",
+    "description": "A tier 2 mapping: how an app binds the controls of a third-party design system it does not own (MUI, Mantine, shadcn/Radix). It is a declaration, not handler code: `oui generate` emits one module per mapping into `<out>/bound/`. Each wrapper accepts `agent`, calls `useAgentBinding` with the app's own callback, returns that callback's result, and renders the third-party component unchanged. The emitted module ships its own control table and is treated exactly like a tier 1 package. On an enforced page, importing a mapped component straight from the third-party package fails the build.",
     "type": "object",
     "properties": {
       "$schema": {
@@ -1264,7 +1264,7 @@ export const CONTRACT_SCHEMAS = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://schemas.closurestudio.ai/oui/v1/room-catalog-data.json",
     "title": "RoomCatalogData",
-    "description": "A room catalog as plain data (ADR-0220 §2.3, tier 3 of ADR-0226): what a room with its own editing model — a canvas, a chart, a timeline, a player — declares about everything a person can do in it, so the assistant's actions and knowledge are generated from the room's code. Every declaration, none of the functions: a room's package writes it as `agent-catalog.json` (named in `package.json` under `oui.agentCatalog`) so a build-time generator reads the catalog without loading React or the room's code; an app's own catalog is read through the app's Vite config.\n\n- **actions**: its operations, each carried out through the room's own reducer and commands, with a JSON schema for the input;\n- **fields**: its inspector's fields, each with its value's schema, unit, range, its animation where the room has a timeline, and which kinds of thing it applies to;\n- **commands**: its keymap, each command with its keys and what it does;\n- **observations**: what the host reports about the room's state, including the problems it has drawing it.\n\nA room derives each action's input from the schema its reducer already validates with (`z.toJSONSchema`) and re-checks input with the same schema before applying it.",
+    "description": "A room catalog as plain data (tier 3): what a room with its own editing model — a canvas, a chart, a timeline, a player — declares about everything a person can do in it, so the assistant's actions and knowledge are generated from the room's code. Every declaration, none of the functions: a room's package writes it as `agent-catalog.json` (named in `package.json` under `oui.agentCatalog`) so a build-time generator reads the catalog without loading React or the room's code; an app's own catalog is read through the app's Vite config.\n\n- **actions**: its operations, each carried out through the room's own reducer and commands, with a JSON schema for the input;\n- **fields**: its inspector's fields, each with its value's schema, unit, range, its animation where the room has a timeline, and which kinds of thing it applies to;\n- **commands**: its keymap, each command with its keys and what it does;\n- **observations**: what the host reports about the room's state, including the problems it has drawing it.\n\nA room derives each action's input from the schema its reducer already validates with (`z.toJSONSchema`) and re-checks input with the same schema before applying it.",
     "type": "object",
     "properties": {
       "room": {
@@ -1382,7 +1382,7 @@ export const CONTRACT_SCHEMAS = {
                 "$ref": "action-effect.json"
               },
               "destructive": {
-                "description": "It removes or replaces something the person made; running it needs the person's approval (ADR-0228).",
+                "description": "It removes or replaces something the person made; running it needs the person's approval.",
                 "type": "boolean"
               }
             },
@@ -1413,7 +1413,7 @@ export const CONTRACT_SCHEMAS = {
         "additionalProperties": false
       },
       "RoomFieldAnimation": {
-        "description": "A field's animation, in a room with a timeline. Animation is a capability, not a requirement (ADR-0226 §2.6).",
+        "description": "A field's animation, in a room with a timeline. Animation is a capability, not a requirement.",
         "type": "object",
         "properties": {
           "keyframeable": {
@@ -1666,7 +1666,7 @@ export const CONTRACT_SCHEMAS = {
         "additionalProperties": false
       },
       "RoomResult": {
-        "description": "What running a catalog entry or a bound control did: its data, or why it could not be done, in words a person would read. `pending` says the work outlives the call: a job was started and is done only when its completion arrives (an action whose effect is `job` or `transaction`). Every binding's `run` returns what the consumer's callback returned (ADR-0226 §2.2 rule 3, #209), so a handler's `{ ok, pending: { jobId } }` reaches the runtime.",
+        "description": "What running a catalog entry or a bound control did: its data, or why it could not be done, in words a person would read. `pending` says the work outlives the call: a job was started and is done only when its completion arrives (an action whose effect is `job` or `transaction`). Every binding's `run` returns what the consumer's callback returned, so a handler's `{ ok, pending: { jobId } }` reaches the runtime.",
         "oneOf": [
           {
             "type": "object",
@@ -1691,7 +1691,7 @@ export const CONTRACT_SCHEMAS = {
                 "additionalProperties": false
               },
               "changed": {
-                "description": "The rows it changed, added or removed, each as its list's reader reports it now (ADR-0244 §2.5): what the assistant checks its edit against, and the rows the page state keeps whole.",
+                "description": "The rows it changed, added or removed, each as its list's reader reports it now: what the assistant checks its edit against, and the rows the page state keeps whole.",
                 "type": "array",
                 "items": {
                   "$ref": "#/$defs/RoomChangedRow"
@@ -1755,7 +1755,7 @@ export const CONTRACT_SCHEMAS = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://schemas.closurestudio.ai/oui/v1/oui-manifest.json",
     "title": "OuiManifest",
-    "description": "What the generator emits for each build (`oui-manifest.json`, ADR-0220 §2.4–2.5): every surface, action and observation the build's UI offers. The runtime (`connectBindings`) offers the intersection of the manifest and the handlers mounted right now, so an action the build declares is a tool only while its control, or its room, is on screen. CI regenerates it and diffs it (`oui generate --check`).",
+    "description": "What the generator emits for each build (`oui-manifest.json`): every surface, action and observation the build's UI offers. The runtime (`connectBindings`) offers the intersection of the manifest and the handlers mounted right now, so an action the build declares is a tool only while its control, or its room, is on screen. CI regenerates it and diffs it (`oui generate --check`).",
     "type": "object",
     "properties": {
       "version": {
@@ -2101,7 +2101,7 @@ export const CONTRACT_SCHEMAS = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://schemas.closurestudio.ai/oui/v1/generated-knowledge.json",
     "title": "GeneratedKnowledge",
-    "description": "The knowledge the generator emits with the manifest (`oui-knowledge.json`, ADR-0220 §2.5), from the same declarations: the map of the app, every page in full with its relationships and recipes, and the app's frame. No word of it is written by hand. Each turn carries the part for the page the person is on (`resolveKnowledge`): the map, the frame parts around that page, the page in full, and one paragraph for each adjacent page.",
+    "description": "The knowledge the generator emits with the manifest (`oui-knowledge.json`), from the same declarations: the map of the app, every page in full with its relationships and recipes, and the app's frame. No word of it is written by hand. Each turn carries the part for the page the person is on (`resolveKnowledge`): the map, the frame parts around that page, the page in full, and one paragraph for each adjacent page.",
     "type": "object",
     "properties": {
       "version": {
@@ -2244,7 +2244,7 @@ export const CONTRACT_SCHEMAS = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://schemas.closurestudio.ai/oui/v1/oui-config.json",
     "title": "OuiConfigFile",
-    "description": "`oui.config.json` at the app's root (ADR-0226 §2.4): where the app keeps its routes, navigation and output, which design systems and mappings its controls come from, where its API is described, and which of its pages are not yet bound. Paths are relative to the file. It is required and explicit: nothing an app depends on has a default, so a misconfigured app fails here, naming the setting, instead of generating an assistant that can do nothing. A setting the generator does not know is an error.",
+    "description": "`oui.config.json` at the app's root: where the app keeps its routes, navigation and output, which design systems and mappings its controls come from, where its API is described, and which of its pages are not yet bound. Paths are relative to the file. It is required and explicit: nothing an app depends on has a default, so a misconfigured app fails here, naming the setting, instead of generating an assistant that can do nothing. A setting the generator does not know is an error.",
     "type": "object",
     "properties": {
       "$schema": {
@@ -2422,7 +2422,7 @@ export const CONTRACT_SCHEMAS = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://schemas.closurestudio.ai/oui/v1/approvals.json",
     "title": "Approvals",
-    "description": "Approvals (ADR-0228): the shapes the agent worker, the approval store in the realtime server, the browser's approval card, OUI's surface runtime and a conversation engine exchange. An irreversible action — a `transaction`, or a `write` declared `destructive` — runs only on an approval the person gave, bound to the exact call by a single-use token.\n\n1. The worker stops the turn at the call and stores it (`PendingApprovalInput`); the person's tab receives `agent:approval_required` (`ApprovalRequiredEvent`) and renders the approval card from its `preview`, whose every word comes from the action's declaration, never from the model.\n2. In a UI only a click on the card counts: the card sends `approval:decide` (`ApprovalDecidePayload`) from the person's own socket. On a conversation channel, the verbatim `readback` and an affirmative next turn (ADR-0210 §2.6).\n3. The store answers the decider only (`ApprovalDecideResult`): a single-use token, a compact JWS (`ApprovalTokenClaims`), and the call's `argsHash`. The tab's OUI runtime holds an `ApprovalGrant`.\n4. The next turn carries the token (`ApprovalContinuation`); the worker redeems it for the stored call, exactly (`ApprovedCall`), and runs it. A UI action request then carries `approval` (`ActionRequestApproval`), which the browser checks against its grant before it runs the handler.\n\nThe args hash is SHA-256 over the RFC 8785 (JCS) canonical JSON of the call's arguments, lowercase hex; `oui-spec/approval-vectors.json` holds every implementation, in any language, to it.",
+    "description": "Approvals: the shapes the agent worker, the approval store in the realtime server, the browser's approval card, OUI's surface runtime and a conversation engine exchange. An irreversible action — a `transaction`, or a `write` declared `destructive` — runs only on an approval the person gave, bound to the exact call by a single-use token.\n\n1. The worker stops the turn at the call and stores it (`PendingApprovalInput`); the person's tab receives `agent:approval_required` (`ApprovalRequiredEvent`) and renders the approval card from its `preview`, whose every word comes from the action's declaration, never from the model.\n2. In a UI only a click on the card counts: the card sends `approval:decide` (`ApprovalDecidePayload`) from the person's own socket. On a conversation channel, the verbatim `readback` and an affirmative next turn.\n3. The store answers the decider only (`ApprovalDecideResult`): a single-use token, a compact JWS (`ApprovalTokenClaims`), and the call's `argsHash`. The tab's OUI runtime holds an `ApprovalGrant`.\n4. The next turn carries the token (`ApprovalContinuation`); the worker redeems it for the stored call, exactly (`ApprovedCall`), and runs it. A UI action request then carries `approval` (`ActionRequestApproval`), which the browser checks against its grant before it runs the handler.\n\nThe args hash is SHA-256 over the RFC 8785 (JCS) canonical JSON of the call's arguments, lowercase hex; `oui-spec/approval-vectors.json` holds every implementation, in any language, to it.",
     "$defs": {
       "ArgsHash": {
         "description": "SHA-256 of the RFC 8785 canonical JSON of a call's arguments, lowercase hex.",
@@ -2430,7 +2430,7 @@ export const CONTRACT_SCHEMAS = {
         "pattern": "^[0-9a-f]{64}$"
       },
       "ApprovalChannel": {
-        "description": "Where the person confirmed. In a UI only a click on the card counts (`ui`); in a conversation channel, the verbatim readback and an affirmative next turn (ADR-0210 §2.6).",
+        "description": "Where the person confirmed. In a UI only a click on the card counts (`ui`); in a conversation channel, the verbatim readback and an affirmative next turn.",
         "enum": [
           "ui",
           "voice",
@@ -2470,7 +2470,7 @@ export const CONTRACT_SCHEMAS = {
         "additionalProperties": false
       },
       "ApprovalPreview": {
-        "description": "What the person is asked to approve. Every word comes from the action's declaration (its title, description and input schema labels), never from the model (ADR-0228 §2.2).",
+        "description": "What the person is asked to approve. Every word comes from the action's declaration (its title, description and input schema labels), never from the model.",
         "type": "object",
         "properties": {
           "title": {
@@ -2499,7 +2499,7 @@ export const CONTRACT_SCHEMAS = {
         "additionalProperties": false
       },
       "ApprovalEffect": {
-        "description": "The effect the approval is for: the action's declared effect kind (ADR-0226 §2.6, `transaction` for an irreversible external act), or `write` when it declares none.",
+        "description": "The effect the approval is for: the action's declared effect kind (`transaction` for an irreversible external act), or `write` when it declares none.",
         "type": "string",
         "minLength": 1
       },
@@ -2937,7 +2937,7 @@ export const CONTRACT_SCHEMAS = {
         ]
       },
       "ActionRequestApproval": {
-        "description": "What a UI action request carries when it runs an approved call (`OUIActionApproval`): the browser runs a `transaction` or destructive action only when this matches a grant this tab received from its own card click (ADR-0228 §2.2.6).",
+        "description": "What a UI action request carries when it runs an approved call (`OUIActionApproval`): the browser runs a `transaction` or destructive action only when this matches a grant this tab received from its own card click.",
         "type": "object",
         "properties": {
           "approvalId": {
@@ -2982,7 +2982,7 @@ export const CONTRACT_SCHEMAS = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://schemas.closurestudio.ai/agent-sdk/event-declarations/v1.json",
     "title": "Event declarations",
-    "description": "Every event a product emits over realtime: its payload schema, the rooms it is published to, its correlation fields and its role in a job (ADR-0227 §2.4).",
+    "description": "Every event a product emits over realtime: its payload schema, the rooms it is published to, its correlation fields and its role in a job.",
     "type": "object",
     "required": [
       "version",

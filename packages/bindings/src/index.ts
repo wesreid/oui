@@ -1,6 +1,6 @@
 /**
  * @ouispec/bindings — every UI capability declared once, in code
- * (ADR-0220).
+ *.
  *
  * - The binding a design-system control carries, and the input schema derived
  *   from its props.

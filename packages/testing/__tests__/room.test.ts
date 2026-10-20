@@ -1,5 +1,5 @@
 /**
- * `checkRoom` (ADR-0244 §2.8): a room that declares its lists and builds its
+ * `checkRoom`: a room that declares its lists and builds its
  * readers from them passes; a room that reports a list it does not declare,
  * and a room whose readers do not return what it holds, each fail the
  * `lists-readable` rule, saying what is wrong.

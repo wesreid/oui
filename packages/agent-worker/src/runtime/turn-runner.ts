@@ -28,14 +28,14 @@ export interface CategorizedError {
 
 /**
  * The failure code of a turn that ran out of time and whose stop path could
- * not store what it had produced (ADR-0252 §6.4): a host records it as
+ * not store what it had produced: a host records it as
  * `deadline_exceeded`, not as stopped.
  */
 export const TURN_DEADLINE_EXCEEDED = 'TURN_DEADLINE_EXCEEDED';
 
 export type TurnOutcome =
   | { status: 'completed'; turnId: string; rounds: number }
-  /** The turn was stopped (ADR-0252): what it had produced is stored, and the client was told. */
+  /** The turn was stopped: what it had produced is stored, and the client was told. */
   | {
       status: 'stopped';
       turnId: string;
@@ -112,15 +112,15 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
 
   const emit = createHttpEmitAdapter({ url: config.realtime.url, apiKey: config.realtime.apiKey });
   // UI actions reach the client through the same realtime server, and its
-  // answers come back through it (ADR-0209).
+  // answers come back through it.
   const uiChannel =
     config.uiActions?.channel ?? createHttpUIActionChannel({ url: config.realtime.url, apiKey: config.realtime.apiKey });
 
-  // Approvals are kept by the same realtime server (ADR-0228 §2.4).
+  // Approvals are kept by the same realtime server.
   const approvals =
     config.approvals?.store ?? createHttpApprovalStoreClient({ url: config.realtime.url, apiKey: config.realtime.apiKey });
 
-  // A stop is kept by the same realtime server (ADR-0252 §2.1).
+  // A stop is kept by the same realtime server.
   /** Said once for the life of the process, not once a turn. */
   let stopsUnsupported = false;
   const stops =
@@ -297,7 +297,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
         });
 
         // A turn that ran out of time and could not store what it had is not a stopped turn:
-        // nothing of it was kept. It is recorded as having run out of time (ADR-0252 §6.4).
+        // nothing of it was kept. It is recorded as having run out of time.
         if (result.stopped?.reason === 'deadline' && (result.stored === false || storeFailed)) {
           const categorized: CategorizedError = {
             code: TURN_DEADLINE_EXCEEDED,

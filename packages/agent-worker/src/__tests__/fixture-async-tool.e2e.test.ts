@@ -1,6 +1,6 @@
 /**
- * W9 acceptance: the fixture product declares its events, and an async tool
- * completes on one (ADR-0227 §2.4, §2.6 item 5).
+ * Acceptance: the fixture product declares its events, and an async tool
+ * completes on one.
  *
  * No Closure code, packages or infrastructure: the fixture product declares
  * `report:ready` and `report:failed` (fixture-events.ts); its realtime server

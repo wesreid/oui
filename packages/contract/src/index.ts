@@ -1,5 +1,5 @@
 /**
- * @ouispec/contract — the OUI integrator contract (ADR-0226 §3).
+ * @ouispec/contract — the OUI integrator contract.
  *
  * The JSON Schemas an integrator builds against, versioned together with
  * `MANIFEST_VERSION`, and the TypeScript types generated from them:
@@ -15,8 +15,8 @@
  * | `oui-manifest.json` | The generated manifest |
  * | `generated-knowledge.json` | The generated knowledge |
  * | `oui-config.json` | `oui.config.json` |
- * | `approvals.json` | The approval messages (ADR-0228) |
- * | `event-declarations.json` | A product's event declarations (ADR-0227 §2.4) |
+ * | `approvals.json` | The approval messages |
+ * | `event-declarations.json` | A product's event declarations |
  *
  * Browser-safe and dependency-free. Validation is `./validate`; the type
  * renderer is `./codegen`; the files are `./schemas/<file>`; the integrator

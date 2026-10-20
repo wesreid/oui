@@ -1,5 +1,5 @@
 /**
- * How a message was entered (ADR-0259 §2.6) arrives from a browser on the
+ * How a message was entered arrives from a browser on the
  * turn's context: only what this runtime recognises is kept.
  */
 import { describe, expect, it } from 'vitest';

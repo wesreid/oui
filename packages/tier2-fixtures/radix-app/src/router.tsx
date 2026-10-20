@@ -1,6 +1,6 @@
 /**
  * The app's router, as small as the generator needs: it reads `<Route>`
- * elements by their `path` and `element` (ADR-0226 §2.4).
+ * elements by their `path` and `element`.
  */
 import type { ReactElement, ReactNode } from 'react';
 

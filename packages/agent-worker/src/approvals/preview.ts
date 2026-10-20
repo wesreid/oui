@@ -1,5 +1,5 @@
 /**
- * The approval card's words (ADR-0228 §2.2.2). Every one comes from the
+ * The approval card's words. Every one comes from the
  * tool's declaration — its title, its description, its input schema's labels —
  * and the call's arguments. None comes from the model: the model chooses the
  * call, never how it is described to the person approving it.

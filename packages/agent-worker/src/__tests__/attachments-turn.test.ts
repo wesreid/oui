@@ -1,5 +1,5 @@
 /**
- * A turn with files (ADR-0252 §2.11, §2.12), through the orchestrator with
+ * A turn with files, through the orchestrator with
  * the `ai` library replaced: the model call is what is checked.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';

@@ -1,5 +1,5 @@
 /**
- * Eval Scenarios (W7.T2)
+ * Eval Scenarios
  *
  * 26+ scenarios across 8 categories. Each scenario specifies the user input,
  * expected tool calls (with partial arg matching), stop reasons, and bounds.

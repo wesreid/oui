@@ -1,5 +1,5 @@
 /**
- * W8 acceptance, MCP (ADR-0181 §2, ADR-0227 §2.5): the MCP server serves the same
+ * Acceptance, MCP: the MCP server serves the same
  * generated API tools, with the same exposure, and each MCP client acts as its own
  * principal.
  *

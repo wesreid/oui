@@ -1,6 +1,5 @@
 /**
- * Live eval: does the model see a picture an action answers with (ADR-0244
- * §2.2, ADR-0245 §2.4)?
+ * Live eval: does the model see a picture an action answers with?
  *
  * The page offers a snapshot reader that answers with `data.image`, a PNG the
  * test draws itself: a board split into a left and a right half of two plain

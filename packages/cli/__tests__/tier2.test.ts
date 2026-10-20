@@ -1,5 +1,5 @@
 /**
- * Tier 2 in the generator (ADR-0226 §2.3, §2.5 row 6): a mapping is checked
+ * Tier 2 in the generator: a mapping is checked
  * against the contract, the other mappings and the package's own types;
  * it emits a bound module and its control table; each use of a bound
  * control is read as a tier 1 control's; and a stale or orphaned bound
@@ -214,7 +214,7 @@ describe('each use of a bound control', () => {
   });
 });
 
-describe('§2.5 row 6: a mapped control imported straight from its package', () => {
+describe('a mapped control imported straight from its package', () => {
   it('fails on an enforced page, naming the bound import, by name and through a namespace', async () => {
     const result = await generate(resolveConfig(APP, { ...SETTINGS, routes: 'src/direct-routes.tsx' }));
     expect(result.errors.map(e => `${e.file}:${e.line}: ${e.message}`)).toEqual([

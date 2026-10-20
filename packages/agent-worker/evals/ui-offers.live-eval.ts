@@ -5,7 +5,7 @@
  * The stubbed corpus (`src/__tests__/eval`) mocks the model, so it proves the
  * orchestration and never what the model chooses. This eval asks the real
  * model, through the worker itself (`runAgentTurn`): the SDK's prompt, a
- * page's index, and `ui_act`, `ui_describe` and `ui_read` (ADR-0245). It is
+ * page's index, and `ui_act`, `ui_describe` and `ui_read`. It is
  * graded on what the page ran and on what the model said:
  *
  * - **Unsupported requests**: the reply opens by saying it cannot be done, and

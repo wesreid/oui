@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * oui (also installed as closure-oui) — the assistant's surfaces and knowledge,
- * generated from the UI's code (ADR-0220, ADR-0226).
+ * generated from the UI's code.
  *
  *   oui generate            write <out>/oui-manifest.json and oui-knowledge.json
  *   oui generate --check    fail if they are stale, or if any declaration is invalid (CI)

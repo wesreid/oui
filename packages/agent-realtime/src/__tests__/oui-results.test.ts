@@ -5,7 +5,6 @@ import { createInternalKeyCheck, ouiResultsRouter } from '../http/routes.js';
 import { createRoomTokenSigner } from '../rooms/room-token.js';
 import { createMemoryRedis, fixtureRoomPolicy, recordingLogger, TEST_TOKEN_SECRET } from './fixtures.js';
 
-/** Ported from studio-realtime `src/__tests__/oui-results.test.ts`. */
 
 const logger = recordingLogger();
 

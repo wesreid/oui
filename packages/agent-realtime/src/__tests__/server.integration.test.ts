@@ -82,7 +82,7 @@ describe('room tokens', () => {
   });
 });
 
-describe('UI actions (ADR-0209)', () => {
+describe('UI actions', () => {
   it("delivers a dispatch to the turn's room and serves the browser's answer to the worker on the other instance", async () => {
     const browser = await connect(a, 'token-u1');
     const turnRoom = 'agent:turn:t-int-1';
@@ -174,7 +174,7 @@ describe('receipts of a UI action request (oui-spec §7.3.7)', () => {
   });
 });
 
-describe('stopping a turn (ADR-0252)', () => {
+describe('stopping a turn', () => {
   const stop = (socket: Socket, payload: unknown) =>
     new Promise<unknown>((resolve) => socket.emit('agent:turn_stop', payload, resolve));
 

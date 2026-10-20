@@ -1,5 +1,5 @@
 /**
- * The attachment tools (ADR-0252 §2.12): a file by its id, through the host's
+ * The attachment tools: a file by its id, through the host's
  * store for the turn's own conversation, each counted by the cost guard.
  */
 import { describe, expect, it, vi } from 'vitest';

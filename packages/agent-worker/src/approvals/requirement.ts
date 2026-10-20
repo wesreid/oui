@@ -1,5 +1,5 @@
 /**
- * What a tool's declaration says about approval (ADR-0228 §2.1), for every
+ * What a tool's declaration says about approval, for every
  * kind of tool the worker runs: a UI action from the client's surfaces, a
  * generated API tool (its effect from the operation's `x-agent`), a host tool.
  * The rule itself is OUI's `requiresApproval` (through oui-bindings), which the browser applies too; a host's

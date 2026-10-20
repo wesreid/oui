@@ -1,6 +1,5 @@
 /**
- * A picture in an action's answer reaches the model as a picture (ADR-0244
- * §2.2, ADR-0245 §2.4).
+ * A picture in an action's answer reaches the model as a picture.
  *
  * A room's snapshot reader answers with `data.image`: an encoded picture, up
  * to 200 KB of base64. Stringified into the tool result it would be about

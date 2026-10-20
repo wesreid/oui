@@ -1,6 +1,6 @@
 /**
  * The turn runner around a stopped, superseding or redelivered turn
- * (ADR-0252 §2.4, §2.5): what the host's hooks are told, and what the host
+ *: what the host's hooks are told, and what the host
  * can answer.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -120,7 +120,7 @@ describe('a stopped turn, through the runner', () => {
     expect(recordTurnFailure).not.toHaveBeenCalled();
   });
 
-  it('records a turn that ran out of time and could not store what it had as having exceeded its deadline, not as stopped (ADR-0252 §6.4)', async () => {
+  it('records a turn that ran out of time and could not store what it had as having exceeded its deadline, not as stopped', async () => {
     const DEADLINE = { reason: 'deadline', at: 9 } as const;
     const usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, peakPromptTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
     const recordTurnComplete = vi.fn(async () => {});
@@ -251,7 +251,7 @@ describe('a turn that supersedes others', () => {
   });
 });
 
-describe('the runner’s time for a turn (ADR-0269 §2.1)', () => {
+describe('the runner’s time for a turn', () => {
   it('gives the orchestrator the deadline and the hand-back reserve it was configured with', async () => {
     const { run } = runner({ turnDeadlineMs: 240_000, handBackReserveMs: 20_000 });
     await run();

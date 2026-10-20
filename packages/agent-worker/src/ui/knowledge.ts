@@ -2,7 +2,7 @@
  * The client's knowledge, carried on the turn.
  *
  * A UI client's generator emits knowledge from the same code declarations as
- * its surfaces (ADR-0220, ADR-0226): the app's map, each page in full, how its
+ * its surfaces: the app's map, each page in full, how its
  * parts relate, and the recipes its controls imply. The tab resolves it for the
  * page the user is on (oui-bindings' `resolveKnowledge`) and sends it with the
  * turn under `uiKnowledge`, beside its surface snapshot under `oui`.
@@ -11,7 +11,7 @@
  * every host: a persona or a `systemPrompt` callback never sees it as context
  * and never has to render it.
  *
- * It is bounded, as the page's index is (ADR-0245): in session 24611234 the
+ * It is bounded, as the page's index is: in one session a
  * video editor's knowledge was 117,000 characters, most of it a page detail
  * that repeats what the index already lists, in every model call of every
  * turn. What fits in `KNOWLEDGE_PROMPT_CHARS` is sent; the rest of an entry,

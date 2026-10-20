@@ -1,12 +1,12 @@
 /**
- * What the conformance kit checks (ADR-0226 §3.2), and what it reports.
+ * What the conformance kit checks, and what it reports.
  *
- * Each rule has an id an integrator's test can name, the ADR's wording, and
+ * Each rule has an id an integrator's test can name, its wording, and
  * the checks that ran under it, so a passing report shows that every rule was
  * exercised and not merely that nothing was found.
  */
 
-/** The kit's rules, in the order ADR-0226 §3.2 lists them, after the schemas they rest on. */
+/** The kit's rules, after the schemas they rest on. */
 export const CONFORMANCE_RULES = {
   'matches-contract':
     'What the package ships and declares matches the published schemas: its control table, its `oui` (or, during the transition, `closure`) declaration in package.json, a manifest, a mapping.',
@@ -15,9 +15,9 @@ export const CONFORMANCE_RULES = {
   'run-returns-result': 'Every binding’s `run` returns its callback’s result, and a job control reports `pending.jobId`.',
   'actions-mounted': 'Every generated manifest action has a mounted handler on the page that offers it.',
   'lists-readable':
-    'Every list a room reports is declared with how its rows are addressed, and its `query` and `inspect` return what the room holds (ADR-0244 §2.2).',
+    'Every list a room reports is declared with how its rows are addressed, and its `query` and `inspect` return what the room holds.',
   'within-budgets':
-    'Every action’s index entry and definition, and every surface’s index, is within the size the assistant’s transport carries (ADR-0245 §2.6).',
+    'Every action’s index entry and definition, and every surface’s index, is within the size the assistant’s transport carries.',
   'tier2-forwards-value': 'Every tier 2 wrapper forwards `valueFrom` correctly.',
   'tier2-reports-uncontrolled': 'Every use of a mapped control that does not pass its `controlled` prop is reported.',
 } as const;

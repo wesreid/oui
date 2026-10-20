@@ -1,5 +1,5 @@
 /**
- * Recipes a room declares (`RoomCatalog.recipes`, ADR-0226 §2.6): tasks only
+ * Recipes a room declares (`RoomCatalog.recipes`): tasks only
  * the room knows, written in its own words, whose references to its entries
  * become the tools that carry each step out. The generator infers no recipe
  * from what entries are called.

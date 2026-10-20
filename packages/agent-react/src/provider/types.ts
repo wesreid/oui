@@ -14,8 +14,8 @@ export interface SendMessageOptions {
    */
   attachments?: AttachmentRef[];
   /**
-   * How the person entered the message, when they did not type it (ADR-0259
-   * §2.6): `{ mode: 'voice', language }` for one they spoke, with the language
+   * How the person entered the message, when they did not type it: `{ mode:
+   * 'voice', language }` for one they spoke, with the language
    * the recogniser detected. It reaches `config.sendMessage` as
    * `context.input`, and the message keeps it (`AgentMessage.input`). One that
    * `readMessageInput` does not recognise is not sent.
@@ -41,7 +41,7 @@ import type {
 export interface AgentToolCallState {
   id: string;
   name: string;
-  /** What the assistant called it with: a session's record can be replayed from it (ADR-0244 §2.7). */
+  /** What the assistant called it with: a session's record can be replayed from it. */
   arguments?: Record<string, unknown>;
   /** `stopped`: the turn was stopped before this call's result arrived here. */
   status: 'running' | 'complete' | 'error' | 'stopped';
@@ -56,13 +56,13 @@ export interface AgentMessage {
   toolCall?: AgentToolCallState;
   isStreaming?: boolean;
   /**
-   * Set on the assistant message of a turn that was stopped (ADR-0252): by
+   * Set on the assistant message of a turn that was stopped: by
    * the person, or by a newer message. What it had said is kept.
    */
   stopped?: TurnStoppedReason;
-  /** The files the person attached to this message (ADR-0252 §2.8), by reference. */
+  /** The files the person attached to this message, by reference. */
   attachments?: AttachmentRef[];
-  /** How the person entered this message, when they did not type it: set on one they spoke (ADR-0259 §2.6). */
+  /** How the person entered this message, when they did not type it: set on one they spoke. */
   input?: MessageInput;
 }
 
@@ -112,7 +112,7 @@ export interface AgentDebugState {
   exportSession: () => void;
 }
 
-/** A session as it is exported (ADR-0244 §2.7). */
+/** A session as it is exported. */
 export interface AgentSessionRecord {
   exportedAt: string;
   /** The package that wrote it, and its version. */
@@ -139,7 +139,7 @@ export interface AgentSessionRecord {
 }
 
 /**
- * A call a turn stopped at for the user's approval (ADR-0228): what the
+ * A call a turn stopped at for the user's approval: what the
  * approval card shows. Its words come from the action's declaration.
  */
 export type AgentApprovalRequest = Omit<ApprovalRequiredProtocolEvent, 'type'>;
@@ -206,7 +206,7 @@ export interface AgentContextValue {
   close: () => void;
   /**
    * Sends the person's message. While a turn is running this is a barge-in
-   * (ADR-0252 §2.5): the platform stops the running turn and this message
+   *: the platform stops the running turn and this message
    * runs next. The tab's turn is the new one from this call on.
    *
    * The message carries the composer's ready files (`attachments`), after
@@ -214,7 +214,7 @@ export interface AgentContextValue {
    * `options.attachments`, or as the second argument itself (an array).
    *
    * A message the person spoke says so with `options.input`
-   * (`{ mode: 'voice', language }`, ADR-0259 §2.6). It is sent like a typed
+   * (`{ mode: 'voice', language }`). It is sent like a typed
    * one, and supersedes a running turn the same way.
    *
    * It is not sent, and `notSent` says why and hands back `content` for the
@@ -224,12 +224,12 @@ export interface AgentContextValue {
    */
   sendMessage: (content: string, options?: SendMessageOptions | AttachmentRef[]) => Promise<SendMessageResult>;
   /**
-   * The files on the message being written (ADR-0252 §2.14): attach, watch
+   * The files on the message being written: attach, watch
    * each upload, remove. `enabled` is false when the platform takes no files.
    */
   attachments: ComposerAttachmentsState;
   /**
-   * Stops the turn in progress (ADR-0252 §2.14). What it had produced is
+   * Stops the turn in progress. What it had produced is
    * kept. Does nothing when no turn is running or a stop is already asked.
    */
   stopTurn: () => Promise<void>;

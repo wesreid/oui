@@ -1,5 +1,5 @@
 /**
- * Going to a page by its address (ADR-0220): the generated navigation surface
+ * Going to a page by its address: the generated navigation surface
  * is offered whenever the app gives its router, refuses an address that is not
  * one of the build's routes, and reports the page the person is on.
  */

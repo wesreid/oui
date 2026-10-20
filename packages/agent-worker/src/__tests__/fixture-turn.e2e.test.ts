@@ -1,9 +1,8 @@
 /**
- * The fixture turn, end to end (ADR-0227 W6 and W7 acceptance).
+ * The fixture turn, end to end.
  *
- * W6: it completes against `agent-sdk-realtime`, with no studio-realtime and
- * no Closure code involved.
- * W7: it passes the same way on both host adapters (Lambda + SQS, container)
+ * It completes against `agent-sdk-realtime`, with no product code involved.
+ * It passes the same way on both host adapters (Lambda + SQS, container)
  * and on two model providers (Bedrock, OpenAI), each replaying recorded
  * responses through its real `ai` provider package.
  *

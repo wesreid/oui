@@ -1,5 +1,5 @@
 /**
- * React side of the binding (ADR-0220 §2.2): how a design-system control
+ * React side of the binding: how a design-system control
  * registers its real handler, and how a room registers its catalog.
  *
  * A control calls `useAgentBinding` with its `agent` prop, its kind, its live
@@ -222,5 +222,5 @@ export function useAgentFacts(
   });
 }
 
-// Tier 2 (ADR-0226 §2.3): what the bound wrappers `oui generate` emits are built from.
+// Tier 2: what the bound wrappers `oui generate` emits are built from.
 export { boundCompound, boundControl, withMembers, type AgentAttribute } from './tier2-react.js';

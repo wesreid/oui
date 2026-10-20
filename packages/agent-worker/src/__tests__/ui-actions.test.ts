@@ -1,5 +1,5 @@
 /**
- * UI actions (ADR-0209): the client's surfaces become the turn's UI tools,
+ * UI actions: the client's surfaces become the turn's UI tools,
  * every UI action is answered by the client, and the tool set follows the
  * page across a navigation within one turn.
  */
@@ -126,7 +126,7 @@ describe('UI tools from the client snapshot', () => {
     await runAgentTurn(makeConfig(channel, [hostNavigate]), makeInput([shell, projects]));
 
     // The model's tools do not grow with the page: it gets the index after the
-    // system prompt, and three tools to work it with (ADR-0245 §2.2).
+    // system prompt, and three tools to work it with.
     const tools = seenOpts[0].tools;
     expect(Object.keys(tools).sort()).toEqual(['ui_act', 'ui_describe', 'ui_read']);
     const index = JSON.stringify(seenOpts[0].instructions);
@@ -301,7 +301,7 @@ describe('a UI action is answered', () => {
   });
 });
 
-describe('a turn of many actions (session 24611234)', () => {
+describe('a turn of many actions', () => {
   const editor: OUISurface = {
     id: 'editor',
     name: 'Editor',

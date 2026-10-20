@@ -58,7 +58,7 @@ export interface JsonSchema {
    * The frame a length, a point or a fraction is measured in, in the room's own words:
    * `artboard` (from its top left), `canvas`, `layer` (the layer's own content),
    * `artboard-fraction` (0–1 of the artboard's width and height). A room names its spaces in
-   * its description or a recipe (ADR-0244 §2.3).
+   * its description or a recipe.
    */
   'x-space'?: string;
   /**
@@ -66,14 +66,14 @@ export interface JsonSchema {
    * rows of (a document's layers, its artboards). It names the property each row is addressed
    * by and the one a person calls it by, so a list too long for the page state keeps an index
    * of every row instead of a count, and a title given where an id is expected resolves to its
-   * row (ADR-0244 §2.1, §2.2).
+   * row.
    */
   'x-rows'?: RowList;
   /**
    * On a string (or the items of an array of strings) in an action's input: the value addresses
    * a row of one of the surface's `x-rows` lists, each named `<observation id>/<list
    * property>`, or `<observation id>` when the observation itself is the list. The row's id, or
-   * its exact title when one row has it (ADR-0244 §2.2).
+   * its exact title when one row has it.
    */
   'x-ref'?: readonly string[];
   /**
@@ -83,9 +83,9 @@ export interface JsonSchema {
   'x-enum-omitted'?: number;
   /**
    * On a string with `format: oui-attachment`: what the action takes once the client resolves
-   * the attachment's id (ADR-0252 §2.13). `as`: `file` (a `File`, as the user's own file choice
-   * produces) or `text` (the file's text, for an input that takes markup or JSON).
-   * `mediaTypes`: the types it accepts, `type/*` for a family; any when absent.
+   * the attachment's id. `as`: `file` (a `File`, as the user's own file choice produces) or
+   * `text` (the file's text, for an input that takes markup or JSON). `mediaTypes`: the types
+   * it accepts, `type/*` for a family; any when absent.
    */
   'x-oui-attachment'?: {
     as: 'file' | 'text';
@@ -114,15 +114,15 @@ export interface RowList {
 /** A JSON Schema type name. */
 export type JsonSchemaType = 'object' | 'array' | 'string' | 'number' | 'integer' | 'boolean' | 'null';
 
-// ─── What an action does (ADR-0226 §2.6), and how a job settles ────────────────
+// ─── What an action does, and how a job settles ────────────────────────────────
 // https://schemas.closurestudio.ai/oui/v1/action-effect.json
 
 /**
- * What using an action does (ADR-0226 §2.6): one vocabulary for a design-system control's
- * binding, a room catalog's entry and a generated API tool, so a page control, a room action
- * and an API call are told apart by what they change, never by where they are declared.
+ * What using an action does: one vocabulary for a design-system control's binding, a room
+ * catalog's entry and a generated API tool, so a page control, a room action and an API call
+ * are told apart by what they change, never by where they are declared.
  *
- * | Effect | What it changes | ADR-0210 access |
+ * | Effect | What it changes | Access |
  * |---|---|---|
  * | `view`, `selection`, `navigate`, `open` | What is shown | read |
  * | `edit` | The document, one undo step | write |
@@ -132,7 +132,7 @@ export type JsonSchemaType = 'object' | 'array' | 'string' | 'number' | 'integer
  * | `transaction` | An irreversible external act: an order, a payment, a send, a publish | write, approved |
  *
  * A `transaction`, and any `write` declared `destructive`, runs only on an approval the person
- * gave, bound to the call (ADR-0228).
+ * gave, bound to the call.
  */
 export type ActionEffect = SimpleEffect | {
   kind: 'navigate';
@@ -165,13 +165,13 @@ export type SimpleEffect = 'view' | 'selection' | 'edit' | 'file';
 export type ActionEffectKind = 'view' | 'selection' | 'navigate' | 'open' | 'edit' | 'file' | 'mutate' | 'job' | 'transaction';
 
 /**
- * Whether an effect only changes what is shown (`read`), or changes something (`write`), as
- * ADR-0210 names it. An action that declares no effect is a `write`.
+ * Whether an effect only changes what is shown (`read`), or changes something (`write`). An
+ * action that declares no effect is a `write`.
  */
 export type EffectAccess = 'read' | 'write';
 
 /**
- * Where an action whose effect is `job` or `transaction` is (plan §2.3, #205/#209):
+ * Where an action whose effect is `job` or `transaction` is:
  *
  * - `started`: the handler returned; the job is tracked from this moment, so an outcome that
  * arrives before the first poll is kept.
@@ -215,24 +215,23 @@ export type JobSettlement = {
   message: string;
 };
 
-// ─── The binding a control carries (ADR-0220 §2.2) ─────────────────────────────
+// ─── The binding a control carries ─────────────────────────────────────────────
 // https://schemas.closurestudio.ai/oui/v1/agent-binding.json
 
 /**
- * The semantic binding a design-system control carries (ADR-0220 §2.2): what the control means,
- * in the user's terms, declared where the page uses it, as its `agent` prop.
+ * The semantic binding a design-system control carries: what the control means, in the user's
+ * terms, declared where the page uses it, as its `agent` prop.
  *
  * It uses a room catalog entry's vocabulary (id, title and description; `ActionEffect`;
  * `destructive`), so to the generator a page control and a room entry look the same. What is
  * never written: the input schema, which is derived from the control's own props, and where the
  * control is, which the generator derives from the page's component tree.
  *
- * **Every value is a build-time constant** (#203). The generator reads bindings from source
- * without running it, so each value is a literal, a `const` it can follow, a property of a
- * constant object, a template literal or `+` over those, or a single-literal type read through
- * the type checker. A value built by a call (`t('save')`, `format(...)`) is refused, naming the
- * binding. A field's build-time `hint` and `placeholder` are added to its tool description the
- * same way.
+ * **Every value is a build-time constant**. The generator reads bindings from source without
+ * running it, so each value is a literal, a `const` it can follow, a property of a constant
+ * object, a template literal or `+` over those, or a single-literal type read through the type
+ * checker. A value built by a call (`t('save')`, `format(...)`) is refused, naming the binding.
+ * A field's build-time `hint` and `placeholder` are added to its tool description the same way.
  */
 export interface AgentBinding {
   /**
@@ -245,14 +244,10 @@ export interface AgentBinding {
   title?: string;
   /** What using it does, for someone who cannot see the screen. */
   description: string;
-  /**
-   * What using it does: what reach paths, data and verification are derived from (ADR-0226
-   * §2.6).
-   */
+  /** What using it does: what reach paths, data and verification are derived from. */
   effect?: ActionEffect;
   /**
-   * It removes or replaces something the person made; running it needs the person's approval
-   * (ADR-0228).
+   * It removes or replaces something the person made; running it needs the person's approval.
    */
   destructive?: boolean;
   /**
@@ -292,11 +287,10 @@ export type AgentProp = AgentBinding | NonAgentBinding;
 // https://schemas.closurestudio.ai/oui/v1/control-kind-registration.json
 
 /**
- * A control kind a design system adds (ADR-0226 §2.6). `ControlKind` is closed: a design system
- * adds a kind only by registering it, under an `x-` name. The registration ships in the design
- * system's control table (`$kinds`), where the generator reads it, and the design system
- * registers it at run time with `registerControlKind`, so the browser and the generator derive
- * the same schema.
+ * A control kind a design system adds. `ControlKind` is closed: a design system adds a kind
+ * only by registering it, under an `x-` name. The registration ships in the design system's
+ * control table (`$kinds`), where the generator reads it, and the design system registers it at
+ * run time with `registerControlKind`, so the browser and the generator derive the same schema.
  */
 export interface ControlKindRegistration {
   kind: RegisteredControlKind;
@@ -320,7 +314,7 @@ export interface ControlKindRegistration {
  * - `date`: set a date.
  * - `date-range`: set a start and an end date.
  * - `file`: give it a file (upload zones, file buttons): the user's attached file, by its id,
- * which the client resolves to a `File` (ADR-0252 §2.13).
+ * which the client resolves to a `File`.
  * - `dialog`: close it. Opening is its trigger's.
  */
 export type ControlKind = 'button' | 'toggle' | 'text' | 'number' | 'choice' | 'multi-choice' | 'color' | 'font' | 'tabs' | 'date' | 'date-range' | 'file' | 'dialog';
@@ -396,17 +390,16 @@ export interface KindSchemaDerivation {
   props?: Readonly<Record<string, SchemaPropName>>;
 }
 
-// ─── A design system’s control table (ADR-0226 §2.2) ───────────────────────────
+// ─── A design system’s control table ───────────────────────────────────────────
 // https://schemas.closurestudio.ai/oui/v1/control-table.json
 
 /**
- * A design-system package's control table as it ships (`agent-controls.json`, ADR-0226 §2.2
- * rule 4): each interactive export's `ControlDescriptor` by export name, and under `$kinds` the
- * control kinds the design system registers, if any. The package declares the table next to its
- * controls, writes it at build time, and names it in its `package.json` under
- * `oui.agentControls` (`closure.agentControls` is read during the transition; declaring both is
- * an error). The conformance kit holds every listed component to registering with the kind
- * declared here.
+ * A design-system package's control table as it ships (`agent-controls.json`): each interactive
+ * export's `ControlDescriptor` by export name, and under `$kinds` the control kinds the design
+ * system registers, if any. The package declares the table next to its controls, writes it at
+ * build time, and names it in its `package.json` under `oui.agentControls`
+ * (`closure.agentControls` is read during the transition; declaring both is an error). The
+ * conformance kit holds every listed component to registering with the kind declared here.
  */
 export interface ControlTableFile {
   /** The control kinds this design system registers. */
@@ -513,9 +506,9 @@ export interface OptionsSource {
 }
 
 /**
- * What a package declares to the generator under the `oui` key of its `package.json` (ADR-0226
- * §2.2): its control table, its room catalog, and the components only the person may use.
- * During the transition the generator and the kit also read `closure.agentControls` and
+ * What a package declares to the generator under the `oui` key of its `package.json`: its
+ * control table, its room catalog, and the components only the person may use. During the
+ * transition the generator and the kit also read `closure.agentControls` and
  * `closure.agentCatalog`; a package declaring a key under both `oui` and `closure` is an error.
  */
 export interface OuiPackageDeclaration {
@@ -523,8 +516,8 @@ export interface OuiPackageDeclaration {
   agentControls?: string;
   agentCatalog?: AgentCatalogManifestEntry;
   /**
-   * Export name → why only the person may use it, such as the approval card (ADR-0228). The
-   * generator refuses an `agent` binding on one.
+   * Export name → why only the person may use it, such as the approval card. The generator
+   * refuses an `agent` binding on one.
    */
   personOnly?: Readonly<Record<string, string>>;
 }
@@ -549,17 +542,17 @@ export interface SchemaPropSources {
   accept?: string;
 }
 
-// ─── A tier 2 mapping (ADR-0226 §2.3) ──────────────────────────────────────────
+// ─── A tier 2 mapping ──────────────────────────────────────────────────────────
 // https://schemas.closurestudio.ai/oui/v1/tier2-mapping.json
 
 /**
- * A tier 2 mapping (ADR-0226 §2.3): how an app binds the controls of a third-party design
- * system it does not own (MUI, Mantine, shadcn/Radix). It is a declaration, not handler code:
- * `oui generate` emits one module per mapping into `<out>/bound/`. Each wrapper accepts
- * `agent`, calls `useAgentBinding` with the app's own callback, returns that callback's result
- * (§2.2 rule 3), and renders the third-party component unchanged. The emitted module ships its
- * own control table and is treated exactly like a tier 1 package. On an enforced page,
- * importing a mapped component straight from the third-party package fails the build.
+ * A tier 2 mapping: how an app binds the controls of a third-party design system it does not
+ * own (MUI, Mantine, shadcn/Radix). It is a declaration, not handler code: `oui generate` emits
+ * one module per mapping into `<out>/bound/`. Each wrapper accepts `agent`, calls
+ * `useAgentBinding` with the app's own callback, returns that callback's result, and renders
+ * the third-party component unchanged. The emitted module ships its own control table and is
+ * treated exactly like a tier 1 package. On an enforced page, importing a mapped component
+ * straight from the third-party package fails the build.
  */
 export interface Tier2Mapping {
   $schema?: string;
@@ -642,17 +635,16 @@ export interface Tier2Control {
   };
 }
 
-// ─── A room catalog, as data (ADR-0220 §2.3) ───────────────────────────────────
+// ─── A room catalog, as data ───────────────────────────────────────────────────
 // https://schemas.closurestudio.ai/oui/v1/room-catalog-data.json
 
 /**
- * A room catalog as plain data (ADR-0220 §2.3, tier 3 of ADR-0226): what a room with its own
- * editing model — a canvas, a chart, a timeline, a player — declares about everything a person
- * can do in it, so the assistant's actions and knowledge are generated from the room's code.
- * Every declaration, none of the functions: a room's package writes it as `agent-catalog.json`
- * (named in `package.json` under `oui.agentCatalog`) so a build-time generator reads the
- * catalog without loading React or the room's code; an app's own catalog is read through the
- * app's Vite config.
+ * A room catalog as plain data (tier 3): what a room with its own editing model — a canvas, a
+ * chart, a timeline, a player — declares about everything a person can do in it, so the
+ * assistant's actions and knowledge are generated from the room's code. Every declaration, none
+ * of the functions: a room's package writes it as `agent-catalog.json` (named in `package.json`
+ * under `oui.agentCatalog`) so a build-time generator reads the catalog without loading React
+ * or the room's code; an app's own catalog is read through the app's Vite config.
  *
  * - **actions**: its operations, each carried out through the room's own reducer and commands,
  * with a JSON schema for the input;
@@ -712,8 +704,7 @@ export interface RoomActionData extends RoomEntryInfo {
    */
   effect: ActionEffect;
   /**
-   * It removes or replaces something the person made; running it needs the person's approval
-   * (ADR-0228).
+   * It removes or replaces something the person made; running it needs the person's approval.
    */
   destructive?: boolean;
 }
@@ -725,8 +716,7 @@ export interface RoomSection {
 }
 
 /**
- * A field's animation, in a room with a timeline. Animation is a capability, not a requirement
- * (ADR-0226 §2.6).
+ * A field's animation, in a room with a timeline. Animation is a capability, not a requirement.
  */
 export interface RoomFieldAnimation {
   /** Set at the playhead, it is a keyframe there when the property is animated. */
@@ -857,8 +847,8 @@ export interface RoomChangedRow {
  * What running a catalog entry or a bound control did: its data, or why it could not be done,
  * in words a person would read. `pending` says the work outlives the call: a job was started
  * and is done only when its completion arrives (an action whose effect is `job` or
- * `transaction`). Every binding's `run` returns what the consumer's callback returned (ADR-0226
- * §2.2 rule 3, #209), so a handler's `{ ok, pending: { jobId } }` reaches the runtime.
+ * `transaction`). Every binding's `run` returns what the consumer's callback returned, so a
+ * handler's `{ ok, pending: { jobId } }` reaches the runtime.
  */
 export type RoomResult = {
   ok: true;
@@ -867,8 +857,8 @@ export type RoomResult = {
     jobId: string;
   };
   /**
-   * The rows it changed, added or removed, each as its list's reader reports it now (ADR-0244
-   * §2.5): what the assistant checks its edit against, and the rows the page state keeps whole.
+   * The rows it changed, added or removed, each as its list's reader reports it now: what the
+   * assistant checks its edit against, and the rows the page state keeps whole.
    */
   changed?: readonly RoomChangedRow[];
 } | {
@@ -895,11 +885,11 @@ export interface AgentCatalogManifestEntry {
 // https://schemas.closurestudio.ai/oui/v1/oui-manifest.json
 
 /**
- * What the generator emits for each build (`oui-manifest.json`, ADR-0220 §2.4–2.5): every
- * surface, action and observation the build's UI offers. The runtime (`connectBindings`) offers
- * the intersection of the manifest and the handlers mounted right now, so an action the build
- * declares is a tool only while its control, or its room, is on screen. CI regenerates it and
- * diffs it (`oui generate --check`).
+ * What the generator emits for each build (`oui-manifest.json`): every surface, action and
+ * observation the build's UI offers. The runtime (`connectBindings`) offers the intersection of
+ * the manifest and the handlers mounted right now, so an action the build declares is a tool
+ * only while its control, or its room, is on screen. CI regenerates it and diffs it (`oui
+ * generate --check`).
  */
 export interface OuiManifest {
   /**
@@ -1018,11 +1008,11 @@ export interface ManifestSurface {
 // https://schemas.closurestudio.ai/oui/v1/generated-knowledge.json
 
 /**
- * The knowledge the generator emits with the manifest (`oui-knowledge.json`, ADR-0220 §2.5),
- * from the same declarations: the map of the app, every page in full with its relationships and
- * recipes, and the app's frame. No word of it is written by hand. Each turn carries the part
- * for the page the person is on (`resolveKnowledge`): the map, the frame parts around that
- * page, the page in full, and one paragraph for each adjacent page.
+ * The knowledge the generator emits with the manifest (`oui-knowledge.json`), from the same
+ * declarations: the map of the app, every page in full with its relationships and recipes, and
+ * the app's frame. No word of it is written by hand. Each turn carries the part for the page
+ * the person is on (`resolveKnowledge`): the map, the frame parts around that page, the page in
+ * full, and one paragraph for each adjacent page.
  */
 export interface GeneratedKnowledge {
   /** The contract major (`MANIFEST_VERSION`). */
@@ -1071,16 +1061,16 @@ export interface PageKnowledge {
   adjacent: readonly string[];
 }
 
-// ─── `oui.config.json` (ADR-0226 §2.4) ─────────────────────────────────────────
+// ─── `oui.config.json` ─────────────────────────────────────────────────────────
 // https://schemas.closurestudio.ai/oui/v1/oui-config.json
 
 /**
- * `oui.config.json` at the app's root (ADR-0226 §2.4): where the app keeps its routes,
- * navigation and output, which design systems and mappings its controls come from, where its
- * API is described, and which of its pages are not yet bound. Paths are relative to the file.
- * It is required and explicit: nothing an app depends on has a default, so a misconfigured app
- * fails here, naming the setting, instead of generating an assistant that can do nothing. A
- * setting the generator does not know is an error.
+ * `oui.config.json` at the app's root: where the app keeps its routes, navigation and output,
+ * which design systems and mappings its controls come from, where its API is described, and
+ * which of its pages are not yet bound. Paths are relative to the file. It is required and
+ * explicit: nothing an app depends on has a default, so a misconfigured app fails here, naming
+ * the setting, instead of generating an assistant that can do nothing. A setting the generator
+ * does not know is an error.
  */
 export interface OuiConfigFile {
   /** This schema's URL, for editors. */
@@ -1170,7 +1160,7 @@ export interface AppCatalogEntry {
   hosts: readonly string[];
 }
 
-// ─── Approvals (ADR-0228) ──────────────────────────────────────────────────────
+// ─── Approvals ─────────────────────────────────────────────────────────────────
 // https://schemas.closurestudio.ai/oui/v1/approvals.json
 
 /** SHA-256 of the RFC 8785 canonical JSON of a call's arguments, lowercase hex. */
@@ -1178,7 +1168,7 @@ export type ArgsHash = string;
 
 /**
  * Where the person confirmed. In a UI only a click on the card counts (`ui`); in a conversation
- * channel, the verbatim readback and an affirmative next turn (ADR-0210 §2.6).
+ * channel, the verbatim readback and an affirmative next turn.
  */
 export type ApprovalChannel = 'ui' | 'voice' | 'phone' | 'sms' | 'chat';
 
@@ -1198,7 +1188,7 @@ export interface ApprovalPreviewArgument {
 
 /**
  * What the person is asked to approve. Every word comes from the action's declaration (its
- * title, description and input schema labels), never from the model (ADR-0228 §2.2).
+ * title, description and input schema labels), never from the model.
  */
 export interface ApprovalPreview {
   title: string;
@@ -1213,8 +1203,8 @@ export interface ApprovalPreview {
 }
 
 /**
- * The effect the approval is for: the action's declared effect kind (ADR-0226 §2.6,
- * `transaction` for an irreversible external act), or `write` when it declares none.
+ * The effect the approval is for: the action's declared effect kind (`transaction` for an
+ * irreversible external act), or `write` when it declares none.
  */
 export type ApprovalEffect = string;
 
@@ -1380,7 +1370,7 @@ export type ApprovalContinuation = {
 /**
  * What a UI action request carries when it runs an approved call (`OUIActionApproval`): the
  * browser runs a `transaction` or destructive action only when this matches a grant this tab
- * received from its own card click (ADR-0228 §2.2.6).
+ * received from its own card click.
  */
 export interface ActionRequestApproval {
   approvalId: string;
@@ -1399,12 +1389,12 @@ export interface ApprovalGrant {
   expiresAt: number;
 }
 
-// ─── Event declarations (ADR-0227 §2.4) ────────────────────────────────────────
+// ─── Event declarations ────────────────────────────────────────────────────────
 // https://schemas.closurestudio.ai/agent-sdk/event-declarations/v1.json
 
 /**
  * Every event a product emits over realtime: its payload schema, the rooms it is published to,
- * its correlation fields and its role in a job (ADR-0227 §2.4).
+ * its correlation fields and its role in a job.
  */
 export interface EventDeclarationDocument {
   $schema?: string;

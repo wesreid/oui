@@ -1,10 +1,16 @@
 # oui-spec
 
+## 0.11.1
+
+### Patch Changes
+
+- README and docs cleanup.
+
 ## 0.11.0
 
 ### Minor Changes
 
-- An action input can take a file the user attached (spec §7.3.11, ADR-0252 §2.13).
+- An action input can take a file the user attached (spec §7.3.11).
 
   - **oui-spec:** an input declared `{ type: 'string', format: 'oui-attachment', 'x-oui-attachment': { as: 'file' | 'text', mediaTypes } }` is sent the attachment's id.
     - The runtime resolves the id before the handler runs, through `createSurfaceRuntime({ attachments: { resolve } })`, and hands the handler the `File` or the file's text.
@@ -31,7 +37,7 @@
 
 ### Minor Changes
 
-- A running turn can be stopped, and a message sent while a turn runs supersedes it (Closure ADR-0252, phase 1).
+- A running turn can be stopped, and a message sent while a turn runs supersedes it (phase 1).
 
   - **oui-spec:** an action request may name its turn (`turnId`, carried by the socket transport), and `acceptCurrentTurn` is the `accept` rule for a client that runs one turn at a time: a request a stopped or superseded turn sends late is refused, and one that names no turn (an older worker) is accepted while a turn is in progress, as before.
   - **agent-events:** `agent:turn_complete` declares `stopReason` (`user_stop`, `superseded`); the UI dispatch declares `turnId`.

@@ -1,5 +1,5 @@
 /**
- * The turn's record of its own calls (ADR-0244 §2.5): nothing while every
+ * The turn's record of its own calls: nothing while every
  * call succeeds, and once one has not, a note for every later step that names
  * it with its reason and holds the reply to it.
  */

@@ -1,7 +1,7 @@
 import { isAttachmentId } from 'oui-spec/spec';
 
 /**
- * Files the person gives the assistant (ADR-0252 §2.8–§2.13).
+ * Files the person gives the assistant.
  *
  * A file is uploaded to the platform's storage first and travels by
  * reference: a message, a turn and an action carry its id, never its bytes.
@@ -42,7 +42,7 @@ export interface AttachmentRef {
 }
 
 /**
- * The limits a platform sets (ADR-0252 §2.9, §2.11). The composer refuses a
+ * The limits a platform sets. The composer refuses a
  * file before uploading it; the platform checks again when it reserves and
  * when it commits; the worker caps what the model is given.
  */
@@ -59,7 +59,7 @@ export interface AttachmentLimits {
   mediaTypes: Record<Exclude<AttachmentKind, 'other'>, readonly string[]>;
 }
 
-/** The limits ADR-0252 sets as its defaults (§6.3). */
+/** The default limits. */
 export const DEFAULT_ATTACHMENT_LIMITS: AttachmentLimits = {
   perMessage: 5,
   maxBytes: { image: 20 * 1024 * 1024, text: 2 * 1024 * 1024, pdf: 20 * 1024 * 1024, other: 100 * 1024 * 1024 },
@@ -179,7 +179,7 @@ export function attachmentReferenceLine(ref: AttachmentRef): string {
 
 /**
  * The JSON Schema `format` of an action input that takes a file the person
- * attached, and the shape of an attachment's id (ADR-0252 §2.13): the
+ * attached, and the shape of an attachment's id: the
  * protocol's (OUI spec §7.3.11).
  */
 export {

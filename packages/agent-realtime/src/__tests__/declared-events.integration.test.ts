@@ -1,5 +1,5 @@
 /**
- * The server follows the product's event declarations (W9, ADR-0227 §2.4).
+ * The server follows the product's event declarations.
  *
  * Given them, `/api/emit` sends only a declared event, with a payload its
  * schema accepts, into a room it is declared for, and refuses anything else

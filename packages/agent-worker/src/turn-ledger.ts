@@ -1,5 +1,5 @@
 /**
- * The turn's own record of what its calls did (ADR-0244 §2.5).
+ * The turn's own record of what its calls did.
  *
  * A model writes its closing message from memory of a long turn, and a
  * failure a dozen steps back is easy to pass over: on 2026-10-02 the

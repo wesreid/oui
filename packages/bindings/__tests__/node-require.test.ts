@@ -1,7 +1,7 @@
 /**
  * The built package, required from CommonJS.
  *
- * studio-api compiles to CommonJS and names the PA's tools from this
+ * A CommonJS host names the assistant's tools from this
  * package's constants (the generated navigation tool's name, from
  * `NAVIGATE_ACTION_ID`), so its server and its agent worker load it with
  * require(). Node (22.12 and later) loads an ES module that way, but only when

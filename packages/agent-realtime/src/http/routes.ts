@@ -220,7 +220,7 @@ export function roomTokenRouter(deps: RouteDeps): Router {
 /**
  * GET /internal/oui/action-results/:requestId?userId=&waitMs=&final=1
  *
- * The client's answer to a UI action request (ADR-0209). Waits up to `waitMs`
+ * The client's answer to a UI action request. Waits up to `waitMs`
  * (capped at 25 s) for it to arrive. With `final=1`, the final answer: for an
  * async action, the one sent when its work is done or has failed, never its
  * acknowledgment; for any other action, its one answer.

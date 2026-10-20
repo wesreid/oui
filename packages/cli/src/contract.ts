@@ -1,5 +1,5 @@
 /**
- * The contract the generator reads and writes (ADR-0226 §3.1): every control
+ * The contract the generator reads and writes: every control
  * table, room catalog, manifest and knowledge it handles is checked against
  * the published schemas, and each way one breaks them is a finding.
  */

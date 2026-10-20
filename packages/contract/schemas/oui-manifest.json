@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.closurestudio.ai/oui/v1/oui-manifest.json",
   "title": "OuiManifest",
-  "description": "What the generator emits for each build (`oui-manifest.json`, ADR-0220 §2.4–2.5): every surface, action and observation the build's UI offers. The runtime (`connectBindings`) offers the intersection of the manifest and the handlers mounted right now, so an action the build declares is a tool only while its control, or its room, is on screen. CI regenerates it and diffs it (`oui generate --check`).",
+  "description": "What the generator emits for each build (`oui-manifest.json`): every surface, action and observation the build's UI offers. The runtime (`connectBindings`) offers the intersection of the manifest and the handlers mounted right now, so an action the build declares is a tool only while its control, or its room, is on screen. CI regenerates it and diffs it (`oui generate --check`).",
   "type": "object",
   "properties": {
     "version": {

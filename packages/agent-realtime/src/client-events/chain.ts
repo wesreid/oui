@@ -6,7 +6,7 @@
  * front of it. A bare `socket.on(...)` has none of that, and trusts its
  * payload. That is how a `relay` handler once sent whatever event a client
  * named to whatever room it named, so any signed-in user could send
- * `oui:dispatch` into another account's tabs (ADR-0227, W0).
+ * `oui:dispatch` into another account's tabs.
  *
  * Every client event goes through one chain, the socket counterpart of a
  * route module:

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.closurestudio.ai/agent-sdk/event-declarations/v1.json",
   "title": "Event declarations",
-  "description": "Every event a product emits over realtime: its payload schema, the rooms it is published to, its correlation fields and its role in a job (ADR-0227 §2.4).",
+  "description": "Every event a product emits over realtime: its payload schema, the rooms it is published to, its correlation fields and its role in a job.",
   "type": "object",
   "required": [
     "version",

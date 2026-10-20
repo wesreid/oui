@@ -8,7 +8,7 @@
  * WHY THIS EXISTS
  *
  * OUI shipped a correct protocol and a correct transport, and its first
- * integrator used neither. studio-ui imported only the `SocketLike` TYPE from
+ * integrator used neither. It imported only the `SocketLike` TYPE from
  * oui-spec and rebuilt the wire by hand: a literal map of protocol types to
  * socket names, `oui:` hardcoded so the configurable namespace was unreachable,
  * payload interfaces re-declared on the server, and an `action:result` channel

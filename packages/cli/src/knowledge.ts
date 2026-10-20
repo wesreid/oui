@@ -1,6 +1,6 @@
 /**
  * The knowledge generated from the same declarations as the surfaces
- * (ADR-0220 §2.5): what each page offers, how to reach it, its parameters,
+ *: what each page offers, how to reach it, its parameters,
  * the relationships its types imply, and the task recipes the UI implies.
  *
  * The recipe templates below are the only prose written here. They are
@@ -211,7 +211,7 @@ function detail(
       );
       // Where each field is, grouped by the section a person finds it in. What
       // a field means and takes is in the tool's schema; repeating it here
-      // would spend the context budget twice (ADR-0167).
+      // would spend the context budget twice.
       const sections = [...new Set(catalog.fields.map(f => f.section.title))];
       for (const section of sections) {
         const fields = catalog.fields.filter(x => x.section.title === section);

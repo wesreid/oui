@@ -1,5 +1,5 @@
 /**
- * A stopped turn (ADR-0252 §2.2–§2.4): what it had produced is stored, every
+ * A stopped turn: what it had produced is stored, every
  * call with exactly one result, and only then is the client told, with why.
  *
  * The stop path runs after the turn's signal was aborted, and builds what it

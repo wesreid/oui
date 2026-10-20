@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.closurestudio.ai/oui/v1/generated-knowledge.json",
   "title": "GeneratedKnowledge",
-  "description": "The knowledge the generator emits with the manifest (`oui-knowledge.json`, ADR-0220 §2.5), from the same declarations: the map of the app, every page in full with its relationships and recipes, and the app's frame. No word of it is written by hand. Each turn carries the part for the page the person is on (`resolveKnowledge`): the map, the frame parts around that page, the page in full, and one paragraph for each adjacent page.",
+  "description": "The knowledge the generator emits with the manifest (`oui-knowledge.json`), from the same declarations: the map of the app, every page in full with its relationships and recipes, and the app's frame. No word of it is written by hand. Each turn carries the part for the page the person is on (`resolveKnowledge`): the map, the frame parts around that page, the page in full, and one paragraph for each adjacent page.",
   "type": "object",
   "properties": {
     "version": { "description": "The contract major (`MANIFEST_VERSION`).", "const": 1 },

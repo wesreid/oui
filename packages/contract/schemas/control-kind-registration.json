@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.closurestudio.ai/oui/v1/control-kind-registration.json",
   "title": "ControlKindRegistration",
-  "description": "A control kind a design system adds (ADR-0226 §2.6). `ControlKind` is closed: a design system adds a kind only by registering it, under an `x-` name. The registration ships in the design system's control table (`$kinds`), where the generator reads it, and the design system registers it at run time with `registerControlKind`, so the browser and the generator derive the same schema.",
+  "description": "A control kind a design system adds. `ControlKind` is closed: a design system adds a kind only by registering it, under an `x-` name. The registration ships in the design system's control table (`$kinds`), where the generator reads it, and the design system registers it at run time with `registerControlKind`, so the browser and the generator derive the same schema.",
   "type": "object",
   "properties": {
     "kind": {
@@ -26,7 +26,7 @@
   "additionalProperties": false,
   "$defs": {
     "ControlKind": {
-      "description": "The built-in control kinds, closed:\n\n- `button`: press it (buttons, toolbar buttons, menu items, a row's action).\n- `toggle`: set it on or off (switches, checkboxes).\n- `text`: type into it (inputs, text areas).\n- `number`: set a number (sliders, scrub fields).\n- `choice`: choose one of its options (selects, radio groups, preset tiles).\n- `multi-choice`: choose any of its options (multi-selects, checkbox groups, filter chips).\n- `color`: set a colour or paint (colour pickers, swatches).\n- `font`: choose a family and style (font pickers).\n- `tabs`: select a tab.\n- `date`: set a date.\n- `date-range`: set a start and an end date.\n- `file`: give it a file (upload zones, file buttons): the user's attached file, by its id, which the client resolves to a `File` (ADR-0252 §2.13).\n- `dialog`: close it. Opening is its trigger's.",
+      "description": "The built-in control kinds, closed:\n\n- `button`: press it (buttons, toolbar buttons, menu items, a row's action).\n- `toggle`: set it on or off (switches, checkboxes).\n- `text`: type into it (inputs, text areas).\n- `number`: set a number (sliders, scrub fields).\n- `choice`: choose one of its options (selects, radio groups, preset tiles).\n- `multi-choice`: choose any of its options (multi-selects, checkbox groups, filter chips).\n- `color`: set a colour or paint (colour pickers, swatches).\n- `font`: choose a family and style (font pickers).\n- `tabs`: select a tab.\n- `date`: set a date.\n- `date-range`: set a start and an end date.\n- `file`: give it a file (upload zones, file buttons): the user's attached file, by its id, which the client resolves to a `File`.\n- `dialog`: close it. Opening is its trigger's.",
       "enum": [
         "button",
         "toggle",

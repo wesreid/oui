@@ -1,9 +1,9 @@
 /**
- * A turn hands back before its time runs out (ADR-0269 §2.1).
+ * A turn hands back before its time runs out.
  *
- * The turn's deadline stops it wherever it is (ADR-0252 §6.4): what it had
+ * The turn's deadline stops it wherever it is: what it had
  * done is kept, and the person is shown that it ran out of time, with nothing
- * said about what was done. On dev (2026-10-19, session a7dfd078) a turn
+ * said about what was done. In one session a turn
  * building six logo concepts in the vector studio drew all six and took a
  * snapshot of each; the deadline came four seconds into the step that would
  * have looked at them and answered, and the person saw only "ran out of time".

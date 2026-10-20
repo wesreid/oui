@@ -1,6 +1,6 @@
 /**
  * The event declaration document: what a product says about every event its
- * backend emits over realtime (ADR-0227 §2.2, §2.4).
+ * backend emits over realtime.
  *
  * The platform follows it: the realtime server emits and relays declared
  * events only, the worker's async tools wait on a declared completion event,

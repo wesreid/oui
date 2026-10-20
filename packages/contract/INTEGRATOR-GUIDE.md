@@ -4,7 +4,7 @@
 # OUI integrator guide
 
 **For:** engineers plugging a React product into the OUI agent platform, so its assistant can do everything the product's UI lets a person do, through the same code paths the person uses.
-**Specified by:** ADR-0226 (the integrator contract), ADR-0227 (the reference architecture) and ADR-0228 (approvals). This guide replaces ADR-0139's dispatch mechanics, which no longer describe how the platform works.
+**Specified by:** the schemas in `schemas/`, which this guide renders.
 
 ## How it fits together
 
@@ -55,7 +55,7 @@ Validate any of these files in a build step with `contractProblems(ref, value)` 
 
 ## Tier 1: a design system you own
 
-A tier 1 design system is conformant when all of these hold (ADR-0226 §2.2), and the conformance kit checks each:
+A tier 1 design system is conformant when all of these hold, and the conformance kit checks each:
 
 1. **Every interactive export accepts `agent?: AgentProp`**, or `AgentSlots<…>` for a composite with several controls. `AgentProp` is an `AgentBinding`, or `{ nonAgent: "<reason>" }` for a control the assistant must never operate; the reason is required.
 2. **Every interactive export calls `useAgentBinding` (or `useAgentBindings`)** with the kind its table entry declares, and with the handler the person's gesture fires.
@@ -130,8 +130,8 @@ A page then declares what each use means, with values the generator can read wit
 > | `id` | string | yes | Stable, globally unique, dotted and lower-kebab: `voices.library`, `voices.detail.engine`. |
 > | `title` | string |  | Defaults to the control's visible label or aria-label. |
 > | `description` | string | yes | What using it does, for someone who cannot see the screen. |
-> | `effect` | ActionEffect |  | What using it does: what reach paths, data and verification are derived from (ADR-0226 §2.6). |
-> | `destructive` | boolean |  | It removes or replaces something the person made; running it needs the person's approval (ADR-0228). |
+> | `effect` | ActionEffect |  | What using it does: what reach paths, data and verification are derived from. |
+> | `destructive` | boolean |  | It removes or replaces something the person made; running it needs the person's approval. |
 > | `confirm` | boolean |  | It changes what the person is working in (their account, project or role) rather than their work; the assistant asks before using it. |
 > | `item` | AgentItem |  | Set when the control is one of a list's rows: which row. |
 
@@ -201,7 +201,7 @@ export const PRICE_RANGE: ControlKindRegistration = {
 
 ## Tier 2: a design system you do not own
 
-An app on MUI, Mantine or shadcn/Radix binds that design system's controls with a mapping, one file per third-party package (ADR-0226 §2.3). It is a declaration, not handler code. List each mapping under `mappings` in `oui.config.json`, and `oui generate` emits one module per mapping into `<out>/bound/`, named after the package (`@mantine/core` → `mantine-core.ts`), with its control table beside it (`mantine-core.agent-controls.json`):
+An app on MUI, Mantine or shadcn/Radix binds that design system's controls with a mapping, one file per third-party package. It is a declaration, not handler code. List each mapping under `mappings` in `oui.config.json`, and `oui generate` emits one module per mapping into `<out>/bound/`, named after the package (`@mantine/core` → `mantine-core.ts`), with its control table beside it (`mantine-core.agent-controls.json`):
 
 - each wrapper accepts `agent`, calls `useAgentBinding` with the app's own callback, and returns that callback's result, so a job control's `pending.jobId` reaches the runtime;
 - it reports the component's `disabled` prop, so a control the page disables is not offered, and a job control the page disables while its job runs is still followed until the job settles;
@@ -279,7 +279,7 @@ import { Button, Select } from '../agent/generated/bound/mantine-core';
 
 ## Tier 3: rooms
 
-A room is an editor with its own editing model — a canvas, a chart, a timeline, a player — whose operations are not one control each. It publishes a typed catalog of everything a person can do in it, declared where the room implements it (ADR-0220 §2.3):
+A room is an editor with its own editing model — a canvas, a chart, a timeline, a player — whose operations are not one control each. It publishes a typed catalog of everything a person can do in it, declared where the room implements it:
 
 - **actions**: its operations, each run through the room's own reducer and commands, with a JSON Schema for the input (one object schema, never a union at the top);
 - **fields**: its inspector's fields, from the same definitions the inspector renders, each with its value's schema, its unit and range, what it applies to, and — only in a room with a timeline — its `animation`;
@@ -361,7 +361,7 @@ A catalog in the app itself is listed in `oui.config.json` under `appCatalogs`; 
 > | `kind` | "action" | yes |  |
 > | `input` | JsonSchema | yes | An object schema: a tool's input is one, never a union at its top level. |
 > | `effect` | ActionEffect | yes | What it changes: the document (`edit`), the selection, the view, files, backend data, a job, a transaction. |
-> | `destructive` | boolean |  | It removes or replaces something the person made; running it needs the person's approval (ADR-0228). |
+> | `destructive` | boolean |  | It removes or replaces something the person made; running it needs the person's approval. |
 
 > **Schema:** [`room-catalog-data.json#/$defs/RoomFieldData`](schemas/room-catalog-data.json) · `https://schemas.closurestudio.ai/oui/v1/room-catalog-data.json#/$defs/RoomFieldData` · TypeScript: `RoomFieldData` from `@ouispec/contract`
 >
@@ -470,11 +470,11 @@ Every input, value and observation schema, here and in tier 1, is written in the
 > | `x-rows` | RowList |  | On an array of objects in an observation: the list is a collection the assistant addresses rows of (a document's layers, its artboards). |
 > | `x-ref` | string[] |  | On a string (or the items of an array of strings) in an action's input: the value addresses a row of one of the surface's `x-rows` lists, each named `<observation id>/<list property>`, or `<observation id>` when the observation itself is the list. |
 > | `x-enum-omitted` | number |  | How many allowed values a shortened `enum` leaves out. |
-> | `x-oui-attachment` | { as: "file" \| "text", mediaTypes?: string[] } |  | On a string with `format: oui-attachment`: what the action takes once the client resolves the attachment's id (ADR-0252 §2.13). |
+> | `x-oui-attachment` | { as: "file" \| "text", mediaTypes?: string[] } |  | On a string with `format: oui-attachment`: what the action takes once the client resolves the attachment's id. |
 
 ## `oui.config.json`
 
-The generator reads every setting from `oui.config.json` at the app's root; paths are relative to it (ADR-0226 §2.4). Nothing an app depends on has a default: a missing `tsconfig`, `routes`, `designSystem`, `apiSpec` or `out` is an error naming the setting, and so is a setting the generator does not know. `designSystem: []` says every control is tier 2 or in a room; `apiSpec: null` says the app has no API, and then a `mutate` effect fails.
+The generator reads every setting from `oui.config.json` at the app's root; paths are relative to it. Nothing an app depends on has a default: a missing `tsconfig`, `routes`, `designSystem`, `apiSpec` or `out` is an error naming the setting, and so is a setting the generator does not know. `designSystem: []` says every control is tier 2 or in a room; `apiSpec: null` says the app has no API, and then a `mutate` effect fails.
 
 ```json
 {
@@ -639,7 +639,7 @@ A binding or room action whose work finishes later — a render, an export, an o
 
 ### A job tracker from the product's declared events
 
-The tracker is the seam between the product's events and its actions. Build it from the product's event declarations (ADR-0227 §2.4) rather than by hand: each event's payload schema, the rooms it goes to, the field that names the job, and whether it completes or fails a kind of job.
+The tracker is the seam between the product's events and its actions. Build it from the product's event declarations rather than by hand: each event's payload schema, the rooms it goes to, the field that names the job, and whether it completes or fails a kind of job.
 
 ```ts
 import { createEventCatalog } from '@ouispec/agent-events';
@@ -683,7 +683,7 @@ It joins the room the completion declares for one job (`report:{jobId}`), and se
 
 ## Irreversible actions: the approval card
 
-A `transaction` — an order, a payment, a send, a publish — and any `write` declared `destructive` run only on an approval the person gave, bound to the exact call (ADR-0228). No policy waives it.
+A `transaction` — an order, a payment, a send, a publish — and any `write` declared `destructive` run only on an approval the person gave, bound to the exact call. No policy waives it.
 
 1. The agent worker stops the turn at the call, stores it with its args hash, and the person's tab receives `agent:approval_required` with a preview whose every word comes from the action's declaration, never from the model.
 2. The tab renders the approval card. In a UI only a click on the card counts: a "yes" typed in chat is a message. On voice, phone and SMS, the verbatim readback and an affirmative next turn.
@@ -744,7 +744,7 @@ The card takes no `agent` prop, and a package that ships its own card declares i
 
 ## The conformance kit
 
-`@ouispec/testing` runs in your own test runner, in any DOM environment (jsdom, happy-dom, a browser), and reports against these schemas (ADR-0226 §3.2). Each check returns a report; `assertConformant(report)` throws with every violation listed, under its rule.
+`@ouispec/testing` runs in your own test runner, in any DOM environment (jsdom, happy-dom, a browser), and reports against these schemas. Each check returns a report; `assertConformant(report)` throws with every violation listed, under its rule.
 
 | Rule | What it holds |
 |---|---|

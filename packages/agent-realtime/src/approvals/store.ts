@@ -1,5 +1,5 @@
 /**
- * The approval store (ADR-0228 §2.4), beside the UI action result store and on
+ * The approval store, beside the UI action result store and on
  * the same Redis, so every realtime instance sees every approval:
  *
  *   approval:{id}           → the pending call as the worker stored it (JSON,
@@ -75,7 +75,7 @@ export interface ApprovalStore {
   /** The claimed expiry is stored: the claim no longer lapses. False when the store does not know the approval as this owner's. */
   confirmExpirySettled(approvalId: string, owner: ApprovalOwner): Promise<boolean>;
   /**
-   * Expire an approval now instead of at its time limit (ADR-0252 §2.6): the
+   * Expire an approval now instead of at its time limit: the
    * person sent a new message while its card waited, or the turn that asked
    * was stopped. One script, with decide and redeem, so it cannot interleave
    * with either: a pending approval, or an approved one not yet used, is gone

@@ -1,5 +1,5 @@
 /**
- * The assistant can't operate its own approval (ADR-0228 §2.2.3, §5.5).
+ * The assistant can't operate its own approval.
  *
  * A package declares the components only the person may use, under
  * `oui.personOnly` in its package.json, each with the reason. The generator

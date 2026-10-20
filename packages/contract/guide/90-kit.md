@@ -1,6 +1,6 @@
 ## The conformance kit
 
-`@ouispec/testing` runs in your own test runner, in any DOM environment (jsdom, happy-dom, a browser), and reports against these schemas (ADR-0226 §3.2). Each check returns a report; `assertConformant(report)` throws with every violation listed, under its rule.
+`@ouispec/testing` runs in your own test runner, in any DOM environment (jsdom, happy-dom, a browser), and reports against these schemas. Each check returns a report; `assertConformant(report)` throws with every violation listed, under its rule.
 
 | Rule | What it holds |
 |---|---|

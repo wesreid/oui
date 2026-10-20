@@ -1,5 +1,5 @@
 /**
- * Stopping a turn, end to end (ADR-0252 §2.1–§2.4): the real realtime server,
+ * Stopping a turn, end to end: the real realtime server,
  * the real worker on its container adapter, a real browser socket, and the
  * model replayed through its real `ai` provider package. So the stop path is
  * tried against what the `ai` library really does when its signal is aborted

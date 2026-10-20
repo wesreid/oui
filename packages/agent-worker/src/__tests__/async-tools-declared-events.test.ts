@@ -1,5 +1,5 @@
 /**
- * An async tool waits on events the product declares (W9, ADR-0227 §2.4).
+ * An async tool waits on events the product declares.
  *
  * Loading: an intent's `subscribe` block names its completion (and may name
  * its failure) and its id field; the declarations must hold them, as a

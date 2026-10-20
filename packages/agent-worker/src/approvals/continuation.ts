@@ -1,5 +1,5 @@
 /**
- * The turn after a decision (ADR-0228 §2.2.5). It carries, outside the
+ * The turn after a decision. It carries, outside the
  * message text, the token to redeem or that the user declined. The worker
  * asks the store — never the client — what was decided, runs exactly the
  * stored call when there is one, and tells the model what happened in an
@@ -38,7 +38,7 @@ export interface ApprovalMarker {
   /** The user approved it, and the approval expired before the call ran. */
   expired?: true;
   /**
-   * The approval did not run out of time: it was withdrawn (ADR-0252 §2.6),
+   * The approval did not run out of time: it was withdrawn,
    * because the user sent a new message while it waited, or stopped the turn
    * that asked for it.
    */

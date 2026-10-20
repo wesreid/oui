@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * The composer's files (ADR-0252 §2.14): a file is uploaded the moment it is
+ * The composer's files: a file is uploaded the moment it is
  * attached, into the conversation (made then if there is none), refused
  * before upload when it breaks the platform's limits, and the message carries
  * the references of the ready files once the uploads still running finish.

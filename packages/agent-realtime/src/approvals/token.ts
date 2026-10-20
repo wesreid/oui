@@ -1,6 +1,6 @@
 /**
- * The approval token (ADR-0228 §2.3): a compact JWS, HS256, signed with the
- * environment's approval key. It is ADR-0210's `commit_token`: an engine in
+ * The approval token: a compact JWS, HS256, signed with the
+ * environment's approval key. It is the conversation engine's `commit_token`: an engine in
  * another language verifies it with the same key.
  *
  * Only the approval store signs one, and only when the approval's own user

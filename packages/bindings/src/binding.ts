@@ -1,5 +1,5 @@
 /**
- * The semantic binding a design-system control carries (ADR-0220 §2.2): what
+ * The semantic binding a design-system control carries: what
  * the control means, in the user's terms, declared where the page uses it.
  *
  * It uses a room catalog entry's vocabulary (`RoomEntryInfo`'s id, title and
@@ -17,7 +17,7 @@ export type { AgentBinding, AgentItem, AgentProp, NonAgentBinding };
 
 /**
  * What using the control does.
- * @deprecated Since 0.8: the one vocabulary is `ActionEffect` (ADR-0226 §2.6). Kept for one minor.
+ * @deprecated Since 0.8: the one vocabulary is `ActionEffect`. Kept for one minor.
  */
 export type BindingEffect = ActionEffect;
 

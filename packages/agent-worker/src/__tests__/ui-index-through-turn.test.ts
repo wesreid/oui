@@ -1,10 +1,10 @@
 /**
- * The PA on a page that offers hundreds of actions (ADR-0245).
+ * The PA on a page that offers hundreds of actions.
  *
  * In the video editor with the vector studio docked, a tab's action
  * definitions weighed 604 KB: every answer was refused as larger than the
  * relay's 512 KB frame, and the definitions alone were about 154,000 tokens
- * for the model on every call (PA session 618701bb, 2026-10-02). Here the tab
+ * for the model on every call. Here the tab
  * is a real oui-spec runtime in index form, with that many actions and a
  * 90 KB effect catalogue, and the turn runs through the orchestrator:
  * - the model gets three UI tools and the page's index, whatever the page offers;
@@ -255,7 +255,7 @@ describe('what the model is given on a page of 427 actions', () => {
     // The turn's snapshot fits one queue message, and what the model reads of the page fits its context.
     expect(jsonBytes(page.snapshot())).toBeLessThan(256 * 1024);
     const forModel = JSON.stringify(tools).length + message.length;
-    // Under 20,000 tokens at four characters a token (ADR-0245 §3.3), where the definitions were 154,000.
+    // Under 20,000 tokens at four characters a token, where the definitions were 154,000.
     expect(forModel / 4).toBeLessThan(20_000);
     expect(message).not.toContain('"properties"');
   });
@@ -381,7 +381,7 @@ describe('reading the page', () => {
   });
 });
 
-describe('no changes while the page cannot be seen (session 618701bb)', () => {
+describe('no changes while the page cannot be seen', () => {
   it('refuses a change after an answer without the page’s state, lets a read through, and then runs the change', async () => {
     const page = studio();
     const saw: Array<Record<string, unknown>> = [];

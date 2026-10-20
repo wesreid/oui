@@ -1,6 +1,5 @@
 /**
- * An action input that takes a file the person attached (OUI spec §7.3.11,
- * ADR-0252 §2.13).
+ * An action input that takes a file the person attached (OUI spec §7.3.11).
  *
  * The agent passes an attachment's id. The client resolves it, through its
  * host's file area, to what the input declares it takes, before the action's

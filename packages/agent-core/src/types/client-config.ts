@@ -8,7 +8,7 @@
  *
  * UI control is not configured here. The agent acts in the UI through the
  * client's OUI surfaces, which the client sends with each turn and which
- * answer every action themselves (ADR-0209).
+ * answer every action themselves.
  */
 
 import type { AgentProtocolEvent } from '../protocol/index.js';
@@ -34,8 +34,8 @@ export interface AgentMessageContext {
    */
   timeZone?: string;
   /**
-   * How the person entered this message, when it was not typed (ADR-0259
-   * §2.6): `{ mode: 'voice', language }` for a message they spoke, with the
+   * How the person entered this message, when it was not typed: `{ mode:
+   * 'voice', language }` for a message they spoke, with the
    * language the recogniser detected. Pass it to the worker unchanged on the
    * turn's `context`, and store it on the user's message (`AgentStoredMessage.input`).
    */
@@ -100,8 +100,8 @@ export interface AgentConversationMatch {
   excerpt: string;
   createdAt: string;
   /**
-   * How the person entered the matched message, when they spoke it (ADR-0259
-   * §2.6), as stored on it (`AgentStoredMessage.input`). Absent or null when typed.
+   * How the person entered the matched message, when they spoke it, as stored on
+   * it (`AgentStoredMessage.input`). Absent or null when typed.
    */
   input?: MessageInput | null;
 }
@@ -115,7 +115,7 @@ export interface AgentConversationSummary {
   preview?: string | null;
   /**
    * How the person entered the message `preview` is taken from, when they
-   * spoke it (ADR-0259 §2.6), as stored on it (`AgentStoredMessage.input`), so
+   * spoke it, as stored on it (`AgentStoredMessage.input`), so
    * a list can mark a conversation that began by voice. Absent or null when
    * that message was typed, or when there is no preview.
    */
@@ -162,15 +162,15 @@ export interface AgentStoredMessage {
   toolCallId?: string | null;
   createdAt: string;
   /**
-   * Set on the last assistant message of a turn that was stopped (ADR-0252).
+   * Set on the last assistant message of a turn that was stopped.
    * The panel labels the message; a later turn's history says so after its text.
    */
   stopped?: TurnStoppedMarker | null;
-  /** The files the person attached to this message (ADR-0252 §2.8), by reference. */
+  /** The files the person attached to this message, by reference. */
   attachments?: AttachmentRef[] | null;
   /**
    * How the person entered this message, as its turn's `context.input` carried
-   * it (ADR-0259 §2.6): set on a message they spoke. Absent or null when typed.
+   * it: set on a message they spoke. Absent or null when typed.
    */
   input?: MessageInput | null;
 }
@@ -215,18 +215,18 @@ export interface AgentClientConfig {
     /**
      * The page's context for the turn. Pass it to the worker as the turn
      * payload's `context`. A message the person spoke carries `input` here
-     * (ADR-0259 §2.6), which the platform also stores on the user's message.
+     *, which the platform also stores on the user's message.
      */
     context?: AgentMessageContext;
     /**
      * The files attached to this message, already uploaded through
-     * `attachments.upload` (ADR-0252 §2.8): the platform sends their ids.
+     * `attachments.upload`: the platform sends their ids.
      * No file's bytes go with a message.
      */
     attachments?: AttachmentRef[];
     /**
      * Set on the turn the approval card starts after the user's decision
-     * (ADR-0228 §2.2.5): the token to redeem, or that they declined. The
+     *: the token to redeem, or that they declined. The
      * platform passes it, unchanged, to the worker as the turn payload's
      * `approval`. Never put it in the message text. `content` is then empty:
      * the click is not a message.
@@ -235,7 +235,7 @@ export interface AgentClientConfig {
   }) => Promise<{ turnId: string; socketRoom: string; roomToken?: string }>;
 
   /**
-   * Asks the platform's API to stop a turn (ADR-0252 §2.14). The Stop control
+   * Asks the platform's API to stop a turn. The Stop control
    * asks over the socket first; this is used when the socket cannot be reached
    * or the stop is not confirmed in time. The platform checks that the turn is
    * the user's, and records the same stop the socket would have. Optional: a
@@ -244,7 +244,7 @@ export interface AgentClientConfig {
   stopTurn?: (params: { turnId: string; conversationId: string | null }) => Promise<void>;
 
   /**
-   * The platform's file area (ADR-0252 §2.8, §3). With it, the person can
+   * The platform's file area. With it, the person can
    * attach files to a message: each is uploaded when it is attached, and the
    * message carries references. Without it, nothing can be attached.
    */
@@ -324,7 +324,7 @@ export interface AgentClientConfig {
 
 /**
  * How a tab puts files in the platform's file area and takes them out
- * (ADR-0252 §3). The SDK holds the composer's state; the platform owns the
+ *. The SDK holds the composer's state; the platform owns the
  * requests, the storage and every check.
  */
 export interface AttachmentClientSeam {

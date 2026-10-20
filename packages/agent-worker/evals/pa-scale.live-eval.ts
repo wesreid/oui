@@ -1,8 +1,8 @@
 /**
- * Live scale eval (ADR-0245 §3.9): can the assistant work a page that offers
+ * Live scale eval: can the assistant work a page that offers
  * four hundred actions, one of them a whole catalogue, from its index?
  *
- * The page is the one PA session 618701bb failed on, in miniature: a studio
+ * The page is one an assistant failed on, in miniature: a studio
  * with 400 actions and an effect action whose input is a 90 KB union of sixty
  * effects. The model is given the page's index and three tools (`ui_act`,
  * `ui_describe`, `ui_read`), through the worker itself, and each scenario is

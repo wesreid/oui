@@ -1,5 +1,5 @@
 /**
- * The room catalog contract (ADR-0220 §2.3): what a room with its own editing
+ * The room catalog contract: what a room with its own editing
  * model — the vector studio, the video editor — declares about everything a
  * person can do in it, so the assistant's actions and knowledge are generated
  * from the room's code rather than written by hand.
@@ -51,7 +51,8 @@ export type {
 
 /**
  * What a room action changes.
- * @deprecated Since 0.8: a room action's effect is an `ActionEffect` (ADR-0226 §2.6), of which these are four. Kept for one minor.
+ * @deprecated Since 0.8: a room action's effect is an `ActionEffect`, of which
+ * these are four. Kept for one minor.
  */
 export type RoomEffect = 'edit' | 'selection' | 'view' | 'file';
 

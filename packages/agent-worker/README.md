@@ -1,6 +1,6 @@
 # @ouispec/agent-worker
 
-The agent runtime. One core runs a turn: the model, the tool loop, UI actions answered by the user's own tab (ADR-0209), streaming, retries and deadlines. Two host adapters run that core: Lambda + SQS, and a long-running container (ADR-0227 §2.1).
+The agent runtime. One core runs a turn: the model, the tool loop, UI actions answered by the user's own tab, streaming, retries and deadlines. Two host adapters run that core: Lambda + SQS, and a long-running container.
 
 ## What the host supplies
 
@@ -35,9 +35,9 @@ Three keys on the turn's `context` are for the worker itself, and your persona o
 
 | Key | What the tab puts there | What the worker does with it |
 |---|---|---|
-| `oui` | Its surface snapshot: `ouiRuntime.snapshot()` (ADR-0209) | Builds the turn's UI tools from it, and from nothing else |
+| `oui` | Its surface snapshot: `ouiRuntime.snapshot()` | Builds the turn's UI tools from it, and from nothing else |
 | `uiKnowledge` | Its generated knowledge for the page the user is on: `resolveKnowledge(generatedKnowledge, path)` from `@ouispec/bindings` | Renders it after your prompt: each entry under "Platform Knowledge", then each recipe under "Active Workflows" |
-| `input` | How the person entered the message, when they did not type it: `{ mode: 'voice', language }` for one they spoke, with the language the recogniser detected (ADR-0259 §2.6). `@ouispec/agent-react` sets it from `sendMessage(text, { input })` | Adds one line to the turn's user message, after the person's words: the message was spoken and machine-transcribed, so it may contain recognition errors; the language; and to ask rather than guess when a likely mis-hearing makes the request ambiguous. An unknown mode is read as typed, and a language that is not a BCP 47 tag of at most 16 characters is left out (`readMessageInput` in `@ouispec/agent-core`). A typed message, and the turn an approval card's click starts, get nothing |
+| `input` | How the person entered the message, when they did not type it: `{ mode: 'voice', language }` for one they spoke, with the language the recogniser detected. `@ouispec/agent-react` sets it from `sendMessage(text, { input })` | Adds one line to the turn's user message, after the person's words: the message was spoken and machine-transcribed, so it may contain recognition errors; the language; and to ask rather than guess when a likely mis-hearing makes the request ambiguous. An unknown mode is read as typed, and a language that is not a BCP 47 tag of at most 16 characters is left out (`readMessageInput` in `@ouispec/agent-core`). A typed message, and the turn an approval card's click starts, get nothing |
 
 `timeZone` (the user's IANA zone, which `@ouispec/agent-react` sends with every turn) is read by the worker too: the date and time on the user's clock are added to the turn's user message.
 
@@ -45,7 +45,7 @@ What the worker adds to the user's message goes on the newest user message only,
 
 Every other key is the page's context, which a persona prompt shows as the current UI state. A malformed `oui` or `uiKnowledge` fails the turn, naming the bad field. The worker logs `UI surfaces for this turn` with the surface ids and the knowledge's entry and workflow counts.
 
-## Approvals (ADR-0228)
+## Approvals
 
 An irreversible action runs only on an approval the user gave, bound to the exact call. A call needs approval when:
 
@@ -178,7 +178,7 @@ Your API sends turns to the worker's HTTP endpoints:
 
 ## API tools from an OpenAPI document
 
-`loadOpenApiTools` turns the product's own OpenAPI 3 document into tools for backend, MCP and external agents (ADR-0181 §2). There is no second manifest format. It is also exported at `@ouispec/agent-worker/openapi`.
+`loadOpenApiTools` turns the product's own OpenAPI 3 document into tools for backend, MCP and external agents. There is no second manifest format. It is also exported at `@ouispec/agent-worker/openapi`.
 
 ```ts
 import { loadOpenApiTools } from '@ouispec/agent-worker/openapi';
@@ -195,21 +195,21 @@ An operation opts in per operation, with `x-agent`:
 | Key | Meaning |
 |---|---|
 | `expose: true` | The operation is a tool. Without it, it is not offered. |
-| `effect` | What calling it changes (ADR-0226 §2.6): `view` (a read), `file`, `mutate`, `job` or `transaction`, or the effect's object form. `selection`, `navigate`, `open` and `edit` are a page's effects and are refused. |
+| `effect` | What calling it changes: `view` (a read), `file`, `mutate`, `job` or `transaction`, or the effect's object form. `selection`, `navigate`, `open` and `edit` are a page's effects and are refused. |
 | `destructive: true` | On a write: it removes or replaces something the person made. |
 | `consequence` | A sentence saying what happens. It goes in the description, and in an approval's preview. |
-| `pa: true` | The product's own assistant may call it. Allowed only on a read (ADR-0227 §2.1). |
+| `pa: true` | The product's own assistant may call it. Allowed only on a read. |
 
 Each tool:
 - is named by the operation's `operationId`, and described by its `summary` and `description`;
 - takes its parameters and JSON body as input, with `$ref`s inlined, 3.0 `nullable` read as `null`, and `readOnly` fields left out. A closed object body's fields sit beside the parameters; any other body is the `body` property. The input refuses undeclared properties, and the worker validates every call against it;
 - carries `effect` and `destructive` for approvals to key on, and its operation's standard `security` requirement as the permissions it needs;
 - calls the API with the headers `actAs` returns, so the API treats the call as that caller. A permission the caller lacks comes back as the route's own refusal. The tool returns it as its error, with the status and body, and the model reads it;
-- runs a `transaction` only with the person's approval of that exact call (ADR-0228): the worker's approval card supplies it, and its title and consequence come from the operation's `summary` and `x-agent.consequence`. Without one, as over MCP, it returns `APPROVAL_REQUIRED` and sends nothing.
+- runs a `transaction` only with the person's approval of that exact call: the worker's approval card supplies it, and its title and consequence come from the operation's `summary` and `x-agent.consequence`. Without one, as over MCP, it returns `APPROVAL_REQUIRED` and sends nothing.
 
 Refused at load, naming the operation: `pa` on anything but a read, a missing or invalid `operationId`, a missing `effect`, an unknown `x-agent` key, `destructive` on a read, a read on `PUT`, `PATCH` or `DELETE`, no security requirement (use `[]` for a public operation), an undeclared security scheme, a non-JSON body, a self-referencing or external `$ref`, and a path whose template and parameters disagree.
 
-**Async operations (W9).** An operation that starts a job names the declared completion it ends with, in `x-async-binding`:
+**Async operations.** An operation that starts a job names the declared completion it ends with, in `x-async-binding`:
 
 ```yaml
 x-agent: { expose: true, effect: job }

@@ -1,6 +1,6 @@
 /**
  * What a call's result says when its turn was stopped before the call ended
- * (ADR-0252 §2.2). Every call the model made keeps exactly one result, so the
+ *. Every call the model made keeps exactly one result, so the
  * stored conversation is one a model accepts, and a later turn reads what
  * became of each call instead of guessing.
  */

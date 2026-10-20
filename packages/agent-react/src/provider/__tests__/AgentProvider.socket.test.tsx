@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * The socket is a seam (ADR-0227 W7): a host's `createSocket` replaces
+ * The socket is a seam: a host's `createSocket` replaces
  * Socket.IO entirely, and the provider runs a turn over it the same way.
  */
 import React from 'react';

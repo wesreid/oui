@@ -1,5 +1,5 @@
 /**
- * Orchestrator Emit Protocol Tests (W7.T1)
+ * Orchestrator Emit Protocol Tests
  *
  * Verifies the correct sequence and format of events emitted during an agent turn:
  *   1. Exact event sequence for a one-tool turn
@@ -83,7 +83,7 @@ function makeBaseInput(overrides?: Partial<AgentTurnInput>): AgentTurnInput {
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-describe('Orchestrator Emit Protocol (W7.T1)', () => {
+describe('Orchestrator Emit Protocol', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
   });
@@ -295,7 +295,7 @@ describe('Orchestrator Emit Protocol (W7.T1)', () => {
     };
 
     // Without a custom turn policy, TOKEN_CLEAR is NOT emitted
-    // (it was Closure tour-specific behavior, now in studio-api's turn policy)
+    // (it is product-specific behavior, supplied by a host's turn policy)
     await runAgentTurn(config, makeBaseInput({ content: 'Next → Characters' }));
 
     const events = calls().map((c) => c.event);
@@ -329,7 +329,7 @@ describe('Orchestrator Emit Protocol (W7.T1)', () => {
 
   // ── 6. No dispatch marker path ────────────────────────────────────────────
   // UI actions are dispatched by UI tools and answered by the client
-  // (ADR-0209). A host tool whose result merely LOOKS like the old
+  //. A host tool whose result merely LOOKS like the old
   // `__oui_dispatch` marker must not be turned into a UI dispatch.
 
   it('never emits oui:dispatch for a host tool result, whatever it contains', async () => {

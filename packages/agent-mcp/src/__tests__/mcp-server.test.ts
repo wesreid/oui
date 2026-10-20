@@ -335,7 +335,7 @@ describe('MCP protocol integration (resources)', () => {
 // Level 3: Acceptance — Full server with tools + resources from realistic data
 // ---------------------------------------------------------------------------
 
-describe('MCP server acceptance (W11 D37)', () => {
+describe('MCP server acceptance', () => {
   it('produces a fully functional MCP server from realistic registry + surface data', async () => {
     // 1. ARRANGE: Build a complete server from realistic fixtures
     const registry = createMockRegistry();

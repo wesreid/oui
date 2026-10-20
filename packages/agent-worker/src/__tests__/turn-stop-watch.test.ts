@@ -1,5 +1,5 @@
 /**
- * How the worker hears a stop (ADR-0252 §2.1): one long-poll to the realtime
+ * How the worker hears a stop: one long-poll to the realtime
  * server for the life of the turn. It fails open: a turn never fails, and a
  * stop is never lost, because the server could not be asked for a moment.
  */

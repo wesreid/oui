@@ -1,20 +1,20 @@
 /**
  * An irreversible action runs only on an approval the user gave, bound to the
- * call (ADR-0228), end to end on the W7 fixture: the SDK realtime server on
+ * call, end to end on the fixture product: the SDK realtime server on
  * real Redis, a real browser socket that clicks the approval card, and the
  * worker on both host adapters with a model from a real provider package.
  *
- * - §5.1 (worker half): a `transaction` ends the turn at the preview, and runs
+ * - A `transaction` ends the turn at the preview, and runs
  *   only after the click, with the stored arguments.
- * - §5.2 (worker half): an approval for one set of arguments does not run a
+ * - An approval for one set of arguments does not run a
  *   call with other arguments.
- * - §5.3 (worker half): a replayed or expired token runs nothing.
- * - §5.6: declining deletes the pending approval and the model is told the
+ * - A replayed or expired token runs nothing.
+ * - Declining deletes the pending approval and the model is told the
  *   user declined.
- * - §5.4: the tab is OUI's real surface runtime: it runs the approved request
+ * - The tab is OUI's real surface runtime: it runs the approved request
  *   only on the grant from its own click, and refuses one that reaches it with
  *   no grant, answering APPROVAL_REQUIRED.
- * - §2.1: the same holds for a host tool declared destructive, and for a call
+ * - The same holds for a host tool declared destructive, and for a call
  *   the host's policy requires approval of; approval never overrides a deny.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -120,7 +120,7 @@ describe.each<HostAdapter>(['lambda', 'container'])('on the %s adapter', (adapte
     });
     expect(t2.outcome.status).toBe('completed');
     const sends = tab.dispatches.filter((d) => d.actionId === 'reports_send');
-    // The request carries the approval it runs on, for the browser's own check (§2.2.6).
+    // The request carries the approval it runs on, for the browser's own check.
     expect(sends).toEqual([
       expect.objectContaining({
         requestId: 'call_send_1',
@@ -230,7 +230,7 @@ describe.each<HostAdapter>(['lambda', 'container'])('on the %s adapter', (adapte
     expect(JSON.stringify(conversation.history)).not.toMatch(JWS);
   }, 60_000);
 
-  it('a dispatch of the transaction that reaches the tab with no grant is refused there and answered APPROVAL_REQUIRED (§5.4)', async () => {
+  it('a dispatch of the transaction that reaches the tab with no grant is refused there and answered APPROVAL_REQUIRED', async () => {
     const tab = await product.openTab('session-ana', `chat:turn:forged-${adapter}`);
     tab.show('/reports');
     const requestId = `forged_${adapter}`;

@@ -8,7 +8,7 @@
  *
  * These exist because OUI's first integrator satisfied every type in the
  * package without using any of its runtime: `SocketLike` was importable and
- * `OUITransport` was a plain interface, so studio-ui rebuilt the wire by hand
+ * `OUITransport` was a plain interface, so the integrator rebuilt the wire by hand
  * and both ends agreed only by matching string literals.
  *
  * Checked with `npm run typecheck:contract`.
@@ -65,7 +65,7 @@ const handRolled = {
 createOUI({ socket, surfaces: [handRolled] });
 
 // A transport OUI did not construct cannot stand in for one it did. This is
-// the specific hole studio-ui went through.
+// the specific hole that integrator went through.
 const foreign = {} as OUITransport;
 // @ts-expect-error — Property '[OUI_BRAND]' is missing in type 'OUITransport'
 const stolen: OwnedTransport = foreign;

@@ -1,5 +1,5 @@
 /**
- * OUI action results, held for the agent worker that asked (ADR-0209 D2).
+ * OUI action results, held for the agent worker that asked.
  *
  * The worker sends a UI action to the turn's room and then waits here for the
  * client's answer. The answer arrives on whichever realtime instance holds the

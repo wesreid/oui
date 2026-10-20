@@ -1,7 +1,7 @@
 /**
- * The published contract (ADR-0226 §3.1): the schemas are the authority, the
+ * The published contract: the schemas are the authority, the
  * TypeScript follows them, one major versions them all, and each schema
- * accepts what the ADR specifies and refuses what it forbids.
+ * accepts what the contract specifies and refuses what it forbids.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -48,7 +48,7 @@ describe('the schemas are the authority', () => {
     const guide = renderGuide(onDisk, sections);
     expect(guide).toBe(readFileSync(join(PKG, 'INTEGRATOR-GUIDE.md'), 'utf8'));
     for (const { file } of CONTRACT_FILES) expect(guide).toContain(`> **Schema:** [\`${file}`);
-    // The sections ADR-0226 §3.3 requires.
+    // The sections the guide requires.
     for (const heading of [
       '## Tier 1: a design system you own',
       '## Tier 2: a design system you do not own',
@@ -78,7 +78,7 @@ describe('the schemas are the authority', () => {
       expect(id).not.toMatch(/@|closurestudio\//);
       if (file !== 'event-declarations.json') expect(id).toBe(`${CONTRACT_SCHEMA_BASE}${file}`);
     }
-    // The event declarations keep W9's own document version and $id.
+    // The event declarations keep their own document version and $id.
     expect(CONTRACT_SCHEMAS['event-declarations.json'].$id).toBe(
       'https://schemas.closurestudio.ai/agent-sdk/event-declarations/v1.json',
     );
@@ -118,8 +118,8 @@ describe('the schemas are the authority', () => {
   });
 });
 
-describe('each schema accepts what ADR-0226 specifies', () => {
-  it('oui.config.json: the ADR §2.4 example, without the tier 2 mappings W4 adds', () => {
+describe('each schema accepts what the contract specifies', () => {
+  it('oui.config.json: the reference example, without tier 2 mappings', () => {
     const config: OuiConfigFile = {
       tsconfig: 'tsconfig.json',
       routes: 'src/routes.tsx',
@@ -145,7 +145,7 @@ describe('each schema accepts what ADR-0226 specifies', () => {
     expect(contractProblems('oui-config.json', { tsconfig: ' ', routes: 'r', out: 'o', designSystem: [], apiSpec: null })).not.toEqual([]);
   });
 
-  it('Tier2Mapping: the ADR §2.3 Mantine example, and a Radix compound part', () => {
+  it('Tier2Mapping: a Mantine example, and a Radix compound part', () => {
     const mantine: Tier2Mapping = {
       package: '@mantine/core',
       controls: {

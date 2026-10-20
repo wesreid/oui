@@ -1,5 +1,5 @@
 /**
- * Tier 2 against its mapping (ADR-0226 §2.3, §3.2, the fifth rule): each
+ * Tier 2 against its mapping (the fifth rule): each
  * generated wrapper registers the mapped kind, hands the app's callback the
  * value where `valueFrom` says the third-party component puts it, and returns
  * that callback's result; and every use of a mapped control that does not

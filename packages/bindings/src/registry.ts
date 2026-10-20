@@ -1,5 +1,5 @@
 /**
- * The tab's record of what is mounted right now (ADR-0220 §2.2): every bound
+ * The tab's record of what is mounted right now: every bound
  * control with its real handler, and every room with its catalog and context.
  *
  * Controls register when they mount and leave when they unmount, so the

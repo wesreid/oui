@@ -7,7 +7,7 @@ function inputField<K extends string>(key: K, value: unknown): Partial<Record<K,
 }
 
 /**
- * A listed conversation as the SDK hands it on (ADR-0259 §2.6): how its
+ * A listed conversation as the SDK hands it on: how its
  * preview's message was entered (`previewInput`), and each search match's
  * message (`input`), kept only when the SDK recognises it, as a stored
  * message's `input` is. The platform stored it from what a browser sent, so an

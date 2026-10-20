@@ -10,7 +10,7 @@ A binding or room action whose work finishes later — a render, an export, an o
 
 ### A job tracker from the product's declared events
 
-The tracker is the seam between the product's events and its actions. Build it from the product's event declarations (ADR-0227 §2.4) rather than by hand: each event's payload schema, the rooms it goes to, the field that names the job, and whether it completes or fails a kind of job.
+The tracker is the seam between the product's events and its actions. Build it from the product's event declarations rather than by hand: each event's payload schema, the rooms it goes to, the field that names the job, and whether it completes or fails a kind of job.
 
 ```ts
 import { createEventCatalog } from '@ouispec/agent-events';

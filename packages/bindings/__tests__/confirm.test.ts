@@ -1,5 +1,5 @@
 /**
- * What the assistant asks the person before using (ADR-0220). A destructive
+ * What the assistant asks the person before using. A destructive
  * control (it removes, sends or spends) and a `confirm` control (it changes
  * what the person is working in: their account, project or role) are both
  * offered with `confirm`, so the assistant asks first. Anything else is not.

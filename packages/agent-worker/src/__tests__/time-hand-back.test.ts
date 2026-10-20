@@ -1,9 +1,9 @@
 /**
- * A turn hands back before its time runs out (ADR-0269 §2.1).
+ * A turn hands back before its time runs out.
  *
  * The clock alone, then whole turns through the real `ai` loop with only the
  * model a stand-in: each model step takes a minute of the turn's clock, as the
- * vector studio's long build did on dev (2026-10-19, session a7dfd078), and the
+ * vector studio's long build did, and the
  * step that would not leave time to answer is held to saying what is done.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';

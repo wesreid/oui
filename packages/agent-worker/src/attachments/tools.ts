@@ -1,5 +1,5 @@
 /**
- * The attachment tools (ADR-0252 §2.12): how the assistant comes back to a
+ * The attachment tools: how the assistant comes back to a
  * file after the message it came with, by its id.
  *
  * - `attachment_list`: the conversation's files, so "the logo I sent earlier"
@@ -196,7 +196,7 @@ export function attachmentTools(context: { store: AttachmentStore; owner: Attach
         leftOutLine: `${attachmentReferenceLine(ref)} The text read from it is not repeated from here on, to keep within the allowance for files. Read it again if needed.`,
       });
       const end = offset + text.length;
-      // The text is the model's, with this result, and nothing else's (ADR-0252 §2.15): what is
+      // The text is the model's, with this result, and nothing else's: what is
       // emitted, recorded and stored says which characters were read, never what they say.
       return {
         success: true,

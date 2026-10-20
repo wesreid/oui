@@ -5,7 +5,7 @@ import type { AgentRuntimeConfig } from './types.js';
  * one fails start-up — when the adapter is created, before any turn — with
  * this text. Nothing falls back to an environment variable or an empty
  * string: a fallback is how a worker once ran with no realtime URL and
- * streamed every turn to nobody (ADR-0227 §2.2).
+ * streamed every turn to nobody.
  */
 const REQUIRED: ReadonlyArray<[string, (c: Partial<AgentRuntimeConfig<unknown>>) => boolean, string]> = [
   ['model', (c) => !!c.model, 'an `ai` library model'],

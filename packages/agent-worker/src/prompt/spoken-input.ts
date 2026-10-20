@@ -1,5 +1,5 @@
 /**
- * A message the person spoke says so (ADR-0259 §2.6).
+ * A message the person spoke says so.
  *
  * The tab transcribes speech and sends the words as the person's message, with
  * `context.input = { mode: 'voice', language }`. Speech recognition mis-hears:

@@ -1,5 +1,5 @@
 /**
- * Eval Scenario Types (W7.T2)
+ * Eval Scenario Types
  *
  * Defines the fixture format for fixture-driven behavioral evaluation.
  * Each scenario encodes a user intent, the expected tool call sequence,

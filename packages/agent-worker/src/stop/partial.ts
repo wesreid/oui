@@ -1,5 +1,5 @@
 /**
- * What a stopped turn stores (ADR-0252 §2.3): the steps it finished, the step
+ * What a stopped turn stores: the steps it finished, the step
  * it was in, and a marker on its last assistant message.
  *
  * It is built from what the worker itself recorded as the turn ran: the text

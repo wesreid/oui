@@ -1,6 +1,6 @@
 /**
  * What a stopped turn stores, built from the worker's own record
- * (ADR-0252 §2.3): every call paired with exactly one result, the last
+ *: every call paired with exactly one result, the last
  * assistant message marked, and never an empty message.
  */
 import { describe, expect, it } from 'vitest';

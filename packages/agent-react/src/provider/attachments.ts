@@ -1,5 +1,5 @@
 /**
- * The composer's files (ADR-0252 §2.14): what the person attached to the
+ * The composer's files: what the person attached to the
  * message they are writing, each uploaded as soon as it is attached.
  *
  * Headless: the SDK holds the state and the platform's seam does the work

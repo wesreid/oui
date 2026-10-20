@@ -1,5 +1,5 @@
 /**
- * Hearing that a turn has been asked to stop (ADR-0252 §2.1).
+ * Hearing that a turn has been asked to stop.
  *
  * The worker has no socket. The realtime server keeps a stop request (the
  * person's Stop, or the host's when a newer message supersedes the turn), and
@@ -52,7 +52,7 @@ export interface TurnStopState {
   graceMs: number;
 }
 
-/** How long after a stop an answer already on its way is still waited for (ADR-0252 §2.2). */
+/** How long after a stop an answer already on its way is still waited for. */
 export const DEFAULT_STOP_GRACE_MS = 2_000;
 
 export interface TurnStopClient {
@@ -195,7 +195,7 @@ export interface TurnStopWatch {
   onStop(listener: (record: TurnStopRecord) => void): void;
   /**
    * Stop watching, and ignore a stop that is heard from now on: the turn has
-   * begun its own end, and a stop that lands now is not one (ADR-0252 §2.4).
+   * begun its own end, and a stop that lands now is not one.
    */
   close(): void;
 }

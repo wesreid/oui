@@ -1,5 +1,5 @@
 /**
- * The fixture product's event declarations (W9): exporting a report is a job
+ * The fixture product's event declarations: exporting a report is a job
  * that ends as `report:ready` (with the file) or `report:failed` (with why).
  * The product declares them once; its API's async operation (`runReport`'s
  * `x-async-binding`), its realtime server, the worker's async tools and its tab

@@ -86,7 +86,7 @@ describe('createToolInputValidator', () => {
     expect(validate(null)).toEqual({ ok: false, errors: ['(input) must be an object'] });
   });
 
-  // ADR-0248 §2.9: three calls of one session sent a list or an object as JSON text, and were refused.
+  // Three calls of one session sent a list or an object as JSON text, and were refused.
   describe('a list or an object sent as JSON text', () => {
     const setProperties = createToolInputValidator({
       type: 'object',

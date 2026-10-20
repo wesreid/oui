@@ -1,5 +1,5 @@
 /**
- * The page as the worker holds it (ADR-0245 §2.1, §2.2): one index, whichever
+ * The page as the worker holds it: one index, whichever
  * form the client sent, and the lines the model reads of it.
  */
 import { describe, expect, it } from 'vitest';

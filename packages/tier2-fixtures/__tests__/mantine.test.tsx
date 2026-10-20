@@ -1,5 +1,5 @@
 /**
- * Tier 2 acceptance on Mantine (ADR-0226 §2.3, §6; plan §5 W4): an app on a
+ * Tier 2 acceptance on Mantine: an app on a
  * design system it does not own is bound through a mapping and the wrappers
  * `oui generate` emits from it. It passes `generate --check` and the
  * conformance kit; a direct import of a mapped control on an enforced page

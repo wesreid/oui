@@ -1,8 +1,8 @@
 /**
  * MCP API Tool Server — serves an agent SDK's generated API tools
- * (`loadOpenApiTools`, ADR-0181 §2) over MCP, with the same exposure the worker has.
+ * (`loadOpenApiTools`) over MCP, with the same exposure the worker has.
  *
- * Each MCP client acts as its own principal (ADR-0181 §4): the host resolves the
+ * Each MCP client acts as its own principal: the host resolves the
  * credential the transport authenticated to a caller, and the tools call the API as
  * that caller through their `actAs` seam. The API decides access, so a permission
  * the caller lacks comes back as the route's own refusal. A call is validated

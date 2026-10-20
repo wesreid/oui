@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.closurestudio.ai/oui/v1/action-effect.json",
   "title": "ActionEffect",
-  "description": "What using an action does (ADR-0226 §2.6): one vocabulary for a design-system control's binding, a room catalog's entry and a generated API tool, so a page control, a room action and an API call are told apart by what they change, never by where they are declared.\n\n| Effect | What it changes | ADR-0210 access |\n|---|---|---|\n| `view`, `selection`, `navigate`, `open` | What is shown | read |\n| `edit` | The document, one undo step | write |\n| `file` | Imports or exports a file | write |\n| `mutate` | Backend data, through an API operation | write |\n| `job` | Starts work that outlives the call, settled on its outcome | write |\n| `transaction` | An irreversible external act: an order, a payment, a send, a publish | write, approved |\n\nA `transaction`, and any `write` declared `destructive`, runs only on an approval the person gave, bound to the call (ADR-0228).",
+  "description": "What using an action does: one vocabulary for a design-system control's binding, a room catalog's entry and a generated API tool, so a page control, a room action and an API call are told apart by what they change, never by where they are declared.\n\n| Effect | What it changes | Access |\n|---|---|---|\n| `view`, `selection`, `navigate`, `open` | What is shown | read |\n| `edit` | The document, one undo step | write |\n| `file` | Imports or exports a file | write |\n| `mutate` | Backend data, through an API operation | write |\n| `job` | Starts work that outlives the call, settled on its outcome | write |\n| `transaction` | An irreversible external act: an order, a payment, a send, a publish | write, approved |\n\nA `transaction`, and any `write` declared `destructive`, runs only on an approval the person gave, bound to the call.",
   "oneOf": [
     { "$ref": "#/$defs/SimpleEffect" },
     {
@@ -38,7 +38,7 @@
       "additionalProperties": false
     },
     {
-      "description": "An irreversible external act: an order placed, a payment made, a message sent, something published. Modelled on `job`: its handler may return `pending: { jobId }` and it settles on the outcome. It always needs the person's approval of the exact call (ADR-0228), which no policy waives.\n\n- `operation`: the API operation it goes through, when it is one.\n- `approvalMinutes`: how long an approval of it lasts, at most 30 (default 5).",
+      "description": "An irreversible external act: an order placed, a payment made, a message sent, something published. Modelled on `job`: its handler may return `pending: { jobId }` and it settles on the outcome. It always needs the person's approval of the exact call, which no policy waives.\n\n- `operation`: the API operation it goes through, when it is one.\n- `approvalMinutes`: how long an approval of it lasts, at most 30 (default 5).",
       "type": "object",
       "properties": {
         "kind": { "const": "transaction" },
@@ -61,11 +61,11 @@
       "enum": ["view", "selection", "navigate", "open", "edit", "file", "mutate", "job", "transaction"]
     },
     "EffectAccess": {
-      "description": "Whether an effect only changes what is shown (`read`), or changes something (`write`), as ADR-0210 names it. An action that declares no effect is a `write`.",
+      "description": "Whether an effect only changes what is shown (`read`), or changes something (`write`). An action that declares no effect is a `write`.",
       "enum": ["read", "write"]
     },
     "JobStatus": {
-      "description": "Where an action whose effect is `job` or `transaction` is (plan §2.3, #205/#209):\n\n- `started`: the handler returned; the job is tracked from this moment, so an outcome that arrives before the first poll is kept.\n- `running`: still going; the runtime polls the app's `JobTracker`.\n- `complete`: the job's declared completion arrived; the result exists.\n- `failed`: its declared failure arrived; the result never will.\n- `timeout`: it did not finish within `timeoutMs`. A failure, never a late success.\n- `unverified`: no `JobTracker`, or no job id to follow: the work was started but cannot be confirmed from the page.",
+      "description": "Where an action whose effect is `job` or `transaction` is:\n\n- `started`: the handler returned; the job is tracked from this moment, so an outcome that arrives before the first poll is kept.\n- `running`: still going; the runtime polls the app's `JobTracker`.\n- `complete`: the job's declared completion arrived; the result exists.\n- `failed`: its declared failure arrived; the result never will.\n- `timeout`: it did not finish within `timeoutMs`. A failure, never a late success.\n- `unverified`: no `JobTracker`, or no job id to follow: the work was started but cannot be confirmed from the page.",
       "enum": ["started", "running", "complete", "failed", "timeout", "unverified"]
     },
     "JobOutcome": {

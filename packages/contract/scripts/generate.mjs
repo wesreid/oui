@@ -3,7 +3,7 @@
  * Generate src/generated/contract.ts (the types) and src/generated/schemas.ts
  * (the schemas as values) from schemas/*.json, and INTEGRATOR-GUIDE.md from
  * guide/*.md and the schemas. The schemas are the authority; everything else
- * follows them (ADR-0226 §3.1, §3.3).
+ * follows them.
  *
  *   node scripts/generate.mjs           write the files
  *   node scripts/generate.mjs --check   exit 1 if any file is stale

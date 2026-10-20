@@ -2,7 +2,7 @@
  * The client's surface snapshot, carried on the turn.
  *
  * A UI client puts what it can do right now — its mounted OUI surfaces and
- * their latest observations — on the turn's context under `oui` (ADR-0209).
+ * their latest observations — on the turn's context under `oui`.
  * The worker builds the turn's UI tools from it and from nothing else, so the
  * tools always describe the client that sent the turn.
  */
@@ -24,7 +24,7 @@ export const CLIENT_SNAPSHOT_KEY = 'oui';
 
 /** The client's page as the turn carried it. */
 export interface ClientPage {
-  /** What the page offers, in index (ADR-0245 §2.1), whichever form the client sent. */
+  /** What the page offers, in index, whichever form the client sent. */
   page: PageSurface[];
   observations: OUIObservationSnapshot;
   /** The client's hash of what it sent, which the worker sends back as `knownSurfaces`. */

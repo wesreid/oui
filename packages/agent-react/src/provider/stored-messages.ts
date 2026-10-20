@@ -15,7 +15,7 @@ function parseResult(content: string | null): unknown {
  * A stored conversation's messages as the panel shows a live one:
  *
  * - a user or assistant message with text becomes that message; a user
- *   message the person spoke keeps how it was entered (`input`, ADR-0259 §2.6);
+ *   message the person spoke keeps how it was entered (`input`);
  * - each tool an assistant message called becomes a completed tool message,
  *   in call order, as `intent_call` added it live: a UI action run through
  *   `ui_act` is shown as that action, as the live stream named it;

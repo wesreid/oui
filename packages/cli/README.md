@@ -1,6 +1,6 @@
 # @ouispec/cli
 
-The assistant's surfaces and knowledge, generated from a React app's own code (ADR-0220, ADR-0226). A deterministic TypeScript pass (no LLM, no network, no clock) over the app's routes, its page component trees, its design system's bound controls, its room catalogs and its API's OpenAPI document.
+The assistant's surfaces and knowledge, generated from a React app's own code. A deterministic TypeScript pass (no LLM, no network, no clock) over the app's routes, its page component trees, its design system's bound controls, its room catalogs and its API's OpenAPI document.
 
 ```sh
 oui generate            # writes <out>/oui-manifest.json and <out>/oui-knowledge.json
@@ -57,7 +57,7 @@ Each package in `designSystem` must resolve from the app and name its control ta
 
 A package's subpath exports are the package's: a control imported from `@acme/ui/react` is read against `@acme/ui`'s control table, and the same holds for a room package's hosts, a person-only component and a mapped package. When `designSystem` lists a package and a subpath of it, an import takes the longest name it is under. A package whose name only starts the same (`@acme/ui-extras`) is a different package.
 
-## Third-party design systems (tier 2, ADR-0226 §2.3)
+## Third-party design systems (tier 2)
 
 An app on MUI, Mantine or shadcn/Radix maps that design system's controls in a JSON file per package (`tier2-mapping.json` in `@ouispec/contract`: `kind`, `callbacks`, `valueFrom`, `controlled`, `options`, `titleProps`, and `parts` for a control under a namespace or made of parts). For each mapping `oui generate` writes `<out>/bound/<package>.ts` (`@mantine/core` → `mantine-core.ts`) and its control table beside it:
 
@@ -85,11 +85,11 @@ The app imports mapped controls from the bound module. Each use is read as a tie
 - An effect that is not one of the vocabulary's, or a `transaction` whose `approvalMinutes` is not 1–30.
 - A control table entry of a kind the table does not register, or a registration that is not valid.
 - A room recipe naming an entry the room does not have.
-- On an enforced page, a mapped control imported straight from its package (§2.5 row 6): the error names the bound import.
+- On an enforced page, a mapped control imported straight from its package: the error names the bound import.
 - A mapping that does not match its schema, names a package the app cannot resolve, maps a package also in `designSystem` (or one of its subpaths, or a package one of whose subpaths `designSystem` lists), maps a package another mapping maps, uses a kind no design system registers, or does not fit the package's types (an export it does not have, a prop its component does not take).
 - A stale bound module or control table, or a file in `<out>/bound/` no mapping emits (`--check`; writing removes it).
 
-## Person-only components (ADR-0228)
+## Person-only components
 
 Some components exist so that the person, and only the person, can do something. The approval card where someone approves an irreversible action is one. A package lists them in its `package.json`, each with the reason:
 
@@ -103,9 +103,9 @@ On one of these components, the generator fails the build for:
 
 What such a component renders is never bound, so its callbacks need no `data-non-agent`. `@ouispec/agent-react` declares `ApprovalCard` this way.
 
-## The contract's vocabulary (ADR-0226 §2.6)
+## The contract's vocabulary
 
-- **Effects.** A binding, a room action and an API tool declare one `ActionEffect`: `view`, `selection`, `navigate`, `open`, `edit`, `file`, `mutate` (an API `operationId`), `job` (settles on its outcome) or `transaction` (irreversible: runs only on the person's approval of the exact call, ADR-0228). `destructive: true` marks a write that removes what the person made.
+- **Effects.** A binding, a room action and an API tool declare one `ActionEffect`: `view`, `selection`, `navigate`, `open`, `edit`, `file`, `mutate` (an API `operationId`), `job` (settles on its outcome) or `transaction` (irreversible: runs only on the person's approval of the exact call). `destructive: true` marks a write that removes what the person made.
 - **Control kinds.** The built-in kinds are closed. A design system adds an `x-` kind by registering it (`registerControlKind`) and listing the same registration under `$kinds` in its control table, with its schema derivation as data.
 - **Rooms.** A field animates only when it declares `animation: { keyframeable: true }`. A room may declare its own `problems` kinds and `recipes`; recipes name the room's entries with `{action:<id>}`, `{command:<id>}`, `{field:<id>}`, `{keyframeable}` and `{room}`. The generator infers no recipe.
 

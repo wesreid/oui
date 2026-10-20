@@ -1,7 +1,7 @@
 # OUI integrator guide
 
 **For:** engineers plugging a React product into the OUI agent platform, so its assistant can do everything the product's UI lets a person do, through the same code paths the person uses.
-**Specified by:** ADR-0226 (the integrator contract), ADR-0227 (the reference architecture) and ADR-0228 (approvals). This guide replaces ADR-0139's dispatch mechanics, which no longer describe how the platform works.
+**Specified by:** the schemas in `schemas/`, which this guide renders.
 
 ## How it fits together
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 // Test that we import dynamicTool and jsonSchema correctly
-describe('Tool Schema Construction (W1.T1 — D1 fix)', () => {
+describe('Tool Schema Construction', () => {
   it('should use dynamicTool with jsonSchema instead of parameters', async () => {
     // Verify the imports exist and work
     const { dynamicTool, jsonSchema } = await import('ai');

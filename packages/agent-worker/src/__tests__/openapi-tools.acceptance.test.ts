@@ -1,5 +1,5 @@
 /**
- * W8 acceptance (ADR-0181 §2, ADR-0227 §2.1): a product's OpenAPI document becomes
+ * Acceptance: a product's OpenAPI document becomes
  * the agent's API tools, each call acting as the user.
  *
  * Against the fixture product's real HTTP API, which authenticates callers and
@@ -206,7 +206,7 @@ describe('calling an operation as the user', () => {
     }
   });
 
-  it('never runs an irreversible operation on the agent’s say-so (ADR-0228)', async () => {
+  it('never runs an irreversible operation on the agent’s say-so', async () => {
     const before = api.requests.length;
     const result = await byName('placeOrder').execute({ symbol: 'ACME', side: 'buy', quantity: 1 }, asUser('ana'));
     expect(result).toMatchObject({ success: false, data: { code: 'APPROVAL_REQUIRED' } });

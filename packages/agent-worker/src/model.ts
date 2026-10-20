@@ -1,5 +1,5 @@
 /**
- * The model seam (ADR-0227 §2.2, D5): the host passes any `ai` library model.
+ * The model seam: the host passes any `ai` library model.
  * The worker names no provider and imports none.
  */
 import type { LanguageModel, SystemModelMessage } from 'ai';

@@ -24,7 +24,7 @@ function makeContext(overrides: Partial<ToolPolicyContext> = {}): ToolPolicyCont
   };
 }
 
-describe('W12.T1 — Per-tool authorization policy', () => {
+describe('Per-tool authorization policy', () => {
   // ─── 1. Default policy allows all tools ──────────────────────────────────
 
   describe('defaultToolPolicy', () => {

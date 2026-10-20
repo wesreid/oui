@@ -19,7 +19,7 @@ export type AgentSocketEventName = (typeof AGENT_SOCKET_EVENTS)[keyof typeof AGE
 export const ALL_AGENT_SOCKET_EVENTS: AgentSocketEventName[] = Object.values(AGENT_SOCKET_EVENTS);
 
 /**
- * The tools an agent works a client's UI with (ADR-0245 §2.2): the model runs
+ * The tools an agent works a client's UI with: the model runs
  * one action of the page through `act`, and learns what actions take and
  * reads the page through the other two. A stored `act` call names the action
  * in its arguments (`{ action, input }`).
@@ -142,7 +142,7 @@ export interface ErrorEvent {
   recoverable: boolean;
 }
 
-/** The turn stopped at a call that needs the user's approval (ADR-0228): what the approval card renders. */
+/** The turn stopped at a call that needs the user's approval: what the approval card renders. */
 export interface ApprovalRequiredProtocolEvent extends Omit<ApprovalRequiredEvent, 'timestamp'> {
   type: 'approval_required';
 }
@@ -154,7 +154,7 @@ export interface DoneEvent {
   usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
   maxRoundsReached?: boolean;
   /**
-   * Set when the turn did not end by itself (ADR-0252): the person stopped it,
+   * Set when the turn did not end by itself: the person stopped it,
    * a newer message superseded it, or it ran out of time. What it had produced
    * is stored.
    */

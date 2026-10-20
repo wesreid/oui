@@ -1,7 +1,6 @@
 /**
- * W8 part 2: an API operation that starts a job binds to a declared completion
- * event (`x-async-binding`), and its generated tool waits on it (ADR-0181 §2,
- * ADR-0227 §2.4).
+ * An API operation that starts a job binds to a declared completion
+ * event (`x-async-binding`), and its generated tool waits on it.
  *
  * The fixture product, end to end, with no Closure code: its API (Desk) queues a
  * report export and its pipeline ends the job some time later with a declared

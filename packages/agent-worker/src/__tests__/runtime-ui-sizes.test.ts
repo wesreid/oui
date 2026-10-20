@@ -1,7 +1,7 @@
 /**
  * A host sizes the page it shows the model through the runtime config: the page
- * state (`maxObservationChars`, ADR-0244) and the page's index
- * (`maxIndexChars`, ADR-0245) both reach the turn.
+ * state (`maxObservationChars`) and the page's index
+ * (`maxIndexChars`) both reach the turn.
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentConfig } from '../types.js';

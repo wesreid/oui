@@ -1,6 +1,6 @@
 /**
  * The fixture design system, deliberately broken once for each rule of the
- * conformance kit (ADR-0226 §3.2). Everything not listed here is the good
+ * conformance kit. Everything not listed here is the good
  * design system, unchanged:
  *
  * - `Button` drops its binding when it is a ghost button, so a page's ghost

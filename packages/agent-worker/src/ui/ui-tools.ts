@@ -1,9 +1,9 @@
 /**
- * UI tools: the page's actions as the worker runs them (ADR-0209, ADR-0245).
+ * UI tools: the page's actions as the worker runs them.
  *
  * The page sends an index of what it offers. Each action of the index is a
  * tool here, run by sending an OUI action request to the client that sent the
- * turn and waiting for its answer (ADR-0209 D2): the model gets what really
+ * turn and waiting for its answer: the model gets what really
  * happened — the action's result or error — and what the page offers and shows
  * afterwards. An action's definition is fetched from the page when it is
  * needed (`oui.describe`), and what did not fit an answer is read from it
@@ -57,7 +57,7 @@ export const UI_DESCRIBE_TOOL = AGENT_UI_TOOLS.describe;
 export const UI_READ_TOOL = AGENT_UI_TOOLS.read;
 
 /**
- * Whether the worker can see the page (ADR-0245 §2.5). It cannot after an
+ * Whether the worker can see the page. It cannot after an
  * answer that came without the page's state, or no answer at all; a read that
  * succeeds restores it. While it cannot, nothing that changes the page runs:
  * a change is refused, and after two refused in a row the turn's UI work is
@@ -245,7 +245,7 @@ function actionTool(action: PageAction, shared: Shared): RegisteredTool {
       return tool.inputSchema;
     },
     // The approval card's words and whether a call needs approval come from
-    // the declaration (ADR-0228 §2.1–2.2). `confirm` marks a destructive
+    // the declaration. `confirm` marks a destructive
     // action, or one that changes what the person works in: either asks.
     title: entry.title ?? entry.description,
     consequence: entry.description,
@@ -258,7 +258,7 @@ function actionTool(action: PageAction, shared: Shared): RegisteredTool {
       return slot.run(async () => {
         // Checked here, in the action's place in the turn's order, and not when
         // the model's call arrived: of two changes called in one response, the
-        // first's answer decides whether the second may run (ADR-0245 §2.5).
+        // first's answer decides whether the second may run.
         // A stopped turn sends nothing more: said first, since why it did not run is the stop.
         if (ctx.stop?.reason()) return stoppedNotRun(entry.id);
         const refusal = entry.effect === 'view' ? null : shared.sight.refuseChange();
@@ -546,7 +546,7 @@ async function runAction(
   };
   let answered = await dispatchUntilAnswered(deps, room, request, ctx);
 
-  // The turn was stopped while the request was out (ADR-0252 §2.2).
+  // The turn was stopped while the request was out.
   if (!answered.result && ctx.stop?.reason()) {
     // Tabs answered that they got it, and none took it: it did not run.
     if (answered.receipts && !answered.received) return stoppedNotTaken(entry.id);
@@ -720,7 +720,7 @@ function stillRunningNote(entry: OUIActionIndexEntry): string {
   );
 }
 
-/** Report an answer's size by part, and whether it had to be shortened (ADR-0245 §2.6). */
+/** Report an answer's size by part, and whether it had to be shortened. */
 function measure(deps: UIToolDependencies, actionId: string, result: OUIActionResult): void {
   if (!deps.log) return;
   const offered = result.index ?? result.surfaces;
@@ -795,8 +795,8 @@ function forModel(
 }
 
 /**
- * The rows an action says it changed (a room result's `changed`, ADR-0244
- * §2.5), by what addresses them: kept whole in the page state it comes with.
+ * The rows an action says it changed (a room result's `changed`), by what addresses
+ * them: kept whole in the page state it comes with.
  */
 function changedRefs(data: unknown): string[] {
   const changed = (data as { changed?: unknown } | null | undefined)?.changed;

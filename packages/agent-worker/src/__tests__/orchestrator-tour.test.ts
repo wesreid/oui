@@ -1,10 +1,9 @@
 /**
- * TurnPolicy integration tests (W8.T2)
+ * TurnPolicy integration tests
  *
  * Validates the TurnPolicy interface contract and integration with the orchestrator.
- * The Closure-specific tour functions (detectTurnIntent, inferTourDestination,
- * buildPrepareStep) have been relocated to studio-api as a custom TurnPolicy
- * implementation. These tests verify the SDK's policy machinery works correctly
+ * Product-specific turn behavior (such as a guided tour) belongs in a host's
+ * own TurnPolicy implementation. These tests verify the SDK's policy machinery works correctly
  * with both the default and custom policies.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

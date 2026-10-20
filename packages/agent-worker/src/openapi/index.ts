@@ -1,5 +1,5 @@
 /**
- * API tools generated from any OpenAPI 3 document (ADR-0181 §2): the loader, the
+ * API tools generated from any OpenAPI 3 document: the loader, the
  * executor's auth seam, and the input validator every generated tool is checked with.
  */
 export { loadOpenApiTools } from './loader.js';

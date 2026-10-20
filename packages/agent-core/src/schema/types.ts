@@ -104,7 +104,7 @@ export interface RawIntentExecutionSchema {
 
 /**
  * Subscription block — for async intents, the declared events that settle the
- * job (W9). The SDK waits for the completion or the failure (with a timeout)
+ * job. The SDK waits for the completion or the failure (with a timeout)
  * instead of polling. Each name must be declared in the product's event
  * declarations, or the tools fail to load.
  */

@@ -1,5 +1,5 @@
 /**
- * An app against its generated manifest (ADR-0226 §3.2, the fourth rule):
+ * An app against its generated manifest (the fourth rule):
  * every action the build declares has a handler mounted on the page that
  * offers it. A declared action nothing mounts is a tool the assistant is
  * promised and can never use.

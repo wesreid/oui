@@ -79,7 +79,7 @@ function configFinding(message: string): Finding {
 
 /**
  * The components a package says only the person may use (`oui.personOnly`:
- * export name → why), such as the approval card (ADR-0228): the assistant
+ * export name → why), such as the approval card: the assistant
  * must never be offered a way to operate them, so the generator refuses an
  * `agent` binding on one. Read on first use of each package the app imports,
  * from its root or a subpath export of it (`@acme/agent-react/approval` reads

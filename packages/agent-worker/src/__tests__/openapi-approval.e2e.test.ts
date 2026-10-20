@@ -1,7 +1,7 @@
 /**
  * A generated API tool's irreversible operation runs only on the user's approval
- * of that exact call (ADR-0228 §2.1: "generated API tools (their effect comes from
- * the operation's `x-agent`)"), end to end: the W7 fixture's realtime server on
+ * of that exact call ("generated API tools (their effect comes from
+ * the operation's `x-agent`)"), end to end: the fixture product's realtime server on
  * real Redis and a browser tab that clicks the approval card, the worker, and the
  * Desk API, which places the order as the user.
  */

@@ -1,5 +1,5 @@
 /**
- * The build's surfaces (ADR-0220 §2.4): one per page, one per component shared
+ * The build's surfaces: one per page, one per component shared
  * between pages, one per room, each with its actions, their reach paths and
  * the page's observations — validated as it is put together.
  */
@@ -206,7 +206,7 @@ export function assemble(
   // A reason a control gives for not being the assistant's often names what the assistant uses
   // instead: "(editor.add-asset.open)", or "the insert.media command". That name is checked, since
   // a reason pointing at an action that does not exist leaves the assistant with no way to do it
-  // and nothing saying so (ADR-0248 §2.6).
+  // and nothing saying so.
   const bindingIds = new Set<string>();
   const commandIds = new Set<string>();
   for (const page of pages) {
@@ -365,7 +365,7 @@ export function assemble(
     }
   }
 
-  // What the build offers fits what carries it (ADR-0245 §2.6): an index
+  // What the build offers fits what carries it: an index
   // entry, a definition and a surface's index each have a size they must stay
   // under, or the page that mounts them cannot be sent to the assistant.
   for (const problem of manifestBudgetProblems({ surfaces })) {
@@ -696,9 +696,9 @@ function catalogProblems(
       out.push({ file: pkg, line: 0, message: `${catalog.room} action ${a.id}${joined(problem)}` });
   }
   for (const message of recipeProblems(catalog)) out.push({ file: pkg, line: 0, message });
-  // Its lists are readable and its inputs address lists it has (ADR-0244 §2.2).
+  // Its lists are readable and its inputs address lists it has.
   for (const message of roomListProblems(catalog)) out.push({ file: pkg, line: 0, message });
-  // Every number it takes says its unit (ADR-0244 §2.3).
+  // Every number it takes says its unit.
   for (const message of roomMeasureProblems(catalog)) out.push({ file: pkg, line: 0, message });
   const ids = new Set(catalog.actions.map(a => a.id));
   if (catalog.fields.length && !ids.has(ROOM_SET_PROPERTIES_ID)) {

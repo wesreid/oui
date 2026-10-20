@@ -1,5 +1,5 @@
 /**
- * The size budgets, for an integrator's own test (ADR-0245 §2.6): the check
+ * The size budgets, for an integrator's own test: the check
  * `oui generate` runs on a build, against the contract's limits or the
  * integrator's own.
  */

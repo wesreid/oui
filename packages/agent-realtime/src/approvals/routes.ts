@@ -1,5 +1,5 @@
 /**
- * The approval store's internal endpoints (ADR-0228 §2.4). Each requires the
+ * The approval store's internal endpoints. Each requires the
  * internal key: they are for the product's agent worker and a conversation
  * engine, never a browser. A browser decides only through `approval:decide`
  * on its own authenticated socket.
@@ -11,7 +11,7 @@
  *   POST /internal/approvals/:id/settle    whether it expired undecided, claimed for one turn to store; with
  *                                          `confirm`, that it has been stored (worker, at the start of a later turn);
  *                                          with `expire`, expire it now, saying why (host, when a new message
- *                                          arrives; worker, when the turn that asked is stopped: ADR-0252 §2.6)
+ *                                          arrives; worker, when the turn that asked is stopped)
  */
 import { Router, type Request, type Response } from 'express';
 import {
