@@ -1,5 +1,5 @@
 /**
- * The host's file area, as the worker reads it (ADR-0252 §3). The worker never
+ * The host's file area, as the worker reads it. The worker never
  * holds a URL or a key: it asks the host for a file by id, for the turn's own
  * conversation and user, and the host checks the file is theirs on every call.
  */
@@ -78,11 +78,11 @@ export interface AttachmentWorkerConfig {
   turnTokens?: number;
   /** Estimated tokens of attachment input one conversation may give the model. Default 300,000. */
   conversationTokens?: number;
-  /** Files one message gives the model; any more are named as not given. Default 5 (ADR-0252 §6.3). */
+  /** Files one message gives the model; any more are named as not given. Default 5. */
   perMessage?: number;
   /**
    * Give a short PDF to the model as a document part. Off until a live eval
-   * of the provider's document part passes (ADR-0252 §2.11): a PDF then goes
+   * of the provider's document part passes: a PDF then goes
    * as its extracted text, which is complete without it.
    */
   pdfAsDocument?: boolean;

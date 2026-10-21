@@ -131,7 +131,7 @@ describe('the platform events', () => {
   });
 });
 
-describe('the platform events of a stopped turn (ADR-0252)', () => {
+describe('the platform events of a stopped turn', () => {
   const validator = createPayloadValidator(createEventCatalog(PLATFORM_EVENTS));
 
   it('accept a completion that says why the turn was stopped, and refuse a reason that is not one', () => {

@@ -1,5 +1,5 @@
 /**
- * Through a turn (ADR-0244 §2.2, §2.5, §2.7): a room's readers are not capped
+ * Through a turn: a room's readers are not capped
  * like edits, the model is told again what did not succeed before every later
  * step, a refused call reaches the client with its arguments, and the rows an
  * action changed stay whole in the page state it answers with.
@@ -137,7 +137,7 @@ describe('a turn that reads, fails and edits', () => {
     const { runAgentTurn } = await import('../orchestrator.js');
     await runAgentTurn(makeConfig(channel).config, input());
     expect(outputs.inspect.filter((o) => o.includes('quota'))).toHaveLength(0);
-    // UI edits are not counted (session 24611234); only the same call with the same input again is refused.
+    // UI edits are not counted; only the same call with the same input again is refused.
     expect(outputs.select.filter((o) => o.includes('quota') || o.includes('repeatedCall'))).toHaveLength(0);
   });
 

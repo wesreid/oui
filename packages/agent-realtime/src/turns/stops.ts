@@ -1,6 +1,6 @@
 /**
  * Stop requests for agent turns, held for the worker that runs the turn
- * (ADR-0252 §2.1).
+ *.
  *
  * The worker has no socket. A stop is written here, by the user's own socket
  * or by the host's API, and the worker asks for it for as long as its turn

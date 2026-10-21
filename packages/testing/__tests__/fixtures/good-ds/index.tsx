@@ -1,6 +1,6 @@
 /**
  * A small tier 1 design system that is not Closure's, written to the contract
- * (ADR-0226 §2.2): each interactive export takes `agent`, registers through
+ *: each interactive export takes `agent`, registers through
  * `useAgentBinding` with the kind its table declares, and returns what the
  * consumer's callback returned. The kit's acceptance test holds it to every rule.
  */

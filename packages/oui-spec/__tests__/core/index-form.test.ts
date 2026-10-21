@@ -709,7 +709,7 @@ describe("a frame fits its byte budget, and says where it was cut (§7.3.9)", ()
   });
 });
 
-describe("a full-form page whose definitions outweigh the frame (session 618701bb)", () => {
+describe("a full-form page whose definitions outweigh the frame", () => {
   it("keeps what the page shows once its definitions are left out, where it used to lose both", async () => {
     const socket = createMockSocket();
     // Two rooms' definitions, about 200 KB, against a 128 KB frame.

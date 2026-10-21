@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * A message the person spoke (ADR-0259 §2.6): `sendMessage(text, { input })`
+ * A message the person spoke: `sendMessage(text, { input })`
  * sends it like a typed one, with `context.input` for the platform to pass to
  * the worker and store on the message. A typed message says nothing, and an
  * input the SDK does not recognise is not sent.

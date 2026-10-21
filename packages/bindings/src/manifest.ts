@@ -1,5 +1,5 @@
 /**
- * What the generator emits for each build (ADR-0220 §2.4–2.5), and how the
+ * What the generator emits for each build, and how the
  * runtime reads it: the manifest of every surface, action and observation the
  * build's UI offers, and the knowledge generated from the same declarations.
  *

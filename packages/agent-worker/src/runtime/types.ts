@@ -1,7 +1,7 @@
 /**
  * The agent runtime's configuration: what the host supplies, for either host
  * adapter (Lambda + SQS, or a container). Every seam without a `?` is
- * required, and a missing one fails at start-up, naming it (ADR-0227 §2.2).
+ * required, and a missing one fails at start-up, naming it.
  *
  * Integrators provide these callbacks so the SDK can interact with their
  * platform without knowing anything about their database schema, API, or
@@ -43,17 +43,17 @@ export interface AgentTurnPayload {
   userToken?: string;
   /**
    * On the turn that follows the user's decision on an approval card: the
-   * token to redeem, or that they declined (ADR-0228 §2.2.5).
+   * token to redeem, or that they declined.
    */
   approval?: ApprovalContinuation;
   /**
-   * The turns of this conversation that this turn supersedes (ADR-0252 §2.5):
+   * The turns of this conversation that this turn supersedes:
    * the host asked each to stop when this turn's message arrived. The host's
    * `getHistory` is given them, to wait until each is stored before it reads.
    */
   supersedes?: string[];
   /**
-   * The files attached to the turn's message, by reference (ADR-0252 §2.8).
+   * The files attached to the turn's message, by reference.
    * The host checked each is ready and is this conversation's before it
    * enqueued the turn; the worker reads them through `attachments.store`.
    */
@@ -99,7 +99,7 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
    * ToolExecutionContext (userId, accountId, userToken, etc.).
    *
    * UI tools are not listed here. They come from the client's surface snapshot
-   * on the turn (`context.oui`, ADR-0209), and the SDK builds them itself.
+   * on the turn (`context.oui`), and the SDK builds them itself.
    *
    * Tools can be a static array, or a per-turn resolver function.
    * The resolver receives the turn context and returns tools for that specific turn.
@@ -142,7 +142,7 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
 
   // ─── Model ───────────────────────────────────────────────────────────
 
-  /** The model, from any `ai` library provider (ADR-0227 §2.2, D5). Required. */
+  /** The model, from any `ai` library provider. Required. */
   model: LanguageModel;
 
   /**
@@ -179,7 +179,7 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
 
   /**
    * Time kept back before the deadline for a last step that says what is done
-   * and offers to continue (ADR-0269 §2.1). Default 30 s, never more than a
+   * and offers to continue. Default 30 s, never more than a
    * quarter of `turnDeadlineMs`.
    */
   handBackReserveMs?: number;
@@ -234,12 +234,12 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
     maxObservationChars?: number;
     /** How much of one action's result the model is given, in characters of JSON. Default 24000 (`DEFAULT_ANSWER_DATA_CHARS`). */
     maxAnswerDataChars?: number;
-    /** Longest the page's index is in the model's context, in characters, before its furthest surfaces are listed by action id only. Default 60000 (`DEFAULT_INDEX_CHARS`, ADR-0245). */
+    /** Longest the page's index is in the model's context, in characters, before its furthest surfaces are listed by action id only. Default 60000 (`DEFAULT_INDEX_CHARS`). */
     maxIndexChars?: number;
   };
 
   /**
-   * The approval store (ADR-0228). Defaults to the realtime server's
+   * The approval store. Defaults to the realtime server's
    * (`/internal/approvals`), where it lives beside the UI action results.
    */
   approvals?: {
@@ -247,7 +247,7 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
   };
 
   /**
-   * Stopping a turn (ADR-0252). The stop request is kept by the realtime
+   * Stopping a turn. The stop request is kept by the realtime
    * server, and the turn asks for it there unless `client` says otherwise.
    */
   stops?: {
@@ -257,7 +257,7 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
   };
 
   /**
-   * The host's file area (ADR-0252 §3): with it, a turn's files are given to
+   * The host's file area: with it, a turn's files are given to
    * the model, and the attachment tools reach the conversation's files.
    */
   attachments?: AttachmentWorkerConfig;
@@ -284,9 +284,9 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
    * Persists the new messages generated during this turn. Called once, before
    * the client is told the turn ended, whether it ended by itself or was
    * stopped (`stopped` is then set, and the last assistant message carries the
-   * same marker: ADR-0252 §2.3).
+   * same marker).
    *
-   * A host that lets a newer turn give up on this one (ADR-0252 §2.5) answers
+   * A host that lets a newer turn give up on this one answers
    * `{ stored: false }` when it found the turn already given up on and stored
    * nothing. The turn is still announced, and nothing that depends on its
    * messages being stored (an expired approval's confirmation) is done.
@@ -307,7 +307,7 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
    * A host that keeps a row per turn claims it here. Answering
    * `{ run: false, reason }` says the turn must not run: its row shows it
    * already ended or was given up on, which is what a queue's redelivery of
-   * an old turn finds (ADR-0252 §2.5). The turn then does nothing: no model
+   * an old turn finds. The turn then does nothing: no model
    * call, no UI action, no event to the client.
    */
   recordTurnStart?: (input: {
@@ -327,7 +327,7 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
     conversationId: string;
     rounds: number;
     usage: { promptTokens: number; completionTokens: number; totalTokens: number };
-    /** Set when the turn was stopped rather than ending by itself (ADR-0252). */
+    /** Set when the turn was stopped rather than ending by itself. */
     stopReason?: TurnStoppedReason;
     /** What the turn gave the model of its files: a host keeps `estimatedTokens` for the conversation's cap. */
     attachments?: AttachmentUsage;
@@ -338,7 +338,7 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
    * Optional: record turn failure. Default: no-op.
    *
    * `error.code` is `TURN_DEADLINE_EXCEEDED` for a turn that ran out of time
-   * and whose stop path could not store what it had (ADR-0252 §6.4). When the
+   * and whose stop path could not store what it had. When the
    * store did not finish in time it may still finish after this is called, so
    * record the failure only over a turn that is still running (a conditional
    * update from `running`): a turn whose messages did get stored keeps that.

@@ -1,10 +1,10 @@
 # @ouispec/agent-realtime
 
-The realtime server for agent turns and UI actions. One implementation serves every product (ADR-0227). It does six things:
+The realtime server for agent turns and UI actions. One implementation serves every product. It does six things:
 
 - **Carries events.** Turn events, UI action dispatches and the product's own events reach rooms through the internal emit API.
-- **Holds UI action results.** It keeps each browser's answer to a UI action for the agent worker that asked (ADR-0209). Answers are shared across instances through Redis.
-- **Keeps approvals.** An irreversible action runs only on an approval the user gave, bound to the exact call by a single-use token (ADR-0228).
+- **Holds UI action results.** It keeps each browser's answer to a UI action for the agent worker that asked. Answers are shared across instances through Redis.
+- **Keeps approvals.** An irreversible action runs only on an approval the user gave, bound to the exact call by a single-use token.
 - **Signs and checks room tokens.** A room token admits one user to one room.
 - **Checks client events.** It accepts only the client events it declares, and puts each one through a chain: rate limit, size cap, schema, then authorization against the verified identity.
 - **Restricts relays.** A client can relay only allow-listed events, and only into rooms its socket has joined.
@@ -42,7 +42,7 @@ The browser then joins with `socket.emit('subscribe', { rooms: [room], tokens: {
 
 ## Declared events
 
-Pass `events` and the server follows your declarations (ADR-0227 §2.4):
+Pass `events` and the server follows your declarations:
 
 - **Emit.** `/api/emit` sends only a declared event, with a payload its schema accepts, into rooms it is declared for. Anything else is refused with `400 { error }` and logged as `Emit refused` with the event, the rooms and the reason. A declared event is never broadcast.
 - **Relay.** A client relays only an event you list in `relay` that is declared as a `notice`. Its declaration decides the rooms and the data it may carry. Listing a completion, failure, progress or turn event fails at start-up.
@@ -70,7 +70,7 @@ All of them require the `x-api-key` header.
 | `GET /internal/events/settlements/:kind/:id?waitMs=` | How a job of a declared kind ended: `{ kind, role, event, id, payload }`, with `role` `completion` or `failure`. `204` means not yet; `400` an undeclared kind; `404` a server without `events`. A wait lasts at most 25 s. |
 | `GET /health` | Returns `200` with connection and pending-wait counts. No key needed. |
 
-## Approvals (ADR-0228)
+## Approvals
 
 1. The worker stops the turn at a call that needs approval, stores it with `POST /internal/approvals`, and emits `agent:approval_required` with the preview.
 2. The user clicks the approval card. Their socket sends `approval:decide { approvalId, decision }`, a declared client event. The store checks that the socket's verified user is the approval's own. An approval's token is answered only to that socket, in the ack: `{ ok: true, decision: 'approve', token, argsHash, expiresAt }`.

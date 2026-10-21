@@ -1,6 +1,6 @@
 /**
  * A reason a control gives for not being the assistant's, when it names the
- * action the assistant uses instead, names one that exists (ADR-0248 §2.6).
+ * action the assistant uses instead, names one that exists.
  *
  * An editor's Add Asset button said "opens Add Asset, as the editor's
  * insert.media command does". The assistant was never shown that command, and
@@ -37,7 +37,7 @@ describe('what a non-agent reason names', () => {
 
   it('reads nothing else in the sentence as a name', () => {
     expect(problems('the PA’s own chat chrome: it cannot switch, rename or delete the chat it is answering in')).toEqual([]);
-    expect(problems('layout: arranging panels is arranging the screen, not the work (see ADR-0220 §2.2)')).toEqual([]);
+    expect(problems('layout: arranging panels is arranging the screen, not the work (see the integrator guide)')).toEqual([]);
     expect(problems('a file input (hidden); e.g. the picker opens it')).toEqual([]);
     expect(problems('saves as v1.2 of the board')).toEqual([]);
   });

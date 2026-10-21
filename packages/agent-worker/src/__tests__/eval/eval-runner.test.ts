@@ -1,5 +1,5 @@
 /**
- * Agent Eval Corpus — Fixture-Driven Behavioral Tests (W7.T2)
+ * Agent Eval Corpus — Fixture-Driven Behavioral Tests
  *
  * Runs all 26+ evaluation scenarios in STUBBED mode:
  *   - streamText is mocked to return deterministic tool call sequences
@@ -136,7 +136,7 @@ function makeInput(scenario: EvalScenario): AgentTurnInput {
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-describe('Agent Eval Corpus (W7.T2)', () => {
+describe('Agent Eval Corpus', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
   });

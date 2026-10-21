@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.closurestudio.ai/oui/v1/room-catalog-data.json",
   "title": "RoomCatalogData",
-  "description": "A room catalog as plain data (ADR-0220 §2.3, tier 3 of ADR-0226): what a room with its own editing model — a canvas, a chart, a timeline, a player — declares about everything a person can do in it, so the assistant's actions and knowledge are generated from the room's code. Every declaration, none of the functions: a room's package writes it as `agent-catalog.json` (named in `package.json` under `oui.agentCatalog`) so a build-time generator reads the catalog without loading React or the room's code; an app's own catalog is read through the app's Vite config.\n\n- **actions**: its operations, each carried out through the room's own reducer and commands, with a JSON schema for the input;\n- **fields**: its inspector's fields, each with its value's schema, unit, range, its animation where the room has a timeline, and which kinds of thing it applies to;\n- **commands**: its keymap, each command with its keys and what it does;\n- **observations**: what the host reports about the room's state, including the problems it has drawing it.\n\nA room derives each action's input from the schema its reducer already validates with (`z.toJSONSchema`) and re-checks input with the same schema before applying it.",
+  "description": "A room catalog as plain data (tier 3): what a room with its own editing model — a canvas, a chart, a timeline, a player — declares about everything a person can do in it, so the assistant's actions and knowledge are generated from the room's code. Every declaration, none of the functions: a room's package writes it as `agent-catalog.json` (named in `package.json` under `oui.agentCatalog`) so a build-time generator reads the catalog without loading React or the room's code; an app's own catalog is read through the app's Vite config.\n\n- **actions**: its operations, each carried out through the room's own reducer and commands, with a JSON schema for the input;\n- **fields**: its inspector's fields, each with its value's schema, unit, range, its animation where the room has a timeline, and which kinds of thing it applies to;\n- **commands**: its keymap, each command with its keys and what it does;\n- **observations**: what the host reports about the room's state, including the problems it has drawing it.\n\nA room derives each action's input from the schema its reducer already validates with (`z.toJSONSchema`) and re-checks input with the same schema before applying it.",
   "type": "object",
   "properties": {
     "room": {
@@ -120,7 +120,7 @@
               "$ref": "action-effect.json"
             },
             "destructive": {
-              "description": "It removes or replaces something the person made; running it needs the person's approval (ADR-0228).",
+              "description": "It removes or replaces something the person made; running it needs the person's approval.",
               "type": "boolean"
             }
           },
@@ -151,7 +151,7 @@
       "additionalProperties": false
     },
     "RoomFieldAnimation": {
-      "description": "A field's animation, in a room with a timeline. Animation is a capability, not a requirement (ADR-0226 §2.6).",
+      "description": "A field's animation, in a room with a timeline. Animation is a capability, not a requirement.",
       "type": "object",
       "properties": {
         "keyframeable": {
@@ -404,7 +404,7 @@
       "additionalProperties": false
     },
     "RoomResult": {
-      "description": "What running a catalog entry or a bound control did: its data, or why it could not be done, in words a person would read. `pending` says the work outlives the call: a job was started and is done only when its completion arrives (an action whose effect is `job` or `transaction`). Every binding's `run` returns what the consumer's callback returned (ADR-0226 §2.2 rule 3, #209), so a handler's `{ ok, pending: { jobId } }` reaches the runtime.",
+      "description": "What running a catalog entry or a bound control did: its data, or why it could not be done, in words a person would read. `pending` says the work outlives the call: a job was started and is done only when its completion arrives (an action whose effect is `job` or `transaction`). Every binding's `run` returns what the consumer's callback returned, so a handler's `{ ok, pending: { jobId } }` reaches the runtime.",
       "oneOf": [
         {
           "type": "object",
@@ -429,7 +429,7 @@
               "additionalProperties": false
             },
             "changed": {
-              "description": "The rows it changed, added or removed, each as its list's reader reports it now (ADR-0244 §2.5): what the assistant checks its edit against, and the rows the page state keeps whole.",
+              "description": "The rows it changed, added or removed, each as its list's reader reports it now: what the assistant checks its edit against, and the rows the page state keeps whole.",
               "type": "array",
               "items": {
                 "$ref": "#/$defs/RoomChangedRow"

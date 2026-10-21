@@ -1,6 +1,6 @@
 ## Tier 2: a design system you do not own
 
-An app on MUI, Mantine or shadcn/Radix binds that design system's controls with a mapping, one file per third-party package (ADR-0226 §2.3). It is a declaration, not handler code. List each mapping under `mappings` in `oui.config.json`, and `oui generate` emits one module per mapping into `<out>/bound/`, named after the package (`@mantine/core` → `mantine-core.ts`), with its control table beside it (`mantine-core.agent-controls.json`):
+An app on MUI, Mantine or shadcn/Radix binds that design system's controls with a mapping, one file per third-party package. It is a declaration, not handler code. List each mapping under `mappings` in `oui.config.json`, and `oui generate` emits one module per mapping into `<out>/bound/`, named after the package (`@mantine/core` → `mantine-core.ts`), with its control table beside it (`mantine-core.agent-controls.json`):
 
 - each wrapper accepts `agent`, calls `useAgentBinding` with the app's own callback, and returns that callback's result, so a job control's `pending.jobId` reaches the runtime;
 - it reports the component's `disabled` prop, so a control the page disables is not offered, and a job control the page disables while its job runs is still followed until the job settles;

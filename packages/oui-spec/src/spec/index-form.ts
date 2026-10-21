@@ -145,7 +145,7 @@ function valueSummary(schema: JSONSchema): string {
     return `${type}${range}${unitOf(schema)}`;
   }
   if (type === "string") {
-    // An attached file's id, which the client turns into the file (ADR-0252 §2.13).
+    // An attached file's id, which the client turns into the file.
     const file = attachmentInputOf(schema);
     if (file)
       return file.mediaTypes?.length

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { AGENT_SOCKET_EVENTS, ALL_AGENT_SOCKET_EVENTS, parseSocketEvent } from '../protocol/index.js';
 import { TURN_STOP_REASONS, TURN_STOPPED_REASONS, isTurnStopReason, isTurnStoppedReason, turnStoppedNote } from '../turns/index.js';
 
-describe('Agent Protocol (W1.T2 — D2 fix)', () => {
+describe('Agent Protocol', () => {
   it('TURN_ERROR should be in AGENT_SOCKET_EVENTS', () => {
     expect(AGENT_SOCKET_EVENTS.TURN_ERROR).toBe('agent:turn_error');
   });
@@ -45,7 +45,7 @@ describe('Agent Protocol (W1.T2 — D2 fix)', () => {
   });
 });
 
-describe('a stopped turn (ADR-0252)', () => {
+describe('a stopped turn', () => {
   it('reads why a turn was stopped from its completion', () => {
     for (const stopReason of ['user_stop', 'superseded'] as const) {
       expect(parseSocketEvent('agent:turn_complete', { turnId: 't1', stopReason }, 'fallback')).toEqual({

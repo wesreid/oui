@@ -1,5 +1,5 @@
 /**
- * The worker's and the host's side of a turn stop (ADR-0252 §2.1). Both need
+ * The worker's and the host's side of a turn stop. Both need
  * the internal API key.
  *
  * POST /internal/turns/:turnId/stop   { userId, reason }

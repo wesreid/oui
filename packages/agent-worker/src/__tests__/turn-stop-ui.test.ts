@@ -1,5 +1,5 @@
 /**
- * A UI action that is out when its turn is stopped (ADR-0252 §2.2).
+ * A UI action that is out when its turn is stopped.
  *
  * The page may already be running it. The worker looks once more for its
  * answer, on the stop's own signal: an answer is stored as the call's result,

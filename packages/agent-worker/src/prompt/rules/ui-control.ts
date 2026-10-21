@@ -1,10 +1,10 @@
 /**
- * UI rules — how the agent works in the client's UI through OUI (ADR-0209,
- * ADR-0245): the page sends an index of its actions, every action returns what
+ * UI rules — how the agent works in the client's UI through OUI: the page sends
+ * an index of its actions, every action returns what
  * really happened, and the index follows the page.
  *
  * Product-neutral by design: no tool, route or page is named here. Which UI
- * exists is the client's to say, at runtime, as tools (ADR-0168).
+ * exists is the client's to say, at runtime, as tools.
  */
 
 export function getUIControlRules(): string {

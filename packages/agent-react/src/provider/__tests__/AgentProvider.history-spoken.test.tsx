@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
- * A conversation that began by voice says so in the user's history (ADR-0259
- * §2.6): the platform lists each conversation with how its preview's message
+ * A conversation that began by voice says so in the user's history: the platform lists
+ * each conversation with how its preview's message
  * was entered (`previewInput`) and how each search match's message was
  * (`input`), and the history hands on only what the SDK recognises, through
  * every way a listed conversation reaches it: refresh, query, rename, update.

@@ -1,10 +1,9 @@
 /**
- * A composite's slots carry its row (ADR-0220). The generator reads `item`
+ * A composite's slots carry its row. The generator reads `item`
  * beside a composite's slots (`{ item, choose }`) and makes each slot a
  * row-keyed action. A composite that registered `agent?.choose` dropped the
  * row, so the page reported rows with no key or title and every request
- * naming one failed (studio-ui, 2026-10-01: FontMatchList, rendered once per
- * missing font). `slotBinding` is how a composite registers a slot.
+ * naming one failed (a font list, rendered once per missing font). `slotBinding` is how a composite registers a slot.
  */
 import { describe, expect, it } from 'vitest';
 

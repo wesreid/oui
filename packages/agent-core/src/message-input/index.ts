@@ -1,5 +1,5 @@
 /**
- * How the person entered a message (ADR-0259 §2.6).
+ * How the person entered a message.
  *
  * A message the person spoke, and the tab transcribed with speech
  * recognition, carries `{ mode: 'voice', language }` on its turn's context,

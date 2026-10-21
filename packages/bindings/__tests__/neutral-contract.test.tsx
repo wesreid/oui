@@ -1,5 +1,5 @@
 /**
- * The neutral contract (ADR-0226 §2.6, W2): one effect vocabulary for
+ * The neutral contract: one effect vocabulary for
  * controls, room entries and API tools; a closed control-kind list that a
  * design system extends only by registering a kind; and animation as an
  * optional capability of a room rather than a requirement of every field.
@@ -36,7 +36,7 @@ import { connectBindings, type JobOutcome, type JobTracker } from '../src/oui.js
 import { AgentBindingProvider, useAgentBinding } from '../src/react.js';
 
 describe('one effect vocabulary', () => {
-  it('maps each effect to ADR-0210’s read or write, as ADR-0226 §2.6 tables it', () => {
+  it('maps each effect to read or write', () => {
     const access = Object.fromEntries(
       (
         [
@@ -288,7 +288,7 @@ function PlaceOrder({ onPlace }: { onPlace: () => void }) {
   return null;
 }
 
-describe('the runtime and approvals (ADR-0228)', () => {
+describe('the runtime and approvals', () => {
   it('refuses a transaction and never runs its handler', async () => {
     const registry = createBindingRegistry();
     const runtime = createSurfaceRuntime({ announce: false, settle: { quietMs: 0, timeoutMs: 50 } });

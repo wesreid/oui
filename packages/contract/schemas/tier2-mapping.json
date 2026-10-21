@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.closurestudio.ai/oui/v1/tier2-mapping.json",
   "title": "Tier2Mapping",
-  "description": "A tier 2 mapping (ADR-0226 §2.3): how an app binds the controls of a third-party design system it does not own (MUI, Mantine, shadcn/Radix). It is a declaration, not handler code: `oui generate` emits one module per mapping into `<out>/bound/`. Each wrapper accepts `agent`, calls `useAgentBinding` with the app's own callback, returns that callback's result (§2.2 rule 3), and renders the third-party component unchanged. The emitted module ships its own control table and is treated exactly like a tier 1 package. On an enforced page, importing a mapped component straight from the third-party package fails the build.",
+  "description": "A tier 2 mapping: how an app binds the controls of a third-party design system it does not own (MUI, Mantine, shadcn/Radix). It is a declaration, not handler code: `oui generate` emits one module per mapping into `<out>/bound/`. Each wrapper accepts `agent`, calls `useAgentBinding` with the app's own callback, returns that callback's result, and renders the third-party component unchanged. The emitted module ships its own control table and is treated exactly like a tier 1 package. On an enforced page, importing a mapped component straight from the third-party package fails the build.",
   "type": "object",
   "properties": {
     "$schema": {

@@ -1,6 +1,6 @@
 /**
  * @ouispec/cli — the assistant's surfaces and knowledge,
- * generated from a UI's code (ADR-0220).
+ * generated from a UI's code.
  */
 
 export {

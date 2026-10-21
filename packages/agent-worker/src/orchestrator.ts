@@ -2,7 +2,7 @@
  * Agent Orchestrator — powered by Vercel AI SDK.
  *
  * The model is the host's: any `ai` library model, passed in configuration
- * (ADR-0227 §2.2, "Model"). The core names no provider. The AI SDK handles:
+ * ("Model"). The core names no provider. The AI SDK handles:
  *   - each provider's wire format (internal, never exposed)
  *   - tool_use / tool_result pairing (automatic, no manual repair needed)
  *   - Multi-round tool loops (via stopWhen)
@@ -11,7 +11,7 @@
  *   - Error categorization and retries
  *
  * Our value-add stays:
- *   - UI tools from the client's OUI surfaces, answered by the client (ADR-0209)
+ *   - UI tools from the client's OUI surfaces, answered by the client
  *   - Schema-based tool loading
  *   - Persona/prompt compilation
  *   - Emit adapter (realtime socket streaming)
@@ -143,7 +143,7 @@ const notRun = (payload: Record<string, unknown>): CallOutcome => ({ text: JSON.
  * A turn runs in one or more segments. Each segment is one `streamText` call
  * with a fixed tool set. When a UI action changes what the client's page
  * offers (navigating is the common case), the segment ends and the turn
- * continues in a new one whose tools are the new page's (ADR-0209 D3). The
+ * continues in a new one whose tools are the new page's. The
  * round cap counts across segments.
  */
 export async function runAgentTurn(
@@ -161,7 +161,7 @@ export async function runAgentTurn(
   const uiJobWaitMs = jobWaitOf({ jobWaitMs: config.ui?.jobWaitMs });
 
   if (!config.model) {
-    throw new Error('[agent-sdk] config.model is required: pass an `ai` library model (ADR-0227 §2.2)');
+    throw new Error('[agent-sdk] config.model is required: pass an `ai` library model');
   }
   const { turnId, socketRoom } = input;
 
@@ -176,7 +176,7 @@ export async function runAgentTurn(
     temperature,
   });
 
-  // ─── The client's UI (ADR-0209 D1) ─────────────────────────────────────────
+  // ─── The client's UI ─────────────────────────────────────────
   // The turn carries the surfaces of the client that sent it. They are the only
   // source of UI tools, so the tools always describe the page the user is on.
   const client = readClientPage(input.context ?? null);
@@ -186,7 +186,7 @@ export async function runAgentTurn(
         'its UI actions could be sent but never answered.',
     );
   }
-  // What the page offers, in index (ADR-0245 §2.1): kept current by every answer.
+  // What the page offers, in index: kept current by every answer.
   let currentPage: PageSurface[] = client?.page ?? [];
   // The turn's UI actions run one at a time, in the order the model called them (ui-sequence.ts).
   const uiSequence = createUISequence();
@@ -194,7 +194,7 @@ export async function runAgentTurn(
   if (client) uiSequence.record(client.page, client.surfacesHash);
   // The definitions the turn holds: those a client sent, and those fetched since.
   const heldDefinitions: HeldDefinitions = client?.held ?? new Map();
-  // Whether the page can be seen (ADR-0245 §2.5): nothing that changes it runs while it cannot.
+  // Whether the page can be seen: nothing that changes it runs while it cannot.
   const sight = createPageSight();
   const uiCounts = { describes: 0, reads: 0, acts: 0, guides: 0 };
   // Answers whose page state was moved to the end of what the model reads, summed over the turn's steps.
@@ -203,7 +203,7 @@ export async function runAgentTurn(
   // The knowledge the client sent for its page goes after the host's prompt.
   const knowledge = readClientKnowledge(input.context ?? null);
 
-  // ─── Files (ADR-0252 §2.11, §2.12) ─────────────────────────────────────────
+  // ─── Files ─────────────────────────────────────────
   // With the host's file area, the turn's files go to the model with its
   // message, the attachment tools reach every file of the conversation, and the
   // cost guard caps what the model is given of them.
@@ -264,7 +264,7 @@ export async function runAgentTurn(
   const hostPrompt = typeof config.systemPrompt === 'function'
     ? config.systemPrompt({ userId: input.userId, accountId: input.accountId, context: withoutClientUI(input.context) })
     : config.systemPrompt;
-  // With a file area, the model is told a file's name and content are data, never instructions (ADR-0252 §2.11).
+  // With a file area, the model is told a file's name and content are data, never instructions.
   const systemPrompt = withClientKnowledge(fileArea ? `${hostPrompt}\n\n${ATTACHMENT_DATA_NOTE}` : hostPrompt, input.context);
 
   log('debug', 'agent:prompt', 'System prompt built', { turnId, promptLength: systemPrompt.length, hostPromptLength: hostPrompt.length });
@@ -275,14 +275,14 @@ export async function runAgentTurn(
   const uiWaitDeadline = () => turnStartedAt + turnDeadlineMs - UI_ANSWER_MARGIN_MS;
   const abortController = new AbortController();
 
-  // ─── Stopping (ADR-0252) ───────────────────────────────────────────────────
+  // ─── Stopping ───────────────────────────────────────────────────
   // The person's Stop, or a newer message superseding this turn, is kept by the
   // realtime server; the watch asks for it for as long as the turn runs. A stop
   // aborts the turn's signal with a typed reason, which is what everything that
   // waits (the model stream, a UI action's answer, a job's outcome) already
   // honours. What the turn had produced is then stored and announced (below).
   const stopWatch = input.stopWatch ?? watchTurnStop(config.stops, turnId, input.userId);
-  /** Set when the turn begins its own end: a stop that lands after is not one (§2.4). */
+  /** Set when the turn begins its own end: a stop that lands after is not one. */
   let ending = false;
   /** Kept back from a stopped turn's grace for storing and announcing it. */
   const STOP_STORE_MARGIN_MS = 3_000;
@@ -315,10 +315,10 @@ export async function runAgentTurn(
     abortController.abort(stop);
   };
   stopWatch.onStop((record) => stopTurn(new TurnStopped(record.reason, record.at)));
-  // The turn's deadline ends it on the same path (ADR-0252 §6.4): what it did
+  // The turn's deadline ends it on the same path: what it did
   // before it ran out of time is kept, marked, and the next turn is told.
   const deadlineTimer = setTimeout(() => stopTurn(new TurnStopped('deadline', Date.now())), turnDeadlineMs);
-  // Before the deadline, the turn hands back with an answer when time is short (ADR-0269 §2.1).
+  // Before the deadline, the turn hands back with an answer when time is short.
   const stepClock = createStepClock({
     deadlineAt: turnStartedAt + turnDeadlineMs,
     turnDeadlineMs,
@@ -375,7 +375,7 @@ export async function runAgentTurn(
   const toolInvocationCounts = new Map<string, number>();
   const DEFAULT_TOOL_QUOTA = 12;
   const SIDE_EFFECT_TOOL_QUOTA = 2;
-  // A UI action is not counted (session 24611234: filling 12 slides of 3 values each
+  // A UI action is not counted (filling 12 slides of 3 values each
   // ran one action 36 times, and a cap of 12 stopped it). What is refused is a loop:
   // the same call with the same input, made again after it changed nothing three
   // times in a row. Undo five times, or nudge a layer five times, is work: each changes the page.
@@ -383,10 +383,10 @@ export async function runAgentTurn(
   const uiRepeats = new Map<string, { unchanged: number; lastState: string | null }>();
 
   // What each call of the turn did: said back to the model before every step
-  // after one did not succeed, so its reply matches it (ADR-0244 §2.5).
+  // after one did not succeed, so its reply matches it.
   const ledger = createTurnLedger();
 
-  // ─── Approvals (ADR-0228) ──────────────────────────────────────────────────
+  // ─── Approvals ──────────────────────────────────────────────────
   // The first call in a turn that needs the user's approval stops the turn:
   // it is stored as a pending approval, the card is shown, and nothing else
   // runs until they decide. Each call is approved separately.
@@ -430,7 +430,7 @@ export async function runAgentTurn(
      * A call refused before its tool ran: invalid input, over its quota, or
      * denied by policy. The model gets the reason; so does the client, as a
      * call that started and failed, so a session's record holds every call
-     * the model made with its arguments (ADR-0244 §2.7).
+     * the model made with its arguments.
      */
     const refused = async (payload: { error: string } & Record<string, unknown>, given: unknown): Promise<CallOutcome> => {
       ledger.record({ tool: t.name, ok: false, error: payload.error });
@@ -464,7 +464,7 @@ export async function runAgentTurn(
         )
       : toolTimeoutMs;
 
-    // ── No changes while blind (ADR-0245 §2.5) ──
+    // ── No changes while blind ──
     // After an answer that came without the page's state, or no answer, only
     // reading runs until a read shows the page again. A change called then is
     // refused here, before its definition is fetched or policy is asked; one
@@ -483,7 +483,7 @@ export async function runAgentTurn(
     // Before quota and policy: an invalid call consumes no quota and never
     // reaches the host. The model gets the errors so it can correct the call.
     // A UI action's schema is its definition's, fetched from the page when the
-    // action is first used (ADR-0245 §2.1).
+    // action is first used.
     let schema = (t.inputSchema ?? {}) as Record<string, unknown>;
     if (t.resolveInputSchema) {
       try {
@@ -518,7 +518,7 @@ export async function runAgentTurn(
     }
     const args = validation.value;
 
-    // ── Attached files named in the call (ADR-0252 §2.13) ──
+    // ── Attached files named in the call ──
     // Each must be a file of this turn's conversation, ready, and of a type the
     // input takes, checked before anything is dispatched; the page then
     // resolves it through its own host. An action declaring a file where none
@@ -594,13 +594,13 @@ export async function runAgentTurn(
     let repeatKey: string | null = null;
 
     // ── Quota enforcement ──
-    // UI actions run as the user in their own session (ADR-0182 §3), so the
-    // backend side-effect cap does not apply to them (ADR-0209 D5). They are
+    // UI actions run as the user in their own session, so the
+    // backend side-effect cap does not apply to them. They are
     // bounded by the turn's steps and deadline; only a repeated identical call is refused.
     const currentCount = toolInvocationCounts.get(t.name) ?? 0;
     const isSideEffecting = schema.sideEffects !== false; // fail-closed: undefined = side-effecting
     if (isUI) {
-      // A UI action that only reads (a room's inspect and query, ADR-0244 §2.2)
+      // A UI action that only reads (a room's inspect and query)
       // changes nothing however often it is called.
       if (!reads) {
         let input: string;
@@ -638,7 +638,7 @@ export async function runAgentTurn(
     }
 
     // ── Policy enforcement ──
-    // A deny always wins, over an approval too (ADR-0228 §2.1).
+    // A deny always wins, over an approval too.
     const requirement = approvalRequirement(t);
     let policyRequiresApproval = false;
     if (config.toolPolicy) {
@@ -661,7 +661,7 @@ export async function runAgentTurn(
       policyRequiresApproval = decision.action === 'require_approval';
     }
 
-    // ── Approval (ADR-0228) ──
+    // ── Approval ──
     // Checked and set with no await in between, so of the calls in one
     // response exactly the first that needs approval stops the turn.
     if (approvalHold && !approved) {
@@ -813,7 +813,7 @@ export async function runAgentTurn(
   };
 
   /**
-   * Stops the turn at a call that needs the user's approval (ADR-0228 §2.2.1):
+   * Stops the turn at a call that needs the user's approval:
    * stores it as a pending approval, shows the card, and tells the model only
    * that it is waiting. The model never sees a token.
    */
@@ -824,7 +824,7 @@ export async function runAgentTurn(
     requirement: ApprovalRequirement,
     files: ReadonlyMap<string, AttachmentRef>,
   ): Promise<string> => {
-    // A file is shown by its name and size; the approval stays bound to its id (ADR-0252 §2.13).
+    // A file is shown by its name and size; the approval stays bound to its id.
     const preview = buildApprovalPreview(t, args, files);
     approvalHold = { approvalId: toolUseId, title: preview.title };
     const refuse = (why: string) => {
@@ -923,7 +923,7 @@ export async function runAgentTurn(
     });
   }
 
-  // The turn's UI tools for the page as it is now (ADR-0245 §2.2). One tool
+  // The turn's UI tools for the page as it is now. One tool
   // per action is built, and none of them is given to the model: `ui_act` runs
   // them, so validation, quota, policy and approval see the action itself.
   // Rebuilt only when what the page offers changes.
@@ -979,7 +979,7 @@ export async function runAgentTurn(
   }
 
   // The host's tools the model is given. A host tool with a UI tool's name, or
-  // with the id of an action of the page, is withheld (ADR-0209 D6): for a
+  // with the id of an action of the page, is withheld: for a
   // UI-only agent, the page is the authority.
   function hostTools(ui: CurrentUI | null): RegisteredTool[] {
     const sdkOwned = new Set(fileTools.map((t) => t.name));
@@ -1094,7 +1094,7 @@ export async function runAgentTurn(
   }
 
   /**
-   * The turn after the user's decision on an approval card (ADR-0228 §2.2.5):
+   * The turn after the user's decision on an approval card:
    * redeem the token and run exactly the stored call, or learn that they
    * declined. What happened goes to the model as an `<approval>` note.
    *
@@ -1285,7 +1285,7 @@ export async function runAgentTurn(
   const stoppedBeforeStart = stopOf(abortController.signal);
   if (stoppedBeforeStart) return await finishStopped(stoppedBeforeStart, { expired: null, continued: null });
 
-  // ─── The turn after an approval decision (ADR-0228 §2.2.5) ────────────────
+  // ─── The turn after an approval decision ────────────────
   const continued = input.approval ? await continueApproval(input.approval) : null;
 
   // ─── Calls still stored as waiting, whose approval expired undecided ──────
@@ -1333,7 +1333,7 @@ export async function runAgentTurn(
       if (answer?.outcome !== 'claimed' && answer?.outcome !== 'already') continue;
       // The user had approved it and it was never run, or nobody decided: the result says which.
       const wasApproved = answer.decided === 'approved';
-      // Withdrawn (a new message, or its turn stopped) is said as that, not as time running out (ADR-0252 §2.6).
+      // Withdrawn (a new message, or its turn stopped) is said as that, not as time running out.
       const content = notRunResult(
         answer.withdrawn
           ? withdrawnMarker(answer.withdrawn, wasApproved)
@@ -1389,7 +1389,7 @@ export async function runAgentTurn(
     ),
     ...(continued?.messages ?? []),
   ];
-  // The turn's files go with its message, after everything said about it (ADR-0252 §2.11).
+  // The turn's files go with its message, after everything said about it.
   // A file that cannot be had is named with why; the turn goes on with the others.
   if (fileArea && turnFilesGiven) {
     try {
@@ -1541,9 +1541,9 @@ export async function runAgentTurn(
       stopWhen: [
         isStepCount(maxRounds - allSteps.length),
         ...USER_INPUT_TOOLS.map((name) => hasToolCall(name)),
-        // A call is waiting for the user's approval: the turn ends here (ADR-0228).
+        // A call is waiting for the user's approval: the turn ends here.
         () => approvalHold !== null,
-        // The step that handed the turn back for time was its last (ADR-0269 §2.1).
+        // The step that handed the turn back for time was its last.
         () => handedBackForTime,
       ],
       ...(temperature !== undefined ? { temperature } : {}),
@@ -1644,7 +1644,7 @@ export async function runAgentTurn(
           pageStatesMoved += trimmed.moved;
           if (trimmed.newest !== undefined) newestAnswerState = trimmed.newest;
         }
-        // The files this step would carry, within the turn's and the conversation's caps (ADR-0252 §2.11).
+        // The files this step would carry, within the turn's and the conversation's caps.
         const leftOutNow = fileGuard.beforeStep();
         if (leftOutNow.length > 0) {
           log('info', 'agent:tool', 'Files left out of the next step to keep within the cap', {
@@ -1759,7 +1759,7 @@ export async function runAgentTurn(
       if (!stopOf(abortController.signal)) throw err;
     }
 
-    // The model's tools no longer change with the page (ADR-0245 §2.2): what
+    // The model's tools no longer change with the page: what
     // the page offers reaches it in each answer, so the turn runs as one segment.
     break;
   }
@@ -1835,7 +1835,7 @@ export async function runAgentTurn(
     promptTokens: usage.promptTokens,
     cacheReadTokens: usage.cacheReadTokens,
     cacheWriteTokens: usage.cacheWriteTokens,
-    // How the page was worked (ADR-0245 §2.6).
+    // How the page was worked.
     ...(client
       ? {
           ui: {
@@ -1909,7 +1909,7 @@ export async function runAgentTurn(
   }
 
   /**
-   * The end of a stopped turn (ADR-0252 §2.4): settle what was in flight, store
+   * The end of a stopped turn: settle what was in flight, store
    * what the turn had produced, then say so. Persist first, announce after, as
    * a turn that ends by itself does.
    *
@@ -1947,7 +1947,7 @@ export async function runAgentTurn(
     }
 
     // A stopped turn leaves no live card: an approval it asked for as the stop came
-    // is withdrawn now, and a later turn records it as that (§2.6).
+    // is withdrawn now, and a later turn records it as that.
     const held = approvalHold as { approvalId: string; title: string } | null;
     if (held && config.approvals?.withdraw) {
       try {
@@ -2027,7 +2027,7 @@ export async function runAgentTurn(
     };
 
     // Whether what the turn had produced was stored: a deadline stop that could not store it is
-    // not a stopped turn but one that ran out of time with nothing kept (ADR-0252 §6.4).
+    // not a stopped turn but one that ran out of time with nothing kept.
     let stored = true;
     if (config.beforeTurnComplete) {
       try {
@@ -2136,10 +2136,10 @@ function convertHistoryToCoreMessages(
   for (let idx = 0; idx < history.length; idx++) {
     const msg = history[idx];
     if (msg.role === 'user') {
-      // A message's files are in history as their reference lines, never their content (ADR-0252 §2.11).
+      // A message's files are in history as their reference lines, never their content.
       messages.push({ role: 'user', content: idx === turnMessageAt ? msg.content : withReferenceLines(msg.content, msg.attachments ?? undefined) });
     } else if (msg.role === 'assistant') {
-      // A stopped turn's last message says so after its text (ADR-0252 §2.3).
+      // A stopped turn's last message says so after its text.
       // A message that has only that carries the line as its whole text: an
       // empty text block is refused by a model provider.
       const stoppedLine = msg.stopped ? turnStoppedNote(msg.stopped) : null;

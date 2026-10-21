@@ -33,7 +33,7 @@ intent:
       type: string
       description: The voice.
   execution:
-    service: studio-api
+    service: example-api
     method: generate_tts
   outcome:
     async: false

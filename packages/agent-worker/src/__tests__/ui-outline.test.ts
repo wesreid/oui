@@ -1,5 +1,5 @@
 /**
- * A definition the model can read (ADR-0245 §2.3): a schema past a size is
+ * A definition the model can read: a schema past a size is
  * given in outline and opened by path, so an action that takes a whole
  * catalogue (an effect union of 94 KB) costs a few hundred tokens to describe.
  */
@@ -133,7 +133,7 @@ describe('describeSchema', () => {
     expect(JSON.parse(stop.text)).toEqual({ type: 'object', properties: { at: { type: 'number' } } });
   });
 
-  // ADR-0248 §2.8, from session 97dd77da: asked twice for the `command` part of the editor's
+  // Asked twice for the `command` part of the editor's
   // run-command, the model was twice given 12 of its 48 commands, and never saw the one it needed.
   describe('a part asked for by its path', () => {
     const commands = Array.from({ length: 48 }, (_, i) => `group.command-${i}`);

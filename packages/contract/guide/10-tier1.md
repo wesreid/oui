@@ -1,6 +1,6 @@
 ## Tier 1: a design system you own
 
-A tier 1 design system is conformant when all of these hold (ADR-0226 §2.2), and the conformance kit checks each:
+A tier 1 design system is conformant when all of these hold, and the conformance kit checks each:
 
 1. **Every interactive export accepts `agent?: AgentProp`**, or `AgentSlots<…>` for a composite with several controls. `AgentProp` is an `AgentBinding`, or `{ nonAgent: "<reason>" }` for a control the assistant must never operate; the reason is required.
 2. **Every interactive export calls `useAgentBinding` (or `useAgentBindings`)** with the kind its table entry declares, and with the handler the person's gesture fires.

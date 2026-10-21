@@ -1,5 +1,5 @@
 /**
- * The worker's approval pieces on their own (ADR-0228): what a declaration
+ * The worker's approval pieces on their own: what a declaration
  * requires, the card's words, the turn after a decision, the turn payload,
  * and failing closed when there is no store. The whole flow runs end to end in
  * approval-turn.e2e.test.ts.

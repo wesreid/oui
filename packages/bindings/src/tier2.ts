@@ -1,5 +1,5 @@
 /**
- * Tier 2 (ADR-0226 §2.3): what a mapping of a third-party design system
+ * Tier 2: what a mapping of a third-party design system
  * means, as the generator reads it and the bound wrappers run it.
  *
  * - `tier2ControlTable`: the control table a mapping makes, which the bound

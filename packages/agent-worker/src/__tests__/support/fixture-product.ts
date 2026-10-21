@@ -48,9 +48,9 @@ export const shellSurface: OUISurface = {
 };
 export const inboxSurface: OUISurface = { id: 'inbox', name: 'Inbox', description: 'Messages', actions: [] };
 /**
- * An irreversible external act (ADR-0226 §2.6 `transaction`): a report, once
+ * An irreversible external act (a `transaction`): a report, once
  * emailed, cannot be unsent. Its title, consequence and argument labels are
- * what the approval card shows (ADR-0228 §2.2).
+ * what the approval card shows.
  */
 export const sendReportAction = {
   id: 'reports_send',
@@ -87,8 +87,8 @@ const PAGES: Record<string, OUISurface[]> = {
 };
 
 /**
- * The knowledge the product's generator emits from its UI code (ADR-0220,
- * ADR-0226): the app's map, and each page in full. A tab resolves it for the
+ * The knowledge the product's generator emits from its UI code: the app's map,
+ * and each page in full. A tab resolves it for the
  * page it is on and sends it with the turn as `context.uiKnowledge`.
  */
 export const DESK_KNOWLEDGE: GeneratedKnowledge = {
@@ -194,8 +194,8 @@ async function openTab(server: RealtimeServerInstance, session: string, firstTur
   await joinTurn(firstTurnRoom);
 
   // OUI's own surface runtime answers every UI action with its real result
-  // (ADR-0209), and runs an approval-requiring one only on this tab's grant
-  // (ADR-0228 §2.2.6). The requests are also kept, as the wire carried them.
+  //, and runs an approval-requiring one only on this tab's grant
+  //. The requests are also kept, as the wire carried them.
   const runtime = createSurfaceRuntime({ announce: false, settle: { quietMs: 10, timeoutMs: 1_000 } });
   let mounted: MountedSurface[] = [];
   let shownPath = '';
@@ -341,7 +341,7 @@ export const FIXTURE_TURN = {
   accountId: 'desk-1',
   socketRoom: 'chat:turn:turn-fx-1',
   content: 'Open my reports',
-  // What a UI client sends with each turn: its surfaces (ADR-0209), and the
+  // What a UI client sends with each turn: its surfaces, and the
   // generated knowledge for the page it is on.
   context: {
     currentPath: '/inbox',

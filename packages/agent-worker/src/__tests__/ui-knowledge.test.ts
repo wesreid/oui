@@ -109,7 +109,7 @@ describe("the host's prompt never sees it", () => {
   });
 });
 
-// Session 24611234: the video editor's knowledge was 117,000 characters, most of it one page's
+// In one session a video editor's knowledge was 117,000 characters, most of it one page's
 // detail (70,000) and 60 workflows (31,000), sent with every model call of every turn.
 describe('knowledge larger than the prompt holds', () => {
   const lines = (prefix: string, n: number) =>

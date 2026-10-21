@@ -1,5 +1,5 @@
 /**
- * Reference Integration Test (W8.T3)
+ * Reference Integration Test
  *
  * Proves the SDK boundary holds: an agent can run with custom tools,
  * a custom persona, and the default turn policy — with ZERO Closure dependencies.
@@ -91,7 +91,7 @@ const searchNotes: RegisteredTool = {
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-describe('Reference Integration (W8.T3)', () => {
+describe('Reference Integration', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
   });
@@ -209,7 +209,7 @@ describe('Reference Integration (W8.T3)', () => {
   });
 });
 
-describe('SDK source Closure-free assertion (W8.T3)', () => {
+describe('SDK source Closure-free assertion', () => {
   it('SDK source should contain no Closure-specific strings', () => {
     const srcDir = path.resolve(__dirname, '..');
     const files = getAllTsFiles(srcDir);

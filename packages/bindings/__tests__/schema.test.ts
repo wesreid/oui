@@ -103,7 +103,7 @@ describe('deriveInputSchema', () => {
     expect(gradient?.anyOf).toHaveLength(3);
   });
 
-  it('accepts a pattern paint where the colour control offers patterns, naming the document’s by id (ADR-0247)', () => {
+  it('accepts a pattern paint where the colour control offers patterns, naming the document’s by id', () => {
     const value = deriveInputSchema('color', {
       paintKinds: ['solid', 'pattern'],
       options: [

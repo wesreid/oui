@@ -1,5 +1,5 @@
 /**
- * Live prompt-cache eval (ADR-0263): a conversation of three turns on a design
+ * Live prompt-cache eval: a conversation of three turns on a design
  * canvas, each read from the cache up to its own new content.
  *
  * On dev (2026-10-08) a quarter of all PA input went uncached and another

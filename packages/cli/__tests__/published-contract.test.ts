@@ -1,5 +1,5 @@
 /**
- * The generator reads and writes the published contract (ADR-0226 §3.1, W3):
+ * The generator reads and writes the published contract:
  * what it emits matches the schemas, and a control table, room catalog or
  * `oui.config.json` the schemas refuse fails the build, naming what is wrong.
  */

@@ -1,10 +1,10 @@
 /**
- * `x-agent`: how an operation opts in as an agent tool (ADR-0181 §3, ADR-0227 §2.1).
+ * `x-agent`: how an operation opts in as an agent tool.
  *
  * ```yaml
  * x-agent:
  *   expose: true            # without it, the operation is not a tool
- *   effect: mutate          # ADR-0226 §2.6: view | file | mutate | job | transaction, or its object form
+ *   effect: mutate          # view | file | mutate | job | transaction, or its object form
  *   destructive: true       # optional, on a write: removes or replaces something the person made
  *   consequence: "..."      # optional: what happens, for the tool's description and an approval's preview
  *   pa: true                # optional: the product's own assistant may call it; only on a read

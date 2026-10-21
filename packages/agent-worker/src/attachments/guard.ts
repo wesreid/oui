@@ -1,5 +1,5 @@
 /**
- * The attachment cost guard (ADR-0252 §2.11).
+ * The attachment cost guard.
  *
  * A file given to the model is resent with every model step of the turn, so
  * what a turn costs is what it gives each step times the steps it takes.

@@ -1,5 +1,5 @@
 /**
- * Schema-loader sideEffects threading tests (D9)
+ * Schema-loader sideEffects threading tests
  *
  * Validates that the `sideEffects` field from intent YAML is threaded into
  * the RegisteredTool's `inputSchema`, where the orchestrator reads it for
@@ -10,7 +10,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 
-describe('Schema-loader sideEffects threading (D9)', () => {
+describe('Schema-loader sideEffects threading', () => {
   let tmpDir: string;
 
   beforeEach(() => {
@@ -32,7 +32,7 @@ intent:
       description: Production ID
       required: true
   execution:
-    service: studio-api
+    service: example-api
     method: get_production
   outcome:
     async: false
@@ -59,7 +59,7 @@ intent:
       description: Character name
       required: true
   execution:
-    service: studio-api
+    service: example-api
     method: create_character
   outcome:
     async: false
@@ -89,7 +89,7 @@ intent:
       description: Track ID
       required: true
   execution:
-    service: studio-api
+    service: example-api
     method: delete_track
   outcome:
     async: false

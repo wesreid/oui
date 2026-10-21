@@ -1,5 +1,5 @@
 /**
- * Orchestrator Execution Bounds Tests (W7.T1)
+ * Orchestrator Execution Bounds Tests
  *
  * Tests all four execution bounds:
  *   1. Token budget — maxOutputTokens passed to streamText
@@ -114,7 +114,7 @@ function makeBaseConfig(overrides?: Partial<AgentWorkerConfig>): AgentWorkerConf
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-describe('Orchestrator Execution Bounds (W7.T1)', () => {
+describe('Orchestrator Execution Bounds', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
   });
@@ -165,7 +165,7 @@ describe('Orchestrator Execution Bounds (W7.T1)', () => {
   // ── 2. Wall-clock deadline ─────────────────────────────────────────────────
 
   describe('Wall-clock deadline', () => {
-    it('ends the turn on the stop path: what it had said is kept, marked as having run out of time, and announced (ADR-0252 §6.4)', async () => {
+    it('ends the turn on the stop path: what it had said is kept, marked as having run out of time, and announced', async () => {
       // Use real timers for this test — fake timers don't advance inside async generators
       vi.useRealTimers();
 

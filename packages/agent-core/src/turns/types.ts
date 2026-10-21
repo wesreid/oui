@@ -1,5 +1,5 @@
 /**
- * Stopping a turn (ADR-0252): the shapes the tab, the realtime server, the
+ * Stopping a turn: the shapes the tab, the realtime server, the
  * worker and a host's API exchange when a person stops a running turn, or
  * sends a new message that supersedes it.
  *
@@ -26,7 +26,7 @@ export function isTurnStopReason(value: unknown): value is TurnStopReason {
 /**
  * Why a turn ended on the stop path, keeping what it had produced: a stop that
  * was asked for (`TurnStopReason`), or its own deadline (`deadline`: it ran
- * out of time, ADR-0252 §6.4). Nobody asks for `deadline`: it is never a
+ * out of time). Nobody asks for `deadline`: it is never a
  * stop request, only a stopped turn's reason.
  */
 export type TurnStoppedReason = TurnStopReason | 'deadline';

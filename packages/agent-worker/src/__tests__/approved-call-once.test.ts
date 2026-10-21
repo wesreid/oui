@@ -345,7 +345,7 @@ describe('a call still stored as waiting, at the start of a later turn', () => {
     expect(result.settledApprovals).toEqual(['call_save_1']);
   });
 
-  it('withdrawn because the user sent a new message: said as that, never as time running out (ADR-0252 §2.6)', async () => {
+  it('withdrawn because the user sent a new message: said as that, never as time running out', async () => {
     const { runAgentTurn } = await import('../orchestrator.js');
     const result = await runAgentTurn({ ...config, approvals: settling(() => 'claimed', undefined, 'superseded').store }, turn(waiting));
 

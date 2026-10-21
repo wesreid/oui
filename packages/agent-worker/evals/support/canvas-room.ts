@@ -9,9 +9,9 @@
  * turn through the worker — its tools, its page-state fitting, its turn record
  * — and grades the document afterwards, never what the model said it did.
  *
- * `platform: 'before'` is the room as rooms were before ADR-0244: lists with
+ * `platform: 'before'` is the room as rooms were before readers: lists with
  * no declared rows, no readers, ids only, results that carry no `changed`, an
- * anchor whose measure is not said. `'after'` is the room as ADR-0244 has it.
+ * anchor whose measure is not said. `'after'` is the room as it is now.
  * The same scenarios on both show what the platform changed.
  */
 import type { OUIActionRequest, OUIActionResult, OUISurface } from 'oui-spec/spec';

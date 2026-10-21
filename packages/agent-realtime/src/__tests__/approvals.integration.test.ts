@@ -1,12 +1,11 @@
 /**
- * The approval store (ADR-0228 §2.3–2.4), on the real server twice over one
+ * The approval store, on the real server twice over one
  * real Redis: the worker stores a pending approval on instance B, the user's
  * tab decides on instance A, the worker redeems on B.
  *
- * §5.3: a replayed, expired, re-signed or cross-user token is refused by
- * `redeem`. §5.2 (store half): a token whose args hash is not the stored
- * call's is refused. §5.6 (store half): declining deletes the pending
- * approval.
+ * A replayed, expired, re-signed or cross-user token is refused by
+ * `redeem`. A token whose args hash is not the stored call's is refused.
+ * Declining deletes the pending approval.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import crypto from 'node:crypto';
@@ -406,7 +405,7 @@ describe('an approval nobody decided: settled by a later turn', () => {
   });
 });
 
-describe('an approval withdrawn before it was used (ADR-0252 §2.6)', () => {
+describe('an approval withdrawn before it was used', () => {
   const owner = { userId: 'u1', conversationId: 'conv-1' };
   const settle = (server: RealtimeServerInstance, id: string, body: Record<string, unknown> = owner) =>
     internal(server, `/internal/approvals/${id}/settle`, { body });

@@ -524,7 +524,7 @@ describe('page problems', () => {
   });
 });
 
-describe('connectBindings on a runtime in index form (ADR-0245 §2.1)', () => {
+describe('connectBindings on a runtime in index form', () => {
   it('offers the mounted controls as index entries, and describes one as the page has it now', async () => {
     const registry = createBindingRegistry();
     const runtime = createSurfaceRuntime({ form: 'index', announce: false, settle: { quietMs: 5, timeoutMs: 200 } });

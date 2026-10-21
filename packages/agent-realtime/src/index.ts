@@ -4,7 +4,7 @@
  *
  * The product supplies: an auth verifier, a room policy, the internal key, the
  * room-token secret, the approval signing key, Redis and its CORS origins,
- * and optionally its event declarations (ADR-0227 §2.2).
+ * and optionally its event declarations.
  * The server handles: declared client events, room tokens, the UI action
  * result store, the approval store, the emit API (held to the declarations),
  * job settlements, and fan-out across instances.

@@ -1,5 +1,5 @@
 /**
- * A definition the model can read (ADR-0245 §2.3).
+ * A definition the model can read.
  *
  * An action's input schema can be a whole catalogue: an effect action's union
  * of sixty effects is 94 KB. Handed over whole it would fill the model's

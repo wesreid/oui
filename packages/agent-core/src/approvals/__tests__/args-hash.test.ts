@@ -1,5 +1,5 @@
 /**
- * ADR-0228 §5.8, the TypeScript side: the args hash the worker, the approval
+ * The TypeScript side of the args hash: the args hash the worker, the approval
  * store and the browser all compute is the published one, and the one this
  * package exports is oui-spec's. Every vector's input
  * canonicalizes to exactly its canonical form and hashes to exactly its hash;

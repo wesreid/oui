@@ -1,5 +1,5 @@
 /**
- * Live capability eval (ADR-0244 §2.9): can the assistant find, read, change
+ * Live capability eval: can the assistant find, read, change
  * and verify things in a room that holds a real document?
  *
  * Each scenario is a turn the 2026-10-02 vector studio session's assistant
@@ -18,7 +18,7 @@
  *    reply names what was left unchanged.
  *
  * `EVAL_PLATFORM=before` runs the same scenarios against the room as rooms
- * were before ADR-0244 (lists cut to a count, no readers, ids only, results
+ * were before readers (lists cut to a count, no readers, ids only, results
  * without `changed`, a 6,000-character page state): the baseline. The default,
  * `after`, is the platform as it is.
  *

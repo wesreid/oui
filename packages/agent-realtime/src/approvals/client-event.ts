@@ -1,5 +1,5 @@
 /**
- * `approval:decide` (ADR-0228 §2.2.3): the user's click on the approval card,
+ * `approval:decide`: the user's click on the approval card,
  * on their own authenticated socket. The decider is the socket's verified
  * identity, never one the payload names, and an approval's token is answered
  * only to this socket, in the event's ack.

@@ -2,7 +2,7 @@
  * @ouispec/agent-worker — the agent runtime.
  *
  * Hosts provide: the model (any `ai` provider), the realtime server, the
- * persona, tools and persistence callbacks (ADR-0227 §2.2).
+ * persona, tools and persistence callbacks.
  * The worker handles: the multi-round tool loop, UI actions, streaming,
  * retries and timeouts, on Lambda + SQS or in a container.
  */
@@ -13,7 +13,7 @@ export type { ToolRegistry, RegisteredTool, ToolExecutionResult, ToolExecutionCo
 export { createToolRegistry } from './tools/types.js';
 export { loadToolsFromSchema } from './tools/schema-loader.js';
 export type { LoadToolsOptions } from './tools/schema-loader.js';
-// Async tools wait on the product's declared events (W9)
+// Async tools wait on the product's declared events
 export { bindAsyncTool, awaitAsyncTool } from './tools/async-binding.js';
 export type { AsyncToolSpec, BoundAsyncTool, AsyncToolSettlement } from './tools/async-binding.js';
 export { createHttpEventWaiter } from './events/http-waiter.js';
@@ -25,7 +25,7 @@ export type { LoadAllToolsOptions } from './tools/load-all-tools.js';
 export { createToolInputValidator } from './tools/input-validation.js';
 export type { ToolInputValidation, ToolInputValidator } from './tools/input-validation.js';
 
-// API tools generated from any OpenAPI 3 document (ADR-0181 §2), each call acting
+// API tools generated from any OpenAPI 3 document, each call acting
 // as the caller the host's actAs seam names. Also at `/openapi`.
 export { loadOpenApiTools, OpenApiToolError, API_OPERATION_EFFECTS } from './openapi/index.js';
 export type {
@@ -47,7 +47,7 @@ export type {
 export type { ToolPolicy, ToolPolicyContext, ToolPolicyDecision } from './authz/tool-policy.js';
 export { defaultToolPolicy, evaluateToolPolicySafe } from './authz/tool-policy.js';
 
-// Approvals (ADR-0228): an irreversible action runs only on an approval the
+// Approvals: an irreversible action runs only on an approval the
 // user gave, bound to the call, kept by the realtime server's approval store.
 export { createHttpApprovalStoreClient } from './approvals/client.js';
 export type { ApprovalStoreClient, HttpApprovalStoreClientConfig } from './approvals/client.js';
@@ -55,13 +55,13 @@ export { approvalRequirement, APPROVAL_TOOL_NOTE } from './approvals/requirement
 export type { ApprovalRequirement } from './approvals/requirement.js';
 export { buildApprovalPreview } from './approvals/preview.js';
 
-// Stopping a turn (ADR-0252): the person's Stop, or a newer message that
+// Stopping a turn: the person's Stop, or a newer message that
 // supersedes the turn, is kept by the realtime server and asked for by the
 // turn. What the turn had produced is stored, then announced.
 export { createHttpTurnStopClient, watchTurnStop, stopOf, TurnStopped, DEFAULT_STOP_GRACE_MS } from './stop/turn-stop.js';
 export type { TurnStopClient, HttpTurnStopClientConfig, TurnStopWatch, TurnStopState } from './stop/turn-stop.js';
 export { stoppedTurnMessages } from './stop/partial.js';
-// Files the person attaches (ADR-0252 §2.8–§2.12): the host's file area, the cost guard, the attachment tools.
+// Files the person attaches: the host's file area, the cost guard, the attachment tools.
 export type { AttachmentStore, AttachmentStoreCallOptions, AttachmentOwner, AttachmentLoadAs, AttachmentContent, AttachmentWorkerConfig } from './attachments/store.js';
 export { AttachmentGuard, type AttachmentUsage, type GuardedPart, type AttachmentCap } from './attachments/guard.js';
 export { attachmentTools, ATTACHMENT_TOOLS, ATTACHMENT_TOOL_CLASS } from './attachments/tools.js';
@@ -75,7 +75,7 @@ export {
 export * as attachmentLimits from './attachments/limits.js';
 export type { RecordedStep, RecordedCall } from './stop/partial.js';
 
-// UI actions (ADR-0209): the client's surfaces become the turn's UI tools,
+// UI actions: the client's surfaces become the turn's UI tools,
 // and every UI action is answered by the client.
 export type { UIActionChannel, HttpUIActionChannelConfig } from './ui/channel.js';
 export { createHttpUIActionChannel } from './ui/channel.js';
@@ -117,7 +117,7 @@ export { runAgentTurn } from './orchestrator.js';
 
 // The model seam: any `ai` library model; the worker imports no provider.
 export { PROMPT_CACHE_BREAKPOINTS, describeModel } from './model.js';
-// An answer as the model is sent it and as it is stored, for a host that fits answers stored before 0.11 (ADR-0263 §2.2).
+// An answer as the model is sent it and as it is stored, for a host that fits answers stored before 0.11.
 export { answerWithoutState } from './ui/page-state-at-end.js';
 export type { LanguageModel, ProviderOptions } from './model.js';
 export type { TurnPolicy, StepTool } from './turn-policy.js';

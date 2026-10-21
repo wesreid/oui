@@ -1,5 +1,5 @@
 /**
- * How large what a build offers the assistant may be (ADR-0245 §2.6).
+ * How large what a build offers the assistant may be.
  *
  * A page sends an index of its actions, and a definition when one is asked
  * for. Each has a frame it must fit: an index entry is a line the model reads

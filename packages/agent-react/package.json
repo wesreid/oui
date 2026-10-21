@@ -1,6 +1,6 @@
 {
   "name": "@ouispec/agent-react",
-  "version": "0.10.0",
+  "version": "0.13.1",
   "description": "React bindings — view annotations, execution engine, agent UI components",
   "homepage": "https://github.com/wesreid/oui/tree/main/packages/agent-react#readme",
   "bugs": {
@@ -56,7 +56,7 @@
   },
   "oui": {
     "personOnly": {
-      "ApprovalCard": "Only the person approves an irreversible action (ADR-0228): the assistant never operates its own approval"
+      "ApprovalCard": "Only the person approves an irreversible action: the assistant never operates its own approval"
     }
   }
 }

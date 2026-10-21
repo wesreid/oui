@@ -24,7 +24,7 @@ export interface AgentWorkerConfig {
    */
   apiSurface?: import('@ouispec/agent-core').AgentApiSurface;
   systemPrompt: string | ((context: SystemPromptContext) => string);
-  /** The model, from any `ai` library provider (ADR-0227 §2.2). Required. */
+  /** The model, from any `ai` library provider. Required. */
   model: LanguageModel;
   /**
    * Provider options that mark a prompt-cache breakpoint, placed after the
@@ -45,7 +45,7 @@ export interface AgentWorkerConfig {
   turnDeadlineMs?: number;
   /**
    * Time kept back, before the turn's deadline, for a last step that says what
-   * is done and offers to continue (ADR-0269 §2.1). A step starts as the last
+   * is done and offers to continue. A step starts as the last
    * when a step as long as the turn's longest so far would leave less than this.
    * Default 30 s (`DEFAULT_HAND_BACK_RESERVE_MS`), never more than a quarter of
    * the turn's deadline.
@@ -68,14 +68,14 @@ export interface AgentWorkerConfig {
    */
   toolPolicy?: ToolPolicy;
   /**
-   * The approval store (ADR-0228), in the realtime server. A call that needs
+   * The approval store, in the realtime server. A call that needs
    * the user's approval is stored there and the turn stops; without a store,
    * such a call is refused and never runs.
    */
   approvals?: ApprovalStoreClient;
   /**
    * How UI actions reach the client that sent the turn and how its answers
-   * come back (ADR-0209). Required when a turn's context carries a client
+   * come back. Required when a turn's context carries a client
    * snapshot (`context.oui`).
    */
   ui?: {
@@ -109,11 +109,11 @@ export interface AgentWorkerConfig {
    * completes: a turn that answered is not turned into a failure by its record.
    *
    * A stopped turn calls it too, with what it had produced and `stopped`
-   * (ADR-0252 §2.4): stored first, announced after, on both paths.
+   *: stored first, announced after, on both paths.
    */
   beforeTurnComplete?: (turn: Pick<AgentTurnResult, 'rounds' | 'usage' | 'newMessages' | 'stopped'>) => Promise<void>;
   /**
-   * Where the turn hears that it was asked to stop (ADR-0252 §2.1): the
+   * Where the turn hears that it was asked to stop: the
    * person's Stop, or a newer message superseding it. Without one, or without
    * `stopWatch` on the turn's input, a turn cannot be stopped.
    */
@@ -124,7 +124,7 @@ export interface AgentWorkerConfig {
    */
   stopGraceMs?: number;
   /**
-   * The host's file area (ADR-0252 §3). With it, a turn's files are given to
+   * The host's file area. With it, a turn's files are given to
    * the model with its message, and the attachment tools reach the
    * conversation's files. Without it a turn's attachments are left out.
    */
@@ -159,7 +159,7 @@ export interface AgentTurnInput {
   userToken?: string;
   /**
    * Set on the turn that follows the user's decision on an approval card: the
-   * token to redeem, or that they declined (ADR-0228 §2.2.5). Never in the
+   * token to redeem, or that they declined. Never in the
    * message text.
    */
   approval?: ApprovalContinuation;
@@ -176,7 +176,7 @@ export interface AgentTurnInput {
    */
   remainingMs?: () => number;
   /**
-   * The files attached to the turn's message, by reference (ADR-0252 §2.8):
+   * The files attached to the turn's message, by reference:
    * given to the model with it, through `config.attachments`.
    */
   attachments?: AttachmentRef[];
@@ -249,13 +249,14 @@ export interface AgentTurnResult {
   maxRoundsReached: boolean;
   /**
    * Why the turn ended: which bound or condition terminated the loop, or
-   * that it was stopped (`user_stop`, `superseded`: ADR-0252).
+   * that it was stopped (`user_stop`, `superseded`).
    */
   stopReason:
     | 'present_options'
     | 'awaiting_approval'
     | 'step_count'
-    // Time was short, so the turn's last step said what was done and offered to continue (ADR-0269 §2.1).
+    // Time was short, so the turn's last step said what was done and offered to
+    // continue.
     | 'time_limit'
     | 'token_budget'
     | 'deadline'
@@ -273,10 +274,10 @@ export interface AgentTurnResult {
    * `false` when the turn was stopped and what it had produced could not be
    * stored (`beforeTurnComplete` failed or ran out of time). A turn that ran
    * out of time and stored nothing is recorded as such, not as stopped
-   * (ADR-0252 §6.4).
+   *.
    */
   stored?: false;
-  /** What the turn gave the model of its files, when the host has a file area (ADR-0252 §2.11). */
+  /** What the turn gave the model of its files, when the host has a file area. */
   attachments?: AttachmentUsage;
 }
 
@@ -287,7 +288,7 @@ export interface TurnMessage {
   toolCallId?: string;
   name?: string;
   /**
-   * On the last assistant message of a stopped turn (ADR-0252 §2.3). The host
+   * On the last assistant message of a stopped turn. The host
    * stores it with the message and hands it back in history
    * (`TurnHistoryMessage.stopped`). A message that has only the marker carries
    * the marker's line as its `content`, so it is never empty.

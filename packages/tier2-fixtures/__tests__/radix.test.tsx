@@ -1,5 +1,5 @@
 /**
- * Tier 2 acceptance on Radix (ADR-0226 §2.3, §6; plan §5 W4): compound
+ * Tier 2 acceptance on Radix: compound
  * primitives (`Select.Root` / `Select.Item`) take their options from the
  * items they render, and single primitives exported under a namespace
  * (`Switch.Root`) are mapped by their root alone. The app passes

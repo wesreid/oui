@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { createTurnStopStore, TURN_STOP_TTL_SEC } from '../turns/stops.js';
 import { createMemoryRedis, recordingLogger } from './fixtures.js';
 
-/** ADR-0252 §2.1: the stop record the worker asks for. */
+/** The stop record the worker asks for. */
 
 const logger = recordingLogger();
 

@@ -1,7 +1,7 @@
 {
   "name": "@ouispec/agent-events",
-  "version": "0.8.0",
-  "description": "Event contracts the product declares (ADR-0227 §2.4): each event's payload schema, rooms, correlation and job role; the catalog the realtime server, the worker's async tools and the UI's job tracker follow; the platform's own turn events; payload validation and TypeScript generation",
+  "version": "0.13.1",
+  "description": "Event contracts the product declares: each event's payload schema, rooms, correlation and job role; the catalog the realtime server, the worker's async tools and the UI's job tracker follow; the platform's own turn events; payload validation and TypeScript generation",
   "homepage": "https://github.com/wesreid/oui/tree/main/packages/agent-events#readme",
   "bugs": {
     "url": "https://github.com/wesreid/oui/issues"

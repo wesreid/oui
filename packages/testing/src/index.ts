@@ -1,5 +1,5 @@
 /**
- * @ouispec/testing — the OUI conformance kit (ADR-0226 §3.2).
+ * @ouispec/testing — the OUI conformance kit.
  *
  * It runs in the integrator's own test runner, in any DOM environment, and
  * reports against the published contract (`@ouispec/contract`):

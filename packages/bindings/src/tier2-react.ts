@@ -1,8 +1,8 @@
 /**
- * The bound wrappers `oui generate` emits for a tier 2 mapping (ADR-0226
- * §2.3) are built from these. Each wrapper accepts `agent`, registers the
+ * The bound wrappers `oui generate` emits for a tier 2 mapping are built from
+ * these. Each wrapper accepts `agent`, registers the
  * mapped kind with the app's own callback through `useAgentBinding`, returns
- * that callback's result (§2.2 rule 3), reports the component's `disabled`
+ * that callback's result, reports the component's `disabled`
  * prop, and renders the third-party component unchanged: its props, its ref,
  * its static members.
  *

@@ -1,5 +1,5 @@
 /**
- * One approval per irreversible act (ADR-0228 §2.1). A destructive step runs
+ * One approval per irreversible act. A destructive step runs
  * only on the person's approval of that call, so a control that only opens the
  * dialog where the destructive step is confirmed must not be destructive too:
  * deleting would then ask twice, once for opening a dialog. The generator

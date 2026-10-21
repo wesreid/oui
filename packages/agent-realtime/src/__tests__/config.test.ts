@@ -5,7 +5,7 @@ import { fixtureRoomPolicy, fixtureRelay, recordingLogger, TEST_APPROVAL_KEY, TE
 
 /**
  * Every seam is required, and a missing one fails start-up naming it
- * (ADR-0227 §2.2). Nothing here reaches Redis: the check runs first.
+ *. Nothing here reaches Redis: the check runs first.
  */
 
 const complete: RealtimeServerConfig = {

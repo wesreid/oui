@@ -1,9 +1,9 @@
 /**
- * The realtime server: one implementation for every product (ADR-0227 §2.1).
+ * The realtime server: one implementation for every product.
  *
  * It carries turn events and the product's declared events to rooms, holds
- * UI action results for the agent worker (ADR-0209), keeps the approvals an
- * irreversible action waits on (ADR-0228), signs and checks room tokens, and
+ * UI action results for the agent worker, keeps the approvals an
+ * irreversible action waits on, signs and checks room tokens, and
  * accepts only declared client events. The product supplies the
  * seams (types.ts); nothing here belongs to one product.
  */
@@ -50,11 +50,11 @@ export interface RealtimeServerInstance {
   roomTokens: RoomTokenSigner;
   /** The UI action result store. */
   results: OUIResultStore;
-  /** The approval store (ADR-0228). */
+  /** The approval store. */
   approvals: ApprovalStore;
   /** Job settlements, when the server has event declarations. */
   settlements: SettlementStore | null;
-  /** Stop requests for turns (ADR-0252). */
+  /** Stop requests for turns. */
   stops: TurnStopStore;
   close(): Promise<void>;
 }

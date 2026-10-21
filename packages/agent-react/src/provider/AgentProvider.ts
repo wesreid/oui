@@ -46,7 +46,7 @@ const HISTORY_PAGE_SIZE = 20;
 const APPROVAL_DECIDE_TIMEOUT_MS = 10_000;
 /** How long the server's answer to a Stop is waited for before the platform's API is asked instead. */
 const STOP_ACK_TIMEOUT_MS = 3_000;
-/** How long a stop may go unconfirmed by the turn's end before the turn is shown as stopped (ADR-0252 §2.14). */
+/** How long a stop may go unconfirmed by the turn's end before the turn is shown as stopped. */
 export const STOP_CONFIRM_TIMEOUT_MS = 10_000;
 /** How many ended turns the tab remembers, to ignore what they still send. */
 const ENDED_TURNS_REMEMBERED = 20;
@@ -126,7 +126,7 @@ function createDebugEntry(
  * - Streaming state, message history, keyboard shortcuts
  *
  * UI actions are not dispatched here: the client's OUI surface runtime answers
- * them on the same socket (ADR-0209).
+ * them on the same socket.
  */
 export function AgentProvider({ config, children }: { config: AgentClientConfig; children: React.ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -154,11 +154,11 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   const [debugEnabled, setDebugEnabled] = useState(false);
   const [debugLogs, setDebugLogs] = useState<DebugLogEntry[]>([]);
   const [presentedOptions, setPresentedOptions] = useState<PresentedOptions | null>(null);
-  // The call a turn stopped at for the user's approval (ADR-0228), until they decide.
+  // The call a turn stopped at for the user's approval, until they decide.
   const [pendingApproval, setPendingApproval] = useState<AgentApprovalRequest | null>(null);
   const [approvalDeciding, setApprovalDeciding] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
-  // The turn the person asked to stop, from their Stop until its end arrives (ADR-0252 §2.14).
+  // The turn the person asked to stop, from their Stop until its end arrives.
   const [isStopping, setIsStopping] = useState(false);
   const stoppingRef = useRef<{ turnId: string; timer: ReturnType<typeof setTimeout> | null } | null>(null);
   const socketRef = useRef<SocketLike | null>(null);
@@ -222,7 +222,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     return creatingRef.current;
   }, [addDebugLog, setActiveConversation]);
 
-  // The files on the message being written (ADR-0252 §2.14).
+  // The files on the message being written.
   const messagesRef = useRef<AgentMessage[]>([]);
   messagesRef.current = messages;
   const composer = useComposerAttachments({
@@ -307,7 +307,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   /**
    * Whether an event of turn `turnId` belongs to the turn the tab is running. While a new turn has
    * no id yet, nothing does: whatever still arrives is the turn before it, which a new message has
-   * superseded (ADR-0252 §2.5), and its text and calls are no longer shown as in progress.
+   * superseded, and its text and calls are no longer shown as in progress.
    */
   const ofLiveTurn = (turnId: string | undefined): boolean => {
     const { starting, turnId: live } = liveTurnRef.current;
@@ -673,7 +673,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     }
     // Any choice still on screen belongs to the previous turn.
     setPresentedOptions(null);
-    // A message sent while a turn runs supersedes it (ADR-0252 §2.5): the platform stops that turn,
+    // A message sent while a turn runs supersedes it: the platform stops that turn,
     // and here it is shown as stopped at once. Its room is left when the new turn's is joined, so
     // its own end may never arrive to say so.
     const superseded = approval ? null : liveTurnRef.current.turnId;
@@ -691,7 +691,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     streamBufferRef.current = '';
 
     try {
-      // A spoken message says so on its context (ADR-0259 §2.6); a typed one, and a card's click, say nothing.
+      // A spoken message says so on its context; a typed one, and a card's click, say nothing.
       const context: AgentMessageContext = { ...collectContext(), ...(input && !approval ? { input } : {}) };
       addDebugLog('info', 'agent:api', approval ? 'Continuing after an approval decision...' : 'Sending message...', {
         conversationId: convId,
@@ -751,7 +751,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
 
   // A message carries the composer's ready files, once the uploads still running have finished.
   // Nothing is sent when the files say not to: why, with the text, so the composer keeps the draft.
-  // A spoken message is sent the same way, and says how it was entered (ADR-0259 §2.6).
+  // A spoken message is sent the same way, and says how it was entered.
   const sendMessage = useCallback(
     (content: string, options?: SendMessageOptions | AttachmentRef[]): Promise<SendMessageResult> => {
       const { attachments, input: given } = Array.isArray(options) ? { attachments: options, input: undefined } : (options ?? {});
@@ -772,7 +772,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     [startTurn, takeForSend, addDebugLog],
   );
 
-  // --- The person's Stop (ADR-0252 §2.14) ---
+  // --- The person's Stop ---
   // Asked over the socket, from the turn's room: the server takes it only from there. The turn's
   // worker hears it, stores what it had, and sends the turn's end with why. If the socket cannot
   // ask, or the end has not arrived in time, the platform's API is asked instead and the turn is
@@ -837,7 +837,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     return stoppingRef.current?.turnId === turnId ? null : turnId;
   }, []);
 
-  // --- The user's decision on an approval card (ADR-0228 §2.2.3) ---
+  // --- The user's decision on an approval card ---
   // Only the card calls this: it is not on the context `useAgent` returns, so
   // nothing an app binds for the assistant can reach it.
   const pendingApprovalRef = useRef<AgentApprovalRequest | null>(null);

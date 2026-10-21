@@ -1,5 +1,5 @@
 /**
- * A page that does not open still says why (ADR-0220). An access guard that
+ * A page that does not open still says why. An access guard that
  * refuses a route, or a page that fails before any of its controls mount, has
  * no page surface to report its problem with, so the navigation surface, which
  * is always there, carries it. When the page is open it reports its own.

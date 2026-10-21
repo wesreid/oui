@@ -1,5 +1,5 @@
 /**
- * A control that takes a file (ADR-0252 §2.13): an upload zone or a file
+ * A control that takes a file: an upload zone or a file
  * button, bound as the `file` kind. Pressed by the assistant with the id of a
  * file the person attached, it runs the same handler the person's own choice
  * runs, with the file: the page resolves the id through its host first.

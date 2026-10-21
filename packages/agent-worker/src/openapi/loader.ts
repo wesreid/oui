@@ -1,20 +1,20 @@
 /**
  * loadOpenApiTools — a product's OpenAPI 3 document becomes its agent tools
- * (ADR-0181 §2). No second manifest format: the document is read directly.
+ *. No second manifest format: the document is read directly.
  *
  * - An operation is a tool only when its `x-agent` says `expose: true`.
  * - Its name is its `operationId`; its description its `summary` and `description`;
  *   its input its parameters and JSON request body, validated by the worker before
  *   every call.
  * - Its effect and `destructive` come from `x-agent`, and are on the tool for
- *   approvals to key on (ADR-0228).
+ *   approvals to key on.
  * - Its required permissions are its standard `security` requirement.
  * - A call runs as the caller the required `actAs` seam names, and the API decides
  *   what that caller may do.
  * - The product's own assistant (`audience: 'pa'`) gets only the operations flagged
- *   `pa: true`, and the flag is refused on anything but a read (ADR-0227 §2.1).
+ *   `pa: true`, and the flag is refused on anything but a read.
  * - An operation that starts a job names its declared completion event in
- *   `x-async-binding` (W9). It is checked against the product's declarations at
+ *   `x-async-binding`. It is checked against the product's declarations at
  *   load, and with a waiter the tool waits for the job to settle.
  *
  * Anything that cannot become a safe, callable tool is refused at load, naming the
@@ -229,7 +229,7 @@ function buildInput(
       type: 'object',
       properties,
       ...(required.length > 0 ? { required } : {}),
-      // A tool accepts exactly what its operation declares (ADR-0182 §5).
+      // A tool accepts exactly what its operation declares.
       additionalProperties: false,
     },
     placements,
@@ -414,7 +414,7 @@ export function loadOpenApiTools(document: OpenApiDocument, options: OpenApiTool
         inputSchema: input.schema,
         effect,
         destructive: exposure.destructive,
-        // The approval card's title and consequence come from the operation (ADR-0228 §2.2.2).
+        // The approval card's title and consequence come from the operation.
         title: summary || operationId,
         ...(exposure.consequence ? { consequence: exposure.consequence } : {}),
         operation: {
@@ -437,7 +437,7 @@ export function loadOpenApiTools(document: OpenApiDocument, options: OpenApiTool
         },
         async execute(args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolExecutionResult> {
           // An irreversible act runs only on the person's approval of this exact call
-          // (ADR-0228). The worker runs it with that approval once the person gave it;
+          //. The worker runs it with that approval once the person gave it;
           // any other runner (an MCP server, a host calling the tool itself) has none.
           if (irreversible && !ctx.approval) {
             return {

@@ -1,6 +1,6 @@
 /**
  * The UI action channel: how the worker sends a UI action to the client that
- * sent the turn, and how it gets the client's answer (ADR-0209 D2).
+ * sent the turn, and how it gets the client's answer.
  *
  * The worker is not on the client's socket. It reaches the client through the
  * realtime service: the request is emitted to the turn's room, the client

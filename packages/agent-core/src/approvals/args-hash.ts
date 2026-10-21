@@ -1,5 +1,5 @@
 /**
- * The args hash (ADR-0228 §2.3): SHA-256 over the RFC 8785 (JCS) canonical
+ * The args hash: SHA-256 over the RFC 8785 (JCS) canonical
  * JSON of a call's arguments, lowercase hex.
  *
  * Defined once, in `oui-spec`, where the browser's runtime checks a request

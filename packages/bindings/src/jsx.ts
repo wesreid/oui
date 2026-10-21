@@ -1,5 +1,5 @@
 /**
- * `agent` on JSX, for an app with tier 2 bound modules (ADR-0226 §2.3). A
+ * `agent` on JSX, for an app with tier 2 bound modules. A
  * bound export keeps the third-party component's own type, generics and
  * polymorphism included, so `agent` cannot be one of its props; every bound
  * module imports this entry instead, the way a styling library adds `css`.
@@ -13,7 +13,7 @@ declare module 'react' {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace JSX {
     interface IntrinsicAttributes {
-      /** The assistant's binding of a bound control (ADR-0226 §2.3). */
+      /** The assistant's binding of a bound control. */
       agent?: AgentAttribute;
     }
   }

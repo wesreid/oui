@@ -1,6 +1,6 @@
 ## `oui.config.json`
 
-The generator reads every setting from `oui.config.json` at the app's root; paths are relative to it (ADR-0226 §2.4). Nothing an app depends on has a default: a missing `tsconfig`, `routes`, `designSystem`, `apiSpec` or `out` is an error naming the setting, and so is a setting the generator does not know. `designSystem: []` says every control is tier 2 or in a room; `apiSpec: null` says the app has no API, and then a `mutate` effect fails.
+The generator reads every setting from `oui.config.json` at the app's root; paths are relative to it. Nothing an app depends on has a default: a missing `tsconfig`, `routes`, `designSystem`, `apiSpec` or `out` is an error naming the setting, and so is a setting the generator does not know. `designSystem: []` says every control is tier 2 or in a room; `apiSpec: null` says the app has no API, and then a `mutate` effect fails.
 
 ```json
 {

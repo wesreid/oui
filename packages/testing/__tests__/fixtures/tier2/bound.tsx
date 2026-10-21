@@ -1,6 +1,6 @@
 /**
  * Bound wrappers over the stand-in third-party package, as `oui generate`
- * emits them from `mapping.json` (ADR-0226 §2.3): each accepts `agent`,
+ * emits them from `mapping.json`: each accepts `agent`,
  * registers the mapped kind with the app's own callback, returns that
  * callback's result, and renders the third-party component unchanged.
  * `BrokenThirdSelect` hands the value over at the wrong argument.

@@ -1,5 +1,5 @@
 /**
- * The page as the worker holds it: an index of what it offers (ADR-0245 §2.1).
+ * The page as the worker holds it: an index of what it offers.
  *
  * A client sends its surfaces in one of two forms (oui-spec §7.3.8): an index
  * of its actions, or every action's definition. The worker works from the

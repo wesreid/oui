@@ -4,7 +4,7 @@ import { createRoomTokenSigner } from '../rooms/room-token.js';
 import { joinRefusal } from '../rooms/join.js';
 import { fixtureRoomPolicy, TEST_TOKEN_SECRET } from './fixtures.js';
 
-/** Ported from studio-realtime `src/__tests__/room-token.test.ts`, on the configured signer. */
+/** Room tokens, on the configured signer. */
 
 const signer = createRoomTokenSigner({ secret: TEST_TOKEN_SECRET });
 const { sign: signRoomToken, verify: verifyRoomToken } = signer;

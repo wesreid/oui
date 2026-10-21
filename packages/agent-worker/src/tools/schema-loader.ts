@@ -6,11 +6,10 @@
  * Each generated tool's `execute` calls the host's AgentApiSurface binding
  * (`ctx.apiSurface.executeIntent(intentId, params)`) — the host never writes
  * a tool body. An async intent's `subscribe:` block names the declared events
- * that settle its job (W9): they are checked against the product's event
+ * that settle its job: they are checked against the product's event
  * declarations when the tools load, and with a waiter the tool waits for the
  * job to complete or fail.
  *
- * @see docs/reference/integration-contract.md §1b, §4
  */
 import { loadSchemas } from '@ouispec/agent-core';
 import type {

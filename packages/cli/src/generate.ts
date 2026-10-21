@@ -1,5 +1,5 @@
 /**
- * The generator (ADR-0220 §2.4): reads the app, emits each build's manifest
+ * The generator: reads the app, emits each build's manifest
  * and knowledge, and validates both. Deterministic: no LLM, no network, no
  * clock; the same source always gives the same bytes.
  */
@@ -54,7 +54,7 @@ export interface GenerateResult {
   errors: Finding[];
   /** What the build reports without failing: each uncontrolled use of a mapped control. */
   warnings: Finding[];
-  /** Tier 2 (ADR-0226 §2.3): every use of a mapped control's root, and those that do not pass the prop that shows its value. */
+  /** Tier 2: every use of a mapped control's root, and those that do not pass the prop that shows its value. */
   tier2: { uses: Tier2Use[]; uncontrolled: Tier2Use[] };
   files: { path: string; content: string }[];
   /** Files in `<out>/bound/` no mapping emits any more: stale, and deleted on write. */

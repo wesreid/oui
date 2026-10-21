@@ -1,6 +1,6 @@
 /**
  * Which of a design system's exports take a callback, read from its types
- * (ADR-0226 §3.2, the second rule): a component whose props include a
+ * (the second rule): a component whose props include a
  * callback is something a page can make interactive, so it must be in the
  * control table or excluded with a reason. "A callback" is what the generator
  * treats as one where a page uses a component: a function-typed prop named

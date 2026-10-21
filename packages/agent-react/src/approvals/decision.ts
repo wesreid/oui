@@ -2,7 +2,7 @@
  * The approval card's own channel to the provider: the pending approval and
  * the user's decision on it. Deliberately not part of `useAgent()` and not
  * exported from the package, so the only thing in a page that can approve is
- * `ApprovalCard`, which no build may bind for the assistant (ADR-0228 §2.2.3).
+ * `ApprovalCard`, which no build may bind for the assistant.
  */
 import { createContext } from 'react';
 import type { ApprovalDecision, ApprovalRefusal } from '@ouispec/agent-core';

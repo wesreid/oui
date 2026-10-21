@@ -1,5 +1,5 @@
 /**
- * A message the person spoke says so to the model (ADR-0259 §2.6): it was
+ * A message the person spoke says so to the model: it was
  * transcribed by speech recognition, it may hold a mis-heard word, the
  * language it was spoken in, and that an ambiguity a mis-hearing causes is
  * asked about rather than guessed at. Said after the conversation, with what

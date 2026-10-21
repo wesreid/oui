@@ -1,5 +1,5 @@
 /**
- * The worker's side of the approval store (ADR-0228 §2.4), which lives in the
+ * The worker's side of the approval store, which lives in the
  * realtime server beside the UI action result store. The worker stores a
  * pending approval when it stops a turn, redeems the token the next turn
  * carries, and reads a decline.
@@ -37,7 +37,7 @@ export interface ApprovalStoreClient {
    */
   confirmExpirySettled?(approvalId: string, owner: ApprovalOwner): Promise<void>;
   /**
-   * Expire an approval now, saying why (ADR-0252 §2.6): the turn that asked
+   * Expire an approval now, saying why: the turn that asked
    * for it was stopped, so its card must not stay live. Optional: a store
    * without it leaves the approval to its time limit. Rejects when the store
    * cannot be reached.

@@ -1,9 +1,9 @@
 /**
- * The tier 2 runtime (ADR-0226 §2.3): what a mapping means, and the bound
+ * The tier 2 runtime: what a mapping means, and the bound
  * wrappers `oui generate` emits from it. A wrapper registers the mapped kind
  * with the app's own callback, hands it the value where `valueFrom` says,
  * returns its result, reports `disabled`, and renders the third-party
- * component unchanged; the #209 job rules hold through it.
+ * component unchanged; the job rules hold through it.
  */
 import { act, render } from '@testing-library/react';
 import { createRef, forwardRef, useState, type ReactNode } from 'react';
@@ -143,7 +143,7 @@ describe('a bound control', () => {
     const result = await act(() => reg.run({ value: 'blue' }));
     expect(onPick.mock.calls[0][1]).toBe('blue');
     expect(onPick.mock.calls[0][0]).toMatchObject({ isTrusted: false });
-    // #209: run returns what the app's callback returned.
+    // run returns what the app's callback returned.
     expect(result).toEqual({ ok: true, data: { picked: 'blue' } });
   });
 
@@ -217,7 +217,7 @@ describe('a bound compound control', () => {
   });
 });
 
-// ─── The #209 job rules, through a wrapper ───────────────────────────────────
+// ─── The job rules, through a wrapper ────────────────────────────────────────
 
 describe('a bound job control', () => {
   const manifest: OuiManifest = {

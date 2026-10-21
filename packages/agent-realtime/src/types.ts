@@ -1,5 +1,5 @@
 /**
- * The realtime server's seams (ADR-0227 §2.2). The product supplies every one;
+ * The realtime server's seams. The product supplies every one;
  * the server refuses to start, naming the seam, when one is missing. None has
  * a default taken from any one product.
  */
@@ -30,7 +30,7 @@ export interface AuthResult {
  * A room that `requiresToken` is joined only with a room token minted for this
  * user and this exact room (`POST /internal/room-token`). The product decides
  * who gets one, by running the resource's own read authorization before it
- * asks for the token — for Closure, studio-api's `POST /realtime/room-tokens`.
+ * asks for the token.
  * The server only signs and checks.
  */
 export interface RoomPolicy {
@@ -82,7 +82,7 @@ export interface RoomTokenConfig {
 
 export interface ApprovalsConfig {
   /**
-   * Signs approval tokens (HS256, ADR-0228 §2.3). At least 32 characters, one
+   * Signs approval tokens (HS256). At least 32 characters, one
    * per environment, from the product's secret store. It is neither the
    * internal key nor the room-token secret: an engine that verifies approval
    * tokens holds this key and nothing else.
@@ -97,7 +97,7 @@ export interface RealtimeServerConfig {
   /** Guards every internal endpoint: emit, room tokens, UI action results, approvals. */
   internalApiKey: string;
   roomTokens: RoomTokenConfig;
-  /** The approval store: an irreversible action runs only on an approval the user gave (ADR-0228). */
+  /** The approval store: an irreversible action runs only on an approval the user gave. */
   approvals: ApprovalsConfig;
   /**
    * UI action results and room fan-out across instances meet here, so a
@@ -110,7 +110,7 @@ export interface RealtimeServerConfig {
   port: number;
   /**
    * The product's event declarations, with the platform's own
-   * (`createEventCatalog(PLATFORM_EVENTS, productEvents)`, ADR-0227 §2.4).
+   * (`createEventCatalog(PLATFORM_EVENTS, productEvents)`).
    * Given them, `/api/emit` refuses an undeclared event, a payload its schema
    * rejects and a room it is not declared for; a client relays only a
    * declared notice; and every completion or failure is kept as its job's

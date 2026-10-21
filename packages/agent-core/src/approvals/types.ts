@@ -2,7 +2,7 @@ import type { OUIActionApproval, OUIApprovalGrant } from 'oui-spec/spec';
 import type { ActionRequestApproval, ApprovalChannel, ApprovalGrant } from '@ouispec/contract';
 
 /**
- * Approvals (ADR-0228): the shapes the worker, the approval store in the
+ * Approvals: the shapes the worker, the approval store in the
  * realtime server, the browser's approval card and a conversation engine
  * exchange. An irreversible action runs only on an approval the user gave,
  * bound to the exact call by a single-use token.
@@ -11,7 +11,7 @@ import type { ActionRequestApproval, ApprovalChannel, ApprovalGrant } from '@oui
 /** The client event a user's socket sends when they click the approval card. */
 export const APPROVAL_DECIDE_EVENT = 'approval:decide';
 
-/** How long an approval lasts unless its action declares otherwise (ADR-0228 §2.3). */
+/** How long an approval lasts unless its action declares otherwise. */
 export const DEFAULT_APPROVAL_TTL_MS = 5 * 60_000;
 /** The longest an action may declare an approval lasts. */
 export const MAX_APPROVAL_TTL_MS = 30 * 60_000;
@@ -68,13 +68,13 @@ export interface ApprovalSettlement {
   decided?: 'approved';
   /**
    * For `claimed` and `already`: set when the approval did not run out of
-   * time but was withdrawn (ADR-0252 §2.6). Absent when its time ran out.
+   * time but was withdrawn. Absent when its time ran out.
    */
   withdrawn?: ApprovalWithdrawReason;
 }
 
 /**
- * Why an approval was expired before its time (ADR-0252 §2.6):
+ * Why an approval was expired before its time:
  * - `superseded`: the person sent a new message while the card waited.
  * - `stopped`: the turn that asked for it was stopped as it asked.
  *

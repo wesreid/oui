@@ -1,6 +1,6 @@
 /**
  * What each kind of design-system control lets someone do, and the input
- * schema that follows from its props (ADR-0220 §2.2).
+ * schema that follows from its props.
  *
  * `deriveInputSchema` is the one derivation. A control runs it in the browser
  * on its live props; the generator runs it at build time on the props it can
@@ -286,7 +286,7 @@ export function deriveValueSchema(kind: AnyControlKind, props: SchemaProps = {})
         });
       }
       if (gradients.includes('pattern')) {
-        // The document's patterns are the control's options: one is named by its id (ADR-0247 §2.2).
+        // The document's patterns are the control's options: one is named by its id.
         const patterns = (props.options ?? []).filter(o => !o.disabled);
         variants.push({
           type: 'object',
@@ -332,7 +332,7 @@ export function deriveValueSchema(kind: AnyControlKind, props: SchemaProps = {})
     case 'date':
       return { type: 'string', format: 'date', description: 'A date, YYYY-MM-DD' };
     case 'file':
-      // The file the person attached, by its id: the page resolves it to a File (ADR-0252 §2.13).
+      // The file the person attached, by its id: the page resolves it to a File.
       return {
         type: 'string',
         format: OUI_ATTACHMENT_FORMAT,

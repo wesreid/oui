@@ -24,7 +24,7 @@ export const AGENT_TURN_EVENTS = {
   TURN_COMPLETE: 'agent:turn_complete',
   TURN_ERROR: 'agent:turn_error',
   ERROR: 'agent:error',
-  /** The turn stopped at a call that needs the user's approval (ADR-0228); the payload is agent-sdk-core's `ApprovalRequiredEvent`. */
+  /** The turn stopped at a call that needs the user's approval; the payload is agent-sdk-core's `ApprovalRequiredEvent`. */
   APPROVAL_REQUIRED: 'agent:approval_required',
 } as const;
 
@@ -83,7 +83,7 @@ export const PLATFORM_EVENTS: EventDeclarationDocument = {
           type: 'string',
           enum: ['user_stop', 'superseded', 'deadline'],
           description:
-            'Set when the turn did not end by itself (ADR-0252): the person stopped it, a newer message superseded it, or it ran out of time.',
+            'Set when the turn did not end by itself: the person stopped it, a newer message superseded it, or it ran out of time.',
         },
       },
       [],
@@ -100,7 +100,7 @@ export const PLATFORM_EVENTS: EventDeclarationDocument = {
       ['error'],
     ),
     [AGENT_TURN_EVENTS.APPROVAL_REQUIRED]: turnEvent(
-      "The turn stopped at a call that needs the user's approval (ADR-0228): the card the tab shows, and what the approval is bound to.",
+      "The turn stopped at a call that needs the user's approval: the card the tab shows, and what the approval is bound to.",
       {
         conversationId: { type: 'string' },
         approvalId: { type: 'string', minLength: 1, description: 'Equals the tool call id.' },
@@ -122,7 +122,7 @@ export const PLATFORM_EVENTS: EventDeclarationDocument = {
       ['conversationId', 'approvalId', 'tool', 'effect', 'destructive', 'preview', 'expiresAt'],
     ),
     [OUI_WIRE.dispatch]: {
-      description: "A UI action request for the tab that sent the turn (ADR-0209). The tab answers on OUI's result event.",
+      description: "A UI action request for the tab that sent the turn. The tab answers on OUI's result event.",
       payload: {
         type: 'object',
         properties: {
@@ -134,7 +134,7 @@ export const PLATFORM_EVENTS: EventDeclarationDocument = {
           turnId: {
             type: 'string',
             minLength: 1,
-            description: 'The turn the request belongs to (ADR-0252): a tab runs a request only for its current turn.',
+            description: 'The turn the request belongs to: a tab runs a request only for its current turn.',
           },
         },
         required: ['requestId', 'surfaceId', 'actionId'],

@@ -1,6 +1,6 @@
 /**
  * The client events every realtime server accepts: joining and leaving rooms,
- * relaying an allow-listed event, and answering a UI action (ADR-0209). A
+ * relaying an allow-listed event, and answering a UI action. A
  * product declares its own events beside these (`config.clientEvents`).
  */
 import Joi from 'joi';
@@ -153,7 +153,7 @@ export function createBuiltinClientEvents(deps: BuiltinClientEventDeps): ClientE
     },
   });
 
-  // ─── OUI action result (ADR-0209) ──────────────────────────────────────────
+  // ─── OUI action result ──────────────────────────────────────────
   const ouiActionResult = defineClientEvent<OUIActionResult>({
     name: OUI_WIRE.result,
     schema: Joi.object({

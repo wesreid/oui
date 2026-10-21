@@ -1,6 +1,6 @@
 /**
  * A list too long for the page state keeps an index of its rows, never a bare
- * count (ADR-0244 §2.1).
+ * count.
  *
  * The case is the vector studio session of 2026-10-02: a board of 20 artboards
  * and 19 text layers, whose document observation the 6,000-character budget

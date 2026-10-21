@@ -1,13 +1,13 @@
 /**
  * Built-in SDK tools — interaction tools that every platform gets for free.
- * These are SDK-owned (contract §2) and generated, not hand-authored by the host.
+ * These are SDK-owned and generated, not hand-authored by the host.
  *
  * Interaction tools return `{ __present_options: true, ... }` which the client
  * SDK handles natively to present choices to the user.
  *
  * UI control tools (navigate_to, fill_form, submit_form, trigger_action,
- * show_toast, control_player, open_entity, highlight_entity) were removed per
- * ADR-0137 — they used the deprecated CustomEvent dispatch pattern that nothing
+ * show_toast, control_player, open_entity, highlight_entity) were removed:
+ * they used the deprecated CustomEvent dispatch pattern that nothing
  * handles. Navigation and UI control is now exclusively handled by OUI surfaces
  * registered by the client app at runtime.
  */

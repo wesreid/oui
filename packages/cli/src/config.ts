@@ -1,8 +1,7 @@
 /**
  * The generator's configuration: where an app keeps its routes, navigation
  * and output, which design systems its controls come from, where its API is
- * described, and which of its pages are not yet bound (ADR-0220 §2.8,
- * ADR-0226 §2.4).
+ * described, and which of its pages are not yet bound.
  *
  * Read from `oui.config.json` at the app's root; paths are relative to it.
  * The file is required and explicit: nothing an app depends on has a default,
@@ -36,7 +35,7 @@ export interface GeneratorConfig extends ConfigInjection {
   nav: readonly string[];
   out: string;
   designSystem: readonly string[];
-  /** Tier 2 mappings, each absolute (ADR-0226 §2.3). */
+  /** Tier 2 mappings, each absolute. */
   mappings: readonly string[];
   /** As written: a module path or a path relative to the root; resolved when the spec is read. */
   apiSpec: string | null;
@@ -79,7 +78,7 @@ export class ConfigError extends Error {
 export function loadConfig(file: string): GeneratorConfig {
   const path = resolve(file);
   if (!existsSync(path)) {
-    throw new Error(`No ${CONFIG_FILE} at ${path}: the generator reads every setting from it (ADR-0226 §2.4)`);
+    throw new Error(`No ${CONFIG_FILE} at ${path}: the generator reads every setting from it`);
   }
   let raw: unknown;
   try {

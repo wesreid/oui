@@ -406,7 +406,7 @@ describe('enforcement', () => {
       "Entries of <DropdownMenu>'s `items` are built where the generator cannot read them (`menuFromServer()`): " +
         'build them as an array literal, a .map, or pushes of object literals (on UnboundPage, whose bindings are enforced)',
       'A raw <button> someone can use cannot carry a binding: use the design system\'s control, or data-non-agent="<reason>" (on UnboundPage, whose bindings are enforced)',
-      // A key or pointer handler makes an element someone can use (ADR-0226 §2.5 row 3).
+      // A key or pointer handler makes an element someone can use.
       'A raw <div> someone can use cannot carry a binding: use the design system\'s control, or data-non-agent="<reason>" (on UnboundPage, whose bindings are enforced)',
       'A raw <canvas> someone can use cannot carry a binding: use the design system\'s control, or data-non-agent="<reason>" (on UnboundPage, whose bindings are enforced)',
       // So does a callback on a component that is neither a design-system control nor a room host (row 2).

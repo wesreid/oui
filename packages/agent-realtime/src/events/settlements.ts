@@ -1,5 +1,5 @@
 /**
- * Job settlements, kept for the workers that wait on them (W9).
+ * Job settlements, kept for the workers that wait on them.
  *
  * Every declared completion or failure the server emits settles one job: the
  * job of its kind whose id is in its correlation field. The first is kept, so

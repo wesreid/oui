@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 /**
- * The approval card (ADR-0228 §2.2.3): the browser half of an irreversible
+ * The approval card: the browser half of an irreversible
  * action.
  *
  * `agent:approval_required` shows the card with the declaration's words. Only
  * a click on it decides: `approval:decide` on the user's own socket. An
  * approval's grant goes to this tab's OUI runtime, and the continuation turn
  * carries the token outside the message text. The tab's runtime then runs the
- * approved request, and only that one (§5.1 browser half, §5.4).
+ * approved request, and only that one.
  */
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';

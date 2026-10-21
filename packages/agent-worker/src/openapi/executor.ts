@@ -27,7 +27,7 @@ export interface OperationRef {
  * Who a call acts as: the headers that make the API treat it as that caller.
  *
  * It is required and has no default. A product passes its own mechanism, such as a
- * signed assertion naming the user (Closure's is ADR-0182's), or the credential an
+ * signed assertion naming the user, or the credential an
  * MCP client authenticated with.
  */
 export type ActAs = (

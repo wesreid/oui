@@ -1,6 +1,6 @@
 /**
  * Where a package declares its control table and its room catalog: under the
- * neutral `oui` key of its `package.json` (ADR-0226 §2.2 rule 4), or, during
+ * neutral `oui` key of its `package.json`, or, during
  * the transition, under `closure`. The generator and the conformance kit both
  * read declarations through this, so they agree on which key wins.
  */

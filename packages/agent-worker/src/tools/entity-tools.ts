@@ -11,7 +11,6 @@
  *   - update_<entity>  → apiSurface.mutateEntity(type, id, { set })
  *   - delete_<entity>  → apiSurface.mutateEntity(type, id, {}) with delete semantics
  *
- * @see docs/reference/integration-contract.md §1b
  */
 import { loadSchemas } from '@ouispec/agent-core';
 import type { RawSchemaDocument, RawEntitySchema, RawPropertySchema } from '@ouispec/agent-core';

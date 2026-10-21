@@ -1,5 +1,5 @@
 /**
- * The fixture product's event declarations (W9), shared with its API
+ * The fixture product's event declarations, shared with its API
  * (`../../testing/desk-events.ts`): exporting a report is a job that ends as
  * `report:ready` or `report:failed`.
  */

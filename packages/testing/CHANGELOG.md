@@ -1,10 +1,18 @@
 # @ouispec/testing
 
+## 0.4.6
+
+### Patch Changes
+
+- README and docs cleanup.
+- Updated dependencies
+  - @ouispec/contract@0.4.6
+
 ## 0.4.0
 
 ### Minor Changes
 
-- An action input can take a file the user attached (spec §7.3.11, ADR-0252 §2.13).
+- An action input can take a file the user attached (spec §7.3.11).
 
   - **oui-spec:** an input declared `{ type: 'string', format: 'oui-attachment', 'x-oui-attachment': { as: 'file' | 'text', mediaTypes } }` is sent the attachment's id.
     - The runtime resolves the id before the handler runs, through `createSurfaceRuntime({ attachments: { resolve } })`, and hands the handler the `File` or the file's text.

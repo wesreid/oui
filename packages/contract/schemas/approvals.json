@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.closurestudio.ai/oui/v1/approvals.json",
   "title": "Approvals",
-  "description": "Approvals (ADR-0228): the shapes the agent worker, the approval store in the realtime server, the browser's approval card, OUI's surface runtime and a conversation engine exchange. An irreversible action — a `transaction`, or a `write` declared `destructive` — runs only on an approval the person gave, bound to the exact call by a single-use token.\n\n1. The worker stops the turn at the call and stores it (`PendingApprovalInput`); the person's tab receives `agent:approval_required` (`ApprovalRequiredEvent`) and renders the approval card from its `preview`, whose every word comes from the action's declaration, never from the model.\n2. In a UI only a click on the card counts: the card sends `approval:decide` (`ApprovalDecidePayload`) from the person's own socket. On a conversation channel, the verbatim `readback` and an affirmative next turn (ADR-0210 §2.6).\n3. The store answers the decider only (`ApprovalDecideResult`): a single-use token, a compact JWS (`ApprovalTokenClaims`), and the call's `argsHash`. The tab's OUI runtime holds an `ApprovalGrant`.\n4. The next turn carries the token (`ApprovalContinuation`); the worker redeems it for the stored call, exactly (`ApprovedCall`), and runs it. A UI action request then carries `approval` (`ActionRequestApproval`), which the browser checks against its grant before it runs the handler.\n\nThe args hash is SHA-256 over the RFC 8785 (JCS) canonical JSON of the call's arguments, lowercase hex; `oui-spec/approval-vectors.json` holds every implementation, in any language, to it.",
+  "description": "Approvals: the shapes the agent worker, the approval store in the realtime server, the browser's approval card, OUI's surface runtime and a conversation engine exchange. An irreversible action — a `transaction`, or a `write` declared `destructive` — runs only on an approval the person gave, bound to the exact call by a single-use token.\n\n1. The worker stops the turn at the call and stores it (`PendingApprovalInput`); the person's tab receives `agent:approval_required` (`ApprovalRequiredEvent`) and renders the approval card from its `preview`, whose every word comes from the action's declaration, never from the model.\n2. In a UI only a click on the card counts: the card sends `approval:decide` (`ApprovalDecidePayload`) from the person's own socket. On a conversation channel, the verbatim `readback` and an affirmative next turn.\n3. The store answers the decider only (`ApprovalDecideResult`): a single-use token, a compact JWS (`ApprovalTokenClaims`), and the call's `argsHash`. The tab's OUI runtime holds an `ApprovalGrant`.\n4. The next turn carries the token (`ApprovalContinuation`); the worker redeems it for the stored call, exactly (`ApprovedCall`), and runs it. A UI action request then carries `approval` (`ActionRequestApproval`), which the browser checks against its grant before it runs the handler.\n\nThe args hash is SHA-256 over the RFC 8785 (JCS) canonical JSON of the call's arguments, lowercase hex; `oui-spec/approval-vectors.json` holds every implementation, in any language, to it.",
   "$defs": {
     "ArgsHash": {
       "description": "SHA-256 of the RFC 8785 canonical JSON of a call's arguments, lowercase hex.",
@@ -10,7 +10,7 @@
       "pattern": "^[0-9a-f]{64}$"
     },
     "ApprovalChannel": {
-      "description": "Where the person confirmed. In a UI only a click on the card counts (`ui`); in a conversation channel, the verbatim readback and an affirmative next turn (ADR-0210 §2.6).",
+      "description": "Where the person confirmed. In a UI only a click on the card counts (`ui`); in a conversation channel, the verbatim readback and an affirmative next turn.",
       "enum": ["ui", "voice", "phone", "sms", "chat"]
     },
     "ApprovalDecision": { "enum": ["approve", "decline"] },
@@ -26,7 +26,7 @@
       "additionalProperties": false
     },
     "ApprovalPreview": {
-      "description": "What the person is asked to approve. Every word comes from the action's declaration (its title, description and input schema labels), never from the model (ADR-0228 §2.2).",
+      "description": "What the person is asked to approve. Every word comes from the action's declaration (its title, description and input schema labels), never from the model.",
       "type": "object",
       "properties": {
         "title": { "type": "string" },
@@ -41,7 +41,7 @@
       "additionalProperties": false
     },
     "ApprovalEffect": {
-      "description": "The effect the approval is for: the action's declared effect kind (ADR-0226 §2.6, `transaction` for an irreversible external act), or `write` when it declares none.",
+      "description": "The effect the approval is for: the action's declared effect kind (`transaction` for an irreversible external act), or `write` when it declares none.",
       "type": "string",
       "minLength": 1
     },
@@ -225,7 +225,7 @@
       ]
     },
     "ActionRequestApproval": {
-      "description": "What a UI action request carries when it runs an approved call (`OUIActionApproval`): the browser runs a `transaction` or destructive action only when this matches a grant this tab received from its own card click (ADR-0228 §2.2.6).",
+      "description": "What a UI action request carries when it runs an approved call (`OUIActionApproval`): the browser runs a `transaction` or destructive action only when this matches a grant this tab received from its own card click.",
       "type": "object",
       "properties": {
         "approvalId": { "type": "string" },

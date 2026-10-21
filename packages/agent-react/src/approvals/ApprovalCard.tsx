@@ -1,6 +1,6 @@
 /**
  * ApprovalCard — where the user approves, or declines, the one irreversible
- * call a turn stopped at (ADR-0228 §2.2.3).
+ * call a turn stopped at.
  *
  * It shows what the call does in the action's own declared words (its title,
  * what it does, its arguments by their labels), never the assistant's. A

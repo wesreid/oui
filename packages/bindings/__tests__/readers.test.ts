@@ -1,5 +1,5 @@
 /**
- * A room's readers (ADR-0244 §2.2, §2.5): `inspect` and `query` built from
+ * A room's readers: `inspect` and `query` built from
  * the room's declared lists, a name accepted wherever an id is, and the rows
  * an edit changed reported with its result.
  *

@@ -1,5 +1,11 @@
 # @ouispec/contract
 
+## 0.4.6
+
+### Patch Changes
+
+- README and docs cleanup.
+
 ## 0.4.5
 
 ### Patch Changes
@@ -16,13 +22,13 @@
 
 ### Patch Changes
 
-- A conversation that began by voice says so in the history (ADR-0259 §2.6). `AgentConversationSummary.previewInput` is how the message its `preview` is taken from was entered, and `AgentConversationMatch.input` how a matched message was: `{ mode: 'voice', language }` for one the person spoke. `@ouispec/agent-react`'s history (`refresh`, `query`, `rename`, `update`) keeps only what `readMessageInput` recognises (`readConversationSummary`, exported), so a list can mark a spoken conversation and match. The integrator guide names both fields.
+- A conversation that began by voice says so in the history. `AgentConversationSummary.previewInput` is how the message its `preview` is taken from was entered, and `AgentConversationMatch.input` how a matched message was: `{ mode: 'voice', language }` for one the person spoke. `@ouispec/agent-react`'s history (`refresh`, `query`, `rename`, `update`) keeps only what `readMessageInput` recognises (`readConversationSummary`, exported), so a list can mark a spoken conversation and match. The integrator guide names both fields.
 
 ## 0.4.1
 
 ### Patch Changes
 
-- A message the person spoke says so (ADR-0259 §2.6).
+- A message the person spoke says so.
 
   - `@ouispec/agent-core`: `MessageInput` (`{ mode: 'voice', language? }`), `readMessageInput` (an unknown mode is read as typed; a language that is not a BCP 47 tag of at most 16 characters is left out) and `MESSAGE_INPUT_CONTEXT_KEY`. `AgentMessageContext.input` and `AgentStoredMessage.input` carry it.
   - `@ouispec/agent-react`: `sendMessage(content, { attachments?, input? })`. An array as the second argument still gives the message's files. `input` reaches `config.sendMessage` as `context.input` and stays on the message (`AgentMessage.input`, the session record, and a restored message). A spoken message sent while a turn runs supersedes it as a typed one does.
@@ -33,7 +39,7 @@
 
 ### Minor Changes
 
-- An action input can take a file the user attached (spec §7.3.11, ADR-0252 §2.13).
+- An action input can take a file the user attached (spec §7.3.11).
 
   - **oui-spec:** an input declared `{ type: 'string', format: 'oui-attachment', 'x-oui-attachment': { as: 'file' | 'text', mediaTypes } }` is sent the attachment's id.
     - The runtime resolves the id before the handler runs, through `createSurfaceRuntime({ attachments: { resolve } })`, and hands the handler the `File` or the file's text.

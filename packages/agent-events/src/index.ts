@@ -1,6 +1,6 @@
 /**
  * @ouispec/agent-events — event contracts the product declares
- * (ADR-0227 §2.4).
+ *.
  *
  * The product supplies a declaration document: each event's payload schema,
  * the rooms it goes to, its correlation fields and its role in a job. The

@@ -1,5 +1,5 @@
 /**
- * A build's manifest against the size budgets (ADR-0245 §2.6): the same check
+ * A build's manifest against the size budgets: the same check
  * `oui generate` runs, for an integrator's own test, and against budgets of
  * its own when its transport carries less.
  */

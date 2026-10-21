@@ -1,5 +1,5 @@
 /**
- * `agent:turn_stop` (ADR-0252 §2.1): the person's Stop, on their own
+ * `agent:turn_stop`: the person's Stop, on their own
  * authenticated socket.
  *
  * What makes a stop the owner's is the key it is kept under, not the room.

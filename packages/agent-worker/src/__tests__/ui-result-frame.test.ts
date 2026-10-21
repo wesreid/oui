@@ -140,7 +140,7 @@ describe('an answer the relay refused, sent again trimmed', () => {
     const note = (out.data as { delivery: string }).delivery;
     expect(note).toContain('payload larger than 524288 bytes');
     expect(note).toContain('the page’s state');
-    // Without the page's state the worker cannot see the page: it says to read it first (ADR-0245 §2.5).
+    // Without the page's state the worker cannot see the page: it says to read it first.
     expect(note).toContain('You cannot see the page now');
     expect(note).toMatch(/outcome here is what happened/);
   });

@@ -1,7 +1,7 @@
 /**
- * A fixture product's seams: the room scheme studio-realtime uses, expressed
- * through the neutral `RoomPolicy`, so the ported studio-realtime tests assert
- * the same behaviour on the SDK server.
+ * A fixture product's seams: a product's room scheme, expressed through the
+ * neutral `RoomPolicy`, so the tests assert a real product's behaviour on the
+ * SDK server.
  */
 import Joi from 'joi';
 import { PLATFORM_EVENTS, createEventCatalog, type EventDeclarationDocument } from '@ouispec/agent-events';
@@ -100,7 +100,7 @@ export function createMemoryRedis() {
 }
 
 /**
- * The fixture product's event declarations (W9): a render job that completes
+ * The fixture product's event declarations: a render job that completes
  * or fails, its progress, and the one event a tab may relay.
  */
 export const fixtureEvents: EventDeclarationDocument = {

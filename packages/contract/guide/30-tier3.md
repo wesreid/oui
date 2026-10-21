@@ -1,6 +1,6 @@
 ## Tier 3: rooms
 
-A room is an editor with its own editing model — a canvas, a chart, a timeline, a player — whose operations are not one control each. It publishes a typed catalog of everything a person can do in it, declared where the room implements it (ADR-0220 §2.3):
+A room is an editor with its own editing model — a canvas, a chart, a timeline, a player — whose operations are not one control each. It publishes a typed catalog of everything a person can do in it, declared where the room implements it:
 
 - **actions**: its operations, each run through the room's own reducer and commands, with a JSON Schema for the input (one object schema, never a union at the top);
 - **fields**: its inspector's fields, from the same definitions the inspector renders, each with its value's schema, its unit and range, what it applies to, and — only in a room with a timeline — its `animation`;

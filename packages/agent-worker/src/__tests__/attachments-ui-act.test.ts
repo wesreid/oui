@@ -1,7 +1,6 @@
 /**
  * A page action that takes an attached file, run the way the model runs page
- * actions: through `ui_act`, to a real oui-spec runtime in the tab (ADR-0252
- * §2.13, OUI spec §7.3.11).
+ * actions: through `ui_act`, to a real oui-spec runtime in the tab (OUI spec §7.3.11).
  *
  * The worker checks each file before anything is dispatched: that it is the
  * conversation's, that its check has passed, and that it is a type the input

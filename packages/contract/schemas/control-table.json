@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.closurestudio.ai/oui/v1/control-table.json",
   "title": "ControlTableFile",
-  "description": "A design-system package's control table as it ships (`agent-controls.json`, ADR-0226 §2.2 rule 4): each interactive export's `ControlDescriptor` by export name, and under `$kinds` the control kinds the design system registers, if any. The package declares the table next to its controls, writes it at build time, and names it in its `package.json` under `oui.agentControls` (`closure.agentControls` is read during the transition; declaring both is an error). The conformance kit holds every listed component to registering with the kind declared here.",
+  "description": "A design-system package's control table as it ships (`agent-controls.json`): each interactive export's `ControlDescriptor` by export name, and under `$kinds` the control kinds the design system registers, if any. The package declares the table next to its controls, writes it at build time, and names it in its `package.json` under `oui.agentControls` (`closure.agentControls` is read during the transition; declaring both is an error). The conformance kit holds every listed component to registering with the kind declared here.",
   "type": "object",
   "properties": {
     "$kinds": {
@@ -211,7 +211,7 @@
       "additionalProperties": false
     },
     "OuiPackageDeclaration": {
-      "description": "What a package declares to the generator under the `oui` key of its `package.json` (ADR-0226 §2.2): its control table, its room catalog, and the components only the person may use. During the transition the generator and the kit also read `closure.agentControls` and `closure.agentCatalog`; a package declaring a key under both `oui` and `closure` is an error.",
+      "description": "What a package declares to the generator under the `oui` key of its `package.json`: its control table, its room catalog, and the components only the person may use. During the transition the generator and the kit also read `closure.agentControls` and `closure.agentCatalog`; a package declaring a key under both `oui` and `closure` is an error.",
       "type": "object",
       "properties": {
         "agentControls": {
@@ -223,7 +223,7 @@
           "$ref": "room-catalog-data.json#/$defs/AgentCatalogManifestEntry"
         },
         "personOnly": {
-          "description": "Export name → why only the person may use it, such as the approval card (ADR-0228). The generator refuses an `agent` binding on one.",
+          "description": "Export name → why only the person may use it, such as the approval card. The generator refuses an `agent` binding on one.",
           "type": "object",
           "additionalProperties": {
             "type": "string",

@@ -6,7 +6,7 @@ import { MIN_APPROVAL_KEY_LENGTH } from './approvals/token.js';
 /**
  * Every seam the server cannot run without, and what it is for. A missing
  * one fails start-up with this text: a default here would silently run some
- * other product's value (ADR-0227 §2.2).
+ * other product's value.
  */
 const REQUIRED: ReadonlyArray<[string, (c: Partial<RealtimeServerConfig>) => boolean, string]> = [
   ['auth', (c) => typeof c.auth?.verify === 'function', "an AuthAdapter that verifies your users' tokens"],

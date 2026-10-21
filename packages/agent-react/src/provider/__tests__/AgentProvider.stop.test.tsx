@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Stop and barge-in in the tab (ADR-0252 §2.2, §2.5, §2.14).
+ * Stop and barge-in in the tab.
  *
  * - Stop asks over the socket, from the turn's room. The turn's end arrives
  *   with why, and what the turn had said stays, marked.
@@ -259,7 +259,7 @@ describe('Stop', () => {
 });
 
 describe('barge-in: a message sent while a turn runs', () => {
-  // A spoken message supersedes a running turn exactly as a typed one does (ADR-0259 §2.5).
+  // A spoken message supersedes a running turn exactly as a typed one does.
   it.each([
     ['typed', undefined],
     ['spoken', { input: { mode: 'voice' as const, language: 'en' } }],

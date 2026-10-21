@@ -1,9 +1,8 @@
 /**
- * What fails the build (ADR-0226 §2.4, §2.5): a misconfigured or unusual app
+ * What fails the build: a misconfigured or unusual app
  * is an error naming what is wrong, never a manifest with nothing in it.
  *
- * One fixture per row of §2.5 that W1 owns (row 6, tier 2 mappings, is W4's:
- * `tier2.test.ts`),
+ * One fixture per build-failure rule (tier 2 mappings are in `tier2.test.ts`),
  * and one per required setting of `oui.config.json`.
  */
 import { writeFileSync } from 'node:fs';
@@ -92,7 +91,7 @@ async function generateIn(root: string, settings: Record<string, unknown> = {}) 
   return generate(resolveConfig(root, { ...SETTINGS, designSystem: ['@fixture/ds'], ...settings }));
 }
 
-describe('a non-agent reason that names another action names one that exists (ADR-0248 §2.6)', () => {
+describe('a non-agent reason that names another action names one that exists', () => {
   const ds = [{ name: '@fixture/ds', packageJson: { oui: { agentControls: './dist/agent-controls.json' } }, files: table }];
   const page = (lines: string[]) =>
     [
@@ -149,7 +148,7 @@ describe('a non-agent reason that names another action names one that exists (AD
   });
 });
 
-describe('§2.5 row 1: a design-system package is resolved and has a control table, or the build fails', () => {
+describe('a design-system package is resolved and has a control table, or the build fails', () => {
   it('reads the neutral "oui.agentControls" key', async () => {
     const root = tempApp([
       { name: '@fixture/ds', packageJson: { oui: { agentControls: './dist/agent-controls.json' } }, files: table },
@@ -223,7 +222,7 @@ describe('§2.5 row 1: a design-system package is resolved and has a control tab
 
 // ─── Rows 2 and 3: interactive elements outside the design system ────────────
 
-describe('§2.5 rows 2 and 3: what someone can use is interactive wherever it comes from', () => {
+describe('what someone can use is interactive wherever it comes from', () => {
   it('fails a third-party component that takes a callback, and a key or pointer handler, on an enforced page', async () => {
     const r = await generate(config({ unbound: [] }));
     const messages = r.errors.map(e => `${e.line}: ${e.message}`);
@@ -249,7 +248,7 @@ describe('§2.5 rows 2 and 3: what someone can use is interactive wherever it co
 
 // ─── Row 4: routes ───────────────────────────────────────────────────────────
 
-describe('§2.5 row 4: nested, index, data-router and React.lazy routes', () => {
+describe('nested, index, data-router and React.lazy routes', () => {
   it('joins nested JSX paths to their parent, keeps index routes, and resolves React.lazy', async () => {
     const r = await generate(
       resolveConfig(join(FIXTURES, 'routes-jsx'), { ...SETTINGS, out: tempDir('oui-gen-') }, {
@@ -313,7 +312,7 @@ describe('§2.5 row 4: nested, index, data-router and React.lazy routes', () => 
 
 // ─── Row 5: the API's OpenAPI document ───────────────────────────────────────
 
-describe('§2.5 row 5: apiSpec is read, and every mutate names one of its operations', () => {
+describe('apiSpec is read, and every mutate names one of its operations', () => {
   it('describes a mutate from the operation its operationId names', async () => {
     const r = await generate(config());
     expect(r.errors).toEqual([]);
@@ -394,7 +393,7 @@ describe('§2.5 row 5: apiSpec is read, and every mutate names one of its operat
 
 // ─── Row 7: app room catalogs need Vite ──────────────────────────────────────
 
-describe('§2.5 row 7: an app room catalog is loaded through the app’s Vite', () => {
+describe('an app room catalog is loaded through the app’s Vite', () => {
   it('fails with the requirement when the app has no Vite', async () => {
     const root = tempApp([
       { name: '@fixture/ds', packageJson: { oui: { agentControls: './dist/agent-controls.json' } }, files: table },

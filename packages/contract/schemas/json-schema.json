@@ -133,15 +133,15 @@
       "type": "string"
     },
     "x-space": {
-      "description": "The frame a length, a point or a fraction is measured in, in the room's own words: `artboard` (from its top left), `canvas`, `layer` (the layer's own content), `artboard-fraction` (0–1 of the artboard's width and height). A room names its spaces in its description or a recipe (ADR-0244 §2.3).",
+      "description": "The frame a length, a point or a fraction is measured in, in the room's own words: `artboard` (from its top left), `canvas`, `layer` (the layer's own content), `artboard-fraction` (0–1 of the artboard's width and height). A room names its spaces in its description or a recipe.",
       "type": "string"
     },
     "x-rows": {
-      "description": "On an array of objects in an observation: the list is a collection the assistant addresses rows of (a document's layers, its artboards). It names the property each row is addressed by and the one a person calls it by, so a list too long for the page state keeps an index of every row instead of a count, and a title given where an id is expected resolves to its row (ADR-0244 §2.1, §2.2).",
+      "description": "On an array of objects in an observation: the list is a collection the assistant addresses rows of (a document's layers, its artboards). It names the property each row is addressed by and the one a person calls it by, so a list too long for the page state keeps an index of every row instead of a count, and a title given where an id is expected resolves to its row.",
       "$ref": "#/$defs/RowList"
     },
     "x-ref": {
-      "description": "On a string (or the items of an array of strings) in an action's input: the value addresses a row of one of the surface's `x-rows` lists, each named `<observation id>/<list property>`, or `<observation id>` when the observation itself is the list. The row's id, or its exact title when one row has it (ADR-0244 §2.2).",
+      "description": "On a string (or the items of an array of strings) in an action's input: the value addresses a row of one of the surface's `x-rows` lists, each named `<observation id>/<list property>`, or `<observation id>` when the observation itself is the list. The row's id, or its exact title when one row has it.",
       "type": "array",
       "items": {
         "type": "string",
@@ -154,7 +154,7 @@
       "type": "number"
     },
     "x-oui-attachment": {
-      "description": "On a string with `format: oui-attachment`: what the action takes once the client resolves the attachment's id (ADR-0252 §2.13). `as`: `file` (a `File`, as the user's own file choice produces) or `text` (the file's text, for an input that takes markup or JSON). `mediaTypes`: the types it accepts, `type/*` for a family; any when absent.",
+      "description": "On a string with `format: oui-attachment`: what the action takes once the client resolves the attachment's id. `as`: `file` (a `File`, as the user's own file choice produces) or `text` (the file's text, for an input that takes markup or JSON). `mediaTypes`: the types it accepts, `type/*` for a family; any when absent.",
       "type": "object",
       "properties": {
         "as": {

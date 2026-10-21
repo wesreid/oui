@@ -1,5 +1,5 @@
 /**
- * A tier 3 room against the contract (ADR-0244 §2.8): its catalog matches the
+ * A tier 3 room against the contract: its catalog matches the
  * published schema, and whatever it lists can be read. A room that reports a
  * list of things with ids and gives the assistant no way to read one of them
  * is a room the assistant can act in only by guessing.

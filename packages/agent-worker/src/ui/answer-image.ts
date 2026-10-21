@@ -1,5 +1,5 @@
 /**
- * A picture in an action's answer (ADR-0244 §2.2, ADR-0245 §2.4).
+ * A picture in an action's answer.
  *
  * A room can answer a read with what it draws: `data.image`, an encoded
  * picture. As JSON text its base64 would cost the model hundreds of thousands

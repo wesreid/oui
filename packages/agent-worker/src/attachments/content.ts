@@ -1,8 +1,8 @@
 /**
- * The files of the turn's message, as the model is given them (ADR-0252 §2.11),
+ * The files of the turn's message, as the model is given them,
  * and history's reference to every earlier one.
  *
- * - An image: the platform's model rendition, as a file part (ADR-0244's path).
+ * - An image: the platform's model rendition, as a file part.
  * - Text, and a PDF's text: up to 20,000 characters a file and 40,000 a turn,
  *   with a note of how much was left out.
  * - A short PDF as a document part, when the host turns that on.

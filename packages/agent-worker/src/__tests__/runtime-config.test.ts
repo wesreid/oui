@@ -1,5 +1,5 @@
 /**
- * Required configuration is required (ADR-0227 §2.2, W7): a missing value
+ * Required configuration is required: a missing value
  * fails when the adapter is created — at start-up, before any turn — and the
  * error names it. Nothing falls back to an environment variable or ''.
  */

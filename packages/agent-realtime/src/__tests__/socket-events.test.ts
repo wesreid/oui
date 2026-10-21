@@ -9,7 +9,6 @@ import { createMemoryRedis, fixtureRelay, fixtureRoomPolicy, recordingLogger, TE
  * Client events go through the declared chain: undeclared events are refused,
  * payloads are validated, relays are allow-listed and confined to joined
  * rooms, and identity always comes from the socket, never the payload.
- * Ported from studio-realtime `src/__tests__/socket-events.test.ts`.
  */
 
 const logger = recordingLogger();

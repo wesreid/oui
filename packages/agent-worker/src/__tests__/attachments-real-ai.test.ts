@@ -1,5 +1,5 @@
 /**
- * A turn with files through the real `ai` loop (ADR-0252 §2.11, §2.12, §2.15).
+ * A turn with files through the real `ai` loop.
  * Only the model is a stand-in: `streamText` runs its own steps, calls
  * `prepareStep` itself, runs the tools and builds each step's prompt, so what
  * is checked is the prompt the provider would have been sent.

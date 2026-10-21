@@ -1,5 +1,5 @@
 /**
- * The integrator guide (ADR-0226 §3.3), generated alongside the schemas: the
+ * The integrator guide, generated alongside the schemas: the
  * prose sections in `guide/`, in file-name order, with every schema they name
  * expanded into a reference generated from that schema. A field added to a
  * schema is in the guide on the next generation; a section can never describe

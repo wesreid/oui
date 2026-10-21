@@ -1,5 +1,5 @@
 /**
- * Page state within the model's budget, problems first (ADR-0167).
+ * Page state within the model's budget, problems first.
  *
  * A surface may publish a `problems` observation: what its page cannot draw,
  * load or read — a face it does not have and the text it therefore hides, an
@@ -63,7 +63,7 @@ function withoutKeptWhole(observations: OUIObservationSnapshot): OUIObservationS
  * The largest page state the model is given when the host sets none
  * (`ui.maxObservationChars`): the user's message's, and each UI action's
  * answer's. About 3,000 tokens: room for a document of a hundred rows as index
- * rows with the few being worked on whole (ADR-0244 §2.1). It was 6,000, which
+ * rows with the few being worked on whole. It was 6,000, which
  * a board of six artboards filled.
  */
 export const DEFAULT_PAGE_STATE_CHARS = 12_000;
@@ -79,7 +79,7 @@ export const WHOLE_LIST_ROWS = 5;
 
 /**
  * One step of fitting: how many rows of a long list are kept whole, and how
- * many of the rest are kept as index rows (ADR-0244 §2.1). Rows are cut to
+ * many of the rest are kept as index rows. Rows are cut to
  * their index before any is dropped, so the model can still name every row;
  * only when the index itself does not fit is it shortened, and then it says
  * how the rest are read.

@@ -27,18 +27,18 @@ export interface ToolPolicyContext {
   /** Whether the tool has side effects (fail-closed: true if unknown). */
   hasSideEffects: boolean;
   /**
-   * `ui` for an action on the client's UI (ADR-0209), which runs in the
+   * `ui` for an action on the client's UI, which runs in the
    * user's browser under their own session; `backend` for a host tool.
    * Decide by this, not by the name: a UI action id can equal a host tool's.
    */
   toolKind: 'ui' | 'backend';
   /**
    * The SDK's class for a tool it owns: `attachment` for the attachment tools
-   * (ADR-0252 §2.12). A policy that admits by name should admit the class too,
+   *. A policy that admits by name should admit the class too,
    * so a tool the SDK adds to it later needs no change.
    */
   toolClass?: 'attachment';
-  /** What the tool declares it does (ADR-0226 §2.6); undefined when it declares nothing, which counts as a write. */
+  /** What the tool declares it does; undefined when it declares nothing, which counts as a write. */
   effect: ToolEffect | undefined;
   /** Whether the tool declares it removes or replaces something the person made. */
   destructive: boolean;
@@ -46,7 +46,7 @@ export interface ToolPolicyContext {
 
 /**
  * - `allow`: run it. A `transaction` or destructive call still needs the
- *   user's approval (ADR-0228 §2.1): no policy waives that.
+ *   user's approval: no policy waives that.
  * - `deny`: never run it. Approval never overrides a deny.
  * - `require_approval`: run it only on the user's approval of this exact call,
  *   given on the approval card (or a conversation channel's readback). The

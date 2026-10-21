@@ -1,5 +1,5 @@
 /**
- * A tier 1 design system against the contract (ADR-0226 §2.2, §3.2): its
+ * A tier 1 design system against the contract: its
  * control table and declaration match the schemas, every entry registers with
  * the kind it declares, every export that takes a callback is accounted for,
  * and every binding's `run` returns what the consumer's callback returned.

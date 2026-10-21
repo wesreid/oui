@@ -1,5 +1,5 @@
 /**
- * The conformance kit's acceptance (ADR-0226 §3.2, W3): a design system, an
+ * The conformance kit's acceptance: a design system, an
  * app and a tier 2 mapping written to the contract pass every rule, and the
  * deliberately broken fixtures fail each rule exactly once.
  */
