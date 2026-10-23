@@ -6,7 +6,7 @@
  * the worker asks for it for as long as the turn runs, as it asks for UI
  * answers and approvals.
  */
-import type { TurnStoppedReason, TurnStopRecord } from '@ouispec/agent-core';
+import { isTurnStopReason, type TurnStoppedReason, type TurnStopRecord } from '@ouispec/agent-core';
 import { requireRealtime } from '../emit/http-adapter.js';
 
 /**
@@ -156,6 +156,43 @@ export function createHttpTurnStopClient(config: HttpTurnStopClientConfig): Turn
         }
       }
       return null;
+    },
+  };
+}
+
+/**
+ * `client`, also hearing a stop from this process: when `local` aborts, the
+ * watch answers as if the realtime server held a stop for the turn. Its
+ * reason is the abort's reason when that is a stop request's (`user_stop`,
+ * `superseded`), else `superseded`: the caller who ran the turn has gone, as
+ * when a newer message replaces it. The stop is when `local` aborted.
+ *
+ * A stop the realtime server holds is still heard, and a server that keeps no
+ * stops (404) does not end the watch while `local` can still abort.
+ */
+export function withLocalStop(client: TurnStopClient, local: AbortSignal): TurnStopClient {
+  let abortedAt: number | null = local.aborted ? Date.now() : null;
+  local.addEventListener('abort', () => (abortedAt ??= Date.now()), { once: true });
+  const localRecord = (turnId: string, userId: string): TurnStopRecord => ({
+    turnId,
+    by: userId,
+    reason: isTurnStopReason(local.reason) ? local.reason : 'superseded',
+    at: abortedAt ?? Date.now(),
+  });
+
+  return {
+    async watch(turnId, userId, signal, onChecked) {
+      if (signal.aborted) return null;
+      if (local.aborted) {
+        onChecked?.();
+        return localRecord(turnId, userId);
+      }
+      const either = AbortSignal.any([signal, local]);
+      const heard = await client.watch(turnId, userId, either, onChecked);
+      if (heard) return heard;
+      // The server keeps no stops, or answered nothing: the local stop can still come.
+      if (!either.aborted) await new Promise<void>((resolve) => either.addEventListener('abort', () => resolve(), { once: true }));
+      return local.aborted && !signal.aborted ? localRecord(turnId, userId) : null;
     },
   };
 }

@@ -5,6 +5,9 @@
  * carries, and reads a decline.
  */
 import type {
+  ApprovalChannel,
+  ApprovalDecideResult,
+  ApprovalDecision,
   ApprovalOwner,
   ApprovalRedeemResult,
   ApprovalRefusalReason,
@@ -43,6 +46,15 @@ export interface ApprovalStoreClient {
    * cannot be reached.
    */
   withdraw?(approvalId: string, owner: ApprovalOwner, reason: ApprovalWithdrawReason): Promise<ApprovalWithdrawal>;
+  /**
+   * A conversation channel's decision (voice, phone, SMS, chat): the host
+   * delivered the approval's readback, and decides as the user from their
+   * answer. An `approve` answers with the single-use token the next turn
+   * carries as `approval`. A UI approval is decided only by the user's click
+   * on their own socket, and the store refuses `ui` here. Optional; rejects
+   * when the store cannot be reached.
+   */
+  decide?(approvalId: string, by: { userId: string; decision: ApprovalDecision; channel: Exclude<ApprovalChannel, 'ui'> }): Promise<ApprovalDecideResult>;
 }
 
 export interface HttpApprovalStoreClientConfig {
@@ -117,6 +129,15 @@ export function createHttpApprovalStoreClient(config: HttpApprovalStoreClientCon
       }
       if (status === 200 || status === 404) return { approvalId, outcome: 'unknown' };
       throw new Error(`[agent-sdk] The approval store could not withdraw approval ${approvalId}: HTTP ${status}`);
+    },
+
+    async decide(approvalId, by) {
+      const { status, json } = await call(`/internal/approvals/${encodeURIComponent(approvalId)}/decide`, by);
+      if (status === 200 && json.ok === true) return json as unknown as ApprovalDecideResult;
+      if (status >= 400 && status < 500 && typeof json.reason === 'string') {
+        return { ok: false, reason: json.reason as ApprovalRefusalReason, error: String(json.error ?? json.reason) };
+      }
+      throw new Error(`[agent-sdk] The approval store could not decide approval ${approvalId}: HTTP ${status}`);
     },
 
     async status(approvalId, userId) {

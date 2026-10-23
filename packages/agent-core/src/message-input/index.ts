@@ -1,5 +1,5 @@
 /**
- * How the person entered a message.
+ * How the person entered a message, and how the reply reaches them.
  *
  * A message the person spoke, and the tab transcribed with speech
  * recognition, carries `{ mode: 'voice', language }` on its turn's context,
@@ -8,8 +8,13 @@
  * sense of may be a mis-hearing; the host stores it on the user's message so
  * the chat can show the message was spoken.
  *
- * It arrives from a browser, so every reader takes it through
- * `readMessageInput`, which keeps only what it recognises.
+ * A reply that will be spoken rather than shown (a live call, where a voice
+ * reads the reply out) carries `{ mode: 'voice' }` under `output`. The worker
+ * then tells the model to write for the ear.
+ *
+ * Both arrive from outside the worker, so every reader takes them through
+ * `readMessageInput` and `readReplyOutput`, which keep only what they
+ * recognise.
  */
 
 /** The key under a turn's context that carries how its message was entered. */
@@ -63,4 +68,29 @@ export function readMessageInput(value: unknown): MessageInput | null {
   if (typeof mode !== 'string' || !(MESSAGE_INPUT_MODES as readonly string[]).includes(mode)) return null;
   const tag = readMessageInputLanguage(language);
   return { mode: mode as MessageInputMode, ...(tag ? { language: tag } : {}) };
+}
+
+/** The key under a turn's context that carries how its reply reaches the person. */
+export const REPLY_OUTPUT_CONTEXT_KEY = 'output';
+
+/** The ways a reply can reach the person besides being shown as text. A shown reply carries no `output`. */
+export const REPLY_OUTPUT_MODES = ['voice'] as const;
+
+export type ReplyOutputMode = (typeof REPLY_OUTPUT_MODES)[number];
+
+/** A reply that will be spoken: a voice reads its text out, and nothing of it is shown. */
+export interface ReplyOutput {
+  mode: ReplyOutputMode;
+}
+
+/**
+ * How a reply reaches the person, when `value` says so in a way this runtime
+ * knows; else null, and the reply is shown as text. Anything but the mode is
+ * left out.
+ */
+export function readReplyOutput(value: unknown): ReplyOutput | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const { mode } = value as Record<string, unknown>;
+  if (typeof mode !== 'string' || !(REPLY_OUTPUT_MODES as readonly string[]).includes(mode)) return null;
+  return { mode: mode as ReplyOutputMode };
 }

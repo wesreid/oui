@@ -9,13 +9,29 @@
  *   POST /turns    AgentTurnPayload → 202 { turnId }
  *                  400 not a turn · 401 wrong key · 409 turn already running
  *                  503 at capacity or shutting down (retry later)
+ *   POST <liveCall.path>   a live-call turn → 200 text/event-stream (live-call/handler.ts),
+ *                  when `liveCall` is configured
  *   GET  /health   200 { status, running, capacity, model }
+ *
+ * Both routes take turns from one set of slots: `maxConcurrentTurns` bounds
+ * them together, and closing waits for both.
  */
 import http from 'node:http';
 import crypto from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import { createAgentTurnRunner, payloadRefusal, type TurnOutcome } from '../runtime/turn-runner.js';
+import { createTurnSlots } from '../runtime/turn-slots.js';
 import type { AgentRuntimeConfig, AgentTurnPayload } from '../runtime/types.js';
+import { liveCallRoute, type LiveCallTurnOptions } from '../live-call/handler.js';
+
+/** The live-call route on the container: its settings, and where it is served. */
+export interface ContainerLiveCallRoute extends LiveCallTurnOptions {
+  /** The path it is served at. Default `/live-call/turns`. */
+  path?: string;
+}
+
+/** Where the container serves the live-call route unless told otherwise. */
+export const DEFAULT_LIVE_CALL_PATH = '/live-call/turns';
 
 export interface ContainerAgentConfig<TDb> extends AgentRuntimeConfig<TDb> {
   /** The port to listen on. `0` picks a free one. Required. */
@@ -28,6 +44,12 @@ export interface ContainerAgentConfig<TDb> extends AgentRuntimeConfig<TDb> {
   maxBodyBytes?: number;
   /** Called with each turn's outcome, after it ends. */
   onTurnEnd?: (outcome: TurnOutcome) => void;
+  /**
+   * Serves live-call turns too (`createLiveCallTurnHandler`), on the
+   * same runtime and slots. Its requests carry the call service's bearer
+   * credential, not `workerApiKey`.
+   */
+  liveCall?: ContainerLiveCallRoute;
 }
 
 export interface ContainerAgentWorker {
@@ -46,16 +68,24 @@ export async function startContainerAgentWorker<TDb>(config: ContainerAgentConfi
   ].filter(Boolean);
   if (missing.length > 0) throw new Error(`[agent-sdk] Missing required configuration: ${missing.join('; ')}`);
 
+  const liveCallPath = config.liveCall ? (config.liveCall.path ?? DEFAULT_LIVE_CALL_PATH) : null;
+  if (liveCallPath !== null && (!liveCallPath.startsWith('/') || liveCallPath === '/turns' || liveCallPath === '/health')) {
+    throw new Error(`[agent-sdk] liveCall.path must be a path of its own beginning with '/', not ${JSON.stringify(liveCallPath)}`);
+  }
+
   const runner = createAgentTurnRunner(config);
   const capacity = config.maxConcurrentTurns ?? 8;
+  const slots = createTurnSlots(capacity);
   const maxBodyBytes = config.maxBodyBytes ?? 1024 * 1024;
+  const liveCall = config.liveCall
+    ? liveCallRoute(config.liveCall, { runner, slots, maxBodyBytes: Math.min(maxBodyBytes, 64 * 1024), onTurnEnd: config.onTurnEnd })
+    : null;
   const expectedKey = crypto.createHash('sha256').update(config.workerApiKey).digest();
   const isKey = (presented: unknown) =>
     typeof presented === 'string' &&
     presented.length > 0 &&
     crypto.timingSafeEqual(crypto.createHash('sha256').update(presented).digest(), expectedKey);
 
-  const inFlight = new Map<string, Promise<void>>();
   let closing = false;
 
   const send = (res: http.ServerResponse, status: number, body?: unknown) => {
@@ -65,7 +95,11 @@ export async function startContainerAgentWorker<TDb>(config: ContainerAgentConfi
 
   const server = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
-      send(res, closing ? 503 : 200, { status: closing ? 'closing' : 'ok', running: inFlight.size, capacity, model: runner.model });
+      send(res, closing ? 503 : 200, { status: closing ? 'closing' : 'ok', running: slots.running(), capacity, model: runner.model });
+      return;
+    }
+    if (liveCall && pathOf(req.url) === liveCallPath) {
+      liveCall(req, res);
       return;
     }
     if (req.method !== 'POST' || req.url !== '/turns') {
@@ -102,29 +136,24 @@ export async function startContainerAgentWorker<TDb>(config: ContainerAgentConfi
         send(res, 400, { error: refusal });
         return;
       }
-      if (inFlight.has(payload.turnId)) {
-        send(res, 409, { error: `turn ${payload.turnId} is already running` });
+      const busy = slots.take(payload.turnId, () =>
+        runner
+          .run(payload)
+          .then((outcome) => config.onTurnEnd?.(outcome))
+          .catch((err: unknown) => {
+            // A turn's own failure is an outcome, not a throw; this is the
+            // runtime failing around it (getDb, say). Nothing retries a
+            // container turn, so it is logged where the host will see it.
+            runner.logger.error('[agent-sdk] Turn could not run', {
+              turnId: payload.turnId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }),
+      );
+      if (busy) {
+        send(res, busy.status, { error: busy.error });
         return;
       }
-      if (closing || inFlight.size >= capacity) {
-        send(res, 503, { error: closing ? 'shutting down' : 'at capacity' });
-        return;
-      }
-
-      const run = runner
-        .run(payload)
-        .then((outcome) => config.onTurnEnd?.(outcome))
-        .catch((err: unknown) => {
-          // A turn's own failure is an outcome, not a throw; this is the
-          // runtime failing around it (getDb, say). Nothing retries a
-          // container turn, so it is logged where the host will see it.
-          runner.logger.error('[agent-sdk] Turn could not run', {
-            turnId: payload.turnId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        })
-        .finally(() => inFlight.delete(payload.turnId));
-      inFlight.set(payload.turnId, run);
       send(res, 202, { turnId: payload.turnId });
     });
   });
@@ -139,11 +168,17 @@ export async function startContainerAgentWorker<TDb>(config: ContainerAgentConfi
 
   return {
     port: (server.address() as AddressInfo).port,
-    running: () => inFlight.size,
+    running: () => slots.running(),
     async close() {
       closing = true;
-      await Promise.allSettled([...inFlight.values()]);
+      await slots.drain();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },
   };
+}
+
+/** The path of a request URL, without its query. */
+function pathOf(url: string | undefined): string {
+  const end = (url ?? '').search(/[?#]/);
+  return end === -1 ? (url ?? '') : (url ?? '').slice(0, end);
 }
