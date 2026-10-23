@@ -14,6 +14,9 @@
  *
  *   { sessionId, clientRef, turnId, kind, text, input?, output?, supersedes? }
  *
+ * `input` is `{ mode: 'voice', language? }` for what the person said and
+ * `{ mode: 'text' }` for what they typed during the call.
+ *
  * and the answer is `200 text/event-stream`:
  *
  *   event: text       data: { "text": "…" }                               the reply, piece by piece
@@ -41,7 +44,12 @@ export interface LiveCallTurnRequest {
   kind: LiveCallTurnKind;
   /** What the person said, as transcribed. Empty for `opening`. */
   text: string;
-  /** How `text` was entered: `{ mode: 'voice', language? }` on a call. Null for `opening`, or when not said. */
+  /**
+   * How `text` was entered: `{ mode: 'voice', language? }` for what the person
+   * said. Null for a message they typed during the call (`{ mode: 'text' }` on
+   * the wire), for `opening`, and when not said: a typed message is read as
+   * typed, with no spoken-input line.
+   */
   input: MessageInput | null;
   /** How the reply reaches the person: `{ mode: 'voice' }` when a voice reads it out. */
   output: ReplyOutput | null;
@@ -82,6 +90,13 @@ export type LiveCallStreamEventName = keyof LiveCallStreamEvents;
 export const LIVE_CALL_OPENING_MESSAGE =
   '<call_opening>A live call with the user has just connected, and they have not said anything yet. ' +
   'Greet them in a sentence or two, and ask what they would like help with. This is not a message from the user.</call_opening>';
+
+/**
+ * The `input` mode of a message the person typed during the call. It is read
+ * as typed: the turn's context carries no `input`, as for a message typed in
+ * the product's own chat.
+ */
+export const LIVE_CALL_TYPED_INPUT_MODE = 'text';
 
 /** Limits on a request. */
 export const LIVE_CALL_LIMITS = {
@@ -148,12 +163,17 @@ export function readLiveCallTurnRequest(body: unknown): LiveCallRequestReading {
       turnId: b.turnId as string,
       kind,
       text: kind === 'opening' ? '' : text,
-      // Nothing was said on an opening turn, so nothing was entered.
-      input: kind === 'opening' ? null : readMessageInput(b.input),
+      // Nothing was said on an opening turn, so nothing was entered; a typed message is read as typed.
+      input: kind === 'opening' || isTyped(b.input) ? null : readMessageInput(b.input),
       output: readReplyOutput(b.output),
       supersedes: [...new Set(supersedes as string[])].filter((id) => id !== b.turnId),
     },
   };
+}
+
+/** Whether `input` says the message was typed during the call. */
+function isTyped(input: unknown): boolean {
+  return !!input && typeof input === 'object' && (input as { mode?: unknown }).mode === LIVE_CALL_TYPED_INPUT_MODE;
 }
 
 /**

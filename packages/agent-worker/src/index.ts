@@ -151,6 +151,7 @@ export {
   liveCallError,
   LIVE_CALL_TURN_KINDS,
   LIVE_CALL_OPENING_MESSAGE,
+  LIVE_CALL_TYPED_INPUT_MODE,
   LIVE_CALL_LIMITS,
   LIVE_CALL_ERROR_MESSAGES,
 } from './live-call/protocol.js';

@@ -102,6 +102,14 @@ describe('the turn the handler runs', () => {
     expect(typeof runner.hosts[0].observe).toBe('function');
   });
 
+  it('runs a message typed during the call as typed: no input on the context, the reply still spoken', async () => {
+    const runner = stubRunner(async (p) => ({ status: 'completed', turnId: p.turnId, rounds: 1 }));
+    const res = await call(await mount(runner), { text: 'What is the VIN?', input: { mode: 'text' }, output: { mode: 'voice' } });
+    expect(res.status).toBe(200);
+    expect(runner.payloads[0].content).toBe('What is the VIN?');
+    expect(runner.payloads[0].context).toEqual({ currentPath: '/inventory', oui: { surfaces: [] }, output: { mode: 'voice' } });
+  });
+
   it('greets on an opening turn, with nothing said to be entered', async () => {
     const runner = stubRunner(async (p) => ({ status: 'completed', turnId: p.turnId, rounds: 1 }));
     const url = await mount(runner);

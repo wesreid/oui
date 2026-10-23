@@ -227,7 +227,7 @@ process.on('SIGTERM', () => liveCall.close());        // waits for running turns
 | `turnId` | Unique per turn; the turn runs under it. |
 | `kind` | `message`: the person said `text`. `opening`: the call has just connected, `text` is empty, and the agent greets: the model reads `LIVE_CALL_OPENING_MESSAGE` where the person's words would be. |
 | `text` | What the person said, as transcribed; at most 8,000 characters. |
-| `input` | `{ mode: 'voice', language? }`: set as the turn's `context.input`. Dropped on an `opening`. |
+| `input` | `{ mode: 'voice', language? }` for what the person said: set as the turn's `context.input`, so the model is told it was transcribed. `{ mode: 'text' }` for a message they typed during the call: read as typed, with no `context.input`. Dropped on an `opening`. |
 | `output` | `{ mode: 'voice' }`: set as the turn's `context.output`, so the model writes for the ear ("What a UI client sends with a turn"). |
 | `supersedes` | Turns this one replaces. Each still running in this process is stopped at once, and the turn's `getHistory` is given them to wait for, as for any superseding message. |
 

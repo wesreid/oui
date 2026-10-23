@@ -414,6 +414,23 @@ describe('a spoken message on a live call', () => {
     }
   }, 30_000);
 
+  it('answers a message typed during the call as typed, and still writes the reply for the ear', async () => {
+    const m = scriptedModel([{ text: 'The stock number is A one two three four.' }]);
+    const call = await startCallProduct({ model: m.model });
+    try {
+      const body = turnRequest(call, { text: 'What is the stock number?', input: { mode: 'text' } });
+      const stream = await streamOf(await post(call.url, body));
+      expect(stream.text()).toBe('The stock number is A one two three four.');
+      expect(stream.events.at(-1)).toEqual({ event: 'done', data: { stopReason: 'complete' } });
+      expect(call.resolved[0]).toMatchObject({ text: 'What is the stock number?', input: null, output: { mode: 'voice' } });
+      const tail = textsOf(m.requests[0]).at(-1)!;
+      expect(tail).not.toContain('<input>');
+      expect(tail).toContain('<output>Your reply will be spoken aloud to the user on a live call');
+    } finally {
+      await call.close();
+    }
+  }, 30_000);
+
   it('keeps a stream that is silent through a long tool call alive with comments', async () => {
     const lookups: unknown[] = [];
     const inventory: RegisteredTool = {

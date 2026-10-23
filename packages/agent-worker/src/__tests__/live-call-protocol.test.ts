@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import {
   LIVE_CALL_ERROR_MESSAGES,
   LIVE_CALL_LIMITS,
+  LIVE_CALL_TYPED_INPUT_MODE,
   liveCallError,
   readLiveCallTurnRequest,
   type LiveCallRequestReading,
@@ -56,6 +57,18 @@ describe('readLiveCallTurnRequest', () => {
         request: { sessionId: SPOKEN.sessionId, clientRef: SPOKEN.clientRef, turnId: SPOKEN.turnId, kind: 'opening', text: '', input: null, output: { mode: 'voice' }, supersedes: [] },
       });
     }
+  });
+
+  it('reads a message typed during the call as typed: accepted, with no input, and the reply still spoken', () => {
+    const typed = readLiveCallTurnRequest({ ...SPOKEN, text: 'Can you text me the link?', input: { mode: 'text' } });
+    expect(typed).toEqual({
+      ok: true,
+      request: expect.objectContaining({ kind: 'message', text: 'Can you text me the link?', input: null, output: { mode: 'voice' } }),
+    });
+    // A language beside it changes nothing: the message was typed.
+    const tagged = readLiveCallTurnRequest({ ...SPOKEN, input: { mode: 'text', language: 'en' } });
+    expect(tagged.ok && tagged.request.input).toBeNull();
+    expect(LIVE_CALL_TYPED_INPUT_MODE).toBe('text');
   });
 
   it('reads an unknown input or output mode as not said, and a malformed language as left out', () => {
