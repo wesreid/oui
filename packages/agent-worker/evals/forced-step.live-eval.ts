@@ -19,7 +19,7 @@ import { buildAgentSystemPrompt } from '../src/prompt/index.js';
 import { createToolRegistry } from '../src/tools/types.js';
 import { loadBuiltinTools } from '../src/tools/builtin-tools.js';
 import type { TurnPolicy } from '../src/turn-policy.js';
-import { LIVE_MODEL_ID, liveBedrock } from './support/bedrock.js';
+import { LIVE_MODEL_ID, liveBedrock, liveTurnSettings } from './support/bedrock.js';
 import { createCanvasRoom, wordmarkBoard } from './support/canvas-room.js';
 
 const RUNS = Number(process.env.EVAL_RUNS ?? 3);
@@ -57,7 +57,7 @@ describe(`a forced step on ${LIVE_MODEL_ID}, which may refuse a forced tool choi
           promptCacheBreakpoint: PROMPT_CACHE_BREAKPOINTS.bedrock,
           systemPrompt: buildAgentSystemPrompt(PERSONA as never),
           maxToolRounds: 12,
-          ...(process.env.EVAL_TEMPERATURE === 'none' ? { temperature: null } : {}),
+          ...liveTurnSettings(),
           forcedToolChoice: false,
           turnPolicy: twoSteps,
           turnDeadlineMs: 170_000,

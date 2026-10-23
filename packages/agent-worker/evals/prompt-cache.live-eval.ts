@@ -25,7 +25,7 @@ import { buildAgentSystemPrompt } from '../src/prompt/index.js';
 import { createToolRegistry } from '../src/tools/types.js';
 import { loadBuiltinTools } from '../src/tools/builtin-tools.js';
 import type { TurnHistoryMessage, TurnMessage } from '../src/types.js';
-import { LIVE_MODEL_ID, liveBedrock } from './support/bedrock.js';
+import { LIVE_MODEL_ID, liveBedrock, liveTurnSettings } from './support/bedrock.js';
 import { createCanvasRoom, wordmarkBoard } from './support/canvas-room.js';
 
 const PERSONA = {
@@ -72,8 +72,7 @@ describe(`the prompt cache across a conversation (${LIVE_MODEL_ID})`, () => {
           promptCacheBreakpoint: PROMPT_CACHE_BREAKPOINTS.bedrock,
           systemPrompt: buildAgentSystemPrompt(PERSONA as never),
           maxToolRounds: 24,
-          // A model that takes no temperature (Claude Sonnet 5.5 on Bedrock) is sent none.
-          ...(process.env.EVAL_TEMPERATURE === 'none' ? { temperature: null } : {}),
+          ...liveTurnSettings(),
           turnDeadlineMs: 170_000,
           ui: { channel: room.channel, resultTimeoutMs: 5_000 },
         },
