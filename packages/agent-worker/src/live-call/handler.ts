@@ -35,7 +35,7 @@ import { createTurnSlots, type TurnSlots } from '../runtime/turn-slots.js';
 import type { AgentTurnPayload } from '../runtime/types.js';
 import type { TurnEventObserver } from '../emit/tee.js';
 import { DEFAULT_KEEP_ALIVE_MS, openLiveCallEventStream, type LiveCallEventStream } from './event-stream.js';
-import { LIVE_CALL_OPENING_MESSAGE, liveCallError, readLiveCallTurnRequest, type LiveCallTurnRequest } from './protocol.js';
+import { LIVE_CALL_OPENING_MESSAGE, liveCallError, readLiveCallTurnRequest, type LiveCallStreamEvents, type LiveCallTurnRequest } from './protocol.js';
 
 /** Who and where a live-call turn is, in the product: what the host resolves a call's `clientRef` to. */
 export interface LiveCallTurnTarget {
@@ -348,9 +348,14 @@ function turnPayload(request: LiveCallTurnRequest, target: LiveCallTurnTarget): 
 /**
  * The turn's events, as the response carries them: its text as `text`, an
  * approval's readback as `readback`, and how it ended, for `done`.
+ *
+ * The readback is sent when the turn has ended, after every piece of its
+ * text: it is spoken after what the model said before the call. A turn that
+ * was stopped instead withdrew its approval, so its readback is never sent.
  */
 function relayTurn(turnId: string, stream: LiveCallEventStream): { observe: TurnEventObserver; ended(): { stopReason?: string } | null } {
   let ended: { stopReason?: string } | null = null;
+  let readback: LiveCallStreamEvents['readback'] | null = null;
   const ofTurn = (data: unknown): data is Record<string, unknown> =>
     !!data && typeof data === 'object' && (data as { turnId?: unknown }).turnId === turnId;
   return {
@@ -364,14 +369,11 @@ function relayTurn(turnId: string, stream: LiveCallEventStream): { observe: Turn
         }
         case AGENT_SOCKET_EVENTS.APPROVAL_REQUIRED: {
           const approval = data as unknown as ApprovalRequiredEvent;
-          stream.send('readback', {
-            approvalId: approval.approvalId,
-            text: approval.preview.readback,
-            expiresAt: new Date(approval.expiresAt).toISOString(),
-          });
+          readback = { approvalId: approval.approvalId, text: approval.preview.readback, expiresAt: new Date(approval.expiresAt).toISOString() };
           return;
         }
         case AGENT_SOCKET_EVENTS.TURN_COMPLETE: {
+          if (readback && data.stopReason === undefined) stream.send('readback', readback);
           const reason = data.stopReason ?? data.endReason;
           ended = typeof reason === 'string' ? { stopReason: reason } : {};
           return;

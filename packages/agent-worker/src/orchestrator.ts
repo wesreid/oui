@@ -438,14 +438,14 @@ export async function runAgentTurn(
     const refused = async (payload: { error: string } & Record<string, unknown>, given: unknown): Promise<CallOutcome> => {
       ledger.record({ tool: t.name, ok: false, error: payload.error });
       const now = Date.now();
-      await config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TOOL_CALL_STARTED, {
+      await emitAfterText(AGENT_SOCKET_EVENTS.TOOL_CALL_STARTED, {
         turnId,
         toolUseId,
         name: t.name,
         input: given,
         timestamp: now,
       });
-      await config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TOOL_CALL_COMPLETE, {
+      await emitAfterText(AGENT_SOCKET_EVENTS.TOOL_CALL_COMPLETE, {
         turnId,
         toolUseId,
         name: t.name,
@@ -694,7 +694,7 @@ export async function runAgentTurn(
     });
 
     // Emit tool call started BEFORE execution
-    await config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TOOL_CALL_STARTED, {
+    await emitAfterText(AGENT_SOCKET_EVENTS.TOOL_CALL_STARTED, {
       turnId,
       toolUseId,
       name: t.name,
@@ -758,7 +758,7 @@ export async function runAgentTurn(
       ...(isUI && !resultSuccess ? { error: isWrapped ? result.error : undefined } : {}),
     });
 
-    await config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TOOL_CALL_COMPLETE, {
+    await emitAfterText(AGENT_SOCKET_EVENTS.TOOL_CALL_COMPLETE, {
       turnId,
       toolUseId,
       name: t.name,
@@ -863,7 +863,7 @@ export async function runAgentTurn(
       return refuse(err instanceof Error ? err.message : String(err));
     }
 
-    await config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.APPROVAL_REQUIRED, {
+    await emitAfterText(AGENT_SOCKET_EVENTS.APPROVAL_REQUIRED, {
       turnId,
       conversationId: input.conversationId,
       approvalId: toolUseId,
@@ -1239,6 +1239,17 @@ export async function runAgentTurn(
         timestamp: Date.now(),
       });
     }
+  };
+
+  /**
+   * A turn event that comes after what the model has said so far: the text
+   * still held for coalescing is sent first. A tool's call and an approval's
+   * preview then reach the room, and a host observing the turn's events, after
+   * the words the model said before them, as they were said.
+   */
+  const emitAfterText = async (event: string, data: unknown) => {
+    await flushTokenBuffer();
+    await config.emit.emit(socketRoom, event, data);
   };
 
   // The model's thinking, relayed to the room: its start and end, and its
