@@ -32,6 +32,16 @@ export interface AgentWorkerConfig {
    * See PROMPT_CACHE_BREAKPOINTS. Omit for a provider that caches on its own.
    */
   promptCacheBreakpoint?: ProviderOptions;
+  /**
+   * Provider options sent with every model call of every turn, e.g. the
+   * thinking the model returns (`{ amazonBedrock: { additionalModelRequestFields:
+   * { thinking: { type: 'adaptive', display: 'summarized' } } } }`). Keep them
+   * the same for every turn: a thinking setting that changes between calls
+   * invalidates the prompt cache. A summary the model returns streams to the
+   * turn's room (`agent:reasoning_delta`); it is never stored with the
+   * conversation.
+   */
+  modelProviderOptions?: ProviderOptions;
   maxToolRounds?: number;
   /** The most one model response may write, thinking included. Default 32,000. */
   maxTokens?: number;

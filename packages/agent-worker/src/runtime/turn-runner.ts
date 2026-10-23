@@ -263,6 +263,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
             systemPrompt,
             model: config.model,
             promptCacheBreakpoint: config.promptCacheBreakpoint,
+            ...(config.modelProviderOptions ? { modelProviderOptions: config.modelProviderOptions } : {}),
             maxToolRounds: maxRounds,
             maxTokens,
             temperature,

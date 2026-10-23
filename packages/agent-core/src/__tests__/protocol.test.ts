@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AGENT_SOCKET_EVENTS, ALL_AGENT_SOCKET_EVENTS, parseSocketEvent } from '../protocol/index.js';
+import { TURN_END_REASONS, isTurnEndReason } from '../protocol/index.js';
 import { TURN_STOP_REASONS, TURN_STOPPED_REASONS, isTurnStopReason, isTurnStoppedReason, turnStoppedNote } from '../turns/index.js';
 
 describe('Agent Protocol', () => {
@@ -39,7 +40,7 @@ describe('Agent Protocol', () => {
     // Every other event MUST map to a non-null protocol event
     const nonNullEvents = ALL_AGENT_SOCKET_EVENTS.filter(e => e !== AGENT_SOCKET_EVENTS.TURN_STARTED);
     for (const eventName of nonNullEvents) {
-      const result = parseSocketEvent(eventName, { turnId: 'test-turn', text: 'test', name: 'test_tool', toolUseId: 'tc1' }, 'fallback');
+      const result = parseSocketEvent(eventName, { turnId: 'test-turn', text: 'test', name: 'test_tool', toolUseId: 'tc1', reasoningId: 'r1' }, 'fallback');
       expect(result, `parseSocketEvent('${eventName}', ...) returned null — missing handler`).not.toBeNull();
     }
   });
@@ -75,5 +76,50 @@ describe('a stopped turn', () => {
     expect(isTurnStoppedReason('deadline')).toBe(true);
     expect(TURN_STOPPED_REASONS).toEqual(['user_stop', 'superseded', 'deadline']);
     expect(turnStoppedNote({ reason: 'deadline' })).toMatch(/ran out of time/);
+  });
+});
+
+describe("the model's thinking", () => {
+  it('reads the start, each piece of the summary, and the end of a thinking block', () => {
+    expect(parseSocketEvent(AGENT_SOCKET_EVENTS.REASONING_STARTED, { turnId: 't1', reasoningId: 'r1' }, 'f')).toEqual({
+      type: 'reasoning',
+      phase: 'start',
+      id: 'r1',
+      turnId: 't1',
+    });
+    expect(parseSocketEvent(AGENT_SOCKET_EVENTS.REASONING_DELTA, { turnId: 't1', reasoningId: 'r1', text: 'Laying out' }, 'f')).toEqual({
+      type: 'reasoning',
+      phase: 'delta',
+      id: 'r1',
+      text: 'Laying out',
+      turnId: 't1',
+    });
+    expect(parseSocketEvent(AGENT_SOCKET_EVENTS.REASONING_ENDED, { reasoningId: 'r1' }, 'fallback')).toEqual({
+      type: 'reasoning',
+      phase: 'end',
+      id: 'r1',
+      turnId: 'fallback',
+    });
+  });
+
+  it('drops a block event without its id, and a piece without text', () => {
+    expect(parseSocketEvent(AGENT_SOCKET_EVENTS.REASONING_STARTED, { turnId: 't1' }, 'f')).toBeNull();
+    expect(parseSocketEvent(AGENT_SOCKET_EVENTS.REASONING_DELTA, { turnId: 't1', reasoningId: 'r1', text: '' }, 'f')).toBeNull();
+    expect(parseSocketEvent(AGENT_SOCKET_EVENTS.REASONING_DELTA, { turnId: 't1', reasoningId: 'r1' }, 'f')).toBeNull();
+  });
+});
+
+describe('how a turn ended', () => {
+  it('reads every end reason the worker sends', () => {
+    for (const endReason of TURN_END_REASONS) {
+      expect(parseSocketEvent(AGENT_SOCKET_EVENTS.TURN_COMPLETE, { turnId: 't1', endReason }, 'f')).toMatchObject({ type: 'done', endReason });
+    }
+  });
+
+  it('says nothing for a reason it does not know, or a worker that does not say', () => {
+    expect(parseSocketEvent(AGENT_SOCKET_EVENTS.TURN_COMPLETE, { turnId: 't1', endReason: 'mystery' }, 'f')).not.toHaveProperty('endReason');
+    expect(parseSocketEvent(AGENT_SOCKET_EVENTS.TURN_COMPLETE, { turnId: 't1' }, 'f')).not.toHaveProperty('endReason');
+    expect(isTurnEndReason('output_limit')).toBe(true);
+    expect(isTurnEndReason('user_stop')).toBe(false);
   });
 });

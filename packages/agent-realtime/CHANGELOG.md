@@ -1,5 +1,17 @@
 # @ouispec/agent-realtime
 
+## 0.14.0
+
+### Minor Changes
+
+- A turn's progress, for every view that shows it. The worker relays the model's thinking to the turn's room (`agent:reasoning_started`, `agent:reasoning_delta` with the summary when `modelProviderOptions` asks the model for one, `agent:reasoning_ended`; nothing is stored or sent to the model differently) and says how a turn ended (`endReason` on `agent:turn_complete`). `useAgentStatus()` gives one status (idle, working, needs-you, done, problem) with what the assistant is doing ("Planning…", "Draw a shape · 12", from `config.toolLabels`) and `clearDone`; `useAgent().reasoning` holds the thinking blocks. agent-core's `agentWorkRuns`, `currentWorkStep`, `workLabel`, `formatWorkStep` and `humanizeToolName` are the one definition of the assistant's work as a person reads it.
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/agent-core@0.14.0
+  - @ouispec/agent-events@0.14.0
+
 ## 0.13.1
 
 ### Patch Changes

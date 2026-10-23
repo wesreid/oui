@@ -320,6 +320,17 @@ export interface AgentClientConfig {
    * Useful for analytics, logging, or custom side effects.
    */
   onEvent?: (event: AgentProtocolEvent) => void;
+
+  /**
+   * What each tool's action is called on screen, by tool name
+   * (`vector_studio_add_shape` → "Draw a shape"): the status a view shows
+   * while the assistant works (`useAgentStatus().activity`). A tool without one
+   * is named from its name (`humanizeToolName`).
+   */
+  toolLabels?: Readonly<Record<string, string>>;
+
+  /** The words of the status while the assistant thinks before it acts. Default "Planning…". */
+  planningText?: string;
 }
 
 /**

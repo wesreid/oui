@@ -26,6 +26,12 @@ export const AGENT_TURN_EVENTS = {
   ERROR: 'agent:error',
   /** The turn stopped at a call that needs the user's approval; the payload is agent-sdk-core's `ApprovalRequiredEvent`. */
   APPROVAL_REQUIRED: 'agent:approval_required',
+  /** The model began thinking: until it ends, the turn is planning, not acting. */
+  REASONING_STARTED: 'agent:reasoning_started',
+  /** The summary of the model's thinking as it streams, where the host asked the model for one. */
+  REASONING_DELTA: 'agent:reasoning_delta',
+  /** The model stopped thinking: what follows is text or a call. */
+  REASONING_ENDED: 'agent:reasoning_ended',
 } as const;
 
 const turnId: JsonSchema = { type: 'string', minLength: 1, description: 'The turn the event belongs to.' };
@@ -85,8 +91,29 @@ export const PLATFORM_EVENTS: EventDeclarationDocument = {
           description:
             'Set when the turn did not end by itself: the person stopped it, a newer message superseded it, or it ran out of time.',
         },
+        endReason: {
+          type: 'string',
+          enum: ['complete', 'present_options', 'awaiting_approval', 'time_limit', 'output_limit', 'step_count'],
+          description:
+            'How a turn that ended by itself ended: it answered, it asked the person to choose or approve, it handed back for time, it was cut off at the output limit, or it used every step.',
+        },
       },
       [],
+    ),
+    [AGENT_TURN_EVENTS.REASONING_STARTED]: turnEvent(
+      'The model began thinking. Its end, with the same id, follows before any text or call of that step.',
+      { reasoningId: { type: 'string', minLength: 1, description: 'The thinking block, which its deltas and end repeat.' } },
+      ['reasoningId'],
+    ),
+    [AGENT_TURN_EVENTS.REASONING_DELTA]: turnEvent(
+      "The summary of the model's thinking as it streams: the next piece, not the whole. Sent only when the model returns one.",
+      { reasoningId: { type: 'string', minLength: 1 }, text: { type: 'string', minLength: 1 } },
+      ['reasoningId', 'text'],
+    ),
+    [AGENT_TURN_EVENTS.REASONING_ENDED]: turnEvent(
+      'The model stopped thinking.',
+      { reasoningId: { type: 'string', minLength: 1 } },
+      ['reasoningId'],
     ),
     [AGENT_TURN_EVENTS.TURN_ERROR]: turnEvent(
       'The turn failed.',
