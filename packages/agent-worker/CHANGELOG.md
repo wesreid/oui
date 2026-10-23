@@ -1,5 +1,20 @@
 # @ouispec/agent-worker
 
+## 0.15.0
+
+### Minor Changes
+
+- A live call answered by the product's own agent. `createLiveCallTurnHandler({ runner, credential, resolveTurn, opening?, keepAliveMs? })` is a Node `(req, res)` handler a product mounts on its own server, and `startContainerAgentWorker` serves it at `liveCall.path` (default `/live-call/turns`) from the same runtime and turn slots. Each request is one turn of the call (`sessionId`, `clientRef`, `turnId`, `kind`, `text`, `input`, `output`, `supersedes`) with the call service's bearer credential. The host's `resolveTurn` maps the call's `clientRef` to the conversation, user and realtime room, and the turn runs on the same runtime as every other turn, so it still streams to the conversation's room and every page joined to it receives the reply and every UI action. The handler answers `200 text/event-stream` from the turn's own events (`TurnHost.observe`, `teeEmitAdapter`): `text` with the reply as it is written, `readback` with an approval preview's verbatim readback once the turn has ended, `done` with how it ended, `error` with a code and a fixed line, and `: keep-alive` comments while it is silent. A closed connection stops the turn as a superseding message does (`TurnHost.stopSignal`, `withLocalStop`), and `supersedes` reaches the turn's `getHistory`. An `opening` turn greets, from the model or from the product's template (`runner.reply`, a turn answered with the host's text). The approval store client gains `decide` for a conversation channel's decision on a readback.
+
+  A reply that will be spoken is written for the ear: a turn whose `context.output` is `{ mode: 'voice' }` (`REPLY_OUTPUT_CONTEXT_KEY`, `readReplyOutput` in agent-core) is told, after the conversation, to speak in short plain sentences with no markdown, lists, links or emoji, to say numbers, prices and dates as they are said, and to show what the person should look at through the page instead of reading it out. The system prompt, the tools and every message stay byte for byte the same, so a conversation's chat and call turns share the prompt cache.
+
+  Text the model said before a tool call or an approval now reaches the room before that call's events: the text held for coalescing is sent first.
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/agent-core@0.15.0
+
 ## 0.14.0
 
 ### Minor Changes
