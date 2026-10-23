@@ -22,7 +22,7 @@ import { CLIENT_KNOWLEDGE_KEY } from '../../src/ui/knowledge.js';
 import type { TurnHistoryMessage } from '../../src/types.js';
 import type { AgentPersonaConfig } from '../../src/prompt/types.js';
 import type { ResolvedKnowledge } from '@ouispec/bindings';
-import { LIVE_MODEL_ID, liveBedrock } from './bedrock.js';
+import { LIVE_MODEL_ID, liveBedrock, liveTurnSettings } from './bedrock.js';
 
 export interface LiveAction {
   id: string;
@@ -160,8 +160,7 @@ export async function liveTurn(
       promptCacheBreakpoint: PROMPT_CACHE_BREAKPOINTS.bedrock,
       systemPrompt: buildAgentSystemPrompt((options.persona ?? PERSONA) as never),
       maxToolRounds: options.maxRounds ?? 12,
-      // A model that takes no temperature (Claude Sonnet 5.5 on Bedrock) is sent none.
-      ...(process.env.EVAL_TEMPERATURE === 'none' ? { temperature: null } : {}),
+      ...liveTurnSettings(),
       turnDeadlineMs: 170_000,
       ui: { channel: page.channel, resultTimeoutMs: 5_000 },
     },

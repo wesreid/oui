@@ -6,8 +6,28 @@
  */
 import { execFileSync } from 'node:child_process';
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
+import type { ProviderOptions } from '../../src/model.js';
 
 export const LIVE_MODEL_ID = process.env.EVAL_MODEL_ID ?? 'us.anthropic.claude-sonnet-4-6';
+
+/**
+ * What every live turn is sent besides its own config, from the environment:
+ * - `EVAL_TEMPERATURE=none` sends no temperature, for a model that takes none
+ *   (Claude Sonnet 5.5 on Bedrock).
+ * - `EVAL_THINKING_DISPLAY=summarized` (or `omitted`) asks the model to return
+ *   its thinking that way, as a host's `modelProviderOptions` would on every
+ *   call: the same scenarios then compare a host that shows the person the
+ *   model's thinking with one that does not.
+ */
+export function liveTurnSettings(): { temperature?: null; modelProviderOptions?: ProviderOptions } {
+  const display = process.env.EVAL_THINKING_DISPLAY;
+  return {
+    ...(process.env.EVAL_TEMPERATURE === 'none' ? { temperature: null } : {}),
+    ...(display
+      ? { modelProviderOptions: { amazonBedrock: { additionalModelRequestFields: { thinking: { type: 'adaptive', display } } } } }
+      : {}),
+  };
+}
 
 async function credentials() {
   if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {

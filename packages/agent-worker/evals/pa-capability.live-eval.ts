@@ -34,7 +34,7 @@ import { PROMPT_CACHE_BREAKPOINTS } from '../src/model.js';
 import { buildAgentSystemPrompt } from '../src/prompt/index.js';
 import { createToolRegistry } from '../src/tools/types.js';
 import { loadBuiltinTools } from '../src/tools/builtin-tools.js';
-import { LIVE_MODEL_ID, liveBedrock } from './support/bedrock.js';
+import { LIVE_MODEL_ID, liveBedrock, liveTurnSettings } from './support/bedrock.js';
 import {
   createCanvasRoom,
   layerBox,
@@ -70,8 +70,7 @@ async function turn(document: CanvasDocument, request: string) {
       promptCacheBreakpoint: PROMPT_CACHE_BREAKPOINTS.bedrock,
       systemPrompt: buildAgentSystemPrompt(PERSONA),
       maxToolRounds: 24,
-      // A model that takes no temperature (Claude Sonnet 5.5 on Bedrock) is sent none.
-      ...(process.env.EVAL_TEMPERATURE === 'none' ? { temperature: null } : {}),
+      ...liveTurnSettings(),
       turnDeadlineMs: 170_000,
       ui: { channel: room.channel, resultTimeoutMs: 5_000, ...(PLATFORM === 'before' ? { maxObservationChars: 6_000 } : {}) },
     },
