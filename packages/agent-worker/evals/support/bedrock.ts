@@ -17,7 +17,7 @@ export const LIVE_MODEL_ID = process.env.EVAL_MODEL_ID ?? 'us.anthropic.claude-s
  * - `EVAL_THINKING_DISPLAY=summarized` (or `omitted`) asks the model to return
  *   its thinking that way, as a host's `modelProviderOptions` would on every
  *   call: the same scenarios then compare a host that shows the person the
- *   model's thinking (ADR-0272 §2.4) with one that does not.
+ *   model's thinking with one that does not.
  */
 export function liveTurnSettings(): { temperature?: null; modelProviderOptions?: ProviderOptions } {
   const display = process.env.EVAL_THINKING_DISPLAY;
