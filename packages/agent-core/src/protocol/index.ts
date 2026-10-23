@@ -52,7 +52,8 @@ export type AgentProtocolEvent =
   | SessionUpdateEvent
   | ErrorEvent
   | DoneEvent
-  | ApprovalRequiredProtocolEvent;
+  | ApprovalRequiredProtocolEvent
+  | ReasoningEvent;
 
 export interface TokenEvent {
   type: 'token';
@@ -147,6 +148,37 @@ export interface ApprovalRequiredProtocolEvent extends Omit<ApprovalRequiredEven
   type: 'approval_required';
 }
 
+/**
+ * The model's thinking: `start` when it begins, `delta` with the next piece of
+ * its summary (sent only when the model returns one), `end` when it stops.
+ * Until `end`, the turn is planning rather than acting.
+ */
+export interface ReasoningEvent {
+  type: 'reasoning';
+  phase: 'start' | 'delta' | 'end';
+  /** The thinking block: its deltas and end repeat it. */
+  id: string;
+  /** The next piece of the summary, on a `delta`. */
+  text?: string;
+  turnId: string;
+}
+
+/** How a turn that ended by itself ended (`DoneEvent.endReason`). */
+export type TurnEndReason = 'complete' | 'present_options' | 'awaiting_approval' | 'time_limit' | 'output_limit' | 'step_count';
+
+export const TURN_END_REASONS: readonly TurnEndReason[] = [
+  'complete',
+  'present_options',
+  'awaiting_approval',
+  'time_limit',
+  'output_limit',
+  'step_count',
+];
+
+export function isTurnEndReason(value: unknown): value is TurnEndReason {
+  return typeof value === 'string' && (TURN_END_REASONS as readonly string[]).includes(value);
+}
+
 export interface DoneEvent {
   type: 'done';
   turnId: string;
@@ -159,6 +191,12 @@ export interface DoneEvent {
    * is stored.
    */
   stopReason?: TurnStoppedReason;
+  /**
+   * How a turn that ended by itself ended: it answered, asked the person to
+   * choose or approve, handed back for time, was cut off at the output limit,
+   * or used every step. Absent from a worker that does not say.
+   */
+  endReason?: TurnEndReason;
 }
 
 /**
@@ -219,7 +257,22 @@ export function parseSocketEvent(event: string, data: unknown, fallbackTurnId: s
         messageId: payload.messageId as string | undefined,
         usage: payload.usage as { promptTokens: number; completionTokens: number; totalTokens: number } | undefined,
         ...(isTurnStoppedReason(payload.stopReason) ? { stopReason: payload.stopReason } : {}),
+        ...(isTurnEndReason(payload.endReason) ? { endReason: payload.endReason } : {}),
       };
+
+    case AGENT_SOCKET_EVENTS.REASONING_STARTED:
+    case AGENT_SOCKET_EVENTS.REASONING_ENDED: {
+      const id = payload.reasoningId;
+      if (typeof id !== 'string' || !id) return null;
+      return { type: 'reasoning', phase: event === AGENT_SOCKET_EVENTS.REASONING_STARTED ? 'start' : 'end', id, turnId };
+    }
+
+    case AGENT_SOCKET_EVENTS.REASONING_DELTA: {
+      const id = payload.reasoningId;
+      const text = payload.text;
+      if (typeof id !== 'string' || !id || typeof text !== 'string' || !text) return null;
+      return { type: 'reasoning', phase: 'delta', id, text, turnId };
+    }
 
     case AGENT_SOCKET_EVENTS.TURN_ERROR: {
       const errObj = (payload.error ?? payload) as Record<string, unknown>;

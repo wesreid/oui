@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import type {
   AgentClientConfig,
   AgentMessageContext,
@@ -23,6 +23,9 @@ import type {
   AgentApprovalRequest,
   AgentContextValue,
   AgentMessage,
+  AgentReasoning,
+  AgentStatus,
+  AgentTurnEnd,
   DebugLogEntry,
   DebugLogLevel,
   DebugLogNamespace,
@@ -34,6 +37,7 @@ import type {
 import { ApprovalDecisionContext, approvalRefusalText, type ApprovalDecisionState } from '../approvals/decision.js';
 import { annotationRegistry } from '../annotations/singleton.js';
 import { storedToAgentMessages } from './stored-messages.js';
+import { agentStatusOf, applyReasoningEvent, endOpenReasoning, turnEndOf } from './turn-progress.js';
 import { readConversationSummaries, readConversationSummary } from './conversation-summaries.js';
 import { SDK_PACKAGE, SDK_VERSION } from '../version.js';
 
@@ -156,6 +160,9 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   const [presentedOptions, setPresentedOptions] = useState<PresentedOptions | null>(null);
   // The call a turn stopped at for the user's approval, until they decide.
   const [pendingApproval, setPendingApproval] = useState<AgentApprovalRequest | null>(null);
+  // The model's thinking in this conversation's turns, and how the last turn ended: the status a view shows.
+  const [reasoning, setReasoning] = useState<AgentReasoning[]>([]);
+  const [lastTurnEnd, setLastTurnEnd] = useState<AgentTurnEnd | null>(null);
   const [approvalDeciding, setApprovalDeciding] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
   // The turn the person asked to stop, from their Stop until its end arrives.
@@ -370,6 +377,8 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
         if (!event.content) break;
         // Text a superseded turn still sends is not the turn in progress's.
         if (!ofLiveTurn(event.turnId)) break;
+        // It is saying something: it is no longer only thinking.
+        setReasoning(prev => endOpenReasoning(prev, event.turnId, Date.now()));
         streamBufferRef.current += event.content;
         // Snapshot the accumulated content BEFORE enqueueing the state update.
         // React batches updates and runs the setMessages callback later; if the
@@ -414,6 +423,8 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
 
       case 'intent_call':
         if (!ofLiveTurn(event.turnId)) break;
+        // It is acting: it is no longer only thinking.
+        setReasoning(prev => endOpenReasoning(prev, event.turnId, Date.now()));
         setMessages(prev => [...prev, {
           id: `tool_${event.id}`,
           role: 'tool' as const,
@@ -438,6 +449,11 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
             ? { ...m, toolCall: { ...m.toolCall!, status: event.success ? 'complete' as const : 'error' as const, result: event.result } }
             : m
         ));
+        break;
+
+      case 'reasoning':
+        if (!ofLiveTurn(event.turnId)) break;
+        setReasoning(prev => applyReasoningEvent(prev, event, Date.now()));
         break;
 
       case 'approval_required': {
@@ -474,6 +490,8 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
           const reason = event.stopReason;
           const asked = stoppingRef.current?.turnId === event.turnId;
           rememberEnded(event.turnId);
+          setReasoning(prev => endOpenReasoning(prev, event.turnId, Date.now()));
+          setLastTurnEnd(turnEndOf(event.turnId, event, Date.now()));
           streamBufferRef.current = '';
           roundPrefixRef.current = '';
           setMessages(prev => markStopped(prev, event.turnId, reason));
@@ -493,6 +511,8 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
         }
         clearStopping();
         rememberEnded(event.turnId);
+        setReasoning(prev => endOpenReasoning(prev, event.turnId, Date.now()));
+        setLastTurnEnd(turnEndOf(event.turnId, event, Date.now()));
         // Finalize all streaming messages. Drop any assistant streaming bubble
         // that ended up truly empty (e.g. token_clear wiped it and no text was
         // re-emitted). Preserve tool messages (which legitimately have null content).
@@ -535,6 +555,8 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
         }
         streamBufferRef.current = '';
         roundPrefixRef.current = '';
+        setReasoning(prev => endOpenReasoning(prev, event.turnId, Date.now()));
+        setLastTurnEnd({ turnId: event.turnId, kind: 'problem', error: event.message || 'An error occurred.', at: Date.now() });
         setMessages(prev => {
           const last = prev[prev.length - 1];
           if (last?.isStreaming) {
@@ -671,8 +693,9 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
       // A new message moves on: a card still waiting belongs to the previous turn.
       setPendingApproval(null);
     }
-    // Any choice still on screen belongs to the previous turn.
+    // Any choice still on screen belongs to the previous turn, and so does how it ended.
     setPresentedOptions(null);
+    setLastTurnEnd(null);
     // A message sent while a turn runs supersedes it: the platform stops that turn,
     // and here it is shown as stopped at once. Its room is left when the new turn's is joined, so
     // its own end may never arrive to say so.
@@ -738,6 +761,12 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
         liveTurnRef.current = { starting: false, turnId: null };
         for (const held of heldEndsRef.current.splice(0)) handleProtocolEvent(held);
         setIsStreaming(false);
+        setLastTurnEnd({
+          turnId: null,
+          kind: 'problem',
+          error: err instanceof Error ? err.message : 'Failed to send message.',
+          at: Date.now(),
+        });
       }
       setMessages(prev => [...prev, {
         id: `err_${Date.now()}`,
@@ -931,6 +960,8 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
         if (seq !== loadSeqRef.current) return;
         setActiveConversation(stored.conversationId);
         setMessages(storedToAgentMessages(stored.messages));
+        setReasoning([]);
+        setLastTurnEnd(null);
         setPresentedOptions(null);
         setPendingApproval(null);
         setHistoryError(null);
@@ -1055,6 +1086,8 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     leaveTurn();
     setActiveConversation(null);
     setMessages([]);
+    setReasoning([]);
+    setLastTurnEnd(null);
     clearComposer();
     setPresentedOptions(null);
     setPendingApproval(null);
@@ -1101,6 +1134,13 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
           toolCall: m.toolCall,
           ...(m.input ? { input: m.input } : {}),
         })),
+        reasoning: reasoning.map(r => ({
+          id: r.id,
+          turnId: r.turnId,
+          text: r.text,
+          startedAt: new Date(r.startedAt).toISOString(),
+          ...(r.endedAt !== undefined ? { endedAt: new Date(r.endedAt).toISOString() } : {}),
+        })),
       },
       debug: {
         enabled: debugEnabled,
@@ -1113,7 +1153,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
         realtimeUrl: config.realtime.url,
       },
     };
-  }, [conversationId, currentTurnId, connected, isStreaming, messages, debugEnabled, debugLogs, config.realtime.url]);
+  }, [conversationId, currentTurnId, connected, isStreaming, messages, reasoning, debugEnabled, debugLogs, config.realtime.url]);
 
   const exportSession = useCallback(() => {
     const blob = new Blob([JSON.stringify(sessionRecord(), null, 2)], { type: 'application/json' });
@@ -1146,6 +1186,26 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   const dismissOptions = useCallback(() => {
     setPresentedOptions(null);
   }, []);
+
+  const clearDone = useCallback(() => {
+    setLastTurnEnd(prev => (prev?.kind === 'done' && !prev.acknowledged ? { ...prev, acknowledged: true } : prev));
+  }, []);
+
+  const statusValue = useMemo(
+    () =>
+      agentStatusOf({
+        isStreaming,
+        currentTurnId,
+        messages,
+        reasoning,
+        waitingOnPerson: pendingApproval !== null || presentedOptions !== null,
+        lastEnd: lastTurnEnd,
+        toolLabels: config.toolLabels,
+        planningText: config.planningText,
+      }),
+    [isStreaming, currentTurnId, messages, reasoning, pendingApproval, presentedOptions, lastTurnEnd, config.toolLabels, config.planningText],
+  );
+  const status: AgentStatus = useMemo(() => ({ ...statusValue, clearDone }), [statusValue, clearDone]);
 
   const contextValue: AgentContextValue = {
     isOpen,
@@ -1191,6 +1251,10 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     isLoadingConversation,
     switchConversation,
     startNewConversation,
+    reasoning,
+    lastTurnEnd,
+    clearDone,
+    status,
   };
 
   const approvalDecision: ApprovalDecisionState = {
@@ -1212,4 +1276,13 @@ export function useAgent(): AgentContextValue {
   const ctx = useContext(AgentContext);
   if (!ctx) throw new Error('useAgent must be used within an AgentProvider');
   return ctx;
+}
+
+/**
+ * The assistant's status, for a view that shows it in one place (a panel's
+ * header, a pill, a title bar): working with what it is doing, waiting on the
+ * person, done until seen, or in trouble. Every view reads this one value.
+ */
+export function useAgentStatus(): AgentStatus {
+  return useAgent().status;
 }

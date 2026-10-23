@@ -19,6 +19,7 @@ Optional tuning, with its defaults:
 - `maxRounds`: 12
 - `maxTokens`: 32,000 per model response, thinking included. A step cut off there before it says or calls anything runs once more, told to plan less; if that is cut off too, the person is told and the turn ends with `stopReason: 'output_limit'`.
 - `temperature`: 0.3
+- `modelProviderOptions`: none. Provider options sent with every model call of every turn, e.g. a summary of the model's thinking (`{ amazonBedrock: { additionalModelRequestFields: { thinking: { type: 'adaptive', display: 'summarized' } } } }`). Keep them the same for every turn: a thinking setting that changes between calls invalidates the prompt cache. Whatever it is set to, each thinking block's start and end go to the turn's room (`agent:reasoning_started`, `agent:reasoning_ended`), and a summary the model returns streams between them (`agent:reasoning_delta`). None of it is stored with the conversation.
 - `forcedToolChoice`: true. Set `false` for a model that refuses a forced tool choice (Claude Sonnet 5.5 answers 400 to one): a step the turn policy forces to a tool is given only that tool and told to call it.
 - `toolTimeoutMs`: 30 s
 - `turnDeadlineMs`: 14 min (keep it below your host's own limit)

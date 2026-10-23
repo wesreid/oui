@@ -36,6 +36,7 @@ import type {
   AgentConversationFilter,
   AgentConversationSummary,
   TurnStoppedReason,
+  TurnEndReason,
 } from '@ouispec/agent-core';
 
 export interface AgentToolCallState {
@@ -64,6 +65,66 @@ export interface AgentMessage {
   attachments?: AttachmentRef[];
   /** How the person entered this message, when they did not type it: set on one they spoke. */
   input?: MessageInput;
+}
+
+/**
+ * One block of the model's thinking in a turn: its summary as it streamed,
+ * when the platform's worker asks the model for one (otherwise `text` stays
+ * empty), and when it started and ended. Kept for the conversation while it is
+ * open in this tab; never stored with it.
+ */
+export interface AgentReasoning {
+  id: string;
+  turnId: string;
+  text: string;
+  /** Epoch ms. */
+  startedAt: number;
+  /** Epoch ms; absent while the model is still thinking. */
+  endedAt?: number;
+}
+
+/** How the last turn ended, as far as the status is concerned. */
+export interface AgentTurnEnd {
+  /** Null for a message that could not be sent, so no turn started. */
+  turnId: string | null;
+  kind: 'done' | 'problem';
+  /** How it ended: the worker's end reason, or `deadline` for a turn that ran out of time. */
+  reason?: TurnEndReason | 'deadline';
+  /** What went wrong, for a turn that failed. */
+  error?: string;
+  /** Epoch ms. */
+  at: number;
+  /** A `done` the person has seen (`clearDone`). */
+  acknowledged?: boolean;
+}
+
+/**
+ * - `idle`: nothing to say.
+ * - `working`: a turn is running.
+ * - `needs-you`: the assistant waits on the person: an approval, or a choice.
+ * - `done`: the last turn answered; until the person has seen it (`clearDone`) or sends again.
+ * - `problem`: the last turn failed, was cut off at the output limit, used every step, or ran out of time; until the person sends again.
+ */
+export type AgentStatusState = 'idle' | 'working' | 'needs-you' | 'done' | 'problem';
+
+/** The assistant's status, for a view that shows it in one place: a panel's header, a pill, a title bar. */
+export interface AgentStatus {
+  state: AgentStatusState;
+  /** The turn in progress, or the one the status is about. */
+  turnId: string | null;
+  /**
+   * What the assistant is doing, in one line, while it works: the config's
+   * `planningText` while it thinks before it acts, then the step of its latest
+   * call ("Draw a shape · 12"). Null when it is saying something, and in every
+   * other state.
+   */
+  activity: string | null;
+  /** True while the turn's model is thinking before it acts. */
+  planning: boolean;
+  /** What went wrong, when `state` is `problem` and the turn said. */
+  error?: string;
+  /** The person has seen the last turn's answer: `done` becomes `idle`. Does nothing in any other state. */
+  clearDone: () => void;
 }
 
 export type DebugLogLevel = 'info' | 'warn' | 'error' | 'event' | 'socket';
@@ -133,6 +194,8 @@ export interface AgentSessionRecord {
       toolCall?: AgentToolCallState;
       input?: MessageInput;
     }>;
+    /** The model's thinking in the session's turns (`AgentContextValue.reasoning`), with ISO times. */
+    reasoning: Array<{ id: string; turnId: string; text: string; startedAt: string; endedAt?: string }>;
   };
   debug: { enabled: boolean; logCount: number; logs: DebugLogEntry[] };
   environment: { userAgent: string; url: string; realtimeUrl: string };
@@ -271,4 +334,16 @@ export interface AgentContextValue {
   switchConversation: (conversationId: string) => Promise<void>;
   /** Start over: the next message creates a new conversation. Does nothing while a turn is streaming. */
   startNewConversation: () => void;
+  /**
+   * The model's thinking in this conversation's turns since it was opened in
+   * this tab, in order. A summary is there only where the platform's worker
+   * asks the model for one.
+   */
+  reasoning: AgentReasoning[];
+  /** How the last turn ended; null before any, and after a stop the person asked for. */
+  lastTurnEnd: AgentTurnEnd | null;
+  /** The person has seen the last turn's answer. `useAgentStatus().clearDone`. */
+  clearDone: () => void;
+  /** The assistant's status, with what it is doing (`useAgentStatus`). */
+  status: AgentStatus;
 }

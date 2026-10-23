@@ -24,6 +24,7 @@ import {
   AGENT_SOCKET_EVENTS,
   argsHash,
   canonicalJson,
+  isTurnEndReason,
   turnStoppedNote,
   type ApprovalContinuation,
   type ApprovalRequiredEvent,
@@ -36,6 +37,7 @@ import type { AgentWorkerConfig, AgentTurnInput, AgentTurnResult, TurnMessage, T
 import type { RegisteredTool, ToolExecutionContext, ToolExecutionResult } from './tools/types.js';
 import { defaultTurnPolicy, type StepTool, type TurnPolicy } from './turn-policy.js';
 import { createStepClock, timeHandBackNote } from './time-hand-back.js';
+import { createReasoningRelay } from './reasoning-relay.js';
 import { evaluateToolPolicySafe } from './authz/tool-policy.js';
 import { createToolInputValidator } from './tools/input-validation.js';
 import { readClientPage, withoutClientUI } from './ui/snapshot.js';
@@ -1238,6 +1240,15 @@ export async function runAgentTurn(
     }
   };
 
+  // The model's thinking, relayed to the room: its start and end, and its
+  // summary when the host asked the model for one (reasoning-relay.ts).
+  const reasoningRelay = createReasoningRelay({
+    turnId,
+    emit: (event, data) => config.emit.emit(socketRoom, event, data),
+    coalesceMs: COALESCE_MS,
+    coalesceChars: COALESCE_CHARS,
+  });
+
   // Run the multi-round generation
   try {
   // ─── Prompt cache breakpoints ──────────────────────────────────────────────
@@ -1538,6 +1549,9 @@ export async function runAgentTurn(
       maxOutputTokens: maxTokens,
       maxRetries: retries,
       abortSignal: abortController.signal,
+      // The host's, the same for every call (a thinking setting that changes invalidates the cache).
+      ...(config.modelProviderOptions ? { providerOptions: config.modelProviderOptions } : {}),
+      onChunk: ({ chunk }) => reasoningRelay.onPart(chunk),
       stopWhen: [
         isStepCount(maxRounds - allSteps.length),
         ...USER_INPUT_TOOLS.map((name) => hasToolCall(name)),
@@ -1874,10 +1888,14 @@ export async function runAgentTurn(
     }
   }
 
+  // Everything before the turn's end has been sent: its thinking too.
+  await reasoningRelay.settle();
   await config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TURN_COMPLETE, {
     turnId,
     rounds: steps.length,
     usage,
+    // How it ended, so a view can tell an answer from a cut-off or a hand-back.
+    ...(isTurnEndReason(stopReason) ? { endReason: stopReason } : {}),
     timestamp: Date.now(),
   });
 
@@ -2042,6 +2060,8 @@ export async function runAgentTurn(
       }
     }
 
+    // A block the stop cut off is ended; its emits are not waited for, as the announcement is time-boxed.
+    void reasoningRelay.settle();
     try {
       await within('announcement', STOP_STEP_FLOOR_MS, () =>
         config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TURN_COMPLETE, {

@@ -1,4 +1,5 @@
-export { AgentProvider, useAgent, STOP_CONFIRM_TIMEOUT_MS } from './provider/AgentProvider.js';
+export { AgentProvider, useAgent, useAgentStatus, STOP_CONFIRM_TIMEOUT_MS } from './provider/AgentProvider.js';
+export { DEFAULT_PLANNING_TEXT } from './provider/turn-progress.js';
 
 export { useFeedback } from './hooks/useFeedback.js';
 export { storedToAgentMessages } from './provider/stored-messages.js';
@@ -22,6 +23,10 @@ export type {
   AgentContextValue,
   AgentHistoryState,
   AgentMessage,
+  AgentReasoning,
+  AgentStatus,
+  AgentStatusState,
+  AgentTurnEnd,
   AgentToolCallState,
   AgentDebugState,
   AgentSessionRecord,
