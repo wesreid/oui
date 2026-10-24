@@ -1,6 +1,6 @@
 # @ouispec/agent-worker
 
-The agent runtime. One core runs a turn: the model, the tool loop, UI actions answered by the user's own tab, streaming, retries and deadlines. Two host adapters run that core: Lambda + SQS, and a long-running container.
+The agent runtime. One core runs a turn: the model, the tool loop, UI actions answered by the user's own tab, streaming, retries and deadlines. Two host adapters run that core: Lambda + SQS, and a long-running container. A third entry point, the live-call handler, lets a service that runs a voice call reach the same agent ("Live calls").
 
 ## What the host supplies
 
@@ -32,17 +32,18 @@ Policy hooks: `turnPolicy`, `toolPolicy`, `uiActions`, `approvals`, `stops`, `lo
 
 ## What a UI client sends with a turn
 
-Three keys on the turn's `context` are for the worker itself, and your persona or `systemPrompt` callback never sees them:
+Four keys on the turn's `context` are for the worker itself, and your persona or `systemPrompt` callback never sees them:
 
 | Key | What the tab puts there | What the worker does with it |
 |---|---|---|
 | `oui` | Its surface snapshot: `ouiRuntime.snapshot()` | Builds the turn's UI tools from it, and from nothing else |
 | `uiKnowledge` | Its generated knowledge for the page the user is on: `resolveKnowledge(generatedKnowledge, path)` from `@ouispec/bindings` | Renders it after your prompt: each entry under "Platform Knowledge", then each recipe under "Active Workflows" |
-| `input` | How the person entered the message, when they did not type it: `{ mode: 'voice', language }` for one they spoke, with the language the recogniser detected. `@ouispec/agent-react` sets it from `sendMessage(text, { input })` | Adds one line to the turn's user message, after the person's words: the message was spoken and machine-transcribed, so it may contain recognition errors; the language; and to ask rather than guess when a likely mis-hearing makes the request ambiguous. An unknown mode is read as typed, and a language that is not a BCP 47 tag of at most 16 characters is left out (`readMessageInput` in `@ouispec/agent-core`). A typed message, and the turn an approval card's click starts, get nothing |
+| `input` | How the person entered the message, when they did not type it: `{ mode: 'voice', language }` for one they spoke, with the language the recogniser detected. `@ouispec/agent-react` sets it from `sendMessage(text, { input })` | Adds one line after the conversation: the message was spoken and machine-transcribed, so it may contain recognition errors; the language; and to ask rather than guess when a likely mis-hearing makes the request ambiguous. An unknown mode is read as typed, and a language that is not a BCP 47 tag of at most 16 characters is left out (`readMessageInput` in `@ouispec/agent-core`). A typed message, and the turn an approval card's click starts, get nothing |
+| `output` | How the reply reaches the person, when it is not shown as text: `{ mode: 'voice' }` when a voice reads it out. The live-call handler sets it from the call's request | Adds one line after the conversation: the reply will be heard, not read, so short plain sentences; no markdown, lists, headings, links, code or emoji; numbers, prices, dates and times written as they are said; anything the person should look at shown through the page's actions rather than read out; and a few words before a slow lookup. An unknown mode is read as a shown reply, which gets nothing (`readReplyOutput` in `@ouispec/agent-core`). It applies on every turn of a call, the turn that continues an approval included |
 
 `timeZone` (the user's IANA zone, which `@ouispec/agent-react` sends with every turn) is read by the worker too: the date and time on the user's clock are added to the turn's user message.
 
-What the worker adds to the user's message goes on the newest user message only, after its text and before its files, whose parts are kept. The system prompt, the tools and the earlier messages are the cached prefix, and stay byte for byte the same whatever the message says. Store `input` with the user's message if your chat shows how a message was entered (`AgentStoredMessage.input`); the history the worker reads needs no copy of it.
+What is true only for this turn (the clock, how the message was entered, how the reply is delivered) goes after the conversation, never in the system prompt or on a message. The system prompt, the tools and every message are the cached prefix, and stay byte for byte the same whatever the turn says, so a conversation's chat turns and call turns read the same prefix. Store `input` with the user's message if your chat shows how a message was entered (`AgentStoredMessage.input`); the history the worker reads needs no copy of it.
 
 Every other key is the page's context, which a persona prompt shows as the current UI state. A malformed `oui` or `uiKnowledge` fails the turn, naming the bad field. The worker logs `UI surfaces for this turn` with the surface ids and the knowledge's entry and workflow counts.
 
@@ -63,6 +64,8 @@ What happens:
 3. The next turn carries `approval: { approvalId, decision: 'approve', token }` or `{ approvalId, decision: 'decline' }` on its payload, outside the message text. The worker redeems the token and runs exactly the stored call. A UI action's request then carries `approval: { approvalId, argsHash }` for the browser's own check. The call and its result are persisted, and the model is told what happened in an `<approval>` block. A replayed, expired or foreign token runs nothing, and neither does a decline; the model is told why.
 
 In a browser, the turn after the decision comes from `ApprovalCard` (`@ouispec/agent-react`). Your `sendMessage` callback receives `approval` beside an empty `content`. Pass it unchanged to the worker as the turn payload's `approval`: `{ approvalId, decision: 'approve', token }` or `{ approvalId, decision: 'decline' }`. A UI action declares its effect on its OUI surface (`effect: 'transaction'`, or `confirm: true` for a destructive one). The tab's OUI runtime runs it only on the grant from the user's own click, which `grantApproval` in the client config hands it.
+
+On a call there is no card. The live-call handler sends the preview's `readback`, verbatim, after the turn's text, and the person answers in words. Their next utterance comes as an ordinary message, and your `resolveTurn` decides whether it approves: classify the words, then decide as the user on a conversation channel with the approval store client (`createHttpApprovalStoreClient(...).decide(approvalId, { userId, decision, channel: 'voice' })`). An `approve` answers with the token; return `approval: { approvalId, decision: 'approve', token }` on the turn's target, and the turn runs exactly the stored call, once. Anything else (a no, a correction, a new request) leaves the approval to expire, or decline it with `decision: 'decline'`. A UI action that needs approval still runs only on the grant from the tab's own card click: the tab's OUI runtime refuses one approved by voice, so on a call put irreversible acts in host or API tools, or let the page show the card.
 
 Declare a host tool's approval needs on the tool itself: `effect`, `destructive`, `title`, `consequence`, and `argsSensitive: false` when its arguments may be logged. Without an approval store, such a call is refused and never runs. The runtime uses the realtime server's store unless you pass `approvals.store`.
 
@@ -166,9 +169,84 @@ Your API sends turns to the worker's HTTP endpoints:
 | Request | Responses |
 |---|---|
 | `POST /turns` with an `AgentTurnPayload` and `x-api-key` | `202` once accepted. `400` if the body is not a turn, `401` for a wrong key, `409` if that turn is already running, `503` at capacity (`maxConcurrentTurns`, default 8) or while shutting down. |
+| `POST /live-call/turns` with a live-call turn and `Authorization: Bearer` | Only with `liveCall` configured (below, and "Live calls"). `200 text/event-stream`. |
 | `GET /health` | The worker's status, running turns, capacity and model. |
 
 `onTurnEnd` receives each turn's outcome.
+
+`liveCall: { credential, resolveTurn, opening?, keepAliveMs?, path? }` serves the live-call route on the same server, runtime and slots: `maxConcurrentTurns` bounds both routes together, a turn id runs once whichever route it came by, and `close` waits for both. Its requests carry the call service's credential, never `workerApiKey`. `path` defaults to `/live-call/turns`.
+
+## Live calls
+
+A service that runs a voice call (it hears the person, transcribes them, and speaks the reply in a character's voice) can be answered by your own agent: its persona, tools, UI actions, approvals and records. Each turn of the call is one HTTP request to a route you mount, and the reply streams back as server-sent events. The turn runs on the same runtime as every other turn, so it still streams to the conversation's realtime room: every page joined to that conversation receives the reply and every UI action, as for a typed message, and the call page can show what the agent is talking about.
+
+```ts
+import { createAgentTurnRunner, createLiveCallTurnHandler, LIVE_CALL_OPENING_MESSAGE } from '@ouispec/agent-worker';
+
+const runner = createAgentTurnRunner(runtimeConfig);   // the same config as your other turns
+const liveCall = createLiveCallTurnHandler({
+  runner,
+  credential: env.LIVE_CALL_CREDENTIAL,                // or [current, next] while rotating
+  resolveTurn: async (request, { signal }) => {
+    const conversation = await findConversationByCallRef(request.clientRef);
+    if (!conversation) return null;                    // answered 404
+    await storeUserMessage(conversation.id, request.kind === 'opening' ? LIVE_CALL_OPENING_MESSAGE : request.text, request.input);
+    return {
+      conversationId: conversation.id,
+      userId: conversation.userId,
+      accountId: conversation.accountId,
+      socketRoom: `conversation:${conversation.id}`,
+      context: conversation.pageContext,               // the call page's OUI snapshot and knowledge, as for a typed turn
+    };
+  },
+  opening: (request, target) => greetingTemplateFor(target.accountId),  // optional; null lets the model greet
+});
+app.post('/agent/live-call/turns', liveCall);          // any Node server: (req, res)
+process.on('SIGTERM', () => liveCall.close());        // waits for running turns
+```
+
+`createLiveCallTurnHandler(config)` returns a Node `(req, res)` handler with `running()` and `close()`. A body that Express's `json()` already parsed is taken as it is.
+
+| Config | |
+|---|---|
+| `runner` | Required. `createAgentTurnRunner(...)`: the runtime that runs your other turns. |
+| `credential` | Required. The bearer credential the call service sends, from your secret store; a list while one is rotated. Compared in constant time. |
+| `resolveTurn(request, { signal })` | Required. The call's `clientRef` → the turn's `conversationId`, `userId`, `accountId` and `socketRoom`, with optional `context`, `userToken` and `approval`; null when you have no such conversation. Do here what your API does for a chat message: store the person's message (for an `opening`, `LIVE_CALL_OPENING_MESSAGE`), claim the turn, and decide on a waiting readback ("Approvals"). `signal` aborts if the caller hangs up meanwhile. |
+| `opening(request, target, { signal })` | Optional. A greeting from your template for an `opening` turn: streamed, sent to the room and stored as the turn's one assistant message (`runner.reply`), with no model call. Null, undefined or blank lets the model greet. A throw fails the turn. |
+| `keepAliveMs` | Default 5 s: a `: keep-alive` comment after this long with nothing written. |
+| `maxConcurrentTurns` | Default 8; more are answered `503`. |
+| `maxBodyBytes` | Default 64 KiB. |
+| `onTurnEnd(outcome)` | Each turn's outcome, after it ends. |
+
+**The request.** `POST`, `Content-Type: application/json`, `Authorization: Bearer <credential>`:
+
+| Field | |
+|---|---|
+| `sessionId` | The call service's session. |
+| `clientRef` | Your conversation reference, given to the call service when the call was created. |
+| `turnId` | Unique per turn; the turn runs under it. |
+| `kind` | `message`: the person said `text`. `opening`: the call has just connected, `text` is empty, and the agent greets: the model reads `LIVE_CALL_OPENING_MESSAGE` where the person's words would be. |
+| `text` | What the person said, as transcribed; at most 8,000 characters. |
+| `input` | `{ mode: 'voice', language? }` for what the person said: set as the turn's `context.input`, so the model is told it was transcribed. `{ mode: 'text' }` for a message they typed during the call: read as typed, with no `context.input`. Dropped on an `opening`. |
+| `output` | `{ mode: 'voice' }`: set as the turn's `context.output`, so the model writes for the ear ("What a UI client sends with a turn"). |
+| `supersedes` | Turns this one replaces. Each still running in this process is stopped at once, and the turn's `getHistory` is given them to wait for, as for any superseding message. |
+
+`readLiveCallTurnRequest` reads a body as the handler does, and `LIVE_CALL_LIMITS` holds its limits.
+
+**The response.** `200 text/event-stream`, flushed event by event:
+
+| Event | Data | |
+|---|---|---|
+| `text` | `{ text }` | The reply as the model writes it; concatenate the pieces. Rounds the model writes between tool calls are separated by a blank line, as in the room. |
+| `readback` | `{ approvalId, text, expiresAt }` | The turn stopped at a call that needs approval. `text` is the preview's `readback`, verbatim, built from the action's declaration; `expiresAt` is ISO 8601. Sent once the turn has ended by itself, after all of its text. A turn that was stopped withdrew its approval, and sends none. |
+| `done` | `{ stopReason? }` | The turn is over: `complete`, `awaiting_approval`, `present_options`, `time_limit`, `output_limit` or `step_count` when it ended by itself; `user_stop`, `superseded` or `deadline` when it was stopped. |
+| `error` | `{ code, message }` | The turn failed: `RATE_LIMIT`, `SERVICE_UNAVAILABLE`, `MODEL_TIMEOUT`, `TURN_TIMEOUT`, `TURN_DEADLINE_EXCEEDED`, `TURN_REFUSED` or `WORKER_ERROR`. `message` is a fixed line for the code; the cause stays in your logs. |
+
+The stream is written from the turn's own events as the room receives them (`TurnHost.observe`): the same text, from the same model call. Before the stream opens, a refusal is a status and `{ error: { code, message } }`: `400 INVALID_REQUEST` naming the field, `401 UNAUTHORIZED`, `404 UNKNOWN_CLIENT_REF`, `405`, `409 TURN_RUNNING`, `413 BODY_TOO_LARGE`, `415`, `500 RESOLVE_FAILED` (your `resolveTurn` threw, or returned a target that is not a turn; nothing ran) and `503 UNAVAILABLE`.
+
+**Barge-in.** When the person speaks over the reply, the call service closes the connection. The turn is stopped as a superseding message stops it (`stopReason: 'superseded'`): what it had produced is stored with the mark and announced to the room, and the next request names it in `supersedes`. A stop asked for through the realtime server (the person's Stop on a page) is heard too, and that stream ends with `done`.
+
+Keep the turn's deadline (`turnDeadlineMs`) and the model to a call's pace: a voice turn waits on its first `text` event, so run it on the container adapter, never behind a queue.
 
 ## Conversation history in the browser
 

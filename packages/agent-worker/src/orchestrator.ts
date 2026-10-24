@@ -46,6 +46,7 @@ import { answerWithoutState, withStatesAtEnd } from './ui/page-state-at-end.js';
 import { stepMessages as forStep, STEP_NOTE_CLOSE, STEP_NOTE_OPEN } from './step-messages.js';
 import { clockText, readClientTimeZone } from './prompt/clock.js';
 import { readClientMessageInput, spokenInputText } from './prompt/spoken-input.js';
+import { readClientReplyOutput, spokenReplyText } from './prompt/spoken-reply.js';
 import { AttachmentGuard } from './attachments/guard.js';
 import { ATTACHMENT_DATA_NOTE, turnAttachmentParts, withReferenceLines, withTurnAttachments, withoutLeftOut } from './attachments/content.js';
 import { attachmentTools } from './attachments/tools.js';
@@ -437,14 +438,14 @@ export async function runAgentTurn(
     const refused = async (payload: { error: string } & Record<string, unknown>, given: unknown): Promise<CallOutcome> => {
       ledger.record({ tool: t.name, ok: false, error: payload.error });
       const now = Date.now();
-      await config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TOOL_CALL_STARTED, {
+      await emitAfterText(AGENT_SOCKET_EVENTS.TOOL_CALL_STARTED, {
         turnId,
         toolUseId,
         name: t.name,
         input: given,
         timestamp: now,
       });
-      await config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TOOL_CALL_COMPLETE, {
+      await emitAfterText(AGENT_SOCKET_EVENTS.TOOL_CALL_COMPLETE, {
         turnId,
         toolUseId,
         name: t.name,
@@ -693,7 +694,7 @@ export async function runAgentTurn(
     });
 
     // Emit tool call started BEFORE execution
-    await config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TOOL_CALL_STARTED, {
+    await emitAfterText(AGENT_SOCKET_EVENTS.TOOL_CALL_STARTED, {
       turnId,
       toolUseId,
       name: t.name,
@@ -757,7 +758,7 @@ export async function runAgentTurn(
       ...(isUI && !resultSuccess ? { error: isWrapped ? result.error : undefined } : {}),
     });
 
-    await config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TOOL_CALL_COMPLETE, {
+    await emitAfterText(AGENT_SOCKET_EVENTS.TOOL_CALL_COMPLETE, {
       turnId,
       toolUseId,
       name: t.name,
@@ -862,7 +863,7 @@ export async function runAgentTurn(
       return refuse(err instanceof Error ? err.message : String(err));
     }
 
-    await config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.APPROVAL_REQUIRED, {
+    await emitAfterText(AGENT_SOCKET_EVENTS.APPROVAL_REQUIRED, {
       turnId,
       conversationId: input.conversationId,
       approvalId: toolUseId,
@@ -1240,6 +1241,17 @@ export async function runAgentTurn(
     }
   };
 
+  /**
+   * A turn event that comes after what the model has said so far: the text
+   * still held for coalescing is sent first. A tool's call and an approval's
+   * preview then reach the room, and a host observing the turn's events, after
+   * the words the model said before them, as they were said.
+   */
+  const emitAfterText = async (event: string, data: unknown) => {
+    await flushTokenBuffer();
+    await config.emit.emit(socketRoom, event, data);
+  };
+
   // The model's thinking, relayed to the room: its start and end, and its
   // summary when the host asked the model for one (reasoning-relay.ts).
   const reasoningRelay = createReasoningRelay({
@@ -1474,6 +1486,8 @@ export async function runAgentTurn(
   const turnMessageAt = messages.map((m) => m.role).lastIndexOf('user');
   const turnClock = clockText(new Date(), readClientTimeZone(input.context ?? null));
   const turnSpoken = input.approval ? null : readClientMessageInput(input.context ?? null);
+  // The reply is spoken on every turn of a call, the turn an approval continues included.
+  const turnSpokenReply = readClientReplyOutput(input.context ?? null);
   const turnPageValues =
     client && client.page.length > 0
       ? [
@@ -1505,6 +1519,8 @@ export async function runAgentTurn(
     // A message the person spoke may hold a mis-heard word (prompt/spoken-input.ts). A click on an
     // approval card is not a message, so it says nothing.
     ...(turnSpoken ? [spokenInputText(turnSpoken)] : []),
+    // A reply a voice will read out is written for the ear (prompt/spoken-reply.ts).
+    ...(turnSpokenReply ? [spokenReplyText(turnSpokenReply)] : []),
     ...(expired.outcomes.length > 0 ? [expiredNote(expired)] : []),
     ...(input.stepContext?.trim() ? [input.stepContext.trim()] : []),
     ...(notes.length > 0 ? [[STEP_NOTE_OPEN, ...notes, STEP_NOTE_CLOSE].join('\n')] : []),

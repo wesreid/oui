@@ -58,7 +58,7 @@ export { buildApprovalPreview } from './approvals/preview.js';
 // Stopping a turn: the person's Stop, or a newer message that
 // supersedes the turn, is kept by the realtime server and asked for by the
 // turn. What the turn had produced is stored, then announced.
-export { createHttpTurnStopClient, watchTurnStop, stopOf, TurnStopped, DEFAULT_STOP_GRACE_MS } from './stop/turn-stop.js';
+export { createHttpTurnStopClient, watchTurnStop, withLocalStop, stopOf, TurnStopped, DEFAULT_STOP_GRACE_MS } from './stop/turn-stop.js';
 export type { TurnStopClient, HttpTurnStopClientConfig, TurnStopWatch, TurnStopState } from './stop/turn-stop.js';
 export { stoppedTurnMessages } from './stop/partial.js';
 // Files the person attaches: the host's file area, the cost guard, the attachment tools.
@@ -124,15 +124,45 @@ export type { TurnPolicy, StepTool } from './turn-policy.js';
 export { defaultTurnPolicy } from './turn-policy.js';
 export { createHttpEmitAdapter } from './emit/http-adapter.js';
 export type { HttpEmitAdapterConfig } from './emit/http-adapter.js';
+export { teeEmitAdapter } from './emit/tee.js';
+export type { TurnEventObserver } from './emit/tee.js';
 
 // The runtime: one core, two host adapters (Lambda + SQS, container)
 export { createAgentTurnRunner, categorizeError, payloadRefusal, TURN_DEADLINE_EXCEEDED } from './runtime/turn-runner.js';
-export type { AgentTurnRunner, TurnOutcome, CategorizedError } from './runtime/turn-runner.js';
+export type { AgentTurnRunner, TurnHost, TurnOutcome, CategorizedError } from './runtime/turn-runner.js';
 export { assertAgentRuntimeConfig } from './runtime/config.js';
 export type { AgentRuntimeConfig, LambdaAgentConfig, AgentTurnPayload, HistoryRequest, TurnHistory } from './runtime/types.js';
 export { createLambdaAgentHandler } from './lambda/handler.js';
-export { startContainerAgentWorker } from './container/server.js';
-export type { ContainerAgentConfig, ContainerAgentWorker } from './container/server.js';
+export { startContainerAgentWorker, DEFAULT_LIVE_CALL_PATH } from './container/server.js';
+export type { ContainerAgentConfig, ContainerAgentWorker, ContainerLiveCallRoute } from './container/server.js';
+
+// Live calls: the call service's turns, answered by the product's own agent as
+// a server-sent event stream, while the turn streams to its room as any turn does.
+export { createLiveCallTurnHandler } from './live-call/handler.js';
+export type {
+  LiveCallTurnHandler,
+  LiveCallTurnHandlerConfig,
+  LiveCallTurnOptions,
+  LiveCallTurnTarget,
+  LiveCallTurnCallContext,
+} from './live-call/handler.js';
+export {
+  readLiveCallTurnRequest,
+  liveCallError,
+  LIVE_CALL_TURN_KINDS,
+  LIVE_CALL_OPENING_MESSAGE,
+  LIVE_CALL_TYPED_INPUT_MODE,
+  LIVE_CALL_LIMITS,
+  LIVE_CALL_ERROR_MESSAGES,
+} from './live-call/protocol.js';
+export type {
+  LiveCallTurnKind,
+  LiveCallTurnRequest,
+  LiveCallStreamEvents,
+  LiveCallStreamEventName,
+  LiveCallRequestReading,
+} from './live-call/protocol.js';
+export { DEFAULT_KEEP_ALIVE_MS as LIVE_CALL_KEEP_ALIVE_MS } from './live-call/event-stream.js';
 
 // Prompt Framework
 export { buildAgentSystemPrompt } from './prompt/index.js';

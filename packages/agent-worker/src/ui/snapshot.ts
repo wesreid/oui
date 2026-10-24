@@ -7,7 +7,7 @@
  * tools always describe the client that sent the turn.
  */
 import type { OUIFit, OUIObservationSnapshot, OUISurface } from 'oui-spec/spec';
-import { MESSAGE_INPUT_CONTEXT_KEY } from '@ouispec/agent-core';
+import { MESSAGE_INPUT_CONTEXT_KEY, REPLY_OUTPUT_CONTEXT_KEY } from '@ouispec/agent-core';
 import { CLIENT_KNOWLEDGE_KEY } from './knowledge.js';
 import {
   isFullSurface,
@@ -94,15 +94,17 @@ export function withoutClientSnapshot(
 /**
  * The turn's context without what the client's UI sent for the worker itself:
  * its snapshot (the turn's UI tools), its knowledge (rendered after the host's
- * prompt) and how the message was entered (rendered on the message,
- * prompt/spoken-input.ts). This is the context the host's prompt renders as
- * prose. How the message was entered changes from one message to the next, so
- * in the system prompt it would invalidate the cached prefix.
+ * prompt), how the message was entered and how the reply reaches the person
+ * (each said after the conversation, prompt/spoken-input.ts and
+ * prompt/spoken-reply.ts). This is the context the host's prompt renders as
+ * prose. How the message was entered, and whether the reply is spoken, change
+ * from one turn to the next, so in the system prompt they would invalidate the
+ * cached prefix.
  */
 export function withoutClientUI(
   context: Record<string, unknown> | null | undefined,
 ): Record<string, unknown> | null | undefined {
-  return omitKeys(context, [CLIENT_SNAPSHOT_KEY, CLIENT_KNOWLEDGE_KEY, MESSAGE_INPUT_CONTEXT_KEY]);
+  return omitKeys(context, [CLIENT_SNAPSHOT_KEY, CLIENT_KNOWLEDGE_KEY, MESSAGE_INPUT_CONTEXT_KEY, REPLY_OUTPUT_CONTEXT_KEY]);
 }
 
 function omitKeys(

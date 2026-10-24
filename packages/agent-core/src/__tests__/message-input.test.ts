@@ -9,6 +9,9 @@ import {
   MESSAGE_INPUT_CONTEXT_KEY,
   readMessageInput,
   readMessageInputLanguage,
+  readReplyOutput,
+  REPLY_OUTPUT_CONTEXT_KEY,
+  REPLY_OUTPUT_MODES,
 } from '../index.js';
 
 describe('readMessageInput', () => {
@@ -63,9 +66,32 @@ describe('readMessageInputLanguage', () => {
   });
 });
 
-describe('the message input helpers', () => {
-  it('are on the browser entry, under the context key the worker reads', () => {
+describe('readReplyOutput', () => {
+  it('keeps a reply that will be spoken', () => {
+    expect(readReplyOutput({ mode: 'voice' })).toEqual({ mode: 'voice' });
+  });
+
+  it('keeps nothing but the mode', () => {
+    expect(readReplyOutput({ mode: 'voice', voice: 'nova', rate: 1.2 })).toEqual({ mode: 'voice' });
+  });
+
+  it('reads an unknown mode, or a value that is not an output, as a reply shown as text', () => {
+    expect(readReplyOutput({ mode: 'text' })).toBeNull();
+    expect(readReplyOutput({ mode: 'VOICE' })).toBeNull();
+    expect(readReplyOutput({})).toBeNull();
+    expect(readReplyOutput('voice')).toBeNull();
+    expect(readReplyOutput(['voice'])).toBeNull();
+    expect(readReplyOutput(null)).toBeNull();
+    expect(readReplyOutput(undefined)).toBeNull();
+  });
+});
+
+describe('the message input and reply output helpers', () => {
+  it('are on the browser entry, under the context keys the worker reads', () => {
     expect(browser.readMessageInput).toBe(readMessageInput);
+    expect(browser.readReplyOutput).toBe(readReplyOutput);
     expect(MESSAGE_INPUT_CONTEXT_KEY).toBe('input');
+    expect(REPLY_OUTPUT_CONTEXT_KEY).toBe('output');
+    expect(REPLY_OUTPUT_MODES).toEqual(['voice']);
   });
 });

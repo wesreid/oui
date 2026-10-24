@@ -11,7 +11,9 @@ import { runAgentTurn } from '../orchestrator.js';
 import { createHttpEmitAdapter } from '../emit/http-adapter.js';
 import { createHttpUIActionChannel } from '../ui/channel.js';
 import { createHttpApprovalStoreClient } from '../approvals/client.js';
-import { createHttpTurnStopClient, watchTurnStop } from '../stop/turn-stop.js';
+import { createHttpTurnStopClient, watchTurnStop, withLocalStop } from '../stop/turn-stop.js';
+import { teeEmitAdapter, type TurnEventObserver } from '../emit/tee.js';
+import type { RealtimeEmitAdapter } from '../emit/types.js';
 import { withoutClientUI } from '../ui/snapshot.js';
 import { createToolRegistry } from '../tools/types.js';
 import { buildAgentSystemPrompt } from '../prompt/index.js';
@@ -48,12 +50,38 @@ export type TurnOutcome =
   | { status: 'refused'; turnId: string; reason: string }
   | { status: 'failed'; turnId: string; error: CategorizedError; cause: unknown };
 
+/** What the host adapter running a turn tells the runner, beyond the turn itself. */
+export interface TurnHost {
+  /** How long the process has left, when the host knows. */
+  remainingMs?: () => number;
+  /**
+   * Called with every event the turn emits to its room, synchronously and
+   * before it is sent there: the host sees the turn's events as its room does.
+   * What it throws is logged, and the turn goes on.
+   */
+  observe?: TurnEventObserver;
+  /**
+   * Aborting it stops the turn on the same path as a stop request: what the
+   * turn had produced is stored, then announced. The stop's reason is the
+   * abort's reason when that is `user_stop` or `superseded`, else `superseded`.
+   * A stop request the realtime server holds is still heard.
+   */
+  stopSignal?: AbortSignal;
+}
+
 export interface AgentTurnRunner {
   /**
    * Runs one turn to its end. Never throws for a turn's own failure: it reports it.
-   * `remainingMs` is how long the process has left, when the host knows.
    */
-  run(payload: AgentTurnPayload, host?: { remainingMs?: () => number }): Promise<TurnOutcome>;
+  run(payload: AgentTurnPayload, host?: TurnHost): Promise<TurnOutcome>;
+  /**
+   * Answers the turn with `text` instead of the model: a reply the host has
+   * already (a greeting from a template). It is a turn like any other to the
+   * host and the room: recorded, its text streamed to the room, stored as the
+   * turn's one assistant message, then announced complete. Never throws for
+   * the turn's own failure.
+   */
+  reply(payload: AgentTurnPayload, text: string, host?: Pick<TurnHost, 'observe'>): Promise<TurnOutcome>;
   /** The model, as logs name it. */
   readonly model: string;
   /** The host's logger, or the default one. */
@@ -110,7 +138,14 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
   const turnDeadlineMs = config.turnDeadlineMs ?? 840_000;
   const retries = config.retries ?? 3;
 
-  const emit = createHttpEmitAdapter({ url: config.realtime.url, apiKey: config.realtime.apiKey });
+  const roomEmit = createHttpEmitAdapter({ url: config.realtime.url, apiKey: config.realtime.apiKey });
+  /** The turn's emits: to its room, and to the host first when it observes them. */
+  const turnEmit = (turnId: string, observe: TurnEventObserver | undefined): RealtimeEmitAdapter =>
+    observe
+      ? teeEmitAdapter(roomEmit, observe, (error, event) =>
+          logger.warn('[agent-sdk] The host could not observe a turn event; it was still sent to the room', { turnId, event, error: messageOf(error) }),
+        )
+      : roomEmit;
   // UI actions reach the client through the same realtime server, and its
   // answers come back through it.
   const uiChannel =
@@ -146,6 +181,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
     logger,
     async run(payload, host = {}) {
       const { turnId, conversationId, userId, accountId, socketRoom, content, context, userToken, approval } = payload;
+      const emit = turnEmit(turnId, host.observe);
       const supersedes = Array.isArray(payload.supersedes) ? payload.supersedes.filter((id) => typeof id === 'string' && id) : [];
       // The message's files, by reference: anything that is not one is left out.
       // Each file once.
@@ -165,26 +201,15 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
         db = await config.getDb();
       } catch (error) {
         // No handle, so nothing can be recorded; the client is still told.
-        return fail(payload, error);
+        return fail(payload, emit, error);
       }
 
-      if (config.recordTurnStart) {
-        try {
-          const claim = await config.recordTurnStart({ turnId, conversationId, userId, accountId, model, db });
-          if (claim && claim.run === false) {
-            // The host's record says this turn already ended or was given up on: a queue's
-            // redelivery. It does nothing, and says nothing to a client that has moved on.
-            logger.warn('[agent-sdk] Turn refused by its record; nothing was run', { turnId, reason: claim.reason });
-            return { status: 'refused', turnId, reason: claim.reason };
-          }
-        } catch (err) {
-          logger.warn('[agent-sdk] recordTurnStart failed', { error: messageOf(err) });
-        }
-      }
+      const refused = await claimTurn(payload, db);
+      if (refused) return refused;
 
       // Open before history is read: a stop asked for while the turn waited in the
       // queue, or waits now for the turns it supersedes, is the first thing it hears.
-      const stopWatch = watchTurnStop(stops, turnId, userId);
+      const stopWatch = watchTurnStop(host.stopSignal ? withLocalStop(stops, host.stopSignal) : stops, turnId, userId);
       const waiting = new AbortController();
       stopWatch.onStop(() => waiting.abort());
 
@@ -306,13 +331,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
             recoverable: false,
           };
           logger.error('[agent-sdk] Turn ran out of time and its store failed', { turnId, rounds: result.rounds });
-          if (config.recordTurnFailure) {
-            try {
-              await config.recordTurnFailure({ turnId, conversationId, error: categorized, db });
-            } catch (err) {
-              logger.warn('[agent-sdk] recordTurnFailure failed', { error: messageOf(err) });
-            }
-          }
+          await recordFailure(payload, categorized, db);
           return { status: 'stopped', turnId, rounds: result.rounds, stopReason: 'deadline', stored: false };
         }
 
@@ -349,23 +368,91 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
           ? { status: 'stopped', turnId, rounds: result.rounds, stopReason: result.stopped.reason }
           : { status: 'completed', turnId, rounds: result.rounds };
       } catch (error) {
-        return fail(payload, error, async (categorized) => {
-          if (!config.recordTurnFailure) return;
-          try {
-            await config.recordTurnFailure({ turnId, conversationId, error: categorized, db });
-          } catch (err) {
-            logger.warn('[agent-sdk] recordTurnFailure failed', { error: messageOf(err) });
-          }
-        });
+        return fail(payload, emit, error, (categorized) => recordFailure(payload, categorized, db));
       } finally {
         stopWatch.close();
       }
     },
+
+    async reply(payload, text, host = {}) {
+      const { turnId, conversationId, userId, socketRoom } = payload;
+      const emit = turnEmit(turnId, host.observe);
+      logger.info('[agent-sdk] Answering turn with the host’s text', { turnId, conversationId, userId });
+
+      let db: TDb;
+      try {
+        db = await config.getDb();
+      } catch (error) {
+        return fail(payload, emit, error);
+      }
+      const refused = await claimTurn(payload, db);
+      if (refused) return refused;
+
+      try {
+        const usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+        await emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TOKEN, { turnId, text, timestamp: Date.now() });
+        // Stored before the client is told it is complete, as a model's turn is.
+        try {
+          await config.persistMessages({ turnId, conversationId, messages: [{ role: 'assistant', content: text }], usage, db });
+        } catch (err) {
+          logger.error('[agent-sdk] persistMessages failed', { turnId, error: messageOf(err) });
+        }
+        await emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TURN_COMPLETE, {
+          turnId,
+          rounds: 0,
+          usage,
+          endReason: 'complete',
+          timestamp: Date.now(),
+        });
+        if (config.recordTurnComplete) {
+          try {
+            await config.recordTurnComplete({ turnId, conversationId, rounds: 0, usage, db });
+          } catch (err) {
+            logger.warn('[agent-sdk] recordTurnComplete failed', { error: messageOf(err) });
+          }
+        }
+        logger.info('[agent-sdk] Turn completed', { turnId, rounds: 0, scripted: true });
+        return { status: 'completed', turnId, rounds: 0 };
+      } catch (error) {
+        return fail(payload, emit, error, (categorized) => recordFailure(payload, categorized, db));
+      }
+    },
   };
+
+  /**
+   * The host's claim on the turn (`recordTurnStart`): the outcome of a turn its
+   * record refuses, or null to run it.
+   */
+  async function claimTurn(payload: AgentTurnPayload, db: TDb): Promise<TurnOutcome | null> {
+    if (!config.recordTurnStart) return null;
+    const { turnId, conversationId, userId, accountId } = payload;
+    try {
+      const claim = await config.recordTurnStart({ turnId, conversationId, userId, accountId, model, db });
+      if (claim && claim.run === false) {
+        // The host's record says this turn already ended or was given up on: a queue's
+        // redelivery. It does nothing, and says nothing to a client that has moved on.
+        logger.warn('[agent-sdk] Turn refused by its record; nothing was run', { turnId, reason: claim.reason });
+        return { status: 'refused', turnId, reason: claim.reason };
+      }
+    } catch (err) {
+      logger.warn('[agent-sdk] recordTurnStart failed', { error: messageOf(err) });
+    }
+    return null;
+  }
+
+  async function recordFailure(payload: AgentTurnPayload, categorized: CategorizedError, db: TDb): Promise<void> {
+    if (!config.recordTurnFailure) return;
+    try {
+      await config.recordTurnFailure({ turnId: payload.turnId, conversationId: payload.conversationId, error: categorized, db });
+    } catch (err) {
+      logger.warn('[agent-sdk] recordTurnFailure failed', { error: messageOf(err) });
+    }
+  }
 
   /** Reports a failed turn to the client first, so the UI stops streaming, then to the host. */
   async function fail(
     payload: AgentTurnPayload,
+    emit: RealtimeEmitAdapter,
     error: unknown,
     record?: (categorized: CategorizedError) => Promise<void>,
   ): Promise<TurnOutcome> {
