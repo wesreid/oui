@@ -332,7 +332,7 @@ function turnPayload(request: LiveCallTurnRequest, target: LiveCallTurnTarget): 
   delete context[REPLY_OUTPUT_CONTEXT_KEY];
   if (request.input) context[MESSAGE_INPUT_CONTEXT_KEY] = request.input;
   if (request.output) context[REPLY_OUTPUT_CONTEXT_KEY] = request.output;
-  // The caller's clock, when the host's own context does not already name one (ADR-0275 §2.3).
+  // The caller's clock, when the host's own context does not already name one.
   if (request.callerTimeZone && readClientTimeZone(context) === null) context[CLIENT_TIME_ZONE_KEY] = request.callerTimeZone;
   return {
     turnId: request.turnId,

@@ -138,7 +138,7 @@ describe('a turn’s context names today’s date in the user’s zone', () => {
 });
 
 /**
- * Twin of studio-gateway `present.rs` `matches_the_pa_clock_line` (ADR-0275 §2.2):
+ * Twin of the call service's own clock test (studio-gateway `present.rs`):
  * a live call answered by Closure's model and a PA turn read the present in the
  * same words, so the same instant and zone must give the same sentence here.
  */

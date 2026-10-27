@@ -4,7 +4,7 @@
 
 ### Patch Changes
 
-- A live-call turn reads `caller.timeZone` (the caller's IANA zone, sent by the call service) and gives the turn's `<now>` on that clock, unless the host's own context already names a zone (ADR-0275 §2.3). An unknown zone is no zone, never a refusal.
+- A live-call turn reads `caller.timeZone` (the caller's IANA zone, sent by the call service) and gives the turn's `<now>` on that clock, unless the host's own context already names a zone. An unknown zone is no zone, never a refusal.
 
 ## 0.15.0
 
