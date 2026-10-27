@@ -2422,7 +2422,7 @@ export const CONTRACT_SCHEMAS = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://schemas.closurestudio.ai/oui/v1/approvals.json",
     "title": "Approvals",
-    "description": "Approvals: the shapes the agent worker, the approval store in the realtime server, the browser's approval card, OUI's surface runtime and a conversation engine exchange. An irreversible action — a `transaction`, or a `write` declared `destructive` — runs only on an approval the person gave, bound to the exact call by a single-use token.\n\n1. The worker stops the turn at the call and stores it (`PendingApprovalInput`); the person's tab receives `agent:approval_required` (`ApprovalRequiredEvent`) and renders the approval card from its `preview`, whose every word comes from the action's declaration, never from the model.\n2. In a UI only a click on the card counts: the card sends `approval:decide` (`ApprovalDecidePayload`) from the person's own socket. On a conversation channel, the verbatim `readback` and an affirmative next turn.\n3. The store answers the decider only (`ApprovalDecideResult`): a single-use token, a compact JWS (`ApprovalTokenClaims`), and the call's `argsHash`. The tab's OUI runtime holds an `ApprovalGrant`.\n4. The next turn carries the token (`ApprovalContinuation`); the worker redeems it for the stored call, exactly (`ApprovedCall`), and runs it. A UI action request then carries `approval` (`ActionRequestApproval`), which the browser checks against its grant before it runs the handler.\n\nThe args hash is SHA-256 over the RFC 8785 (JCS) canonical JSON of the call's arguments, lowercase hex; `oui-spec/approval-vectors.json` holds every implementation, in any language, to it.",
+    "description": "Approvals: the shapes the agent worker, the approval store in the realtime server, the browser's approval card, OUI's surface runtime and a conversation engine exchange. An irreversible action — a `transaction`, or a `write` declared `destructive` — runs only on an approval the person gave, bound to the exact call by a single-use token.\n\n1. The worker stops the turn at the call and stores it (`PendingApprovalInput`); the person's tab receives `agent:approval_required` (`ApprovalRequiredEvent`) and renders the approval card from its `preview`, whose every word comes from the action's declaration, never from the model.\n2. In a UI only a click on the card counts: the card sends `approval:decide` (`ApprovalDecidePayload`) from the person's own socket. On a conversation channel, the verbatim `readback` and an affirmative next turn.\n3. The store answers the decider only (`ApprovalDecideResult`): a single-use token, a compact JWS (`ApprovalTokenClaims`), and the call's `argsHash`. The tab's OUI runtime holds an `ApprovalGrant`.\n4. The next turn carries the token (`ApprovalContinuation`); the worker redeems it for the stored call, exactly (`ApprovedCall`), and runs it. A UI action request then carries `approval` (`ActionRequestApproval`), which the browser checks against its grant before it runs the handler.\n5. When the realtime server holds receipt keys, redemption also returns a receipt (`ApprovalReceiptClaims`): a compact JWS, EdDSA over Ed25519, that the approved host or API call carries to the tool's own API (the `OUI-Approval-Receipt` header). The tool verifies it offline against the realtime server's published keys (`/.well-known/oui-approval-jwks.json`); a UI action gets none.\n\nThe args hash is SHA-256 over the RFC 8785 (JCS) canonical JSON of the call's arguments, lowercase hex; `oui-spec/approval-vectors.json` holds every implementation, in any language, to it.",
     "$defs": {
       "ArgsHash": {
         "description": "SHA-256 of the RFC 8785 canonical JSON of a call's arguments, lowercase hex.",
@@ -2528,8 +2528,30 @@ export const CONTRACT_SCHEMAS = {
             "description": "The user whose turn made the call: the only one who may decide it.",
             "type": "string"
           },
+          "accountId": {
+            "description": "The user's account, when the product has one: carried on the call's receipt.",
+            "type": "string",
+            "minLength": 1
+          },
           "tool": {
             "type": "string"
+          },
+          "toolKind": {
+            "description": "`ui` for an action on the person's page, which gets no receipt (the browser checks its own grant); `backend` for a host or API tool. Absent is `backend`.",
+            "enum": [
+              "ui",
+              "backend"
+            ]
+          },
+          "operationId": {
+            "description": "For a generated API tool, its OpenAPI `operationId`: carried on the call's receipt.",
+            "type": "string",
+            "minLength": 1
+          },
+          "audience": {
+            "description": "The API the call's receipt is for, fixed when the approval is created: the origin (scheme, host and port) the tool calls. For a generated API tool, its operation's server URL's origin; for a host tool, its declared `approvalAudience`. Absent on a host tool that names none: the realtime server's default audience, the product's own origin, is used. Never set on a UI action.",
+            "type": "string",
+            "pattern": "^https?://[^/?#]+$"
           },
           "args": {
             "type": "object",
@@ -2793,6 +2815,84 @@ export const CONTRACT_SCHEMAS = {
         ],
         "additionalProperties": false
       },
+      "ApprovalReceiptClaims": {
+        "description": "An approval receipt's claims: a compact JWS whose header is `{ \"alg\": \"EdDSA\", \"typ\": \"oui-approval-receipt+jwt\", \"kid\" }`, signed by the realtime server with an Ed25519 key only it holds, when it redeems a token. It says this user approved exactly this call, in this conversation, and the approval was redeemed just now. A tool verifies it with the server's public keys (`verifyApprovalReceipt` in `@ouispec/agent-core`, or any JOSE library), refuses it once expired, and acts on each `jti` at most once.",
+        "type": "object",
+        "properties": {
+          "iss": {
+            "description": "The realtime server's public base URL. Its keys are published at `<iss>/.well-known/oui-approval-jwks.json`.",
+            "type": "string"
+          },
+          "aud": {
+            "description": "The one API the receipt is for: an origin, fixed when the approval was created. Another API refuses it.",
+            "type": "string"
+          },
+          "approvalId": {
+            "description": "The approval id, which is the tool call id.",
+            "type": "string",
+            "minLength": 1
+          },
+          "argsHash": {
+            "description": "The approved call's args hash. The tool computes it from the request it received and compares.",
+            "$ref": "#/$defs/ArgsHash"
+          },
+          "tool": {
+            "description": "The tool's name, as the worker offered it.",
+            "type": "string",
+            "minLength": 1
+          },
+          "operationId": {
+            "description": "For a generated API tool, its OpenAPI `operationId`.",
+            "type": "string",
+            "minLength": 1
+          },
+          "conversationId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "userId": {
+            "description": "The user who approved it.",
+            "type": "string",
+            "minLength": 1
+          },
+          "accountId": {
+            "description": "The user's account, when the product has one.",
+            "type": "string",
+            "minLength": 1
+          },
+          "channel": {
+            "description": "How it was approved.",
+            "$ref": "#/$defs/ApprovalChannel"
+          },
+          "iat": {
+            "description": "Issued at, epoch seconds.",
+            "type": "integer"
+          },
+          "exp": {
+            "description": "Expires at, epoch seconds: `iat` + 120.",
+            "type": "integer"
+          },
+          "jti": {
+            "description": "Unique to this receipt: the call's idempotency key. A tool acts on each at most once.",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "iss",
+          "aud",
+          "approvalId",
+          "argsHash",
+          "tool",
+          "conversationId",
+          "userId",
+          "channel",
+          "iat",
+          "exp",
+          "jti"
+        ],
+        "additionalProperties": false
+      },
       "ApprovedCall": {
         "description": "What redeeming a token returns: the stored call, exactly, for the worker to run.",
         "type": "object",
@@ -2857,6 +2957,10 @@ export const CONTRACT_SCHEMAS = {
               },
               "call": {
                 "$ref": "#/$defs/ApprovedCall"
+              },
+              "receipt": {
+                "description": "The receipt for this call (`ApprovalReceiptClaims`), when the realtime server holds receipt keys and the call is a host or API tool's. The worker hands it to the tool as `ctx.approval.receipt`.",
+                "type": "string"
               }
             },
             "required": [
@@ -3382,6 +3486,7 @@ export const CONTRACT_TYPES = {
   ApprovalRefusal: 'approvals.json#/$defs/ApprovalRefusal',
   ApprovalDecideResult: 'approvals.json#/$defs/ApprovalDecideResult',
   ApprovalTokenClaims: 'approvals.json#/$defs/ApprovalTokenClaims',
+  ApprovalReceiptClaims: 'approvals.json#/$defs/ApprovalReceiptClaims',
   ApprovedCall: 'approvals.json#/$defs/ApprovedCall',
   ApprovalRedeemResult: 'approvals.json#/$defs/ApprovalRedeemResult',
   ApprovalStatus: 'approvals.json#/$defs/ApprovalStatus',

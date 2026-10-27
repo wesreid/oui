@@ -21,14 +21,15 @@
       "browser": "./dist/browser.js",
       "import": "./dist/index.js"
     },
-    "./approval-vectors.json": "./dist/approval-vectors.json"
+    "./approval-vectors.json": "./dist/approval-vectors.json",
+    "./receipt-vectors.json": "./dist/receipt-vectors.json"
   },
   "files": [
     "dist",
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node -e \"require('node:fs').copyFileSync(require.resolve('oui-spec/approval-vectors.json'), 'dist/approval-vectors.json')\"",
+    "build": "tsc -p tsconfig.build.json && node -e \"require('node:fs').copyFileSync(require.resolve('oui-spec/approval-vectors.json'), 'dist/approval-vectors.json')\" && node scripts/receipt-vectors.mjs --check && node -e \"require('node:fs').copyFileSync('receipt-vectors.json', 'dist/receipt-vectors.json')\"",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "clean": "rm -rf dist"

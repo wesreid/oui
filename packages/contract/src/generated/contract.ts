@@ -1229,7 +1229,24 @@ export interface PendingApprovalInput {
   turnId: string;
   /** The user whose turn made the call: the only one who may decide it. */
   userId: string;
+  /** The user's account, when the product has one: carried on the call's receipt. */
+  accountId?: string;
   tool: string;
+  /**
+   * `ui` for an action on the person's page, which gets no receipt (the browser checks its own
+   * grant); `backend` for a host or API tool. Absent is `backend`.
+   */
+  toolKind?: 'ui' | 'backend';
+  /** For a generated API tool, its OpenAPI `operationId`: carried on the call's receipt. */
+  operationId?: string;
+  /**
+   * The API the call's receipt is for, fixed when the approval is created: the origin (scheme,
+   * host and port) the tool calls. For a generated API tool, its operation's server URL's
+   * origin; for a host tool, its declared `approvalAudience`. Absent on a host tool that names
+   * none: the realtime server's default audience, the product's own origin, is used. Never set
+   * on a UI action.
+   */
+  audience?: string;
   args: {
     [key: string]: unknown;
   };
@@ -1333,6 +1350,51 @@ export interface ApprovalTokenClaims {
   jti: string;
 }
 
+/**
+ * An approval receipt's claims: a compact JWS whose header is `{ "alg": "EdDSA", "typ":
+ * "oui-approval-receipt+jwt", "kid" }`, signed by the realtime server with an Ed25519 key only
+ * it holds, when it redeems a token. It says this user approved exactly this call, in this
+ * conversation, and the approval was redeemed just now. A tool verifies it with the server's
+ * public keys (`verifyApprovalReceipt` in `@ouispec/agent-core`, or any JOSE library), refuses
+ * it once expired, and acts on each `jti` at most once.
+ */
+export interface ApprovalReceiptClaims {
+  /**
+   * The realtime server's public base URL. Its keys are published at
+   * `<iss>/.well-known/oui-approval-jwks.json`.
+   */
+  iss: string;
+  /**
+   * The one API the receipt is for: an origin, fixed when the approval was created. Another API
+   * refuses it.
+   */
+  aud: string;
+  /** The approval id, which is the tool call id. */
+  approvalId: string;
+  /**
+   * The approved call's args hash. The tool computes it from the request it received and
+   * compares.
+   */
+  argsHash: ArgsHash;
+  /** The tool's name, as the worker offered it. */
+  tool: string;
+  /** For a generated API tool, its OpenAPI `operationId`. */
+  operationId?: string;
+  conversationId: string;
+  /** The user who approved it. */
+  userId: string;
+  /** The user's account, when the product has one. */
+  accountId?: string;
+  /** How it was approved. */
+  channel: ApprovalChannel;
+  /** Issued at, epoch seconds. */
+  iat: number;
+  /** Expires at, epoch seconds: `iat` + 120. */
+  exp: number;
+  /** Unique to this receipt: the call's idempotency key. A tool acts on each at most once. */
+  jti: string;
+}
+
 /** What redeeming a token returns: the stored call, exactly, for the worker to run. */
 export interface ApprovedCall {
   approvalId: string;
@@ -1353,6 +1415,12 @@ export interface ApprovedCall {
 export type ApprovalRedeemResult = {
   ok: true;
   call: ApprovedCall;
+  /**
+   * The receipt for this call (`ApprovalReceiptClaims`), when the realtime server holds receipt
+   * keys and the call is a host or API tool's. The worker hands it to the tool as
+   * `ctx.approval.receipt`.
+   */
+  receipt?: string;
 } | ApprovalRefusal;
 
 /** An approval's state, for the turn that follows a decision. */
