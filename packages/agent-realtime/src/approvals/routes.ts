@@ -6,7 +6,7 @@
  *
  *   POST /internal/approvals               store a pending approval (worker, engine)
  *   POST /internal/approvals/:id/decide    a conversation channel's decision (engine)
- *   POST /internal/approvals/redeem        atomic single use (worker, engine)
+ *   POST /internal/approvals/redeem        atomic single use, with the call's receipt when receipts are on (worker, engine)
  *   GET  /internal/approvals/:id?userId=   where an approval stands (worker, for the turn after a decision)
  *   POST /internal/approvals/:id/settle    whether it expired undecided, claimed for one turn to store; with
  *                                          `confirm`, that it has been stored (worker, at the start of a later turn);
@@ -71,7 +71,7 @@ export function approvalRouter(deps: ApprovalRouteDeps): Router {
       res.status(REDEEM_STATUS[result.reason]).json({ error: result.error, reason: result.reason });
       return;
     }
-    res.json({ call: result.call });
+    res.json({ call: result.call, ...(result.receipt ? { receipt: result.receipt } : {}) });
   });
 
   router.post('/internal/approvals', async (req, res) => {

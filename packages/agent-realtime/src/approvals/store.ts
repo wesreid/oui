@@ -5,8 +5,9 @@
  *   approval:{id}           → the pending call as the worker stored it (JSON,
  *                             never rewritten), TTL until it expires
  *   approval:{id}:state     → hash: status (pending | approved), userId,
- *                             conversationId, tool, argsHash, expiresAt, and
- *                             once approved the token's jti and the channel
+ *                             conversationId, tool, argsHash, expiresAt, the
+ *                             receipt's audience (fixed here, empty for none),
+ *                             and once approved the token's jti and the channel
  *   approval:declined:{id}  → what the next turn tells the model, 30 min
  *   approval:{id}:seen      → that it was asked for and has not run or been
  *                             declined (userId, conversationId, expiresAt,
@@ -25,10 +26,15 @@
  * kept as the worker wrote it and never re-encoded inside Redis: Lua's JSON
  * would round numbers and turn `[]` into `{}`, and the redeemed call must be
  * exactly the one the user approved.
+ *
+ * With receipt keys, a redemption also signs a receipt for the call
+ * (receipt.ts): for the audience fixed when the approval was stored, never one
+ * chosen at redemption. A UI action gets none.
  */
 import crypto from 'node:crypto';
 import {
   APPROVAL_WITHDRAW_REASONS,
+  approvalReceiptAudience,
   argsHash as hashOf,
   EXPIRED_APPROVAL_MEMORY_MS,
   EXPIRY_CLAIM_LEASE_MS,
@@ -49,6 +55,7 @@ import {
 } from '@ouispec/agent-core';
 import type { RealtimeLogger } from '../logger.js';
 import type { ApprovalTokenSigner } from './token.js';
+import type { ApprovalReceiptSigner } from './receipt.js';
 
 /** The Redis command the store uses. ioredis satisfies it. */
 export interface ApprovalRedis {
@@ -96,14 +103,14 @@ const settledKey = (id: string) => `approval:${id}:settled`;
 const withdrawnKey = (id: string) => `approval:${id}:withdrawn`;
 
 // KEYS: record, state, declined, seen, settled, withdrawn. ARGV: record JSON, ttl ms, userId, conversationId, tool,
-// argsHash, expiresAt, seen JSON, seen ttl ms.
+// argsHash, expiresAt, seen JSON, seen ttl ms, receipt audience ('' for none).
 // A new approval supersedes an old decline under the same id, an old expiry's settlement, and an old withdrawal.
 const CREATE = `
 if redis.call('EXISTS', KEYS[1]) == 1 or redis.call('EXISTS', KEYS[2]) == 1 then return 'exists' end
 redis.call('DEL', KEYS[3], KEYS[5], KEYS[6])
 redis.call('SET', KEYS[4], ARGV[8], 'PX', ARGV[9])
 redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
-redis.call('HSET', KEYS[2], 'status', 'pending', 'userId', ARGV[3], 'conversationId', ARGV[4], 'tool', ARGV[5], 'argsHash', ARGV[6], 'expiresAt', ARGV[7])
+redis.call('HSET', KEYS[2], 'status', 'pending', 'userId', ARGV[3], 'conversationId', ARGV[4], 'tool', ARGV[5], 'argsHash', ARGV[6], 'expiresAt', ARGV[7], 'audience', ARGV[10])
 redis.call('PEXPIRE', KEYS[2], ARGV[2])
 return 'ok'`;
 
@@ -128,16 +135,16 @@ redis.call('SET', KEYS[3], ARGV[7], 'EX', ARGV[6])
 return {'declined', record}`;
 
 // KEYS: state, record, seen. ARGV: jti, argsHash, tool, userId, conversationId.
-// A redemption uses it: it did not expire undecided.
+// A redemption uses it: it did not expire undecided. It answers the receipt audience fixed at creation.
 const REDEEM = `
 if redis.call('EXISTS', KEYS[1]) == 0 then return {'used'} end
-local s = redis.call('HMGET', KEYS[1], 'status', 'jti', 'argsHash', 'tool', 'userId', 'conversationId', 'channel')
+local s = redis.call('HMGET', KEYS[1], 'status', 'jti', 'argsHash', 'tool', 'userId', 'conversationId', 'channel', 'audience')
 if s[1] ~= 'approved' or s[2] ~= ARGV[1] or s[3] ~= ARGV[2] or s[4] ~= ARGV[3] or s[5] ~= ARGV[4] or s[6] ~= ARGV[5] then
   return {'mismatch'}
 end
 local record = redis.call('GET', KEYS[2])
 redis.call('DEL', KEYS[1], KEYS[2], KEYS[3])
-return {'ok', record, s[7]}`;
+return {'ok', record, s[7], s[8] or ''}`;
 
 // KEYS: state, record, seen, withdrawn. ARGV: userId, conversationId, reason.
 // Expire-now. A pending approval, or an approved one not yet redeemed, loses its state and record,
@@ -228,6 +235,11 @@ type Seen =
 export interface ApprovalStoreOptions {
   /** How long a turn's claim on an expiry lasts unconfirmed. Default `EXPIRY_CLAIM_LEASE_MS`; shorter in tests. */
   expiryClaimLeaseMs?: number;
+  /**
+   * Receipts: the signer, and the audience of a host tool that names none.
+   * Without them no audience is stored and no receipt is issued.
+   */
+  receipts?: { signer: ApprovalReceiptSigner; defaultAudience: string };
 }
 
 export function createApprovalStore(
@@ -237,6 +249,23 @@ export function createApprovalStore(
   options: ApprovalStoreOptions = {},
 ): ApprovalStore {
   const expiryClaimLeaseMs = options.expiryClaimLeaseMs ?? EXPIRY_CLAIM_LEASE_MS;
+  const receipts = options.receipts ?? null;
+
+  /**
+   * The receipt audience, fixed as the approval is stored: none for a UI action
+   * (the browser checks its own grant), the tool's own for a host or API tool,
+   * else the product's default. None at all without receipt keys.
+   */
+  const audienceOf = (input: PendingApprovalInput): { ok: true; audience: string } | ApprovalRefusal => {
+    if (input.audience !== undefined && approvalReceiptAudience(input.audience) !== input.audience) {
+      return refusal('invalid', `audience "${input.audience}" is not an origin (scheme, host and port)`);
+    }
+    if (input.toolKind === 'ui') {
+      return input.audience === undefined ? { ok: true, audience: '' } : refusal('invalid', 'a UI action gets no receipt, so it names no audience');
+    }
+    if (!receipts) return { ok: true, audience: '' };
+    return { ok: true, audience: input.audience ?? receipts.defaultAudience };
+  };
   /** An approval as this user may see it. */
   async function read(approvalId: string, userId: string): Promise<Seen> {
     const [status, raw] = ((await redis.eval(STATUS, 3, stateKey(approvalId), recordKey(approvalId), declinedKey(approvalId), userId)) ??
@@ -259,6 +288,31 @@ export function createApprovalStore(
     ...extra,
   });
 
+  /**
+   * The receipt for a redeemed call. The call is already used when this runs,
+   * so a signing failure loses only the receipt: the call is still returned,
+   * the tool refuses it for want of one, and the failure is logged.
+   */
+  const issueReceipt = (p: PendingApprovalInput, channel: ApprovalChannel, audience: string) => {
+    if (!receipts) return null;
+    try {
+      return receipts.signer.issue({
+        aud: audience,
+        approvalId: p.approvalId,
+        argsHash: p.argsHash,
+        tool: p.tool,
+        ...(p.operationId ? { operationId: p.operationId } : {}),
+        conversationId: p.conversationId,
+        userId: p.userId,
+        ...(p.accountId ? { accountId: p.accountId } : {}),
+        channel,
+      });
+    } catch (err) {
+      logger.error({ ...audit(p, { channel }), audience, error: err instanceof Error ? err.message : String(err) }, 'Approval receipt could not be signed');
+      return null;
+    }
+  };
+
   return {
     async create(input) {
       const now = Date.now();
@@ -274,6 +328,8 @@ export function createApprovalStore(
         return refusal('invalid', err instanceof Error ? err.message : String(err));
       }
       if (computed !== input.argsHash) return refusal('invalid', 'argsHash does not match the arguments');
+      const audience = audienceOf(input);
+      if (!audience.ok) return audience;
 
       const seen = { userId: input.userId, conversationId: input.conversationId, expiresAt: input.expiresAt };
       const result = await redis.eval(
@@ -294,9 +350,10 @@ export function createApprovalStore(
         input.expiresAt,
         JSON.stringify(seen),
         input.expiresAt - now + EXPIRED_APPROVAL_MEMORY_MS,
+        audience.audience,
       );
       if (result !== 'ok') return refusal('decided', `an approval ${input.approvalId} already exists`);
-      logger.info(audit(input, { expiresAt: input.expiresAt }), 'Approval stored');
+      logger.info(audit(input, { expiresAt: input.expiresAt, ...(audience.audience ? { audience: audience.audience } : {}) }), 'Approval stored');
       return { ok: true, approvalId: input.approvalId, argsHash: input.argsHash, expiresAt: input.expiresAt };
     },
 
@@ -368,7 +425,7 @@ export function createApprovalStore(
         logger.warn({ ...context, tokenUser: claims.sub, reason: 'forbidden' }, 'Approval redemption refused');
         return refusal('forbidden', "this approval is another user's or another conversation's");
       }
-      const [outcome, raw, channel] = (await redis.eval(
+      const [outcome, raw, channel, audience] = (await redis.eval(
         REDEEM,
         3,
         stateKey(claims.aid),
@@ -379,7 +436,7 @@ export function createApprovalStore(
         claims.tool,
         claims.sub,
         claims.cid,
-      )) as [string, string | undefined, string | undefined];
+      )) as [string, string | undefined, string | undefined, string | undefined];
       if (outcome !== 'ok') {
         logger.warn({ ...context, reason: outcome }, 'Approval redemption refused');
         return refusal(outcome as ApprovalRefusalReason, REFUSALS[outcome] ?? outcome);
@@ -398,8 +455,9 @@ export function createApprovalStore(
         destructive: p.destructive,
         channel: channel as ApprovalChannel,
       };
-      logger.info(audit(p, { channel }), 'Approval redeemed');
-      return { ok: true, call };
+      const receipt = audience ? issueReceipt(p, call.channel, audience) : null;
+      logger.info(audit(p, { channel, ...(receipt ? { receipt: { kid: receipt.kid, jti: receipt.jti, audience, exp: receipt.exp } } : {}) }), 'Approval redeemed');
+      return { ok: true, call, ...(receipt ? { receipt: receipt.receipt } : {}) };
     },
 
     async status(approvalId, userId) {

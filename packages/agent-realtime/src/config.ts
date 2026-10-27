@@ -2,6 +2,8 @@ import { UndeclaredEventError } from '@ouispec/agent-events';
 import type { RealtimeServerConfig } from './types.js';
 import { MIN_ROOM_TOKEN_SECRET_LENGTH } from './rooms/room-token.js';
 import { MIN_APPROVAL_KEY_LENGTH } from './approvals/token.js';
+import { approvalReceiptAudience } from '@ouispec/agent-core';
+import { approvalReceiptKeysProblem, receiptIssuer } from './approvals/receipt.js';
 
 /**
  * Every seam the server cannot run without, and what it is for. A missing
@@ -54,6 +56,7 @@ export function assertRealtimeServerConfig(config: Partial<RealtimeServerConfig>
       '[agent-sdk-realtime] approvals.signingKey must be neither the internalApiKey nor roomTokens.secret: they are separate secrets',
     );
   }
+  assertReceiptConfig(approvals);
   for (const [event, rule] of Object.entries(config.relay ?? {})) {
     if (config.events) {
       assertRelayable(config.events, event);
@@ -87,4 +90,27 @@ function assertRelayable(events: NonNullable<RealtimeServerConfig['events']>, na
   if (declared.rooms.some((r) => r.pattern === null)) {
     throw new Error(`[agent-sdk-realtime] relay["${name}"]: it goes to a turn's room, which only the server sends to`);
   }
+}
+
+/**
+ * Receipts are on when `receiptKeys` is given, and then need the issuer and
+ * the default audience too. Either of those without keys is a configuration
+ * that believes it issues receipts and does not: refused.
+ */
+function assertReceiptConfig(approvals: RealtimeServerConfig['approvals']): void {
+  const { receiptKeys, receiptIssuer: issuer, defaultAudience } = approvals;
+  if (receiptKeys === undefined) {
+    if (issuer !== undefined || defaultAudience !== undefined) {
+      throw new Error('[agent-sdk-realtime] approvals.receiptIssuer and approvals.defaultAudience need approvals.receiptKeys: without keys no receipt is issued');
+    }
+    return;
+  }
+  const problems: string[] = [];
+  const keys = approvalReceiptKeysProblem(receiptKeys);
+  if (keys) problems.push(`approvals.receiptKeys (${keys})`);
+  if (!receiptIssuer(issuer)) problems.push("approvals.receiptIssuer (the server's public base URL, absolute http(s), no query: every receipt's iss)");
+  if (typeof defaultAudience !== 'string' || approvalReceiptAudience(defaultAudience) !== defaultAudience) {
+    problems.push("approvals.defaultAudience (the product's own API origin, such as https://api.example.com: a host tool's receipt audience when it names none)");
+  }
+  if (problems.length > 0) throw new Error(`[agent-sdk-realtime] Receipts are on, and these are missing or malformed: ${problems.join('; ')}`);
 }

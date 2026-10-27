@@ -6,6 +6,7 @@
 import type { EventCatalog } from '@ouispec/agent-events';
 import type { ClientEvent } from './client-events/chain.js';
 import type { RealtimeLogger } from './logger.js';
+import type { ApprovalReceiptKey } from './approvals/receipt.js';
 
 /**
  * Auth verifier: verifies the product's own user tokens. Called once per
@@ -88,6 +89,31 @@ export interface ApprovalsConfig {
    * tokens holds this key and nothing else.
    */
   signingKey: string;
+  /**
+   * Signs approval receipts: Ed25519 private keys as JWKs, each with a
+   * `kid`, exactly one `active: true`. With them, redeeming a token also
+   * returns a receipt the approved host or API call carries to the tool's own
+   * API, and the server publishes the public keys at
+   * `GET /.well-known/oui-approval-jwks.json`. One set per environment, from
+   * the product's secret store; rotate by adding a key, making it active an
+   * hour later, and removing the old one an hour after that
+   * (`RealtimeServerInstance.setReceiptKeys`). Without them no receipt is
+   * issued, and the worker sends none.
+   */
+  receiptKeys?: readonly ApprovalReceiptKey[];
+  /**
+   * The server's public base URL, every receipt's `iss`: its keys are at
+   * `<receiptIssuer>/.well-known/oui-approval-jwks.json`. Required with
+   * `receiptKeys`.
+   */
+  receiptIssuer?: string;
+  /**
+   * The audience of a receipt for a host tool that names no
+   * `approvalAudience`: the product's own API origin. Required with
+   * `receiptKeys`. A generated API tool's audience is its server's origin,
+   * and a UI action gets no receipt.
+   */
+  defaultAudience?: string;
 }
 
 /** Everything the server needs. Every field without a `?` is a required seam. */

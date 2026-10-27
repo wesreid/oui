@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { createRealtimeServer } from '../server.js';
 import type { RealtimeServerConfig } from '../types.js';
 import { fixtureRoomPolicy, fixtureRelay, recordingLogger, TEST_APPROVAL_KEY, TEST_TOKEN_SECRET } from './fixtures.js';
+import { assertRealtimeServerConfig } from '../config.js';
+import { generateApprovalReceiptKey } from '../approvals/receipt.js';
 
 /**
  * Every seam is required, and a missing one fails start-up naming it
@@ -88,5 +90,32 @@ describe('required configuration', () => {
 
   it('fails start-up, naming Redis, when Redis is unreachable', async () => {
     await expect(createRealtimeServer(complete)).rejects.toThrow(/Redis at 127\.0\.0\.1:1 is unreachable/);
+  });
+});
+
+describe('receipt configuration', () => {
+  const key = generateApprovalReceiptKey({ kid: 'k1', active: true });
+  const receipts = { receiptKeys: [key], receiptIssuer: 'https://realtime.example.com', defaultAudience: 'https://api.example.com' };
+  const withApprovals = (approvals: Record<string, unknown>) => ({ ...complete, approvals: { signingKey: TEST_APPROVAL_KEY, ...approvals } }) as RealtimeServerConfig;
+
+  it('is off without keys, and on with keys, an issuer and a default audience', () => {
+    expect(() => assertRealtimeServerConfig(complete)).not.toThrow();
+    expect(() => assertRealtimeServerConfig(withApprovals(receipts))).not.toThrow();
+  });
+
+  it('refuses an issuer or a default audience without keys: it would believe it issues receipts', () => {
+    expect(() => assertRealtimeServerConfig(withApprovals({ receiptIssuer: receipts.receiptIssuer }))).toThrow(/need approvals\.receiptKeys/);
+    expect(() => assertRealtimeServerConfig(withApprovals({ defaultAudience: receipts.defaultAudience }))).toThrow(/need approvals\.receiptKeys/);
+  });
+
+  it('names every missing or malformed receipt seam at once', () => {
+    expect(() => assertRealtimeServerConfig(withApprovals({ receiptKeys: [key] }))).toThrow(/approvals\.receiptIssuer .*approvals\.defaultAudience/);
+    expect(() =>
+      assertRealtimeServerConfig(withApprovals({ receiptKeys: [{ ...key, active: false }], receiptIssuer: 'realtime', defaultAudience: 'https://api.example.com/v1' })),
+    ).toThrow(/approvals\.receiptKeys \(exactly one key must be active.*approvals\.receiptIssuer .*approvals\.defaultAudience/);
+  });
+
+  it('refuses a server with bad receipt keys before it touches Redis', async () => {
+    await expect(createRealtimeServer(withApprovals({ ...receipts, receiptKeys: [] }))).rejects.toThrow(/approvals\.receiptKeys \(it must be a non-empty list/);
   });
 });
