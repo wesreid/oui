@@ -9,6 +9,8 @@ import type { TurnPolicy } from './turn-policy.js';
 import type { ToolPolicy } from './authz/tool-policy.js';
 import type { UIActionChannel } from './ui/channel.js';
 import type { ApprovalStoreClient } from './approvals/client.js';
+import type { ApprovalHooks } from './approvals/hooks.js';
+import type { AgentTurnChannel } from './runtime/turn-info.js';
 import type { ApprovalContinuation } from '@ouispec/agent-core';
 
 /**
@@ -83,6 +85,11 @@ export interface AgentWorkerConfig {
    * such a call is refused and never runs.
    */
   approvals?: ApprovalStoreClient;
+  /**
+   * The host's say before an approval is asked for: whether the call may be
+   * asked for (`validateBeforeApproval`), and its display copy (`preview`).
+   */
+  approvalHooks?: ApprovalHooks;
   /**
    * How UI actions reach the client that sent the turn and how its answers
    * come back. Required when a turn's context carries a client
@@ -190,6 +197,11 @@ export interface AgentTurnInput {
    * given to the model with it, through `config.attachments`.
    */
   attachments?: AttachmentRef[];
+  /**
+   * How the turn reached the runtime, as the host's hooks are told
+   * (`AgentTurnInfo.channel`). Default `direct`.
+   */
+  channel?: AgentTurnChannel;
 }
 
 /**

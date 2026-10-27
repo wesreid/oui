@@ -8,8 +8,10 @@ import { describe, expect, it } from 'vitest';
 import {
   LIVE_CALL_ERROR_MESSAGES,
   LIVE_CALL_LIMITS,
+  LIVE_CALL_OPENING_MESSAGE,
   LIVE_CALL_TYPED_INPUT_MODE,
   liveCallError,
+  liveCallOpeningMessage,
   readLiveCallTurnRequest,
   type LiveCallRequestReading,
 } from '../live-call/protocol.js';
@@ -41,6 +43,7 @@ describe('readLiveCallTurnRequest', () => {
         input: { mode: 'voice', language: 'en' },
         output: { mode: 'voice' },
         supersedes: SPOKEN.supersedes,
+        disclosureLine: null,
       },
     });
   });
@@ -54,7 +57,7 @@ describe('readLiveCallTurnRequest', () => {
     ]) {
       expect(readLiveCallTurnRequest(body)).toEqual({
         ok: true,
-        request: { sessionId: SPOKEN.sessionId, clientRef: SPOKEN.clientRef, turnId: SPOKEN.turnId, kind: 'opening', text: '', input: null, output: { mode: 'voice' }, supersedes: [] },
+        request: { sessionId: SPOKEN.sessionId, clientRef: SPOKEN.clientRef, turnId: SPOKEN.turnId, kind: 'opening', text: '', input: null, output: { mode: 'voice' }, supersedes: [], disclosureLine: null },
       });
     }
   });
@@ -115,6 +118,65 @@ describe('readLiveCallTurnRequest', () => {
     ];
     for (const [body, expected] of cases) {
       expect(refusal(readLiveCallTurnRequest(body)), JSON.stringify(body)?.slice(0, 80)).toMatch(expected);
+    }
+  });
+});
+
+describe('the disclosure the call service spoke before the greeting', () => {
+  const OPENING = { sessionId: SPOKEN.sessionId, clientRef: SPOKEN.clientRef, turnId: SPOKEN.turnId, kind: 'opening', output: { mode: 'voice' } };
+  const DISCLOSURE = 'Hi! Just so you know, you are talking with an AI assistant.';
+
+  it('is read on an opening turn, trimmed', () => {
+    const reading = readLiveCallTurnRequest({ ...OPENING, disclosureLine: `  ${DISCLOSURE} ` });
+    expect(reading.ok && reading.request.disclosureLine).toBe(DISCLOSURE);
+  });
+
+  it('is not read on a message turn, nor when blank', () => {
+    const message = readLiveCallTurnRequest({ ...SPOKEN, disclosureLine: DISCLOSURE });
+    expect(message.ok && message.request.disclosureLine).toBeNull();
+    const blank = readLiveCallTurnRequest({ ...OPENING, disclosureLine: '   ' });
+    expect(blank.ok && blank.request.disclosureLine).toBeNull();
+  });
+
+  it('refuses one that is not a line of text, naming the field', () => {
+    for (const disclosureLine of [42, ['Hi'], 'Hi\u0000there', 'x'.repeat(LIVE_CALL_LIMITS.disclosureLineChars + 1)]) {
+      expect(refusal(readLiveCallTurnRequest({ ...OPENING, disclosureLine }))).toMatch(/^disclosureLine must be a string/);
+    }
+    // On a message turn too: a malformed field is never silently taken.
+    expect(refusal(readLiveCallTurnRequest({ ...SPOKEN, disclosureLine: 7 }))).toMatch(/^disclosureLine/);
+  });
+
+  it('is what the model reads the greeting follows on from, and only then does the opening message change', () => {
+    const reading = readLiveCallTurnRequest({ ...OPENING, disclosureLine: DISCLOSURE });
+    const message = liveCallOpeningMessage(reading.ok ? reading.request : { disclosureLine: null });
+    expect(message).toContain(`"${DISCLOSURE}"`);
+    expect(message).toMatch(/following on from that without repeating it/);
+    expect(message).toMatch(/^<call_opening>[\s\S]*<\/call_opening>$/);
+    expect(liveCallOpeningMessage({ disclosureLine: null })).toBe(LIVE_CALL_OPENING_MESSAGE);
+  });
+});
+
+describe('the voice directions the call service offers', () => {
+  const DIRECTIONS = { engine: 'fish-s2', tags: ['[laughs]', '[whispering]', '[laughs]'], guidance: 'Use a tag only where a person would, at most one a sentence.' };
+
+  it('are kept on the reply’s output, each tag once', () => {
+    const reading = readLiveCallTurnRequest({ ...SPOKEN, output: { mode: 'voice', voiceDirections: DIRECTIONS } });
+    expect(reading.ok && reading.request.output).toEqual({
+      mode: 'voice',
+      voiceDirections: { engine: 'fish-s2', tags: ['[laughs]', '[whispering]'], guidance: DIRECTIONS.guidance },
+    });
+  });
+
+  it('are left out when malformed, and the reply is still spoken', () => {
+    for (const voiceDirections of [
+      { ...DIRECTIONS, tags: [] },
+      { ...DIRECTIONS, engine: '' },
+      { ...DIRECTIONS, guidance: 7 },
+      { ...DIRECTIONS, tags: ['[a]\n'] },
+      'fish-s2',
+    ]) {
+      const reading = readLiveCallTurnRequest({ ...SPOKEN, output: { mode: 'voice', voiceDirections } });
+      expect(reading.ok && reading.request.output).toEqual({ mode: 'voice' });
     }
   });
 });

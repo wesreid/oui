@@ -20,6 +20,8 @@ import type { ApprovalContinuation, AttachmentRef, TurnStoppedReason, TurnStoppe
 import type { AttachmentWorkerConfig } from '../attachments/store.js';
 import type { AttachmentUsage } from '../attachments/guard.js';
 import type { TurnStopClient } from '../stop/turn-stop.js';
+import type { ApprovalPreviewHook, ValidateBeforeApproval } from '../approvals/hooks.js';
+import type { AgentTurnInfo } from './turn-info.js';
 
 /**
  * Database handle — opaque to the SDK. The integrator's callbacks receive
@@ -248,13 +250,54 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
     maxIndexChars?: number;
   };
 
-  /**
-   * The approval store. Defaults to the realtime server's
-   * (`/internal/approvals`), where it lives beside the UI action results.
-   */
+  /** Approvals: where they are kept, and the host's say before one is asked for (approvals/hooks.ts). */
   approvals?: {
+    /**
+     * The approval store. Defaults to the realtime server's
+     * (`/internal/approvals`), where it lives beside the UI action results.
+     */
     store?: ApprovalStoreClient;
+    /**
+     * Writes the approval's display copy in place of the one built from the
+     * action's declaration: what is stored with it, sent to the room and read
+     * back (`readback`), and what a voice speaks (`spokenReadback`). For
+     * redaction, and the person's language (`ctx.locale`). The call that runs,
+     * and its args hash, stay the model's. A throw, or something that is not a
+     * preview, means the approval cannot be asked for: the call is not run.
+     */
+    preview?: ApprovalPreviewHook;
+    /**
+     * Checks a call that needs approval before it is read back. `{ ok: false,
+     * error }` refuses it: nothing is stored or shown, and the model gets
+     * `error` as the call's result, so it can correct the call. A throw
+     * refuses it too.
+     */
+    validateBeforeApproval?: ValidateBeforeApproval;
   };
+
+  /**
+   * Called with every turn before it runs, on every channel (`info.channel`:
+   * the Lambda and container adapters, the live-call handler, or a host
+   * calling `runner.run`). Return the payload to run, changed or not: redact
+   * the person's words before the model reads them (`content`), shape the
+   * context. Return null to refuse the turn: nothing runs, nothing is
+   * recorded or sent to the room, and the outcome is `refused` with
+   * `refusedBy: 'beforeTurn'` (a live call answers `error` `TURN_DECLINED`).
+   * Tell your own client why. The turn's id, conversation, user, account and
+   * room cannot be changed here. A throw fails the turn.
+   */
+  beforeTurn?: (payload: AgentTurnPayload, info: AgentTurnInfo) => AgentTurnPayload | null | Promise<AgentTurnPayload | null>;
+
+  /**
+   * Decides what of each turn event leaves the runtime (emit/filter.ts):
+   * return the payload to send, changed or not (it is a copy), or null to
+   * send nothing. It runs before the room, before a host observing the turn,
+   * and so before the live-call handler speaks anything. Synchronous, so the
+   * turn's events keep their order. A throw, or a return that is neither a
+   * payload nor null, drops the event and logs it. UI action requests to the
+   * user's own tab are not turn events and do not pass through it.
+   */
+  filterEvent?: (event: string, data: Record<string, unknown>, turn: AgentTurnInfo) => Record<string, unknown> | null;
 
   /**
    * Stopping a turn. The stop request is kept by the realtime

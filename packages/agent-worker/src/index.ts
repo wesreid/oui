@@ -9,6 +9,8 @@
 
 export type { AgentWorkerConfig, AgentTurnInput, AgentTurnResult, TurnMessage, TurnHistoryMessage, ToolCallRef, SystemPromptContext } from './types.js';
 export type { RealtimeEmitAdapter } from './emit/types.js';
+export { filterEmitAdapter } from './emit/filter.js';
+export type { TurnEventFilter } from './emit/filter.js';
 export type { ToolRegistry, RegisteredTool, ToolExecutionResult, ToolExecutionContext } from './tools/types.js';
 export { createToolRegistry } from './tools/types.js';
 export { loadToolsFromSchema } from './tools/schema-loader.js';
@@ -54,6 +56,16 @@ export type { ApprovalStoreClient, HttpApprovalStoreClientConfig } from './appro
 export { approvalRequirement, APPROVAL_TOOL_NOTE } from './approvals/requirement.js';
 export type { ApprovalRequirement } from './approvals/requirement.js';
 export { buildApprovalPreview } from './approvals/preview.js';
+// The host's say before an approval is asked for: a check, and the display copy.
+export { readHostPreview, readValidation, MAX_VALIDATION_ERROR_CHARS } from './approvals/hooks.js';
+export type {
+  ApprovalHookContext,
+  ApprovalPreviewContext,
+  ApprovalPreviewHook,
+  ApprovalValidation,
+  ValidateBeforeApproval,
+  ApprovalHooks,
+} from './approvals/hooks.js';
 
 // Stopping a turn: the person's Stop, or a newer message that
 // supersedes the turn, is kept by the realtime server and asked for by the
@@ -131,6 +143,8 @@ export type { TurnEventObserver } from './emit/tee.js';
 export { createAgentTurnRunner, categorizeError, payloadRefusal, TURN_DEADLINE_EXCEEDED } from './runtime/turn-runner.js';
 export type { AgentTurnRunner, TurnHost, TurnOutcome, CategorizedError } from './runtime/turn-runner.js';
 export { assertAgentRuntimeConfig } from './runtime/config.js';
+export { turnInfoOf, DEFAULT_TURN_CHANNEL } from './runtime/turn-info.js';
+export type { AgentTurnInfo, AgentTurnChannel, AgentTurnInputMode } from './runtime/turn-info.js';
 export type { AgentRuntimeConfig, LambdaAgentConfig, AgentTurnPayload, HistoryRequest, TurnHistory } from './runtime/types.js';
 export { createLambdaAgentHandler } from './lambda/handler.js';
 export { startContainerAgentWorker, DEFAULT_LIVE_CALL_PATH } from './container/server.js';
@@ -138,8 +152,9 @@ export type { ContainerAgentConfig, ContainerAgentWorker, ContainerLiveCallRoute
 
 // Live calls: the call service's turns, answered by the product's own agent as
 // a server-sent event stream, while the turn streams to its room as any turn does.
-export { createLiveCallTurnHandler } from './live-call/handler.js';
+export { createLiveCallTurnHandler, LIVE_CALL_SPEECH, LIVE_CALL_CHANNEL } from './live-call/handler.js';
 export type {
+  LiveCallSpeech,
   LiveCallTurnHandler,
   LiveCallTurnHandlerConfig,
   LiveCallTurnOptions,
@@ -151,6 +166,7 @@ export {
   liveCallError,
   LIVE_CALL_TURN_KINDS,
   LIVE_CALL_OPENING_MESSAGE,
+  liveCallOpeningMessage,
   LIVE_CALL_TYPED_INPUT_MODE,
   LIVE_CALL_LIMITS,
   LIVE_CALL_ERROR_MESSAGES,

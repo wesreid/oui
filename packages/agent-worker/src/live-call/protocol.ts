@@ -12,10 +12,14 @@
  *   Content-Type: application/json
  *   Accept: text/event-stream
  *
- *   { sessionId, clientRef, turnId, kind, text, input?, output?, supersedes? }
+ *   { sessionId, clientRef, turnId, kind, text, input?, output?, supersedes?, disclosureLine? }
  *
  * `input` is `{ mode: 'voice', language? }` for what the person said and
- * `{ mode: 'text' }` for what they typed during the call.
+ * `{ mode: 'text' }` for what they typed during the call. `output` is
+ * `{ mode: 'voice', voiceDirections? }` when a voice reads the reply out, with
+ * the tags that voice can be directed with. `disclosureLine`, on an `opening`
+ * turn, is what the call service has just said to the person before the
+ * agent's greeting (that they are talking with an AI assistant), as spoken.
  *
  * and the answer is `200 text/event-stream`:
  *
@@ -51,10 +55,22 @@ export interface LiveCallTurnRequest {
    * typed, with no spoken-input line.
    */
   input: MessageInput | null;
-  /** How the reply reaches the person: `{ mode: 'voice' }` when a voice reads it out. */
+  /**
+   * How the reply reaches the person: `{ mode: 'voice' }` when a voice reads
+   * it out, with `voiceDirections` when that voice can be directed by inline
+   * tags (the model is told it may use them).
+   */
   output: ReplyOutput | null;
   /** Turns this one replaces: the call service closed their streams because the person spoke again. */
   supersedes: string[];
+  /**
+   * On an `opening` turn: what the call service has already said to the person
+   * before the agent greets them (its disclosure that they are talking with
+   * an AI assistant), as spoken. The model is told it was said, so its greeting
+   * follows on from it instead of repeating it. Null when none was sent, and on
+   * a `message` turn, where it is not read.
+   */
+  disclosureLine: string | null;
 }
 
 /** The events of a live-call turn's response stream. */
@@ -92,6 +108,24 @@ export const LIVE_CALL_OPENING_MESSAGE =
   'Greet them in a sentence or two, and ask what they would like help with. This is not a message from the user.</call_opening>';
 
 /**
+ * The person's message for an `opening` turn, as the model reads it: an
+ * instruction to greet, and, when the call service sent one, the disclosure
+ * it has just spoken, so the greeting follows on from it rather than repeating
+ * it. Without a disclosure it is `LIVE_CALL_OPENING_MESSAGE`. A host that
+ * stores the person's messages stores this for the opening turn.
+ */
+export function liveCallOpeningMessage(request: Pick<LiveCallTurnRequest, 'disclosureLine'>): string {
+  const disclosure = request.disclosureLine?.trim();
+  if (!disclosure) return LIVE_CALL_OPENING_MESSAGE;
+  return (
+    '<call_opening>A live call with the user has just connected, and they have not said anything yet. ' +
+    `The call has already told them, in its own voice: "${disclosure}" ` +
+    'Greet them in a sentence or two, following on from that without repeating it, and ask what they would like help with. ' +
+    'This is not a message from the user.</call_opening>'
+  );
+}
+
+/**
  * The `input` mode of a message the person typed during the call. It is read
  * as typed: the turn's context carries no `input`, as for a message typed in
  * the product's own chat.
@@ -108,6 +142,8 @@ export const LIVE_CALL_LIMITS = {
   textChars: 8_000,
   /** The most turn ids in `supersedes`. */
   supersedes: 32,
+  /** The longest `disclosureLine`. */
+  disclosureLineChars: 1_000,
 } as const;
 
 /** An id: letters, digits and `.` `_` `:` `-`, starting with a letter or digit. */
@@ -155,6 +191,14 @@ export function readLiveCallTurnRequest(body: unknown): LiveCallRequestReading {
   }
   if (supersedes.length > LIVE_CALL_LIMITS.supersedes) return refuse(`supersedes names more than ${LIVE_CALL_LIMITS.supersedes} turns`);
 
+  const disclosureLine = b.disclosureLine ?? null;
+  if (
+    disclosureLine !== null &&
+    (typeof disclosureLine !== 'string' || disclosureLine.length > LIVE_CALL_LIMITS.disclosureLineChars || CONTROL.test(disclosureLine))
+  ) {
+    return refuse(`disclosureLine must be a string of at most ${LIVE_CALL_LIMITS.disclosureLineChars} characters with no control characters`);
+  }
+
   return {
     ok: true,
     request: {
@@ -167,6 +211,8 @@ export function readLiveCallTurnRequest(body: unknown): LiveCallRequestReading {
       input: kind === 'opening' || isTyped(b.input) ? null : readMessageInput(b.input),
       output: readReplyOutput(b.output),
       supersedes: [...new Set(supersedes as string[])].filter((id) => id !== b.turnId),
+      // Said before the greeting: an opening turn's alone.
+      disclosureLine: kind === 'opening' && disclosureLine?.trim() ? disclosureLine.trim() : null,
     },
   };
 }
@@ -188,6 +234,7 @@ export const LIVE_CALL_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   TURN_TIMEOUT: 'The turn timed out.',
   TURN_DEADLINE_EXCEEDED: 'The turn ran out of time.',
   TURN_REFUSED: 'The turn was refused by its record: it already ended or was given up on.',
+  TURN_DECLINED: 'The product declined to run the turn.',
   WORKER_ERROR: 'The turn failed.',
 };
 

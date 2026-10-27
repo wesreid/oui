@@ -11,6 +11,21 @@ import type { ActionRequestApproval, ApprovalChannel, ApprovalGrant } from '@oui
 /** The client event a user's socket sends when they click the approval card. */
 export const APPROVAL_DECIDE_EVENT = 'approval:decide';
 
+/**
+ * The longest each part of an approval's preview may be, in characters: what
+ * the approval store accepts, and what the worker holds a host's own preview
+ * (`approvals.preview`) to before it stores or shows it.
+ */
+export const APPROVAL_PREVIEW_LIMITS = {
+  title: 500,
+  consequence: 2000,
+  arguments: 50,
+  argumentName: 200,
+  argumentLabel: 500,
+  argumentValue: 4000,
+  readback: 8000,
+} as const;
+
 /** How long an approval lasts unless its action declares otherwise. */
 export const DEFAULT_APPROVAL_TTL_MS = 5 * 60_000;
 /** The longest an action may declare an approval lasts. */

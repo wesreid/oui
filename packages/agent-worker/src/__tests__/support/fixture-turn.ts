@@ -86,6 +86,8 @@ export interface FixtureTurnOptions {
   tabJoinsAfterMs?: number;
   /** Called with each UI action request the worker sends, once the realtime server has taken it. */
   onUIDispatch?: (requestId: string) => void;
+  /** The runtime's hooks around the turn: what it runs with, and what of it leaves the runtime. */
+  hooks?: Pick<AgentRuntimeConfig<object>, 'beforeTurn' | 'filterEvent'>;
 }
 
 /** The realtime server's UI action channel, as the worker builds it, telling the test of each request sent. */
@@ -141,6 +143,7 @@ export async function runFixtureTurn(product: FixtureProduct, options: FixtureTu
       startedWithModel.push(model);
     },
     logger: quiet,
+    ...options.hooks,
   };
 
   const joinLate = () =>

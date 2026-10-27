@@ -16,6 +16,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { AGENT_SOCKET_EVENTS } from '@ouispec/agent-core';
 import { startFixtureProduct, type FixtureProduct } from './support/fixture-product.js';
 import { runFixtureTurn, type HostAdapter } from './support/fixture-turn.js';
+import type { AgentTurnInfo } from '../runtime/turn-info.js';
+import type { AgentTurnPayload } from '../runtime/types.js';
 import { bedrockReplay, openaiReplay, type ReplayedProvider } from './support/replay.js';
 
 let product: FixtureProduct;
@@ -106,5 +108,50 @@ describe.each(providers.map((make) => [make().name, make] as const))('on %s', (_
     const toolResult = messages.find((m) => m.role === 'tool' && m.toolCallId === provider.expected.toolCallId);
     expect(JSON.parse(toolResult!.content!)).toMatchObject({ result: { navigatedTo: '/reports' } });
     expect(messages.filter((m) => m.role === 'assistant').at(-1)?.content).toBe(provider.expected.reply);
+  }, 30_000);
+});
+
+describe('the host’s hooks around the fixture turn', () => {
+  it.each(adapters)('on the %s adapter: the model reads the host’s copy, the tab gets what the host lets out, and every round is announced', async (adapter) => {
+    const provider = openaiReplay();
+    const told: AgentTurnInfo[] = [];
+    const run = await runFixtureTurn(product, {
+      adapter,
+      model: provider.model,
+      turnId: `turn-fx-hooks-${adapter}`,
+      payload: { content: 'Open my reports, my account is 12345678' },
+      hooks: {
+        beforeTurn: async (payload: AgentTurnPayload, info: AgentTurnInfo) => {
+          told.push(info);
+          return { ...payload, content: payload.content.replace(/\d{8}/, '[account]') };
+        },
+        // The page's path stays out of the room, and the model's text is sent as written.
+        filterEvent: (event, data) => (event === AGENT_SOCKET_EVENTS.TOOL_CALL_STARTED ? { ...data, input: {} } : data),
+      },
+    });
+
+    expect(run.outcome.status).toBe('completed');
+    expect(told).toEqual([{ id: `turn-fx-hooks-${adapter}`, channel: adapter, inputMode: 'text', language: null }]);
+    // ── What the provider was sent: the host's copy ──
+    const first = JSON.stringify(provider.requests[0]);
+    expect(first).toContain('Open my reports, my account is [account]');
+    expect(first).not.toContain('12345678');
+
+    // ── What the tab saw: the call without its input, and each round named and ended ──
+    const started = run.tab.events.find((e) => e.event === AGENT_SOCKET_EVENTS.TOOL_CALL_STARTED);
+    expect(started?.data).toMatchObject({ name: 'navigate', input: {} });
+    expect(JSON.stringify(started?.data)).not.toContain('/reports');
+    const tokens = run.tab.events.filter((e) => e.event === AGENT_SOCKET_EVENTS.TOKEN).map((e) => e.data as { text: string; step: number });
+    expect(tokens.map((t) => t.text).join('')).toContain(provider.expected.reply);
+    expect(tokens.every((t) => Number.isInteger(t.step))).toBe(true);
+    const ends = run.tab.events.filter((e) => e.event === AGENT_SOCKET_EVENTS.ROUND_END).map((e) => e.data as { step: number; calledTools: boolean; final: boolean });
+    expect(ends.map(({ step, calledTools, final }) => ({ step, calledTools, final }))).toEqual([
+      { step: 0, calledTools: true, final: false },
+      { step: 1, calledTools: false, final: true },
+    ]);
+    // The final round's text all came before its end, and its end before the turn's.
+    const order = run.tab.events.map((e) => e.event);
+    expect(order.lastIndexOf(AGENT_SOCKET_EVENTS.TOKEN)).toBeLessThan(order.lastIndexOf(AGENT_SOCKET_EVENTS.ROUND_END));
+    expect(order.lastIndexOf(AGENT_SOCKET_EVENTS.ROUND_END)).toBeLessThan(order.indexOf(AGENT_SOCKET_EVENTS.TURN_COMPLETE));
   }, 30_000);
 });

@@ -1,6 +1,6 @@
 /** The shapes the approval endpoints and the `approval:decide` event accept. Unknown keys are refused. */
 import Joi from 'joi';
-import { APPROVAL_CHANNELS, ARGS_HASH_PATTERN } from '@ouispec/agent-core';
+import { APPROVAL_CHANNELS, APPROVAL_PREVIEW_LIMITS as L, ARGS_HASH_PATTERN } from '@ouispec/agent-core';
 
 const id = Joi.string().min(1).max(200);
 const text = (max: number) => Joi.string().max(max);
@@ -19,13 +19,20 @@ export const pendingApprovalSchema = Joi.object({
   argsSensitive: Joi.boolean().required(),
   expiresAt: Joi.number().integer().positive().required(),
   preview: Joi.object({
-    title: text(500).min(1).required(),
-    consequence: text(2000),
+    title: text(L.title).min(1).required(),
+    consequence: text(L.consequence),
     arguments: Joi.array()
-      .items(Joi.object({ name: text(200).required(), label: text(500).required(), value: text(4000).allow('').required() }))
-      .max(50)
+      .items(
+        Joi.object({
+          name: text(L.argumentName).required(),
+          label: text(L.argumentLabel).required(),
+          value: text(L.argumentValue).allow('').required(),
+        }),
+      )
+      .max(L.arguments)
       .required(),
-    readback: text(8000).allow('').required(),
+    readback: text(L.readback).allow('').required(),
+    spokenReadback: text(L.readback).allow(''),
   }).required(),
 });
 

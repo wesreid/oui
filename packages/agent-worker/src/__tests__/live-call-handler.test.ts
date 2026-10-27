@@ -10,7 +10,7 @@ import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AGENT_SOCKET_EVENTS } from '@ouispec/agent-core';
 import { createLiveCallTurnHandler, type LiveCallTurnHandlerConfig, type LiveCallTurnTarget } from '../live-call/handler.js';
-import { LIVE_CALL_OPENING_MESSAGE } from '../live-call/protocol.js';
+import { LIVE_CALL_OPENING_MESSAGE, liveCallOpeningMessage } from '../live-call/protocol.js';
 import type { AgentTurnRunner, TurnHost, TurnOutcome } from '../runtime/turn-runner.js';
 import type { AgentTurnPayload } from '../runtime/types.js';
 
@@ -33,8 +33,13 @@ function stubRunner(script: Script): AgentTurnRunner & { payloads: AgentTurnPayl
       hosts.push(host);
       return script(payload, (event, data) => host.observe?.(event, { turnId: payload.turnId, ...data }), host);
     },
-    async reply() {
-      throw new Error('not used here');
+    async reply(payload, text, host = {}) {
+      payloads.push(payload);
+      hosts.push(host);
+      host.observe?.(AGENT_SOCKET_EVENTS.TOKEN, { turnId: payload.turnId, text, step: 0 });
+      host.observe?.(AGENT_SOCKET_EVENTS.ROUND_END, { turnId: payload.turnId, step: 0, calledTools: false, final: true });
+      host.observe?.(AGENT_SOCKET_EVENTS.TURN_COMPLETE, { turnId: payload.turnId, endReason: 'complete' });
+      return { status: 'completed', turnId: payload.turnId, rounds: 0 };
     },
   };
 }
@@ -100,6 +105,41 @@ describe('the turn the handler runs', () => {
     ]);
     expect(runner.hosts[0].stopSignal).toBeInstanceOf(AbortSignal);
     expect(typeof runner.hosts[0].observe).toBe('function');
+    // The host's hooks are told the turn came by a live call.
+    expect(runner.hosts[0].channel).toBe('live-call');
+  });
+
+  it('gives the model the host’s copy of the person’s words in place of what was said', async () => {
+    const runner = stubRunner(async (p) => ({ status: 'completed', turnId: p.turnId, rounds: 1 }));
+    const url = await mount(runner, { resolveTurn: () => ({ ...TARGET, content: 'My card number is [redacted].' }) });
+    await call(url, { text: 'My card number is 4111 1111 1111 1111.' });
+    expect(runner.payloads[0].content).toBe('My card number is [redacted].');
+    expect(JSON.stringify(runner.payloads)).not.toContain('4111');
+  });
+
+  it('runs nothing for a copy that is not text, and answers 500', async () => {
+    const runner = stubRunner(async (p) => ({ status: 'completed', turnId: p.turnId, rounds: 1 }));
+    const url = await mount(runner, { resolveTurn: () => ({ ...TARGET, content: 42 as unknown as string }) });
+    expect((await call(url, {})).status).toBe(500);
+    expect(runner.payloads).toEqual([]);
+  });
+
+  it('greets following on from the disclosure the call service spoke', async () => {
+    const runner = stubRunner(async (p) => ({ status: 'completed', turnId: p.turnId, rounds: 1 }));
+    const disclosureLine = 'Hi! Just so you know, you are talking with an AI assistant.';
+    await call(await mount(runner), { kind: 'opening', text: '', output: { mode: 'voice' }, disclosureLine });
+    expect(runner.payloads[0].content).toBe(liveCallOpeningMessage({ disclosureLine }));
+    expect(runner.payloads[0].content).toContain(disclosureLine);
+  });
+
+  it('runs the host’s greeting on the live-call channel too', async () => {
+    const runner = stubRunner(async (p) => ({ status: 'completed', turnId: p.turnId, rounds: 1 }));
+    const { events } = await call(await mount(runner, { opening: () => 'Welcome to Quillhaven Toyota.' }), { kind: 'opening', text: '' });
+    expect(runner.hosts[0].channel).toBe('live-call');
+    expect(events).toEqual([
+      { event: 'text', data: { text: 'Welcome to Quillhaven Toyota.' } },
+      { event: 'done', data: { stopReason: 'complete' } },
+    ]);
   });
 
   it('runs a message typed during the call as typed: no input on the context, the reply still spoken', async () => {
@@ -159,6 +199,23 @@ describe('how the stream ends', () => {
     ]);
   });
 
+  it('reads back the host’s spoken readback when it wrote one', async () => {
+    const runner = stubRunner(async (p, emit) => {
+      emit(AGENT_SOCKET_EVENTS.APPROVAL_REQUIRED, {
+        approvalId: 'call_1',
+        expiresAt: Date.UTC(2026, 9, 23, 12, 5),
+        preview: { title: 'Book', arguments: [], readback: 'Book a visit on 2026-10-28 at 13:30.', spokenReadback: 'Book a visit on October twenty-eighth at one thirty.' },
+      });
+      emit(AGENT_SOCKET_EVENTS.TURN_COMPLETE, { endReason: 'awaiting_approval' });
+      return { status: 'completed', turnId: p.turnId, rounds: 1 };
+    });
+    const { events } = await call(await mount(runner), {});
+    expect(events[0]).toEqual({
+      event: 'readback',
+      data: { approvalId: 'call_1', text: 'Book a visit on October twenty-eighth at one thirty.', expiresAt: '2026-10-23T12:05:00.000Z' },
+    });
+  });
+
   it('never reads back an approval its stopped turn withdrew', async () => {
     const runner = stubRunner(async (p, emit) => {
       emit(AGENT_SOCKET_EVENTS.APPROVAL_REQUIRED, { approvalId: 'call_1', expiresAt: Date.now() + 60_000, preview: { title: 'Book', arguments: [], readback: 'Book a service.' } });
@@ -194,7 +251,16 @@ describe('how the stream ends', () => {
         (turnId) => ({ status: 'stopped', turnId, rounds: 1, stopReason: 'deadline', stored: false }),
         { code: 'TURN_DEADLINE_EXCEEDED', message: 'The turn ran out of time.' },
       ],
-      ['refused', (turnId) => ({ status: 'refused', turnId, reason: 'already completed' }), { code: 'TURN_REFUSED', message: 'The turn was refused by its record: it already ended or was given up on.' }],
+      [
+        'refused',
+        (turnId) => ({ status: 'refused', turnId, reason: 'already completed', refusedBy: 'record' }),
+        { code: 'TURN_REFUSED', message: 'The turn was refused by its record: it already ended or was given up on.' },
+      ],
+      [
+        'refused',
+        (turnId) => ({ status: 'refused', turnId, reason: 'refused by beforeTurn', refusedBy: 'beforeTurn' }),
+        { code: 'TURN_DECLINED', message: 'The product declined to run the turn.' },
+      ],
       [
         'failed',
         (turnId) => ({ status: 'failed', turnId, error: { code: 'RATE_LIMIT', message: 'provider said: slow down, key sk-123', recoverable: true }, cause: null }),
@@ -218,6 +284,103 @@ describe('how the stream ends', () => {
   });
 });
 
+describe('what of the reply is spoken', () => {
+  /** A turn that looks something up, then answers: the model's words before the call, its call, and its answer. */
+  const lookupThenAnswer: Script = async (p, emit) => {
+    emit(AGENT_SOCKET_EVENTS.TOKEN, { text: 'The customer wants service, ', step: 0 });
+    emit(AGENT_SOCKET_EVENTS.TOKEN, { text: 'so let me check the calendar.', step: 0 });
+    emit(AGENT_SOCKET_EVENTS.TOOL_CALL_STARTED, { toolUseId: 'call_1', name: 'calendar_search', input: {} });
+    emit(AGENT_SOCKET_EVENTS.TOOL_CALL_COMPLETE, { toolUseId: 'call_1', name: 'calendar_search', success: true });
+    emit(AGENT_SOCKET_EVENTS.ROUND_END, { step: 0, calledTools: true, final: false });
+    emit(AGENT_SOCKET_EVENTS.TOKEN, { text: '\n\nService has a slot ', step: 1 });
+    emit(AGENT_SOCKET_EVENTS.TOKEN, { text: 'at two tomorrow.', step: 1 });
+    emit(AGENT_SOCKET_EVENTS.ROUND_END, { step: 1, calledTools: false, final: true });
+    emit(AGENT_SOCKET_EVENTS.TURN_COMPLETE, { endReason: 'complete' });
+    return { status: 'completed', turnId: p.turnId, rounds: 2 };
+  };
+
+  it('is every round, as written, by default', async () => {
+    const { events } = await call(await mount(stubRunner(lookupThenAnswer)), {});
+    expect(events.filter((e) => e.event === 'text').map((e) => (e.data as { text: string }).text).join('')).toBe(
+      'The customer wants service, so let me check the calendar.\n\nService has a slot at two tomorrow.',
+    );
+  });
+
+  it('with final-round, is only the round the turn ends with: nothing written before a tool call', async () => {
+    const { events } = await call(await mount(stubRunner(lookupThenAnswer), { speak: 'final-round' }), {});
+    expect(events).toEqual([
+      { event: 'text', data: { text: 'Service has a slot at two tomorrow.' } },
+      { event: 'done', data: { stopReason: 'complete' } },
+    ]);
+  });
+
+  it('with final-round, speaks the host’s holding line once, as the first tool starts, in place of the model’s words', async () => {
+    const twoLookups: Script = async (p, emit) => {
+      emit(AGENT_SOCKET_EVENTS.TOKEN, { text: 'I looked up the wrong date earlier.', step: 0 });
+      emit(AGENT_SOCKET_EVENTS.TOOL_CALL_STARTED, { toolUseId: 'call_1', name: 'calendar_search', input: {} });
+      emit(AGENT_SOCKET_EVENTS.ROUND_END, { step: 0, calledTools: true, final: false });
+      emit(AGENT_SOCKET_EVENTS.TOOL_CALL_STARTED, { toolUseId: 'call_2', name: 'calendar_search', input: {} });
+      emit(AGENT_SOCKET_EVENTS.ROUND_END, { step: 1, calledTools: true, final: false });
+      emit(AGENT_SOCKET_EVENTS.TOKEN, { text: 'Two tomorrow works.', step: 2 });
+      emit(AGENT_SOCKET_EVENTS.ROUND_END, { step: 2, calledTools: false, final: true });
+      emit(AGENT_SOCKET_EVENTS.TURN_COMPLETE, { endReason: 'complete' });
+      return { status: 'completed', turnId: p.turnId, rounds: 3 };
+    };
+    const holdingLine = (request: { input: { language?: string } | null }) => (request.input?.language === 'es' ? 'Un momento.' : 'One moment.');
+    const url = await mount(stubRunner(twoLookups), { speak: 'final-round', holdingLine });
+    expect((await call(url, { input: { mode: 'voice', language: 'en' } })).events).toEqual([
+      { event: 'text', data: { text: 'One moment.' } },
+      { event: 'text', data: { text: '\n\nTwo tomorrow works.' } },
+      { event: 'done', data: { stopReason: 'complete' } },
+    ]);
+    expect((await call(url, { turnId: 't-2', input: { mode: 'voice', language: 'es' } })).events[0]).toEqual({ event: 'text', data: { text: 'Un momento.' } });
+  });
+
+  it('with final-round, speaks the round that asks for approval, then its readback, and no holding line for it', async () => {
+    const booking: Script = async (p, emit) => {
+      emit(AGENT_SOCKET_EVENTS.TOKEN, { text: 'I can book that for you.', step: 0 });
+      emit(AGENT_SOCKET_EVENTS.APPROVAL_REQUIRED, { approvalId: 'call_1', expiresAt: Date.UTC(2026, 9, 23, 12, 5), preview: { title: 'Book', arguments: [], readback: 'Book a visit.' } });
+      emit(AGENT_SOCKET_EVENTS.ROUND_END, { step: 0, calledTools: true, final: true });
+      emit(AGENT_SOCKET_EVENTS.TURN_COMPLETE, { endReason: 'awaiting_approval' });
+      return { status: 'completed', turnId: p.turnId, rounds: 1 };
+    };
+    const { events } = await call(await mount(stubRunner(booking), { speak: 'final-round', holdingLine: 'One moment.' }), {});
+    expect(events.map((e) => [e.event, (e.data as { text?: string }).text])).toEqual([
+      ['text', 'I can book that for you.'],
+      ['readback', 'Book a visit.'],
+      ['done', undefined],
+    ]);
+  });
+
+  it('with final-round, says no holding line for a choice the turn ends with, and nothing of a round that never ended', async () => {
+    const choice: Script = async (p, emit) => {
+      emit(AGENT_SOCKET_EVENTS.TOKEN, { text: 'Which day suits you?', step: 0 });
+      emit(AGENT_SOCKET_EVENTS.TOOL_CALL_STARTED, { toolUseId: 'call_1', name: 'present_options', input: {} });
+      emit(AGENT_SOCKET_EVENTS.ROUND_END, { step: 0, calledTools: true, final: true });
+      emit(AGENT_SOCKET_EVENTS.TOKEN, { text: 'Half a thought', step: 1 });
+      emit(AGENT_SOCKET_EVENTS.TURN_COMPLETE, { stopReason: 'superseded' });
+      return { status: 'stopped', turnId: p.turnId, rounds: 2, stopReason: 'superseded' };
+    };
+    const { events } = await call(await mount(stubRunner(choice), { speak: 'final-round', holdingLine: 'One moment.' }), {});
+    expect(events).toEqual([
+      { event: 'text', data: { text: 'Which day suits you?' } },
+      { event: 'done', data: { stopReason: 'superseded' } },
+    ]);
+  });
+
+  it('fails the turn when the host’s holding line throws, and runs nothing', async () => {
+    const runner = stubRunner(lookupThenAnswer);
+    const url = await mount(runner, {
+      speak: 'final-round',
+      holdingLine: () => {
+        throw new Error('template store down');
+      },
+    });
+    expect((await call(url, {})).events).toEqual([{ event: 'error', data: { code: 'WORKER_ERROR', message: 'The turn failed.' } }]);
+    expect(runner.payloads).toEqual([]);
+  });
+});
+
 describe('createLiveCallTurnHandler', () => {
   it('names what is missing', () => {
     const runner = stubRunner(async (p) => ({ status: 'completed', turnId: p.turnId, rounds: 0 }));
@@ -225,5 +388,14 @@ describe('createLiveCallTurnHandler', () => {
     expect(() => createLiveCallTurnHandler({ runner, credential: [], resolveTurn: () => null })).toThrow(/credential/);
     expect(() => createLiveCallTurnHandler({ runner, credential: CREDENTIAL } as unknown as LiveCallTurnHandlerConfig)).toThrow(/resolveTurn/);
     expect(() => createLiveCallTurnHandler({ runner, credential: CREDENTIAL, resolveTurn: () => null, keepAliveMs: 0 })).toThrow(/keepAliveMs/);
+  });
+
+  it('refuses a way of speaking it does not know, and a holding line where the model’s own words are spoken', () => {
+    const runner = stubRunner(async (p) => ({ status: 'completed', turnId: p.turnId, rounds: 0 }));
+    const base = { runner, credential: CREDENTIAL, resolveTurn: () => null };
+    expect(() => createLiveCallTurnHandler({ ...base, speak: 'some' as never })).toThrow(/speak must be one of all, final-round/);
+    expect(() => createLiveCallTurnHandler({ ...base, holdingLine: 'One moment.' })).toThrow(/holdingLine is spoken only with speak: 'final-round'/);
+    expect(() => createLiveCallTurnHandler({ ...base, speak: 'final-round', holdingLine: 7 as never })).toThrow(/holdingLine must be a string or a function/);
+    expect(() => createLiveCallTurnHandler({ ...base, speak: 'final-round', holdingLine: 'One moment.' })).not.toThrow();
   });
 });

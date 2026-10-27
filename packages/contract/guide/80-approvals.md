@@ -2,8 +2,8 @@
 
 A `transaction` — an order, a payment, a send, a publish — and any `write` declared `destructive` run only on an approval the person gave, bound to the exact call. No policy waives it.
 
-1. The agent worker stops the turn at the call, stores it with its args hash, and the person's tab receives `agent:approval_required` with a preview whose every word comes from the action's declaration, never from the model.
-2. The tab renders the approval card. In a UI only a click on the card counts: a "yes" typed in chat is a message. On voice, phone and SMS, the verbatim readback and an affirmative next turn.
+1. The agent worker stops the turn at the call, stores it with its args hash, and the person's tab receives `agent:approval_required` with a preview whose every word comes from the action's declaration, never from the model. A host may write that display copy itself (the worker's `approvals.preview`): to redact a value, or to say it in the person's language, with `spokenReadback` for a voice. The stored call and the args hash it is bound to stay the model's.
+2. The tab renders the approval card. In a UI only a click on the card counts: a "yes" typed in chat is a message. On voice, phone and SMS, the verbatim readback (on a voice, its `spokenReadback` when the host wrote one) and an affirmative next turn.
 3. The click goes to the approval store on the person's own socket (`approval:decide`). The store answers the decider only, with a single-use token and the call's args hash, and the tab's OUI runtime receives a grant (`grantApproval`).
 4. The next turn carries the token, outside the message text. The worker redeems it for the stored call, exactly, and runs it. A UI action then reaches the tab carrying `approval: { approvalId, argsHash }`, and the tab runs it only when that matches its grant.
 

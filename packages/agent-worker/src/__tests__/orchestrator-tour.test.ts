@@ -148,8 +148,11 @@ describe('Custom TurnPolicy integration', () => {
 
     await runAgentTurn(config, input);
 
-    // classifyTurn was called with the message content
-    expect(classifyTurn).toHaveBeenCalledWith('test message', expect.any(Array));
+    // The turn every policy hook is told of: its id, its channel (none named: `direct`), how its message was entered.
+    const turn = { id: 'turn-policy-1', channel: 'direct', inputMode: 'text', language: null };
+
+    // classifyTurn was called with the message content and the turn
+    expect(classifyTurn).toHaveBeenCalledWith('test message', expect.any(Array), turn);
 
     // onTurnClassified was called with the classification result
     expect(onTurnClassified).toHaveBeenCalledWith(
@@ -157,6 +160,7 @@ describe('Custom TurnPolicy integration', () => {
         turnClass: 'custom_class',
         content: 'test message',
         socketRoom: 'room-1',
+        turn,
       }),
     );
 
@@ -165,6 +169,7 @@ describe('Custom TurnPolicy integration', () => {
       expect.objectContaining({
         turnClass: 'custom_class',
         allToolNames: expect.arrayContaining(['search', 'answer']),
+        turn,
       }),
     );
   });

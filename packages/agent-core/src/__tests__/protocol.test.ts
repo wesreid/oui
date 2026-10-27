@@ -40,7 +40,7 @@ describe('Agent Protocol', () => {
     // Every other event MUST map to a non-null protocol event
     const nonNullEvents = ALL_AGENT_SOCKET_EVENTS.filter(e => e !== AGENT_SOCKET_EVENTS.TURN_STARTED);
     for (const eventName of nonNullEvents) {
-      const result = parseSocketEvent(eventName, { turnId: 'test-turn', text: 'test', name: 'test_tool', toolUseId: 'tc1', reasoningId: 'r1' }, 'fallback');
+      const result = parseSocketEvent(eventName, { turnId: 'test-turn', text: 'test', name: 'test_tool', toolUseId: 'tc1', reasoningId: 'r1', step: 0, calledTools: false, final: true }, 'fallback');
       expect(result, `parseSocketEvent('${eventName}', ...) returned null — missing handler`).not.toBeNull();
     }
   });
@@ -121,5 +121,38 @@ describe('how a turn ended', () => {
     expect(parseSocketEvent(AGENT_SOCKET_EVENTS.TURN_COMPLETE, { turnId: 't1' }, 'f')).not.toHaveProperty('endReason');
     expect(isTurnEndReason('output_limit')).toBe(true);
     expect(isTurnEndReason('user_stop')).toBe(false);
+  });
+});
+
+describe('the rounds of a turn', () => {
+  it('reads which round a piece of text belongs to', () => {
+    expect(parseSocketEvent(AGENT_SOCKET_EVENTS.TOKEN, { turnId: 't', text: 'Checking.', step: 2 }, 'f')).toEqual({
+      type: 'token',
+      content: 'Checking.',
+      turnId: 't',
+      step: 2,
+    });
+    // A worker that does not say, or says something that is not a round, gives no step.
+    for (const step of [undefined, -1, 1.5, '2']) {
+      expect(parseSocketEvent(AGENT_SOCKET_EVENTS.TOKEN, { turnId: 't', text: 'Hi', step }, 'f')).toEqual({ type: 'token', content: 'Hi', turnId: 't' });
+    }
+  });
+
+  it('reads a round’s end: whether it called tools, and whether it is the turn’s last word', () => {
+    expect(parseSocketEvent(AGENT_SOCKET_EVENTS.ROUND_END, { turnId: 't', step: 0, calledTools: true, final: false, timestamp: 1 }, 'f')).toEqual({
+      type: 'round_end',
+      step: 0,
+      calledTools: true,
+      final: false,
+      turnId: 't',
+    });
+    expect(AGENT_SOCKET_EVENTS.ROUND_END).toBe('agent:round_end');
+    expect(ALL_AGENT_SOCKET_EVENTS).toContain('agent:round_end');
+  });
+
+  it('drops a round’s end that does not say all three', () => {
+    expect(parseSocketEvent(AGENT_SOCKET_EVENTS.ROUND_END, { turnId: 't', calledTools: true, final: false }, 'f')).toBeNull();
+    expect(parseSocketEvent(AGENT_SOCKET_EVENTS.ROUND_END, { turnId: 't', step: 0, final: false }, 'f')).toBeNull();
+    expect(parseSocketEvent(AGENT_SOCKET_EVENTS.ROUND_END, { turnId: 't', step: 0, calledTools: 'yes', final: true }, 'f')).toBeNull();
   });
 });

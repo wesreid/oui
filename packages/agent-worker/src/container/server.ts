@@ -138,7 +138,7 @@ export async function startContainerAgentWorker<TDb>(config: ContainerAgentConfi
       }
       const busy = slots.take(payload.turnId, () =>
         runner
-          .run(payload)
+          .run(payload, { channel: 'container' })
           .then((outcome) => config.onTurnEnd?.(outcome))
           .catch((err: unknown) => {
             // A turn's own failure is an outcome, not a throw; this is the

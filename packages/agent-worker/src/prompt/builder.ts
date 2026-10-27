@@ -30,7 +30,7 @@ import { withoutClientUI } from '../ui/snapshot.js';
  * 9. Platform instructions (tool-specific, domain rules)
  * 10. Platform routes
  * 11. Few-shot examples
- * 12. Runtime UI context
+ * 12. Runtime UI context (or the persona's own `renderContext`)
  */
 export function buildAgentSystemPrompt(
   persona: AgentPersonaConfig,
@@ -133,8 +133,12 @@ export function buildAgentSystemPrompt(
   // excluded: its surface snapshot is the turn's UI tools, not prose, and
   // repeating every manifest here would cost thousands of tokens for nothing;
   // its knowledge is rendered once, after this prompt (ui/knowledge.ts).
+  // A persona that renders its own context says how, or that there is none.
   const uiContext = withoutClientUI(context?.context);
-  if (uiContext && Object.keys(uiContext).length > 0) {
+  if (persona.renderContext) {
+    const rendered = context ? persona.renderContext({ ...context, context: uiContext }) : null;
+    if (typeof rendered === 'string' && rendered.trim()) parts.push('\n\n' + rendered.trim());
+  } else if (uiContext && Object.keys(uiContext).length > 0) {
     parts.push('\n\n## CURRENT UI CONTEXT\n');
     parts.push('The user is currently on this page/state:');
     parts.push('```json');

@@ -28,7 +28,7 @@ Optional tuning, with its defaults:
 
 A host that fits its stored history loads `@ouispec/agent-worker/history` (`answerWithoutState`): a module with no runtime imports, which also answers a CommonJS resolver.
 
-Policy hooks: `turnPolicy`, `toolPolicy`, `uiActions`, `approvals`, `stops`, `logger`.
+Policy hooks: `turnPolicy`, `toolPolicy`, `uiActions`, `approvals`, `stops`, `logger`, and the hooks every turn passes through, `beforeTurn` and `filterEvent` ("Hooks on every turn").
 
 ## What a UI client sends with a turn
 
@@ -39,13 +39,38 @@ Four keys on the turn's `context` are for the worker itself, and your persona or
 | `oui` | Its surface snapshot: `ouiRuntime.snapshot()` | Builds the turn's UI tools from it, and from nothing else |
 | `uiKnowledge` | Its generated knowledge for the page the user is on: `resolveKnowledge(generatedKnowledge, path)` from `@ouispec/bindings` | Renders it after your prompt: each entry under "Platform Knowledge", then each recipe under "Active Workflows" |
 | `input` | How the person entered the message, when they did not type it: `{ mode: 'voice', language }` for one they spoke, with the language the recogniser detected. `@ouispec/agent-react` sets it from `sendMessage(text, { input })` | Adds one line after the conversation: the message was spoken and machine-transcribed, so it may contain recognition errors; the language; and to ask rather than guess when a likely mis-hearing makes the request ambiguous. An unknown mode is read as typed, and a language that is not a BCP 47 tag of at most 16 characters is left out (`readMessageInput` in `@ouispec/agent-core`). A typed message, and the turn an approval card's click starts, get nothing |
-| `output` | How the reply reaches the person, when it is not shown as text: `{ mode: 'voice' }` when a voice reads it out. The live-call handler sets it from the call's request | Adds one line after the conversation: the reply will be heard, not read, so short plain sentences; no markdown, lists, headings, links, code or emoji; numbers, prices, dates and times written as they are said; anything the person should look at shown through the page's actions rather than read out; and a few words before a slow lookup. An unknown mode is read as a shown reply, which gets nothing (`readReplyOutput` in `@ouispec/agent-core`). It applies on every turn of a call, the turn that continues an approval included |
+| `output` | How the reply reaches the person, when it is not shown as text: `{ mode: 'voice' }` when a voice reads it out, with `voiceDirections: { engine, tags, guidance }` when that voice can be directed by inline tags. The live-call handler sets it from the call's request | Adds one line after the conversation: the reply will be heard, not read, so short plain sentences; no markdown, lists, headings, links, code or emoji; numbers, prices, dates and times written as they are said; anything the person should look at shown through the page's actions rather than read out; and a few words before a slow lookup. With `voiceDirections`, the same line offers the engine's tags, written exactly as given, says they are performed rather than read out and that no other tags are used, and ends with the service's `guidance`. An unknown mode is read as a shown reply, which gets nothing, and malformed directions (an empty tag list, a tag or engine with a control character, guidance over 2,000 characters; `VOICE_DIRECTIONS_LIMITS`) are left out while the reply is still spoken (`readReplyOutput` in `@ouispec/agent-core`). It applies on every turn of a call, the turn that continues an approval included |
 
 `timeZone` (the user's IANA zone, which `@ouispec/agent-react` sends with every turn) is read by the worker too: the date and time on the user's clock are added to the turn's user message.
 
 What is true only for this turn (the clock, how the message was entered, how the reply is delivered) goes after the conversation, never in the system prompt or on a message. The system prompt, the tools and every message are the cached prefix, and stay byte for byte the same whatever the turn says, so a conversation's chat turns and call turns read the same prefix. Store `input` with the user's message if your chat shows how a message was entered (`AgentStoredMessage.input`); the history the worker reads needs no copy of it.
 
-Every other key is the page's context, which a persona prompt shows as the current UI state. A malformed `oui` or `uiKnowledge` fails the turn, naming the bad field. The worker logs `UI surfaces for this turn` with the surface ids and the knowledge's entry and workflow counts.
+Every other key is the page's context, which a persona prompt shows as the current UI state ("CURRENT UI CONTEXT", as JSON). A persona whose context is not a page renders it itself: `persona.renderContext(ctx)` returns the section to end the system prompt with, or null (or blank) for none, and is given the context without the four keys above. It renders into the system prompt, the start of the cached prefix, so render nothing that changes from turn to turn unless the conversation's context did. A malformed `oui` or `uiKnowledge` fails the turn, naming the bad field. The worker logs `UI surfaces for this turn` with the surface ids and the knowledge's entry and workflow counts.
+
+## Hooks on every turn
+
+Every turn reaches the runtime one of four ways: the Lambda adapter, the container's `/turns`, the live-call handler, or your own code calling `runner.run`. Each hook below runs for all of them, and is told which turn it is called for (`AgentTurnInfo`):
+
+| Field | |
+|---|---|
+| `id` | The turn's id. |
+| `channel` | How it came: `lambda`, `container`, `live-call`, or what you pass as `runner.run(payload, { channel })` when you call it yourself (`sms`, `chat`); `direct` when you pass none. |
+| `inputMode` | `voice` when the person's message was spoken and transcribed (its context's `input`), else `text`. |
+| `language` | The language it was recognised in, a BCP 47 tag, when spoken and the recogniser said; else null. |
+
+**`beforeTurn(payload, info)`**, on the runtime config, runs before anything else. Return the payload to run, changed or not: the person's words with a card number redacted before the model reads them (`content`), a reshaped context. Store the same redacted copy yourself. Return null to refuse the turn: nothing is read, run, stored or sent to the room, and the runner's outcome is `{ status: 'refused', refusedBy: 'beforeTurn' }` (a live call is answered `error` `TURN_DECLINED`); tell your own client why. The turn's `turnId`, `conversationId`, `userId`, `accountId` and `socketRoom` are not the hook's to change: a returned turn that changes one, or is not a turn, fails it, as a throw does (`agent:turn_error` to the turn's own room).
+
+**`filterEvent(event, data, turn)`**, on the runtime config, decides what of each turn event leaves the runtime: return the payload to send (it is given a copy, so change it freely), or null to send nothing. It runs before the room, before a host that observes the turn, and so before the live-call handler speaks anything: one filter covers the page, the call and the room alike. Mask a phone number in a tool call's `input`, in a readback, or in the reply's text; drop `agent:reasoning_*`. It is synchronous, so events keep their order. It fails closed: a throw, or a return that is neither a payload nor null, drops that event and logs `The host’s event filter failed; the event was not sent`. A tool still runs with the arguments the model gave it: the filter governs what is sent, not what runs. The UI action requests the worker sends the user's own tab are not turn events, and do not pass through it.
+
+**The turn policy** is told the turn too: `classifyTurn(content, history, turn)`, and `turn` on the context of `prepareStep` and `onTurnClassified`.
+
+### The rounds of a turn
+
+The model writes a reply in rounds: text, tool calls, more text. Each `agent:token` names its round (`step`, from 0), and each round's end is sent once all of its text has been: `agent:round_end { turnId, step, calledTools, final, timestamp }`. `calledTools` says the round called tools; `final` says no round follows it, so its text is the turn's last word. A round that ended at an approval, at a choice for the person (`present_options`), at the hand-back for time or at the last step allowed is final though it called a tool; a round cut off at the output limit having said nothing never is. A round's tool calls (`agent:tool_call_started`) are sent after its text and before its end. A host reply (`runner.reply`) is one final round, and so is the line the person is told when every attempt at a step was cut off.
+
+A consumer that shows or speaks only what the turn ends with, never what the model wrote before a tool call, holds each round's text until its `round_end` and keeps it when `final`. The live-call handler does this with `speak: 'final-round'` ("Live calls"). Text before a tool call is otherwise shown and spoken as it streams, and the shipped prompt tells the model so: at most one brief line for the person before a tool call, or nothing, and never its reasoning.
+
+Update the realtime server with the worker: a server on an older `@ouispec/agent-events` refuses `agent:round_end` as undeclared, and the worker logs each refused emit.
 
 ## Approvals
 
@@ -68,6 +93,13 @@ In a browser, the turn after the decision comes from `ApprovalCard` (`@ouispec/a
 On a call there is no card. The live-call handler sends the preview's `readback`, verbatim, after the turn's text, and the person answers in words. Their next utterance comes as an ordinary message, and your `resolveTurn` decides whether it approves: classify the words, then decide as the user on a conversation channel with the approval store client (`createHttpApprovalStoreClient(...).decide(approvalId, { userId, decision, channel: 'voice' })`). An `approve` answers with the token; return `approval: { approvalId, decision: 'approve', token }` on the turn's target, and the turn runs exactly the stored call, once. Anything else (a no, a correction, a new request) leaves the approval to expire, or decline it with `decision: 'decline'`. A UI action that needs approval still runs only on the grant from the tab's own card click: the tab's OUI runtime refuses one approved by voice, so on a call put irreversible acts in host or API tools, or let the page show the card.
 
 Declare a host tool's approval needs on the tool itself: `effect`, `destructive`, `title`, `consequence`, and `argsSensitive: false` when its arguments may be logged. Without an approval store, such a call is refused and never runs. The runtime uses the realtime server's store unless you pass `approvals.store`.
+
+Two hooks give you a say before an approval is asked for. Both are told the turn (`turn`, `channel`), the user, account and conversation, and `locale`: the language the person's message was recognised in (on a call, the request's `input.language`), null for a typed message.
+
+- **`approvals.validateBeforeApproval(tool, args, ctx)`** checks the call before it is read back: `{ ok: true }`, or `{ ok: false, error }` to refuse it. A refused call is not stored or shown; the model gets `error` as the call's result (`refusedBeforeApproval: true`) and can correct it, so a booking for a time you never offered is caught before the person approves it, not after. A throw refuses the call too.
+- **`approvals.preview(tool, args, ctx)`** writes the approval's display copy in place of the one built from the declaration (`ctx.built`): `{ title, consequence?, arguments, readback, spokenReadback? }`. Redact a value there, and write it in the person's language with dates, times and numbers as words; `spokenReadback` is the readback as a voice should say it, digits grouped for speech, and a live call speaks it in place of `readback`. That copy is what the approval store keeps with the call, what `agent:approval_required` carries to the card, and what is read back. The call that runs is still exactly the model's: the store keeps its original arguments and `argsHash` is over them, so a decision redeems exactly the call the model made. A throw, or an answer that is not a preview within the store's limits (`APPROVAL_PREVIEW_LIMITS`), means the approval cannot be asked for, and the call is not run: the built preview, with the values you meant to remove, is never the fallback.
+
+Of the calls in one response, only the first that needs approval is asked for. While its check and preview are written, a call that arrives waits for the outcome: if the first is refused, the next is checked as if it had come first.
 
 ## Stopping a turn
 
@@ -174,14 +206,14 @@ Your API sends turns to the worker's HTTP endpoints:
 
 `onTurnEnd` receives each turn's outcome.
 
-`liveCall: { credential, resolveTurn, opening?, keepAliveMs?, path? }` serves the live-call route on the same server, runtime and slots: `maxConcurrentTurns` bounds both routes together, a turn id runs once whichever route it came by, and `close` waits for both. Its requests carry the call service's credential, never `workerApiKey`. `path` defaults to `/live-call/turns`.
+`liveCall: { credential, resolveTurn, opening?, speak?, holdingLine?, keepAliveMs?, path? }` serves the live-call route on the same server, runtime and slots: `maxConcurrentTurns` bounds both routes together, a turn id runs once whichever route it came by, and `close` waits for both. Its requests carry the call service's credential, never `workerApiKey`. `path` defaults to `/live-call/turns`.
 
 ## Live calls
 
 A service that runs a voice call (it hears the person, transcribes them, and speaks the reply in a character's voice) can be answered by your own agent: its persona, tools, UI actions, approvals and records. Each turn of the call is one HTTP request to a route you mount, and the reply streams back as server-sent events. The turn runs on the same runtime as every other turn, so it still streams to the conversation's realtime room: every page joined to that conversation receives the reply and every UI action, as for a typed message, and the call page can show what the agent is talking about.
 
 ```ts
-import { createAgentTurnRunner, createLiveCallTurnHandler, LIVE_CALL_OPENING_MESSAGE } from '@ouispec/agent-worker';
+import { createAgentTurnRunner, createLiveCallTurnHandler, liveCallOpeningMessage } from '@ouispec/agent-worker';
 
 const runner = createAgentTurnRunner(runtimeConfig);   // the same config as your other turns
 const liveCall = createLiveCallTurnHandler({
@@ -190,16 +222,20 @@ const liveCall = createLiveCallTurnHandler({
   resolveTurn: async (request, { signal }) => {
     const conversation = await findConversationByCallRef(request.clientRef);
     if (!conversation) return null;                    // answered 404
-    await storeUserMessage(conversation.id, request.kind === 'opening' ? LIVE_CALL_OPENING_MESSAGE : request.text, request.input);
+    const said = request.kind === 'opening' ? liveCallOpeningMessage(request) : redactCardNumbers(request.text);
+    await storeUserMessage(conversation.id, said, request.input);
     return {
       conversationId: conversation.id,
       userId: conversation.userId,
       accountId: conversation.accountId,
       socketRoom: `conversation:${conversation.id}`,
       context: conversation.pageContext,               // the call page's OUI snapshot and knowledge, as for a typed turn
+      content: said,                                   // what the model reads: your redacted copy
     };
   },
   opening: (request, target) => greetingTemplateFor(target.accountId),  // optional; null lets the model greet
+  speak: 'final-round',                                // optional; only the round the turn ends with is spoken
+  holdingLine: (request) => (request.input?.language === 'es' ? 'Un momento.' : 'One moment.'),
 });
 app.post('/agent/live-call/turns', liveCall);          // any Node server: (req, res)
 process.on('SIGTERM', () => liveCall.close());        // waits for running turns
@@ -211,8 +247,10 @@ process.on('SIGTERM', () => liveCall.close());        // waits for running turns
 |---|---|
 | `runner` | Required. `createAgentTurnRunner(...)`: the runtime that runs your other turns. |
 | `credential` | Required. The bearer credential the call service sends, from your secret store; a list while one is rotated. Compared in constant time. |
-| `resolveTurn(request, { signal })` | Required. The call's `clientRef` → the turn's `conversationId`, `userId`, `accountId` and `socketRoom`, with optional `context`, `userToken` and `approval`; null when you have no such conversation. Do here what your API does for a chat message: store the person's message (for an `opening`, `LIVE_CALL_OPENING_MESSAGE`), claim the turn, and decide on a waiting readback ("Approvals"). `signal` aborts if the caller hangs up meanwhile. |
+| `resolveTurn(request, { signal })` | Required. The call's `clientRef` → the turn's `conversationId`, `userId`, `accountId` and `socketRoom`, with optional `context`, `userToken`, `approval` and `content`; null when you have no such conversation. `content` is what the model reads in place of `request.text`: your redacted copy (the runtime's `beforeTurn` can do the same on every channel). Do here what your API does for a chat message: store the person's message (your redacted copy; for an `opening`, `liveCallOpeningMessage(request)`), claim the turn, and decide on a waiting readback ("Approvals"). `signal` aborts if the caller hangs up meanwhile. |
 | `opening(request, target, { signal })` | Optional. A greeting from your template for an `opening` turn: streamed, sent to the room and stored as the turn's one assistant message (`runner.reply`), with no model call. Null, undefined or blank lets the model greet. A throw fails the turn. |
+| `speak` | `all` (the default): every round of the reply is spoken as the model writes it, its words before a tool call included. `final-round`: only the round the turn ends with ("The rounds of a turn"): each round's text is held until it ends and sent only when it is final, so nothing written before a tool call is spoken. The reply then starts when its last round is written, not with its first words. |
+| `holdingLine` | With `final-round` only: a line of yours spoken once, as the turn's first tool starts (not a choice the turn ends with), so the caller does not wait in silence. A string, or `(request, target)` returning one (localise from `request.input.language`); null or blank says nothing; a throw fails the turn. Set with `all`, the handler refuses to start: there the model's own words before a tool call are spoken. |
 | `keepAliveMs` | Default 5 s: a `: keep-alive` comment after this long with nothing written. |
 | `maxConcurrentTurns` | Default 8; more are answered `503`. |
 | `maxBodyBytes` | Default 64 KiB. |
@@ -225,10 +263,11 @@ process.on('SIGTERM', () => liveCall.close());        // waits for running turns
 | `sessionId` | The call service's session. |
 | `clientRef` | Your conversation reference, given to the call service when the call was created. |
 | `turnId` | Unique per turn; the turn runs under it. |
-| `kind` | `message`: the person said `text`. `opening`: the call has just connected, `text` is empty, and the agent greets: the model reads `LIVE_CALL_OPENING_MESSAGE` where the person's words would be. |
+| `kind` | `message`: the person said `text`. `opening`: the call has just connected, `text` is empty, and the agent greets: the model reads `liveCallOpeningMessage(request)` where the person's words would be (`LIVE_CALL_OPENING_MESSAGE` when no disclosure was sent). |
 | `text` | What the person said, as transcribed; at most 8,000 characters. |
 | `input` | `{ mode: 'voice', language? }` for what the person said: set as the turn's `context.input`, so the model is told it was transcribed. `{ mode: 'text' }` for a message they typed during the call: read as typed, with no `context.input`. Dropped on an `opening`. |
-| `output` | `{ mode: 'voice' }`: set as the turn's `context.output`, so the model writes for the ear ("What a UI client sends with a turn"). |
+| `output` | `{ mode: 'voice', voiceDirections? }`: set as the turn's `context.output`, so the model writes for the ear, and may use the voice's tags when `voiceDirections: { engine, tags, guidance }` offers them ("What a UI client sends with a turn"). |
+| `disclosureLine` | On an `opening`: what the call service has just said to the person before the greeting (that they are talking with an AI assistant), as spoken; at most 1,000 characters. The model is told it was said, and greets following on from it without repeating it. Not read on a `message`. |
 | `supersedes` | Turns this one replaces. Each still running in this process is stopped at once, and the turn's `getHistory` is given them to wait for, as for any superseding message. |
 
 `readLiveCallTurnRequest` reads a body as the handler does, and `LIVE_CALL_LIMITS` holds its limits.
@@ -237,10 +276,10 @@ process.on('SIGTERM', () => liveCall.close());        // waits for running turns
 
 | Event | Data | |
 |---|---|---|
-| `text` | `{ text }` | The reply as the model writes it; concatenate the pieces. Rounds the model writes between tool calls are separated by a blank line, as in the room. |
-| `readback` | `{ approvalId, text, expiresAt }` | The turn stopped at a call that needs approval. `text` is the preview's `readback`, verbatim, built from the action's declaration; `expiresAt` is ISO 8601. Sent once the turn has ended by itself, after all of its text. A turn that was stopped withdrew its approval, and sends none. |
+| `text` | `{ text }` | The reply; concatenate the pieces. With `speak: 'all'`, as the model writes it: rounds written between tool calls are separated by a blank line, as in the room. With `final-round`, the holding line and the turn's last round. |
+| `readback` | `{ approvalId, text, expiresAt }` | The turn stopped at a call that needs approval. `text` is the preview's `spokenReadback` when your `approvals.preview` wrote one, else its `readback`, verbatim; `expiresAt` is ISO 8601. Sent once the turn has ended by itself, after all of its text. A turn that was stopped withdrew its approval, and sends none. |
 | `done` | `{ stopReason? }` | The turn is over: `complete`, `awaiting_approval`, `present_options`, `time_limit`, `output_limit` or `step_count` when it ended by itself; `user_stop`, `superseded` or `deadline` when it was stopped. |
-| `error` | `{ code, message }` | The turn failed: `RATE_LIMIT`, `SERVICE_UNAVAILABLE`, `MODEL_TIMEOUT`, `TURN_TIMEOUT`, `TURN_DEADLINE_EXCEEDED`, `TURN_REFUSED` or `WORKER_ERROR`. `message` is a fixed line for the code; the cause stays in your logs. |
+| `error` | `{ code, message }` | The turn failed or did not run: `RATE_LIMIT`, `SERVICE_UNAVAILABLE`, `MODEL_TIMEOUT`, `TURN_TIMEOUT`, `TURN_DEADLINE_EXCEEDED`, `TURN_REFUSED` (your turn record refused it), `TURN_DECLINED` (your `beforeTurn` refused it) or `WORKER_ERROR`. `message` is a fixed line for the code; the cause stays in your logs. |
 
 The stream is written from the turn's own events as the room receives them (`TurnHost.observe`): the same text, from the same model call. Before the stream opens, a refusal is a status and `{ error: { code, message } }`: `400 INVALID_REQUEST` naming the field, `401 UNAUTHORIZED`, `404 UNKNOWN_CLIENT_REF`, `405`, `409 TURN_RUNNING`, `413 BODY_TOO_LARGE`, `415`, `500 RESOLVE_FAILED` (your `resolveTurn` threw, or returned a target that is not a turn; nothing ran) and `503 UNAVAILABLE`.
 

@@ -70,6 +70,8 @@ import { createTurnLedger } from './turn-ledger.js';
 import { DEFAULT_PAGE_STATE_CHARS, observationSchemas, observationsText } from './ui/observations.js';
 import { approvalRequirement, APPROVAL_TOOL_NOTE, type ApprovalRequirement } from './approvals/requirement.js';
 import { buildApprovalPreview, declaredTitle } from './approvals/preview.js';
+import { readHostPreview, readValidation, type ApprovalHookContext, type ApprovalValidation } from './approvals/hooks.js';
+import { turnInfoOf } from './runtime/turn-info.js';
 import {
   approvalMarker,
   approvedExpiredMarker,
@@ -115,7 +117,7 @@ const UI_ANSWER_MARGIN_MS = 45_000;
  * Tools that hand the turn back to the user. The turn stops after any of them:
  * the model must not carry on as if the user had already answered.
  */
-const USER_INPUT_TOOLS = ['present_options', 'confirm_action', 'request_user_decision'] as const;
+export const USER_INPUT_TOOLS = ['present_options', 'confirm_action', 'request_user_decision'] as const;
 
 /** What a step is held to: the host's policy, or the hand-back for time. */
 type StepPolicy = Awaited<ReturnType<TurnPolicy['prepareStep']>>;
@@ -167,6 +169,8 @@ export async function runAgentTurn(
     throw new Error('[agent-sdk] config.model is required: pass an `ai` library model');
   }
   const { turnId, socketRoom } = input;
+  // The turn as every host hook is told of it: its id, its channel, how its message was entered.
+  const turnInfo = turnInfoOf(input, input.channel);
 
   log('info', 'agent:turn', 'Turn started', {
     turnId,
@@ -248,7 +252,7 @@ export async function runAgentTurn(
     role: m.role,
     content: 'content' in m ? (m.content ?? '') : '',
   })) ?? [];
-  const turnClass = turnPolicy.classifyTurn(input.content, historyForClassify);
+  const turnClass = turnPolicy.classifyTurn(input.content, historyForClassify, turnInfo);
 
   // Let the policy perform side effects (e.g. deterministic navigation emit)
   if (turnPolicy.onTurnClassified) {
@@ -257,6 +261,7 @@ export async function runAgentTurn(
       content: input.content,
       emit: config.emit,
       socketRoom,
+      turn: turnInfo,
     });
   }
 
@@ -393,7 +398,38 @@ export async function runAgentTurn(
   // The first call in a turn that needs the user's approval stops the turn:
   // it is stored as a pending approval, the card is shown, and nothing else
   // runs until they decide. Each call is approved separately.
-  let approvalHold: { approvalId: string; title: string } | null = null;
+  //
+  // The hold is claimed the moment such a call arrives, with no await before
+  // it, so of the calls in one response exactly the first is asked for. While
+  // the host checks the call and writes its preview (`preparing`), a call that
+  // arrives waits for the outcome: held, it is not run; refused, the hold is
+  // released and the call goes on as if it had come first.
+  type ApprovalHold = { approvalId: string; title: string; preparing?: Promise<void> };
+  let approvalHold: ApprovalHold | null = null;
+  /** What the host's approval hooks are told of this turn. */
+  const approvalHookContext: ApprovalHookContext = {
+    turn: turnInfo,
+    channel: turnInfo.channel,
+    locale: turnInfo.language,
+    userId: input.userId,
+    accountId: input.accountId,
+    conversationId: input.conversationId,
+  };
+  /** The host's check of a call before it is asked for; a throw refuses it. */
+  const validateForApproval = async (t: RegisteredTool, args: Record<string, unknown>): Promise<ApprovalValidation> => {
+    const validate = config.approvalHooks?.validateBeforeApproval;
+    if (!validate) return { ok: true };
+    try {
+      return readValidation(await validate(t, args, approvalHookContext));
+    } catch (err) {
+      log('error', 'agent:tool', 'The host’s check before approval threw; the call was not asked for', {
+        turnId,
+        toolName: t.name,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return readValidation(null);
+    }
+  };
 
   // jsonSchema() carries no validator, so a call's arguments are whatever the
   // model produced. Each tool's declared schema is compiled once per turn.
@@ -667,6 +703,8 @@ export async function runAgentTurn(
     // ── Approval ──
     // Checked and set with no await in between, so of the calls in one
     // response exactly the first that needs approval stops the turn.
+    // A call another one's approval is being prepared for waits to see whether that one is asked for.
+    while (approvalHold?.preparing && !approved) await approvalHold.preparing;
     if (approvalHold && !approved) {
       const error =
         `Not run: this turn is waiting for the user's approval of "${approvalHold.title}". ` +
@@ -675,8 +713,23 @@ export async function runAgentTurn(
       return notRun({ success: false, notRun: true, error });
     }
     if ((requirement.required || policyRequiresApproval) && !approved) {
-      ledger.record({ tool: t.name, ok: false, error: 'Not run: it waits for the user’s approval on the card' });
-      return { text: await requestApproval(t, args, toolUseId, requirement, callFiles), ran: false };
+      // Claimed before anything is awaited (above).
+      let prepared!: () => void;
+      const hold: ApprovalHold = { approvalId: toolUseId, title: declaredTitle(t).title, preparing: new Promise<void>((resolve) => (prepared = resolve)) };
+      approvalHold = hold;
+      try {
+        const checked = await validateForApproval(t, args);
+        if (!checked.ok) {
+          if (approvalHold === hold) approvalHold = null;
+          log('info', 'agent:tool', 'The host refused the call before it was asked for', { turnId, toolName: t.name });
+          return refused({ error: checked.error, notRun: true, refusedBeforeApproval: true }, args);
+        }
+        ledger.record({ tool: t.name, ok: false, error: 'Not run: it waits for the user’s approval on the card' });
+        return { text: await requestApproval(t, args, toolUseId, requirement, callFiles, hold), ran: false };
+      } finally {
+        hold.preparing = undefined;
+        prepared();
+      }
     }
 
     if (t.name === UI_DESCRIBE_TOOL) uiCounts.describes++;
@@ -826,20 +879,40 @@ export async function runAgentTurn(
     toolUseId: string,
     requirement: ApprovalRequirement,
     files: ReadonlyMap<string, AttachmentRef>,
+    hold: ApprovalHold,
   ): Promise<string> => {
     // A file is shown by its name and size; the approval stays bound to its id.
-    const preview = buildApprovalPreview(t, args, files);
-    approvalHold = { approvalId: toolUseId, title: preview.title };
+    const built = buildApprovalPreview(t, args, files);
     const refuse = (why: string) => {
-      approvalHold = null;
+      if (approvalHold === hold) approvalHold = null;
       log('error', 'agent:tool', 'Approval could not be requested; the call was not run', { turnId, toolName: t.name, why });
       return JSON.stringify({
         success: false,
         notRun: true,
-        error: `"${preview.title}" needs the user's approval, which could not be asked for (${why}). It was not run.`,
+        error: `"${built.title}" needs the user's approval, which could not be asked for (${why}). It was not run.`,
       });
     };
     if (!config.approvals) return refuse('this assistant has no approval store');
+
+    // The host's display copy, when it writes one: stored, shown and read back in place of the built one.
+    // The arguments stored and hashed are the call's own.
+    let preview = built;
+    const writePreview = config.approvalHooks?.preview;
+    if (writePreview) {
+      let written: ReturnType<typeof readHostPreview>;
+      try {
+        written = readHostPreview(await writePreview(t, args, { ...approvalHookContext, built }));
+      } catch (err) {
+        log('error', 'agent:tool', 'The host’s approval preview threw', { turnId, toolName: t.name, error: err instanceof Error ? err.message : String(err) });
+        return refuse('its preview could not be written');
+      }
+      if (!written.ok) {
+        log('error', 'agent:tool', 'The host’s approval preview is not one', { turnId, toolName: t.name, problem: written.error });
+        return refuse('its preview could not be written');
+      }
+      preview = written.preview;
+      hold.title = preview.title;
+    }
 
     const expiresAt = Date.now() + requirement.ttlMs;
     try {
@@ -1214,10 +1287,38 @@ export async function runAgentTurn(
   // text ends, not when its end is reported. The break is only streamed; what
   // the model said is recorded as it said it.
   const ROUND_BREAK = '\n\n';
-  /** Where, in the turn's text, a round that said something and then called tools ended. */
-  const roundBreaks: number[] = [];
   /** The turn's text the steps have reported so far. */
   let stepTextReported = 0;
+
+  // ─── Rounds are announced ──────────────────────────────────────────────────
+  // Each piece of text says which round it belongs to (`step`), and each
+  // round's end is sent once all of its text has been (`agent:round_end`):
+  // whether it called tools, and whether it is the turn's last word (`final`).
+  // A consumer that shows or speaks only what the turn ends with, never what
+  // the model said before a tool call (the live-call handler's
+  // `speak: 'final-round'`), holds a round's text until its end. A round ends
+  // where its text ends in the turn's text, for the reason the paragraph break
+  // does: the stream may still be delivering it when its end is reported.
+  interface RoundEnd {
+    /** Where the round's text ends, in the turn's text. */
+    at: number;
+    calledTools: boolean;
+    final: boolean;
+    /** It said something and called tools: text after it starts a new paragraph. */
+    paragraph: boolean;
+  }
+  /** Rounds whose end has been reported and not yet sent: the stream has not reached it. */
+  const roundEnds: RoundEnd[] = [];
+  /** The round whose text is being streamed (and is in the coalescing buffer): every round before it has been sent as ended. */
+  let streamingStep = 0;
+  /** Text that follows starts a new paragraph. */
+  let paragraphPending = false;
+  /**
+   * Whether the turn ends after a round that called these tools: the
+   * conditions `stopWhen` holds the model to, beside the step count.
+   */
+  const endsAfterRound = (toolNames: readonly string[]) =>
+    approvalHold !== null || handedBackForTime || toolNames.some((name) => (USER_INPUT_TOOLS as readonly string[]).includes(name));
 
   // ─── Coalesce token deltas ─────────────────────────────────────────────────
   // Buffer for 50ms or 32 chars, whichever comes first, to avoid one HTTP POST
@@ -1236,9 +1337,49 @@ export async function runAgentTurn(
       await config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TOKEN, {
         turnId,
         text,
+        step: streamingStep,
         timestamp: Date.now(),
       });
     }
+  };
+
+  /**
+   * Sends the end of every round the text stream has delivered all of: what
+   * is left of its text, then its end. Each emit is made before anything is
+   * awaited, so the room and a host observing the turn get them in order.
+   */
+  const endReachedRounds = async (): Promise<void> => {
+    const sends: Promise<void>[] = [];
+    while (roundEnds.length > 0 && streamedText.length >= roundEnds[0].at) {
+      const end = roundEnds.shift()!;
+      sends.push(flushTokenBuffer());
+      sends.push(
+        config.emit.emit(socketRoom, AGENT_SOCKET_EVENTS.ROUND_END, {
+          turnId,
+          step: streamingStep,
+          calledTools: end.calledTools,
+          final: end.final,
+          timestamp: Date.now(),
+        }),
+      );
+      streamingStep += 1;
+      paragraphPending ||= end.paragraph;
+    }
+    await Promise.all(sends);
+  };
+
+  /**
+   * Streams text the worker itself says, not the model (the reply when every
+   * attempt was cut off at the output limit), as a round of its own: the
+   * turn's last word.
+   */
+  const sayAsFinalRound = async (text: string): Promise<void> => {
+    const reply = (streamedText ? ROUND_BREAK : '') + text;
+    paragraphPending = false;
+    streamedText += reply;
+    tokenBuffer += reply;
+    roundEnds.push({ at: streamedText.length, calledTools: false, final: true, paragraph: false });
+    await endReachedRounds();
   };
 
   /**
@@ -1621,6 +1762,7 @@ export async function runAgentTurn(
                 ...Object.keys(aiTools).map((name) => describeStepTool(name)),
                 ...actionIds.map((name) => ({ name, kind: 'ui' as const })),
               ],
+              turn: turnInfo,
             });
         const { note, ...policy } = stepPolicy;
         // What it constrained, in the model's terms: an action is run through
@@ -1692,7 +1834,7 @@ export async function runAgentTurn(
       },
       onStepEnd: async ({ text, toolCalls, usage: stepUsage, finishReason }) => {
         stepTextReported += text?.length ?? 0;
-        if (text && (toolCalls?.length ?? 0) > 0) roundBreaks.push(stepTextReported);
+        const calledTools = (toolCalls?.length ?? 0) > 0;
         recordedSteps.push({
           text: text ?? '',
           toolCalls: (toolCalls ?? []).map((tc) => ({ toolCallId: tc.toolCallId, toolName: tc.toolName, input: tc.input })),
@@ -1701,6 +1843,15 @@ export async function runAgentTurn(
           cacheReadTokens: stepUsage?.inputTokenDetails?.cacheReadTokens ?? 0,
           cacheWriteTokens: stepUsage?.inputTokenDetails?.cacheWriteTokens ?? 0,
         });
+        // A round that called tools is the last when the turn stops after it (an approval, a choice, the
+        // hand-back for time) or it was the last step allowed. A round cut off at the output limit having
+        // said and called nothing never is: it runs again, or the person is told (below).
+        const cutOff = finishReason === 'length' && !text && !calledTools;
+        const final =
+          !cutOff && (!calledTools || recordedSteps.length >= maxRounds || endsAfterRound((toolCalls ?? []).map((tc) => tc.toolName)));
+        roundEnds.push({ at: stepTextReported, calledTools, final, paragraph: !!text && calledTools });
+        // Sent now when the stream has already delivered the round's text; else when it has.
+        await endReachedRounds();
         log('info', 'agent:llm', 'Step completed', {
           turnId,
           turnClass,
@@ -1725,25 +1876,28 @@ export async function runAgentTurn(
       for await (const textPart of result.textStream) {
         let rest = textPart;
         while (rest) {
+          // The rounds whose text has all been delivered end before any of the next round's.
+          await endReachedRounds();
           // Text after a round that ended in tool calls starts a new paragraph.
-          if (roundBreaks.length > 0 && streamedText.length >= roundBreaks[0]) {
-            roundBreaks.shift();
+          if (paragraphPending) {
+            paragraphPending = false;
             if (streamedText.length > 0) tokenBuffer += ROUND_BREAK;
-            continue;
           }
-          // A piece never runs past the next break, should one reach across it.
-          const upTo = roundBreaks.length > 0 ? roundBreaks[0] - streamedText.length : rest.length;
+          // A piece never runs past the end of its round, should one reach across it.
+          const upTo = roundEnds.length > 0 ? roundEnds[0].at - streamedText.length : rest.length;
           const piece = rest.slice(0, upTo);
           rest = rest.slice(piece.length);
           streamedText += piece;
           tokenBuffer += piece;
         }
+        await endReachedRounds();
         if (tokenBuffer.length >= COALESCE_CHARS) {
           await flushTokenBuffer();
-        } else if (!flushTimer) {
+        } else if (!flushTimer && tokenBuffer.length > 0) {
           flushTimer = setTimeout(() => flushTokenBuffer(), COALESCE_MS);
         }
       }
+      await endReachedRounds();
       await flushTokenBuffer();
       if (stopOf(abortController.signal)) break;
 
@@ -1796,11 +1950,7 @@ export async function runAgentTurn(
 
   // Every attempt was cut off: the person hears so, rather than nothing.
   if (outputLimited && !stopOf(abortController.signal)) {
-    const reply = (streamedText ? ROUND_BREAK : '') + OUTPUT_LIMIT_REPLY;
-    roundBreaks.length = 0;
-    streamedText += reply;
-    tokenBuffer += reply;
-    await flushTokenBuffer();
+    await sayAsFinalRound(OUTPUT_LIMIT_REPLY);
   }
 
   // ─── Stopped, or ending ────────────────────────────────────────────────────

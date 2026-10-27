@@ -150,6 +150,46 @@ describe('the platform events of a stopped turn', () => {
   });
 });
 
+describe('the platform events of a turn written in rounds', () => {
+  const catalog = createEventCatalog(PLATFORM_EVENTS);
+  const validator = createPayloadValidator(catalog);
+
+  it('accept text that names its round, and text from a worker that does not', () => {
+    const token = { turnId: 't1', text: 'Checking.', timestamp: 1 };
+    expect(validator.problems('agent:token', token)).toEqual([]);
+    expect(validator.problems('agent:token', { ...token, step: 0 })).toEqual([]);
+    expect(validator.problems('agent:token', { ...token, step: -1 })).not.toEqual([]);
+    expect(validator.problems('agent:token', { ...token, step: 1.5 })).not.toEqual([]);
+  });
+
+  it('declare a round’s end in the turn room: its round, whether it called tools, and whether it is final', () => {
+    const end = { turnId: 't1', step: 1, calledTools: true, final: false, timestamp: 1 };
+    expect(catalog.allowsRoom('agent:round_end', 'chat:turn:abc')).toBe(true);
+    expect(validator.problems('agent:round_end', end)).toEqual([]);
+    for (const field of ['step', 'calledTools', 'final'] as const) {
+      const { [field]: _left, ...without } = end;
+      expect(validator.problems('agent:round_end', without)).not.toEqual([]);
+    }
+    expect(validator.problems('agent:round_end', { ...end, final: 'yes' })).not.toEqual([]);
+  });
+
+  it('accept an approval preview with the host’s spoken readback', () => {
+    const approval = {
+      turnId: 't1',
+      conversationId: 'c1',
+      approvalId: 'call_1',
+      tool: 'book_visit',
+      effect: 'transaction',
+      destructive: false,
+      preview: { title: 'Book the visit', arguments: [], readback: 'Book a visit on 2026-10-27.', spokenReadback: 'Book a visit on October twenty-seventh.' },
+      expiresAt: 2,
+      timestamp: 1,
+    };
+    expect(validator.problems('agent:approval_required', approval)).toEqual([]);
+    expect(validator.problems('agent:approval_required', { ...approval, preview: { ...approval.preview, spokenReadback: 7 } })).not.toEqual([]);
+  });
+});
+
 describe('acceptance: a declared job binds, settles, and reads back as its outcome', () => {
   const catalog = createEventCatalog(PLATFORM_EVENTS, deskEvents());
 

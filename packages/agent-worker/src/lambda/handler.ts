@@ -48,7 +48,10 @@ export function createLambdaAgentHandler<TDb>(config: LambdaAgentConfig<TDb>) {
     if (refusal) throw new Error(`[agent-sdk] ${refusal}`);
 
     // A stopped turn stores and announces within what the invocation has left.
-    const outcome = await runner.run(payload, context ? { remainingMs: () => context.getRemainingTimeInMillis() } : {});
+    const outcome = await runner.run(payload, {
+      channel: 'lambda',
+      ...(context ? { remainingMs: () => context.getRemainingTimeInMillis() } : {}),
+    });
     if (outcome.status === 'failed' && !outcome.error.recoverable) throw outcome.cause;
   };
 }

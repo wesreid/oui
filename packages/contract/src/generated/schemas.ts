@@ -2470,7 +2470,7 @@ export const CONTRACT_SCHEMAS = {
         "additionalProperties": false
       },
       "ApprovalPreview": {
-        "description": "What the person is asked to approve. Every word comes from the action's declaration (its title, description and input schema labels), never from the model.",
+        "description": "What the person is asked to approve. By default every word comes from the action's declaration (its title, description and input schema labels), never from the model. A host may write this display copy itself (the worker's `approvals.preview`), to redact a value or to speak the person's language: the call that runs, and the args hash it is bound to, stay the original.",
         "type": "object",
         "properties": {
           "title": {
@@ -2488,6 +2488,10 @@ export const CONTRACT_SCHEMAS = {
           },
           "readback": {
             "description": "One sentence composed from the fields above, read or sent verbatim on a conversation channel.",
+            "type": "string"
+          },
+          "spokenReadback": {
+            "description": "The readback as a voice should say it, when the host wrote one: dates, times and numbers in words, digits grouped for speech. A voice channel speaks it in place of `readback`; every other channel uses `readback`.",
             "type": "string"
           }
         },

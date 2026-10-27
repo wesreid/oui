@@ -12,6 +12,8 @@ import { renderTypeScript } from '../codegen.js';
 import { deskEvents } from './support/desk-events.js';
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), '..');
+/** How long a test that compiles with the real TypeScript compiler may take. */
+const COMPILE_TIMEOUT_MS = 60_000;
 const GENERATED = join(SRC, '__virtual__', 'desk-events.ts');
 const CONSUMER = join(SRC, '__virtual__', 'consumer.ts');
 
@@ -82,7 +84,8 @@ describe('TypeScript generated from a declaration document', () => {
         void [failed, ok, completion];
       `),
     ).toEqual([]);
-  });
+    // A cold TypeScript program (the lib files, then the package's own types) takes seconds on a busy machine.
+  }, COMPILE_TIMEOUT_MS);
 
   it('fails the build on an undeclared event name, or a payload missing a required field', () => {
     const errors = typeErrors(`
@@ -95,7 +98,7 @@ describe('TypeScript generated from a declaration document', () => {
       `consumer: Type '"report:done"' does not satisfy the constraint 'keyof DeskEventMap'.`,
       expect.stringMatching(/consumer: Property 'url' is missing in type/),
     ]);
-  });
+  }, COMPILE_TIMEOUT_MS);
 
   it('refuses an invalid document instead of generating from it', () => {
     const doc = deskEvents();

@@ -16,6 +16,11 @@
  * the reply. The turn is stopped as a superseding message stops it, and the
  * next request names it in `supersedes`.
  *
+ * What the caller hears is the host's to choose (`speak`): every round of the
+ * reply as the model writes it (`all`, the default), or only the round the turn
+ * ends with (`final-round`), so nothing the model wrote before a tool call is
+ * spoken, save a holding line of the host's own while a tool runs.
+ *
  *   POST <path>   200 text/event-stream    the turn
  *                 400 not a turn · 401 wrong credential · 404 unknown clientRef
  *                 405 not POST · 409 turn already running · 413 too large
@@ -31,11 +36,12 @@ import {
   type ApprovalRequiredEvent,
 } from '@ouispec/agent-core';
 import { payloadRefusal, type AgentTurnRunner, type TurnOutcome } from '../runtime/turn-runner.js';
+import { USER_INPUT_TOOLS } from '../orchestrator.js';
 import { createTurnSlots, type TurnSlots } from '../runtime/turn-slots.js';
 import type { AgentTurnPayload } from '../runtime/types.js';
 import type { TurnEventObserver } from '../emit/tee.js';
 import { DEFAULT_KEEP_ALIVE_MS, openLiveCallEventStream, type LiveCallEventStream } from './event-stream.js';
-import { LIVE_CALL_OPENING_MESSAGE, liveCallError, readLiveCallTurnRequest, type LiveCallStreamEvents, type LiveCallTurnRequest } from './protocol.js';
+import { liveCallError, liveCallOpeningMessage, readLiveCallTurnRequest, type LiveCallStreamEvents, type LiveCallTurnRequest } from './protocol.js';
 
 /** Who and where a live-call turn is, in the product: what the host resolves a call's `clientRef` to. */
 export interface LiveCallTurnTarget {
@@ -48,6 +54,14 @@ export interface LiveCallTurnTarget {
   socketRoom: string;
   /** Passed to the turn's tools as the payload's `userToken`. */
   userToken?: string;
+  /**
+   * What the model reads as the person's message, in place of `request.text`
+   * (or, for an `opening`, of `liveCallOpeningMessage(request)`): the words
+   * with a card number or an account number redacted. Store the same copy.
+   * The runtime's `beforeTurn`, which every channel passes through, can do
+   * this too.
+   */
+  content?: string;
   /**
    * The turn's context, as the product would send it for a typed message on
    * the conversation's page: its OUI snapshot, its knowledge, its page
@@ -85,8 +99,9 @@ export interface LiveCallTurnOptions {
    *
    * This is where the product does what its API does for a message from its
    * own chat: store the person's message (`request.text`, entered as
-   * `request.input`) in the conversation, or for an `opening` turn
-   * `LIVE_CALL_OPENING_MESSAGE`; claim the turn record; and, when a readback
+   * `request.input`, or the redacted copy you return as `content`) in the
+   * conversation, or for an `opening` turn `liveCallOpeningMessage(request)`;
+   * claim the turn record; and, when a readback
    * is waiting, decide on it from what the person said. What it throws is
    * answered `500`, and nothing runs.
    */
@@ -107,7 +122,32 @@ export interface LiveCallTurnOptions {
   ) => string | null | undefined | Promise<string | null | undefined>;
   /** How long the response may be silent before a `: keep-alive` comment. Default 5 s, well inside the call service's 15 s. */
   keepAliveMs?: number;
+  /**
+   * What of the reply is spoken. `all` (the default): every round, as the
+   * model writes it, the text before a tool call included. `final-round`:
+   * only the round the turn ends with. A round's text is held until the round
+   * ends (`agent:round_end`) and sent only when no round follows it, so
+   * nothing the model wrote before a tool call is spoken; the reply then
+   * starts when its last round is written, not as its first words are.
+   */
+  speak?: LiveCallSpeech;
+  /**
+   * With `speak: 'final-round'`: a line of your own spoken once, as the
+   * turn's first tool starts, so the caller does not wait in silence ("One
+   * moment while I check."). A function is given the request (its
+   * `input.language`) and the target, once per turn; null, undefined or blank
+   * says nothing. What it throws fails the turn. Not used with `all`, where the
+   * model's own words before a tool call are spoken.
+   */
+  holdingLine?:
+    | string
+    | ((request: LiveCallTurnRequest, target: LiveCallTurnTarget) => string | null | undefined | Promise<string | null | undefined>);
 }
+
+/** What of a live-call turn's reply is spoken (`LiveCallTurnOptions.speak`). */
+export const LIVE_CALL_SPEECH = ['all', 'final-round'] as const;
+
+export type LiveCallSpeech = (typeof LIVE_CALL_SPEECH)[number];
 
 /** `createLiveCallTurnHandler`'s configuration: the route's settings and the runtime that runs its turns. */
 export interface LiveCallTurnHandlerConfig extends LiveCallTurnOptions {
@@ -192,6 +232,16 @@ export function liveCallRoute(options: LiveCallTurnOptions, host: LiveCallRouteH
   if (missing.length > 0) throw new Error(`[agent-sdk] Missing required configuration for the live-call route: ${missing.join('; ')}`);
   const keepAliveMs = options.keepAliveMs ?? DEFAULT_KEEP_ALIVE_MS;
   if (!(Number.isFinite(keepAliveMs) && keepAliveMs > 0)) throw new Error(`[agent-sdk] keepAliveMs must be a positive number of ms, not ${keepAliveMs}`);
+  const speak = options.speak ?? 'all';
+  if (!(LIVE_CALL_SPEECH as readonly string[]).includes(speak)) {
+    throw new Error(`[agent-sdk] speak must be one of ${LIVE_CALL_SPEECH.join(', ')}, not ${JSON.stringify(speak)}`);
+  }
+  if (options.holdingLine !== undefined && speak !== 'final-round') {
+    throw new Error("[agent-sdk] holdingLine is spoken only with speak: 'final-round'; with 'all' the model's own words before a tool call are spoken");
+  }
+  if (options.holdingLine !== undefined && typeof options.holdingLine !== 'string' && typeof options.holdingLine !== 'function') {
+    throw new Error('[agent-sdk] holdingLine must be a string or a function');
+  }
 
   const { runner, slots, maxBodyBytes } = host;
   const logger = runner.logger;
@@ -276,7 +326,8 @@ export function liveCallRoute(options: LiveCallTurnOptions, host: LiveCallRouteH
       }
 
       const payload = turnPayload(request, target);
-      const invalid = payloadRefusal(payload);
+      const invalid =
+        target.content !== undefined && typeof target.content !== 'string' ? 'content must be a string' : payloadRefusal(payload);
       if (invalid) {
         logger.error('[agent-sdk] resolveTurn answered a turn that cannot run; nothing was run', { turnId, error: invalid });
         refuse(res, 500, 'RESOLVE_FAILED', 'The turn could not be resolved');
@@ -284,7 +335,7 @@ export function liveCallRoute(options: LiveCallTurnOptions, host: LiveCallRouteH
       }
 
       const stream = openLiveCallEventStream(res, keepAliveMs);
-      const relay = relayTurn(turnId, stream);
+      const relay = relayTurn(turnId, stream, speak);
       logger.info('[agent-sdk] Live-call turn', {
         turnId,
         sessionId: request.sessionId,
@@ -296,10 +347,12 @@ export function liveCallRoute(options: LiveCallTurnOptions, host: LiveCallRouteH
       let outcome: TurnOutcome;
       try {
         const greeting = request.kind === 'opening' && options.opening ? (await options.opening(request, target, call))?.trim() : null;
+        const holding = typeof options.holdingLine === 'function' ? await options.holdingLine(request, target) : options.holdingLine;
+        if (typeof holding === 'string' && holding.trim()) relay.holdWith(holding.trim());
         // A caller already gone gets no greeting: the turn stops before it starts, and stores only that.
         outcome = greeting && !hangUp.signal.aborted
-          ? await runner.reply(payload, greeting, { observe: relay.observe })
-          : await runner.run(payload, { observe: relay.observe, stopSignal: hangUp.signal });
+          ? await runner.reply(payload, greeting, { observe: relay.observe, channel: LIVE_CALL_CHANNEL })
+          : await runner.run(payload, { observe: relay.observe, stopSignal: hangUp.signal, channel: LIVE_CALL_CHANNEL });
       } catch (error) {
         // A turn's own failure is an outcome; this is the host's opening template, or the runtime around the turn.
         logger.error('[agent-sdk] The live-call turn could not run', { turnId, error: messageOf(error) });
@@ -312,7 +365,7 @@ export function liveCallRoute(options: LiveCallTurnOptions, host: LiveCallRouteH
       }
 
       if (outcome.status === 'failed') stream.send('error', liveCallError(outcome.error.code));
-      else if (outcome.status === 'refused') stream.send('error', liveCallError('TURN_REFUSED'));
+      else if (outcome.status === 'refused') stream.send('error', liveCallError(outcome.refusedBy === 'beforeTurn' ? 'TURN_DECLINED' : 'TURN_REFUSED'));
       else if (outcome.status === 'stopped' && outcome.stored === false) stream.send('error', liveCallError('TURN_DEADLINE_EXCEEDED'));
       else stream.send('done', relay.ended() ?? (outcome.status === 'stopped' ? { stopReason: outcome.stopReason } : {}));
       stream.end();
@@ -337,7 +390,7 @@ function turnPayload(request: LiveCallTurnRequest, target: LiveCallTurnTarget): 
     userId: target.userId,
     accountId: target.accountId,
     socketRoom: target.socketRoom,
-    content: request.kind === 'opening' ? LIVE_CALL_OPENING_MESSAGE : request.text,
+    content: target.content ?? (request.kind === 'opening' ? liveCallOpeningMessage(request) : request.text),
     context,
     ...(target.userToken ? { userToken: target.userToken } : {}),
     ...(target.approval ? { approval: target.approval } : {}),
@@ -345,31 +398,89 @@ function turnPayload(request: LiveCallTurnRequest, target: LiveCallTurnTarget): 
   };
 }
 
+/** The channel the live-call handler's turns run on, as the host's hooks are told. */
+export const LIVE_CALL_CHANNEL = 'live-call';
+
 /**
  * The turn's events, as the response carries them: its text as `text`, an
  * approval's readback as `readback`, and how it ended, for `done`.
  *
+ * With `speak: 'all'` each piece of text is sent as it comes. With
+ * `final-round` a round's text is held until the round ends, and sent only
+ * when the round is final; the host's holding line, if any, is sent once as
+ * the turn's first tool starts, in place of what the model said before it.
+ *
  * The readback is sent when the turn has ended, after every piece of its
- * text: it is spoken after what the model said before the call. A turn that
- * was stopped instead withdrew its approval, so its readback is never sent.
+ * text: it is spoken after what the model said before the call. It is the
+ * preview's `spokenReadback` when the host wrote one, else its `readback`. A
+ * turn that was stopped instead withdrew its approval, so its readback is
+ * never sent.
  */
-function relayTurn(turnId: string, stream: LiveCallEventStream): { observe: TurnEventObserver; ended(): { stopReason?: string } | null } {
+function relayTurn(
+  turnId: string,
+  stream: LiveCallEventStream,
+  speak: LiveCallSpeech,
+): { observe: TurnEventObserver; holdWith(line: string): void; ended(): { stopReason?: string } | null } {
   let ended: { stopReason?: string } | null = null;
   let readback: LiveCallStreamEvents['readback'] | null = null;
+  /** The holding line, until it is said: once a turn. */
+  let holdingLine: string | null = null;
+  /** Whether any text has been sent: what follows is set off from it. */
+  let sent = false;
+  /** With `final-round`: the text of the round being written, until it ends. */
+  let held: { step: number; text: string } | null = null;
+  const send = (text: string) => {
+    stream.send('text', { text });
+    sent = true;
+  };
   const ofTurn = (data: unknown): data is Record<string, unknown> =>
     !!data && typeof data === 'object' && (data as { turnId?: unknown }).turnId === turnId;
   return {
+    holdWith(line) {
+      holdingLine = line;
+    },
     observe(event, data) {
       if (!ofTurn(data)) return;
       switch (event) {
         case AGENT_SOCKET_EVENTS.TOKEN: {
           const text = data.text;
-          if (typeof text === 'string' && text) stream.send('text', { text });
+          if (typeof text !== 'string' || !text) return;
+          if (speak === 'all') {
+            send(text);
+            return;
+          }
+          const step = typeof data.step === 'number' ? data.step : (held?.step ?? 0);
+          // A round that never announced its end is not the one being written now: it is not spoken.
+          if (held && held.step !== step) held = null;
+          held = { step, text: (held?.text ?? '') + text };
+          return;
+        }
+        case AGENT_SOCKET_EVENTS.ROUND_END: {
+          if (speak === 'all') return;
+          const round = held && held.step === data.step ? held.text : '';
+          held = null;
+          if (data.final !== true) return;
+          // The round the turn ends with; what was said before it (a holding line) is set off from it.
+          const text = sent ? `\n\n${round.trimStart()}` : round.trimStart();
+          if (round.trim()) send(text);
+          return;
+        }
+        case AGENT_SOCKET_EVENTS.TOOL_CALL_STARTED: {
+          // A tool that asks the person something (a choice) is the turn's end, not a wait.
+          const name = data.name;
+          if (holdingLine && !(typeof name === 'string' && (USER_INPUT_TOOLS as readonly string[]).includes(name))) {
+            send(sent ? `\n\n${holdingLine}` : holdingLine);
+            holdingLine = null;
+          }
           return;
         }
         case AGENT_SOCKET_EVENTS.APPROVAL_REQUIRED: {
           const approval = data as unknown as ApprovalRequiredEvent;
-          readback = { approvalId: approval.approvalId, text: approval.preview.readback, expiresAt: new Date(approval.expiresAt).toISOString() };
+          readback = {
+            approvalId: approval.approvalId,
+            text: approval.preview.spokenReadback ?? approval.preview.readback,
+            expiresAt: new Date(approval.expiresAt).toISOString(),
+          };
           return;
         }
         case AGENT_SOCKET_EVENTS.TURN_COMPLETE: {
