@@ -12,7 +12,7 @@
  */
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createOpenAI } from '@ai-sdk/openai';
 import { AGENT_SOCKET_EVENTS, type ApprovalRequiredEvent, type TurnStoppedMarker } from '@ouispec/agent-core';
 import { inboxSurface, INTERNAL_KEY, shellSurface, startFixtureProduct, type FixtureProduct, type FixtureTab } from './support/fixture-product.js';
@@ -21,7 +21,7 @@ import { chunk, sse, type ChatRequest, type ScriptedReply } from './support/repl
 import { createAgentTurnRunner, type TurnOutcome } from '../runtime/turn-runner.js';
 import { startContainerAgentWorker, DEFAULT_LIVE_CALL_PATH } from '../container/server.js';
 import { createLiveCallTurnHandler, type LiveCallTurnHandler, type LiveCallTurnOptions, type LiveCallTurnTarget } from '../live-call/handler.js';
-import { LIVE_CALL_OPENING_MESSAGE, type LiveCallTurnRequest } from '../live-call/protocol.js';
+import { LIVE_CALL_OPENING_MESSAGE, liveCallOpeningMessage, type LiveCallTurnRequest } from '../live-call/protocol.js';
 import { createHttpApprovalStoreClient } from '../approvals/client.js';
 import { buildApprovalPreview } from '../approvals/preview.js';
 import type { AgentRuntimeConfig } from '../runtime/types.js';
@@ -159,6 +159,12 @@ interface CallProductOptions {
   keepAliveMs?: number;
   retries?: number;
   resolveFails?: boolean;
+  /** The product's redaction of what the person said: what the model reads and the product stores. */
+  redact?: (text: string) => string;
+  /** The runtime's host hooks: `beforeTurn`, `filterEvent`, `approvals.preview` and the rest. */
+  runtime?: Partial<AgentRuntimeConfig<object>>;
+  /** What of the reply is spoken, and the holding line. */
+  speech?: Pick<LiveCallTurnOptions, 'speak' | 'holdingLine'>;
 }
 
 function runtimeConfig(name: string, options: CallProductOptions, state: Pick<CallProduct, 'conversation' | 'histories' | 'persisted'>): AgentRuntimeConfig<object> {
@@ -179,6 +185,7 @@ function runtimeConfig(name: string, options: CallProductOptions, state: Pick<Ca
       state.conversation.persist(messages);
     },
     logger: quiet,
+    ...options.runtime,
   };
 }
 
@@ -198,7 +205,10 @@ function resolver(state: Omit<CallProduct, 'url' | 'handler' | 'close' | 'outcom
     };
     // The readback waiting for an answer is answered by this message, or dropped by it.
     const waiting = request.kind === 'message' ? waitingApproval(state.conversation) : null;
-    state.conversation.addUser(request.kind === 'opening' ? LIVE_CALL_OPENING_MESSAGE : request.text);
+    // What the product keeps is what the model reads: its redacted copy, when it redacts.
+    const said = request.kind === 'message' && options.redact ? options.redact(request.text) : null;
+    if (said !== null) target.content = said;
+    state.conversation.addUser(request.kind === 'opening' ? liveCallOpeningMessage(request) : (said ?? request.text));
     if (waiting && AFFIRMATIVE.test(request.text)) {
       const decided = await approvals.decide!(waiting, { userId: 'ana', decision: 'approve', channel: 'voice' });
       if (!decided.ok || decided.decision !== 'approve') throw new Error(`the store refused the decision: ${JSON.stringify(decided)}`);
@@ -232,6 +242,7 @@ async function startCallProduct(options: CallProductOptions): Promise<CallProduc
     resolveTurn: resolver(state, options),
     ...(options.opening ? { opening: options.opening } : {}),
     ...(options.keepAliveMs ? { keepAliveMs: options.keepAliveMs } : {}),
+    ...options.speech,
     onTurnEnd: (outcome) => outcomes.push(outcome),
   });
   // The product's own server, with the handler mounted on one of its routes.
@@ -614,6 +625,204 @@ describe('an irreversible action on a live call', () => {
       await call.close();
     }
   }, 40_000);
+});
+
+describe('what the product decides for its calls', () => {
+  const CARD = /\b\d{4}( \d{4}){3}\b/g;
+  const maskCard = (text: string) => text.replace(CARD, '[card number]');
+
+  it('redacts the caller’s words before the model reads them, and every event of the turn before the call or the page gets it', async () => {
+    const checked: Array<Record<string, unknown>> = [];
+    const checkCard: RegisteredTool = {
+      name: 'payment_check',
+      description: 'Checks a payment card on file.',
+      effect: 'view',
+      inputSchema: { type: 'object', properties: { card: { type: 'string' } }, required: ['card'] },
+      async execute(input) {
+        checked.push(input);
+        return { success: true, data: { onFile: true, card: input.card } };
+      },
+    };
+    const m = scriptedModel([
+      { toolCalls: [{ id: 'call_card_1', name: 'payment_check', args: { card: '4111 1111 1111 1111' } }] },
+      { text: 'The card 4111 1111 1111 1111 is on file, and it is fine.' },
+    ]);
+    const filterEvent = (_event: string, data: Record<string, unknown>) => JSON.parse(maskCard(JSON.stringify(data))) as Record<string, unknown>;
+    const call = await startCallProduct({ model: m.model, tools: [checkCard], redact: maskCard, runtime: { filterEvent } });
+    try {
+      const body = turnRequest(call, { text: 'My card is 4111 1111 1111 1111, is it still on file?' });
+      const stream = await streamOf(await post(call.url, body));
+      await call.tab.waitForTurn(AGENT_SOCKET_EVENTS.TURN_COMPLETE, body.turnId);
+
+      // ── What the model read: the product's copy ──
+      expect(textsOf(m.requests[0]).join('\n')).toContain('My card is [card number], is it still on file?');
+      expect(textsOf(m.requests[0]).join('\n')).not.toContain('4111 1111 1111 1111');
+      // The tool still ran with what the model called it with: the filter is what leaves the runtime, not what runs.
+      expect(checked).toEqual([{ card: '4111 1111 1111 1111' }]);
+
+      // ── What the call and the page got: masked, the same ──
+      expect(stream.text()).toBe('The card [card number] is on file, and it is fine.');
+      expect(roomText(call.tab, body.turnId)).toBe(stream.text());
+      expect(JSON.stringify(call.tab.turnEvents(body.turnId))).not.toContain('4111 1111 1111 1111');
+      const started = call.tab.turnEvents(body.turnId).find((e) => e.event === AGENT_SOCKET_EVENTS.TOOL_CALL_STARTED)!;
+      expect((started.data as { input: unknown }).input).toEqual({ card: '[card number]' });
+      // ── What the product stored of the person's message ──
+      expect(call.conversation.history[0]).toEqual({ role: 'user', content: 'My card is [card number], is it still on file?' });
+    } finally {
+      await call.close();
+    }
+  }, 30_000);
+
+  it('speaks only the round the turn ends with, after the product’s holding line, while the page gets every round', async () => {
+    const m = scriptedModel([
+      { text: 'The customer asks about service, which is likely a booking. Let me check.', toolCalls: [{ id: 'call_nav_1', name: 'ui_act', args: { action: 'navigate', input: { path: '/reports' } } }] },
+      { text: 'Your reports are on screen now.' },
+    ]);
+    const call = await startCallProduct({ model: m.model, speech: { speak: 'final-round', holdingLine: 'One moment while I check.' } });
+    try {
+      const body = turnRequest(call, { text: 'Can you open my reports?' });
+      const stream = await streamOf(await post(call.url, body));
+      await call.tab.waitForTurn(AGENT_SOCKET_EVENTS.TURN_COMPLETE, body.turnId);
+
+      // ── What the caller heard ──
+      expect(stream.events).toEqual([
+        { event: 'text', data: { text: 'One moment while I check.' } },
+        { event: 'text', data: { text: '\n\nYour reports are on screen now.' } },
+        { event: 'done', data: { stopReason: 'complete' } },
+      ]);
+      expect(stream.text()).not.toContain('likely');
+
+      // ── What the page got: every round, each piece naming its round, each round's end ──
+      expect(roomText(call.tab, body.turnId)).toBe(
+        'The customer asks about service, which is likely a booking. Let me check.\n\nYour reports are on screen now.',
+      );
+      const rounds = call.tab
+        .turnEvents(body.turnId)
+        .filter((e) => e.event === AGENT_SOCKET_EVENTS.ROUND_END)
+        .map((e) => e.data as { step: number; calledTools: boolean; final: boolean });
+      expect(rounds).toEqual([
+        expect.objectContaining({ step: 0, calledTools: true, final: false }),
+        expect.objectContaining({ step: 1, calledTools: false, final: true }),
+      ]);
+      const steps = call.tab
+        .turnEvents(body.turnId)
+        .filter((e) => e.event === AGENT_SOCKET_EVENTS.TOKEN)
+        .map((e) => (e.data as { step: number }).step);
+      expect(new Set(steps)).toEqual(new Set([0, 1]));
+      // ── What the product stored: what the model said, every round ──
+      expect(call.persisted[0].messages.filter((msg) => msg.role === 'assistant').map((msg) => msg.content)).toEqual([
+        'The customer asks about service, which is likely a booking. Let me check.',
+        'Your reports are on screen now.',
+      ]);
+    } finally {
+      await call.close();
+    }
+  }, 30_000);
+
+  it('reads back the product’s spoken copy of an approval, in the caller’s language; a spoken yes runs exactly the model’s call', async () => {
+    const booked: Array<Record<string, unknown>> = [];
+    const bookVisit: RegisteredTool = {
+      name: 'visit_book',
+      title: 'Book this visit with the sales team',
+      description: 'Books a visit.',
+      effect: { kind: 'transaction' },
+      inputSchema: {
+        type: 'object',
+        properties: { day: { type: 'string', title: 'Day' }, phone: { type: 'string', title: 'Phone' } },
+        required: ['day', 'phone'],
+        additionalProperties: false,
+      },
+      async execute(input) {
+        booked.push(input);
+        return { success: true, data: { booked: true } };
+      },
+    };
+    const args = { day: '2026-10-28', phone: '+17184070052' };
+    const preview = vi.fn(async (_tool: RegisteredTool, a: Record<string, unknown>, ctx: { locale: string | null }) => ({
+      title: 'Reservar la visita',
+      arguments: [
+        { name: 'day', label: 'Día', value: 'el miércoles 28 de octubre' },
+        { name: 'phone', label: 'Teléfono', value: `terminado en ${String(a.phone).slice(-4)}` },
+      ],
+      readback: `Reservar la visita: el miércoles 28 de octubre, teléfono terminado en ${String(a.phone).slice(-4)}. (${ctx.locale})`,
+      spokenReadback: 'Reservar la visita el miércoles veintiocho de octubre, teléfono terminado en cero cero cinco dos.',
+    }));
+    const m = scriptedModel([
+      { text: 'Puedo reservarla.', toolCalls: [{ id: 'call_visit_1', name: 'visit_book', args }] },
+      { text: 'Listo, su visita está reservada.' },
+    ]);
+    const call = await startCallProduct({ model: m.model, tools: [bookVisit], runtime: { approvals: { preview } } });
+    try {
+      const ask = turnRequest(call, { text: 'Resérveme el miércoles.', input: { mode: 'voice', language: 'es' } });
+      const first = await streamOf(await post(call.url, ask));
+      // The caller hears the copy written for a voice.
+      expect(first.events.find((e) => e.event === 'readback')!.data).toMatchObject({
+        approvalId: 'call_visit_1',
+        text: 'Reservar la visita el miércoles veintiocho de octubre, teléfono terminado en cero cero cinco dos.',
+      });
+      // The page's card shows the product's copy: no phone number, the caller's language.
+      const [card] = call.tab
+        .turnEvents(ask.turnId)
+        .filter((e) => e.event === AGENT_SOCKET_EVENTS.APPROVAL_REQUIRED)
+        .map((e) => e.data as ApprovalRequiredEvent);
+      expect(card.preview.readback).toBe('Reservar la visita: el miércoles 28 de octubre, teléfono terminado en 0052. (es)');
+      expect(JSON.stringify(card)).not.toContain('+17184070052');
+      expect(booked).toEqual([]);
+
+      // A spoken yes: the realtime server's store kept the call as the model made it, and that is what runs.
+      const yes = await streamOf(await post(call.url, turnRequest(call, { text: 'Yes, go ahead.', input: { mode: 'voice', language: 'es' } })));
+      expect(call.decisions).toEqual([{ approvalId: 'call_visit_1', channel: 'voice' }]);
+      expect(booked).toEqual([args]);
+      expect(yes.text()).toBe('Listo, su visita está reservada.');
+    } finally {
+      await call.close();
+    }
+  }, 40_000);
+
+  it('greets following on from the disclosure the call service spoke, and offers the voice’s direction tags', async () => {
+    const m = scriptedModel([{ text: 'I am Deos at Quillhaven Toyota. How can I help?' }]);
+    const call = await startCallProduct({ model: m.model });
+    try {
+      const disclosureLine = 'Hi! Just so you know, you are talking with an AI assistant.';
+      const voiceDirections = { engine: 'fish-s2', tags: ['[warmly]', '[laughs]'], guidance: 'At most one tag a reply.' };
+      const body = turnRequest(call, { kind: 'opening', text: '', disclosureLine, output: { mode: 'voice', voiceDirections } });
+      const stream = await streamOf(await post(call.url, body));
+      expect(stream.text()).toBe('I am Deos at Quillhaven Toyota. How can I help?');
+      const said = textsOf(m.requests[0]);
+      const opening = liveCallOpeningMessage({ disclosureLine });
+      expect(said).toContain(opening);
+      expect(opening).toContain(disclosureLine);
+      expect(said.at(-1)).toContain('inline tags, written exactly as shown, where they apply: [warmly] [laughs]');
+      expect(call.resolved[0]).toMatchObject({ kind: 'opening', disclosureLine, output: { mode: 'voice', voiceDirections } });
+      // The product stored the opening as the model read it.
+      expect(call.conversation.history[0]).toEqual({ role: 'user', content: opening });
+    } finally {
+      await call.close();
+    }
+  }, 30_000);
+
+  it('declines a turn the product holds back: nothing runs or reaches the page, and the call is told', async () => {
+    const m = scriptedModel([]);
+    const beforeTurn = vi.fn(async () => null);
+    const call = await startCallProduct({ model: m.model, runtime: { beforeTurn } });
+    try {
+      const body = turnRequest(call, { text: 'Hello?' });
+      const stream = await streamOf(await post(call.url, body));
+      expect(stream.events).toEqual([{ event: 'error', data: { code: 'TURN_DECLINED', message: 'The product declined to run the turn.' } }]);
+      expect(beforeTurn).toHaveBeenCalledWith(expect.objectContaining({ turnId: body.turnId }), {
+        id: body.turnId,
+        channel: 'live-call',
+        inputMode: 'voice',
+        language: 'en',
+      });
+      expect(m.requests).toHaveLength(0);
+      expect(call.persisted).toEqual([]);
+      expect(call.outcomes).toEqual([{ status: 'refused', turnId: body.turnId, reason: 'refused by beforeTurn', refusedBy: 'beforeTurn' }]);
+      expect(call.tab.turnEvents(body.turnId)).toEqual([]);
+    } finally {
+      await call.close();
+    }
+  }, 30_000);
 });
 
 describe('barge-in', () => {
