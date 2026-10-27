@@ -43,6 +43,7 @@ export function displayedToolCall(call: { name: string; arguments?: Record<strin
 export type AgentProtocolEvent =
   | TokenEvent
   | TokenClearEvent
+  | RoundEndEvent
   | IntentCallEvent
   | IntentResultEvent
   | UICommandEvent
@@ -58,6 +59,24 @@ export type AgentProtocolEvent =
 export interface TokenEvent {
   type: 'token';
   content: string;
+  turnId: string;
+  /** The round (model step) of the turn the text belongs to, from 0. Absent from a worker that does not say. */
+  step?: number;
+}
+
+/**
+ * A round (one model step) of the turn ended, and all of its text has been
+ * sent. `calledTools`: the round called tools. `final`: no round follows it,
+ * so its text is the turn's last word (a round that ended at an approval or a
+ * choice for the person is final though it called a tool). A consumer that
+ * shows or speaks only what the turn ends with holds each round's text until
+ * this, and keeps it when `final`.
+ */
+export interface RoundEndEvent {
+  type: 'round_end';
+  step: number;
+  calledTools: boolean;
+  final: boolean;
   turnId: string;
 }
 
@@ -199,6 +218,11 @@ export interface DoneEvent {
   endReason?: TurnEndReason;
 }
 
+/** A round index: a whole number from 0. */
+function isStep(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
 /**
  * Maps a raw Socket.IO event (name + payload) to an AgentProtocolEvent.
  * This is the canonical mapping — platforms never need to write their own.
@@ -217,7 +241,12 @@ export function parseSocketEvent(event: string, data: unknown, fallbackTurnId: s
         type: 'token',
         content: (payload.text as string) ?? (payload.token as string) ?? (payload.content as string) ?? '',
         turnId,
+        ...(isStep(payload.step) ? { step: payload.step } : {}),
       };
+
+    case AGENT_SOCKET_EVENTS.ROUND_END:
+      if (!isStep(payload.step) || typeof payload.calledTools !== 'boolean' || typeof payload.final !== 'boolean') return null;
+      return { type: 'round_end', step: payload.step, calledTools: payload.calledTools, final: payload.final, turnId };
 
     case AGENT_SOCKET_EVENTS.TOKEN_CLEAR:
       return {

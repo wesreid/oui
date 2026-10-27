@@ -43,6 +43,19 @@ export interface AgentPersonaConfig {
   routes?: Record<string, string>;
 
   /**
+   * Renders the turn's page context as the prompt's last section, in place
+   * of the SDK's "CURRENT UI CONTEXT" (the context as JSON, introduced as the
+   * page the user is on). Given what the host sent as the turn's context,
+   * without what the client's UI sent for the worker (`oui`, `uiKnowledge`,
+   * `input`, `output`). Return null, or a blank string, to render no section:
+   * for an agent whose context is not a page, or that carries it elsewhere.
+   *
+   * The system prompt is the start of the cached prefix: render nothing that
+   * changes from turn to turn unless the conversation's context did.
+   */
+  renderContext?: (ctx: PromptBuildContext) => string | null;
+
+  /**
    * Override SDK default behavioral rules.
    * All rules are enabled by default — set these to disable specific categories.
    */

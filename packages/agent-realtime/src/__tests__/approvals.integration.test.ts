@@ -11,6 +11,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import crypto from 'node:crypto';
 import { io as connectClient, type Socket } from 'socket.io-client';
 import {
+  APPROVAL_PREVIEW_LIMITS,
   APPROVAL_DECIDE_EVENT,
   argsHash,
   type ApprovalDecideResult,
@@ -545,6 +546,17 @@ describe('storing a pending approval', () => {
     expect((await internal(b, '/internal/approvals/redeem', { body: { token: 'x', userId: 'u1', conversationId: 'c' }, key: 'wrong' })).status).toBe(
       401,
     );
+  });
+
+  it('keeps a host’s display copy with its spoken readback, within the preview’s limits, and refuses a field a preview does not have', async () => {
+    const written = await pending();
+    const preview = { ...written.preview, readback: 'Place an order for 100 ACME at 12.34.', spokenReadback: 'Place an order for one hundred ACME at twelve thirty-four.' };
+    expect((await internal(b, '/internal/approvals', { body: { ...written, preview } })).status).toBe(201);
+    const tooLong = await pending();
+    const long = { ...tooLong.preview, spokenReadback: 'x'.repeat(APPROVAL_PREVIEW_LIMITS.readback + 1) };
+    expect((await internal(b, '/internal/approvals', { body: { ...tooLong, preview: long } })).status).toBe(400);
+    const unknown = await pending();
+    expect((await internal(b, '/internal/approvals', { body: { ...unknown, preview: { ...unknown.preview, voice: 'nova' } } })).status).toBe(400);
   });
 
   it('logs every issue, decision and redemption with the approval, user, tool, effect, channel and hash, and the arguments only when they are not sensitive', async () => {

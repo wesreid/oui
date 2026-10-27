@@ -10,6 +10,8 @@
  *   2. prepareStep  — called before each LLM step to control tool selection
  */
 
+import type { AgentTurnInfo } from './runtime/turn-info.js';
+
 /**
  * A tool the model can be given at a step, as a policy sees it: its name, what
  * kind of tool it is, and its class when it has one (the SDK's attachment
@@ -32,6 +34,8 @@ export interface TurnPolicy {
   classifyTurn(
     content: string,
     history?: Array<{ role: string; content: string }>,
+    /** The turn being classified: its id, its channel and how its message was entered. */
+    turn?: AgentTurnInfo,
   ): string;
 
   /**
@@ -44,6 +48,8 @@ export interface TurnPolicy {
     allToolNames: string[];
     /** The same tools with their kind and class, in the same order. */
     allTools: StepTool[];
+    /** The turn the step is part of: its id, its channel and how its message was entered. */
+    turn: AgentTurnInfo;
   }): Promise<{
     toolChoice?: 'auto' | 'none' | 'required' | { type: 'tool'; toolName: string };
     activeTools?: string[];
@@ -66,6 +72,8 @@ export interface TurnPolicy {
     content: string;
     emit: { emit: (room: string, event: string, data: unknown) => Promise<void> };
     socketRoom: string;
+    /** The turn that was classified. */
+    turn: AgentTurnInfo;
   }) => Promise<void>;
 }
 

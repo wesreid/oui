@@ -170,7 +170,7 @@ describe('a turn its own record refuses', () => {
       getHistory,
       persistMessages,
     });
-    await expect(run()).resolves.toEqual({ status: 'refused', turnId: 't1', reason: 'the turn was abandoned' });
+    await expect(run()).resolves.toEqual({ status: 'refused', turnId: 't1', reason: 'the turn was abandoned', refusedBy: 'record' });
     expect(getHistory).not.toHaveBeenCalled();
     expect(orchestrator.run).not.toHaveBeenCalled();
     expect(persistMessages).not.toHaveBeenCalled();

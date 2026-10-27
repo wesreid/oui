@@ -12,6 +12,8 @@ import {
   readReplyOutput,
   REPLY_OUTPUT_CONTEXT_KEY,
   REPLY_OUTPUT_MODES,
+  readVoiceDirections,
+  VOICE_DIRECTIONS_LIMITS,
 } from '../index.js';
 
 describe('readMessageInput', () => {
@@ -71,8 +73,37 @@ describe('readReplyOutput', () => {
     expect(readReplyOutput({ mode: 'voice' })).toEqual({ mode: 'voice' });
   });
 
-  it('keeps nothing but the mode', () => {
+  it('keeps nothing but the mode and the voice directions', () => {
     expect(readReplyOutput({ mode: 'voice', voice: 'nova', rate: 1.2 })).toEqual({ mode: 'voice' });
+  });
+
+  it('keeps the voice’s direction tags when the speaking service sends them, trimmed and each once', () => {
+    const voiceDirections = { engine: ' fish-s2 ', tags: ['[laughs]', ' [sighs] ', '[laughs]'], guidance: ' Sparingly.\nNever two in a row. ', extra: true };
+    expect(readReplyOutput({ mode: 'voice', voiceDirections })).toEqual({
+      mode: 'voice',
+      voiceDirections: { engine: 'fish-s2', tags: ['[laughs]', '[sighs]'], guidance: 'Sparingly.\nNever two in a row.' },
+    });
+  });
+
+  it('leaves out directions that are not a direction contract, and still speaks the reply', () => {
+    const ok = { engine: 'fish-s2', tags: ['[laughs]'], guidance: 'Sparingly.' };
+    for (const voiceDirections of [
+      null,
+      'fish-s2',
+      { ...ok, engine: ' ' },
+      { ...ok, engine: 'e'.repeat(VOICE_DIRECTIONS_LIMITS.engineChars + 1) },
+      { ...ok, tags: [] },
+      { ...ok, tags: '[laughs]' },
+      { ...ok, tags: [1] },
+      { ...ok, tags: Array.from({ length: VOICE_DIRECTIONS_LIMITS.tags + 1 }, (_, i) => `[t${i}]`) },
+      { ...ok, tags: ['[a\tb]'] },
+      { ...ok, guidance: '' },
+      { ...ok, guidance: 'g'.repeat(VOICE_DIRECTIONS_LIMITS.guidanceChars + 1) },
+      { ...ok, guidance: 'bell\u0007' },
+    ]) {
+      expect(readReplyOutput({ mode: 'voice', voiceDirections })).toEqual({ mode: 'voice' });
+    }
+    expect(readVoiceDirections(ok)).toEqual(ok);
   });
 
   it('reads an unknown mode, or a value that is not an output, as a reply shown as text', () => {

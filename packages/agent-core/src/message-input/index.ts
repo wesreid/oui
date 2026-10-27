@@ -78,19 +78,71 @@ export const REPLY_OUTPUT_MODES = ['voice'] as const;
 
 export type ReplyOutputMode = (typeof REPLY_OUTPUT_MODES)[number];
 
+/**
+ * What the voice that reads a spoken reply can be directed with: the inline
+ * tags its speech engine honours (`[laughs]`, `[whispering]`), and how to use
+ * them. The service that speaks the reply sends it, since only it knows which
+ * engine will read the reply; the model is told it may use those tags.
+ */
+export interface VoiceDirections {
+  /** The speech engine the tags are for, as the service names it. */
+  engine: string;
+  /** The tags the engine honours, each exactly as it is written in the text. */
+  tags: string[];
+  /** How and when to use them, in the service's words. */
+  guidance: string;
+}
+
+/** Limits on `VoiceDirections`: longer is not a direction contract, and is left out. */
+export const VOICE_DIRECTIONS_LIMITS = {
+  engineChars: 64,
+  tags: 64,
+  tagChars: 64,
+  guidanceChars: 2_000,
+} as const;
+
 /** A reply that will be spoken: a voice reads its text out, and nothing of it is shown. */
 export interface ReplyOutput {
   mode: ReplyOutputMode;
+  /** The voice's direction tags, when the speaking service offers them. */
+  voiceDirections?: VoiceDirections;
+}
+
+/** Any control character but none of the ordinary whitespace a guidance paragraph may hold. */
+// eslint-disable-next-line no-control-regex
+const DIRECTION_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
+// eslint-disable-next-line no-control-regex
+const LINE_CONTROL = /[\u0000-\u001f\u007f]/;
+
+/**
+ * `value` as voice directions, or null when it is not one: an engine, a list
+ * of tags and guidance, each a non-blank string within `VOICE_DIRECTIONS_LIMITS`
+ * and free of control characters (guidance may break lines). Tags are kept
+ * once each, in order.
+ */
+export function readVoiceDirections(value: unknown): VoiceDirections | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const { engine, tags, guidance } = value as Record<string, unknown>;
+  const line = (s: unknown, max: number): s is string => typeof s === 'string' && s.trim().length > 0 && s.length <= max && !LINE_CONTROL.test(s);
+  if (!line(engine, VOICE_DIRECTIONS_LIMITS.engineChars)) return null;
+  if (!Array.isArray(tags) || tags.length === 0 || tags.length > VOICE_DIRECTIONS_LIMITS.tags) return null;
+  if (!tags.every((t) => line(t, VOICE_DIRECTIONS_LIMITS.tagChars))) return null;
+  if (typeof guidance !== 'string' || !guidance.trim() || guidance.length > VOICE_DIRECTIONS_LIMITS.guidanceChars || DIRECTION_CONTROL.test(guidance)) {
+    return null;
+  }
+  return { engine: engine.trim(), tags: [...new Set((tags as string[]).map((t) => t.trim()))], guidance: guidance.trim() };
 }
 
 /**
  * How a reply reaches the person, when `value` says so in a way this runtime
- * knows; else null, and the reply is shown as text. Anything but the mode is
- * left out.
+ * knows; else null, and the reply is shown as text. Anything but the mode and
+ * well-formed `voiceDirections` is left out; malformed directions are left
+ * out and the reply is still spoken.
  */
 export function readReplyOutput(value: unknown): ReplyOutput | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const { mode } = value as Record<string, unknown>;
+  const { mode, voiceDirections } = value as Record<string, unknown>;
   if (typeof mode !== 'string' || !(REPLY_OUTPUT_MODES as readonly string[]).includes(mode)) return null;
-  return { mode: mode as ReplyOutputMode };
+  const directions = readVoiceDirections(voiceDirections);
+  return { mode: mode as ReplyOutputMode, ...(directions ? { voiceDirections: directions } : {}) };
 }

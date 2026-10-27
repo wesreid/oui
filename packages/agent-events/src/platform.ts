@@ -19,6 +19,8 @@ export const AGENT_TURN_EVENTS = {
   TURN_STARTED: 'agent:turn_started',
   TOKEN: 'agent:token',
   TOKEN_CLEAR: 'agent:token_clear',
+  /** A round (one model step) of the turn ended, after all of its text: whether it called tools, and whether it is the turn's last. */
+  ROUND_END: 'agent:round_end',
   TOOL_CALL_STARTED: 'agent:tool_call_started',
   TOOL_CALL_COMPLETE: 'agent:tool_call_complete',
   TURN_COMPLETE: 'agent:turn_complete',
@@ -36,6 +38,7 @@ export const AGENT_TURN_EVENTS = {
 
 const turnId: JsonSchema = { type: 'string', minLength: 1, description: 'The turn the event belongs to.' };
 const timestamp: JsonSchema = { type: 'number', description: 'When it happened, epoch ms.' };
+const step: JsonSchema = { type: 'integer', minimum: 0, description: 'The round (model step) of the turn, from 0.' };
 
 const turnEvent = (description: string, properties: Record<string, JsonSchema>, required: string[]) => ({
   description,
@@ -56,9 +59,22 @@ export const PLATFORM_EVENTS: EventDeclarationDocument = {
   rooms: {},
   events: {
     [AGENT_TURN_EVENTS.TOKEN]: turnEvent(
-      'Reply text as it streams: the next piece, not the whole reply.',
-      { text: { type: 'string' } },
+      'Reply text as it streams: the next piece, not the whole reply. Each piece belongs to one round, which `step` names.',
+      { text: { type: 'string' }, step },
       ['text'],
+    ),
+    [AGENT_TURN_EVENTS.ROUND_END]: turnEvent(
+      "A round of the turn ended, and all of its text has been sent. A consumer that shows or speaks only the turn's last word holds each round's text until this, and keeps it when `final`.",
+      {
+        step,
+        calledTools: { type: 'boolean', description: 'The round called tools.' },
+        final: {
+          type: 'boolean',
+          description:
+            "No round follows it: its text is the turn's last word. A round that ended at an approval, a choice for the person or the hand-back for time is final though it called a tool.",
+        },
+      },
+      ['step', 'calledTools', 'final'],
     ),
     [AGENT_TURN_EVENTS.TOOL_CALL_STARTED]: turnEvent(
       'A tool call began.',
@@ -141,6 +157,7 @@ export const PLATFORM_EVENTS: EventDeclarationDocument = {
             consequence: { type: 'string' },
             arguments: { type: 'array', items: { type: 'object' } },
             readback: { type: 'string' },
+            spokenReadback: { type: 'string', description: 'The readback as a voice should say it, when the host wrote one.' },
           },
           required: ['title', 'arguments', 'readback'],
         },
