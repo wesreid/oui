@@ -23,7 +23,11 @@ import { requireRealtime } from '../emit/http-adapter.js';
 export interface ApprovalStoreClient {
   /** Store a pending approval. Rejects when it was not stored: the call must then not wait on it. */
   create(pending: PendingApprovalInput): Promise<void>;
-  /** The stored call for a valid, unexpired, unused token of this user and conversation; otherwise why not. Rejects when the store cannot be reached. */
+  /**
+   * The stored call for a valid, unexpired, unused token of this user and
+   * conversation, with its receipt when the store issues one; otherwise why
+   * not. Rejects when the store cannot be reached.
+   */
   redeem(token: string, caller: { userId: string; conversationId: string }): Promise<ApprovalRedeemResult>;
   /** Where an approval of this user's stands, or null when there is none. */
   status(approvalId: string, userId: string): Promise<ApprovalStatus | null>;
@@ -99,7 +103,9 @@ export function createHttpApprovalStoreClient(config: HttpApprovalStoreClientCon
 
     async redeem(token, caller) {
       const { status, json } = await call('/internal/approvals/redeem', { token, ...caller });
-      if (status === 200) return { ok: true, call: json.call as ApprovedCall };
+      if (status === 200) {
+        return { ok: true, call: json.call as ApprovedCall, ...(typeof json.receipt === 'string' && json.receipt ? { receipt: json.receipt } : {}) };
+      }
       if (status >= 400 && status < 500 && typeof json.reason === 'string') {
         return { ok: false, reason: json.reason as ApprovalRefusalReason, error: String(json.error ?? json.reason) };
       }

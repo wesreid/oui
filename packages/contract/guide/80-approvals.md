@@ -13,6 +13,8 @@ Render the card with `ApprovalCard` from `@ouispec/agent-react`, drawn with your
 <ApprovalCard components={{ Card: MyCard, Button: MyButton }} labels={{ approve: 'Place order' }} />
 ```
 
+5. When the realtime server holds receipt keys, redemption also returns a signed **receipt**, and a host or API tool's approved call carries it to the tool's own API: a generated API tool as the `OUI-Approval-Receipt` header, a host tool on `ctx.approval.receipt`. The API verifies it offline with `verifyApprovalReceipt` from `@ouispec/agent-core` (or any JOSE library) against the server's keys at `/.well-known/oui-approval-jwks.json`, and acts on each receipt's `jti` once. The receipt names the one API it is for, fixed when the approval was stored, and lasts 120 seconds. A UI action gets none.
+
 The card takes no `agent` prop, and a package that ships its own card declares it under `oui.personOnly` (`{ "ApprovalCard": "the person's own approval" }`), so the generator refuses to bind it: the assistant can never operate its own approval. The args hash is SHA-256 over the RFC 8785 canonical JSON of the arguments, lowercase hex; `oui-spec/approval-vectors.json` holds every implementation to it, in any language.
 
 <!-- schema: approvals.json#/$defs/ApprovalRequiredEvent -->
@@ -24,3 +26,5 @@ The card takes no `agent` prop, and a package that ships its own card declares i
 <!-- schema: approvals.json#/$defs/ActionRequestApproval -->
 
 <!-- schema: approvals.json#/$defs/ApprovalTokenClaims -->
+
+<!-- schema: approvals.json#/$defs/ApprovalReceiptClaims -->

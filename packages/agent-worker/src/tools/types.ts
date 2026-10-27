@@ -55,6 +55,33 @@ export interface RegisteredTool {
    * arguments are logged only when its declaration says they are not sensitive.
    */
   argsSensitive?: boolean;
+  /**
+   * The API this tool's approved calls go to, as an origin
+   * (`https://api.example.com`): the audience of the receipt an approved call
+   * carries (`ctx.approval.receipt`), which that API verifies. A host tool
+   * that needs approval and names none gets the product's own origin, the
+   * realtime server's `approvals.defaultAudience`. A generated API tool names
+   * its server's origin itself; a UI action gets no receipt.
+   */
+  approvalAudience?: string;
+  /** For a generated API tool, its OpenAPI `operationId`, carried on an approved call's receipt. */
+  operationId?: string;
+}
+
+/**
+ * The approval a call runs on: the approval id and the args hash it is
+ * bound to, and, for a host or API tool when the realtime server holds receipt
+ * keys, the signed receipt the tool's own API verifies. A UI action's request
+ * carries only the id and hash (the browser checks its own grant).
+ */
+export interface ToolCallApproval extends ActionRequestApproval {
+  /**
+   * The approval receipt: a compact JWS the tool forwards to its API, as the
+   * `OUI-Approval-Receipt` header (`APPROVAL_RECEIPT_HEADER`) unless its API
+   * expects it elsewhere. A generated API tool sends it itself. It lasts 120
+   * seconds and its `jti` is the call's idempotency key.
+   */
+  receipt?: string;
 }
 
 export interface ToolExecutionContext {
@@ -81,11 +108,12 @@ export interface ToolExecutionContext {
    */
   uiSlot?: UISlot;
   /**
-   * Set when the call is one the user approved: a UI action's
-   * request carries it, and the browser runs the action only when it matches
-   * the grant from the user's own click.
+   * Set only on the call the user approved, never on another call of the
+   * turn. A UI action's request carries its id and hash, and the browser runs
+   * the action only when they match the grant from the user's own click. A
+   * host or API tool gets the receipt too, when there is one.
    */
-  approval?: ActionRequestApproval;
+  approval?: ToolCallApproval;
   /**
    * Whether the turn has been asked to stop. A tool that waits on
    * something it sent reads it when `abortSignal` aborts, to say what became

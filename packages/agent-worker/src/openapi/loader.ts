@@ -7,7 +7,8 @@
  *   its input its parameters and JSON request body, validated by the worker before
  *   every call.
  * - Its effect and `destructive` come from `x-agent`, and are on the tool for
- *   approvals to key on.
+ *   approvals to key on. An approved call carries its receipt to the API as the
+ *   `OUI-Approval-Receipt` header, for the API's own origin (`approvalAudience`).
  * - Its required permissions are its standard `security` requirement.
  * - A call runs as the caller the required `actAs` seam names, and the API decides
  *   what that caller may do.
@@ -21,6 +22,7 @@
  * operation.
  */
 import { effectAccess, effectKind, type ActionEffect } from '@ouispec/bindings';
+import { approvalReceiptAudience } from '@ouispec/agent-core';
 import type { EventCatalog, EventWaiter } from '@ouispec/agent-events';
 import { asyncToolResult, awaitAsyncTool, bindAsyncTool, parseWaitTimeout, type BoundAsyncTool } from '../tools/async-binding.js';
 import type { RegisteredTool, ToolExecutionContext, ToolExecutionResult } from '../tools/types.js';
@@ -342,6 +344,8 @@ function checkOptions(options: OpenApiToolsOptions): string {
  */
 export function loadOpenApiTools(document: OpenApiDocument, options: OpenApiToolsOptions): OpenApiTool[] {
   const baseUrl = checkOptions(options);
+  // The origin every operation is called at: an approved call's receipt is for it alone.
+  const approvalAudience = approvalReceiptAudience(new URL(baseUrl).origin)!;
   if (!document || typeof document.openapi !== 'string' || !/^3\.\d+(\.\d+)?/.test(document.openapi)) {
     throw new OpenApiToolError('loadOpenApiTools: this is not an OpenAPI 3 document (its `openapi` field is not 3.x)');
   }
@@ -417,6 +421,9 @@ export function loadOpenApiTools(document: OpenApiDocument, options: OpenApiTool
         // The approval card's title and consequence come from the operation.
         title: summary || operationId,
         ...(exposure.consequence ? { consequence: exposure.consequence } : {}),
+        // An approved call's receipt names the API it goes to, and the operation.
+        approvalAudience,
+        operationId,
         operation: {
           operationId,
           method,

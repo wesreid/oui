@@ -3,7 +3,8 @@
  *
  * It carries turn events and the product's declared events to rooms, holds
  * UI action results for the agent worker, keeps the approvals an
- * irreversible action waits on, signs and checks room tokens, and
+ * irreversible action waits on, signs the receipts an approved call carries
+ * to its tool and publishes their keys, signs and checks room tokens, and
  * accepts only declared client events. The product supplies the
  * seams (types.ts); nothing here belongs to one product.
  */
@@ -24,6 +25,8 @@ import { createRoomTokenSigner, type RoomTokenSigner } from './rooms/room-token.
 import { createOUIResultStore, type OUIResultStore } from './oui/results.js';
 import { createApprovalTokenSigner } from './approvals/token.js';
 import { createApprovalStore, type ApprovalStore } from './approvals/store.js';
+import { createApprovalReceiptSigner, type ApprovalReceiptKey, type ApprovalReceiptSigner } from './approvals/receipt.js';
+import { receiptJwksRouter } from './approvals/jwks-route.js';
 import { createTurnStopStore, type TurnStopStore } from './turns/stops.js';
 import { createTurnStopEvent } from './turns/client-event.js';
 import { turnStopsRouter } from './turns/routes.js';
@@ -52,6 +55,15 @@ export interface RealtimeServerInstance {
   results: OUIResultStore;
   /** The approval store. */
   approvals: ApprovalStore;
+  /** The receipt signer, when the server has receipt keys; null otherwise. */
+  receipts: ApprovalReceiptSigner | null;
+  /**
+   * Replaces the receipt keys without a restart: one step of a rotation, read
+   * from the product's secret store. Checked as at start-up; on a problem it
+   * throws and the keys in use stay. Throws on a server started without
+   * receipt keys.
+   */
+  setReceiptKeys(keys: readonly ApprovalReceiptKey[]): void;
   /** Job settlements, when the server has event declarations. */
   settlements: SettlementStore | null;
   /** Stop requests for turns. */
@@ -83,6 +95,8 @@ export async function createRealtimeServer(config: RealtimeServerConfig): Promis
   const logger = config.logger ?? createConsoleLogger();
   const roomTokens = createRoomTokenSigner(config.roomTokens);
   const approvalTokens = createApprovalTokenSigner(config.approvals);
+  const { receiptKeys, receiptIssuer, defaultAudience } = config.approvals;
+  const receipts = receiptKeys ? createApprovalReceiptSigner({ keys: receiptKeys, issuer: receiptIssuer! }) : null;
   // Compiled before anything connects: a payload schema that cannot compile
   // fails start-up, naming the event.
   const declared = config.events ? createDeclaredEvents(config.events) : null;
@@ -105,7 +119,7 @@ export async function createRealtimeServer(config: RealtimeServerConfig): Promis
     );
   }
   const results = createOUIResultStore(pub, resultsSub, logger);
-  const approvals = createApprovalStore(pub, approvalTokens, logger);
+  const approvals = createApprovalStore(pub, approvalTokens, logger, receipts ? { receipts: { signer: receipts, defaultAudience: defaultAudience! } } : {});
   const stops = createTurnStopStore(pub, resultsSub, logger);
   const settlements = declared ? createSettlementStore(pub, resultsSub, logger) : null;
 
@@ -124,6 +138,8 @@ export async function createRealtimeServer(config: RealtimeServerConfig): Promis
   assertUniqueClientEvents(clientEvents);
 
   const app = express();
+  // Before helmet and the CORS allow-list: the published receipt keys are public, read from any origin.
+  app.use(receiptJwksRouter(() => receipts));
   app.use(helmet());
   app.use(cors({ origin: config.corsOrigins, credentials: true }));
   app.use(express.json({ limit: '1mb' }));
@@ -196,7 +212,10 @@ export async function createRealtimeServer(config: RealtimeServerConfig): Promis
     });
   });
   const port = (httpServer.address() as AddressInfo).port;
-  logger.info({ port, declaredEvents: config.events?.names().length ?? null }, 'Realtime server listening');
+  logger.info(
+    { port, declaredEvents: config.events?.names().length ?? null, ...(receipts ? { receiptIssuer: receipts.issuer, receiptKid: receipts.activeKid() } : {}) },
+    'Realtime server listening',
+  );
 
   return {
     io,
@@ -205,6 +224,13 @@ export async function createRealtimeServer(config: RealtimeServerConfig): Promis
     roomTokens,
     results,
     approvals,
+    receipts,
+    setReceiptKeys(keys) {
+      if (!receipts) throw new Error('[agent-sdk-realtime] This server was started without approvals.receiptKeys, so it has no receipt keys to replace');
+      const before = receipts.activeKid();
+      receipts.setKeys(keys);
+      logger.info({ receiptKid: receipts.activeKid(), previousKid: before, published: receipts.jwks().keys.map((k) => k.kid) }, 'Approval receipt keys replaced');
+    },
     settlements,
     stops,
     async close() {

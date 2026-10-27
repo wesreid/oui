@@ -92,7 +92,32 @@ In a browser, the turn after the decision comes from `ApprovalCard` (`@ouispec/a
 
 On a call there is no card. The live-call handler sends the preview's `readback`, verbatim, after the turn's text, and the person answers in words. Their next utterance comes as an ordinary message, and your `resolveTurn` decides whether it approves: classify the words, then decide as the user on a conversation channel with the approval store client (`createHttpApprovalStoreClient(...).decide(approvalId, { userId, decision, channel: 'voice' })`). An `approve` answers with the token; return `approval: { approvalId, decision: 'approve', token }` on the turn's target, and the turn runs exactly the stored call, once. Anything else (a no, a correction, a new request) leaves the approval to expire, or decline it with `decision: 'decline'`. A UI action that needs approval still runs only on the grant from the tab's own card click: the tab's OUI runtime refuses one approved by voice, so on a call put irreversible acts in host or API tools, or let the page show the card.
 
-Declare a host tool's approval needs on the tool itself: `effect`, `destructive`, `title`, `consequence`, and `argsSensitive: false` when its arguments may be logged. Without an approval store, such a call is refused and never runs. The runtime uses the realtime server's store unless you pass `approvals.store`.
+Declare a host tool's approval needs on the tool itself: `effect`, `destructive`, `title`, `consequence`, `argsSensitive: false` when its arguments may be logged, and `approvalAudience`, the origin of the API its approved calls go to (see "The receipt an approved call carries"). Without an approval store, such a call is refused and never runs. The runtime uses the realtime server's store unless you pass `approvals.store`.
+
+### The receipt an approved call carries
+
+When the realtime server has receipt keys, redeeming the token also returns a signed receipt, and the approved call carries it to the tool's own API, so that API can refuse any irreversible request no user approved:
+
+- **A generated API tool** sends it as the `OUI-Approval-Receipt` header (`APPROVAL_RECEIPT_HEADER`), on the approved call only, never on another call of the turn. Its audience is the origin of the `baseUrl` it was loaded with, and the receipt names its `operationId`. A header of that name from your `actAs` is dropped.
+- **A host tool** finds it on `ctx.approval.receipt`, beside `approvalId` and `argsHash`, and forwards it however its API expects; the header name is the recommended one. Its audience is its `approvalAudience` (an origin such as `https://bookings.example.com`), or, when it names none, the realtime server's `approvals.defaultAudience`. A tool whose `approvalAudience` is not an origin is not asked for approval: the call is refused and never runs.
+- **A UI action** gets none: the browser checks its own grant, and a receipt never reaches a browser.
+
+The receipt's audience is fixed when the approval is stored, with the call. It lasts 120 seconds. With a realtime server that has no receipt keys, `ctx.approval.receipt` is absent and nothing is sent. Update the realtime server before the worker: an older one refuses the pending approval's new fields (`audience`, `toolKind`, `operationId`, `accountId`), and no approval can be asked for.
+
+The API verifies it with `verifyApprovalReceipt` from `@ouispec/agent-core`:
+
+```ts
+import { APPROVAL_RECEIPT_HEADER, argsHash, verifyApprovalReceipt } from '@ouispec/agent-core';
+
+const checked = await verifyApprovalReceipt(req.get(APPROVAL_RECEIPT_HEADER) ?? '', {
+  jwks: 'https://realtime.example.com/.well-known/oui-approval-jwks.json',
+  // The tool's input as the worker sent it: every path, query and body parameter by its declared name.
+  expectedArgsHash: await argsHash({ dealerId: req.params.dealerId, ...req.body }),
+  audience: 'https://bookings.example.com',
+});
+if (!checked.ok) return res.status(403).json({ code: 'APPROVAL_RECEIPT', reason: checked.reason });
+// Single use is yours: act on each checked.claims.jti at most once, and keep it for at least two minutes.
+```
 
 Two hooks give you a say before an approval is asked for. Both are told the turn (`turn`, `channel`), the user, account and conversation, and `locale`: the language the person's message was recognised in (on a call, the request's `input.language`), null for a typed message.
 
@@ -323,7 +348,7 @@ Each tool:
 - takes its parameters and JSON body as input, with `$ref`s inlined, 3.0 `nullable` read as `null`, and `readOnly` fields left out. A closed object body's fields sit beside the parameters; any other body is the `body` property. The input refuses undeclared properties, and the worker validates every call against it;
 - carries `effect` and `destructive` for approvals to key on, and its operation's standard `security` requirement as the permissions it needs;
 - calls the API with the headers `actAs` returns, so the API treats the call as that caller. A permission the caller lacks comes back as the route's own refusal. The tool returns it as its error, with the status and body, and the model reads it;
-- runs a `transaction` only with the person's approval of that exact call: the worker's approval card supplies it, and its title and consequence come from the operation's `summary` and `x-agent.consequence`. Without one, as over MCP, it returns `APPROVAL_REQUIRED` and sends nothing.
+- runs a `transaction` only with the person's approval of that exact call: the worker's approval card supplies it, and its title and consequence come from the operation's `summary` and `x-agent.consequence`. Without one, as over MCP, it returns `APPROVAL_REQUIRED` and sends nothing. The approved call carries its receipt as the `OUI-Approval-Receipt` header, for the API's origin ("The receipt an approved call carries").
 
 Refused at load, naming the operation: `pa` on anything but a read, a missing or invalid `operationId`, a missing `effect`, an unknown `x-agent` key, `destructive` on a read, a read on `PUT`, `PATCH` or `DELETE`, no security requirement (use `[]` for a public operation), an undeclared security scheme, a non-JSON body, a self-referencing or external `$ref`, and a path whose template and parameters disagree.
 

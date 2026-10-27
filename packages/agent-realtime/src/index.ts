@@ -4,7 +4,7 @@
  *
  * The product supplies: an auth verifier, a room policy, the internal key, the
  * room-token secret, the approval signing key, Redis and its CORS origins,
- * and optionally its event declarations.
+ * and optionally its approval receipt keys and its event declarations.
  * The server handles: declared client events, room tokens, the UI action
  * result store, the approval store, the emit API (held to the declarations),
  * job settlements, and fan-out across instances.
@@ -57,3 +57,12 @@ export { createApprovalStore, DECLINED_TTL_SEC } from './approvals/store.js';
 export type { ApprovalStore, ApprovalRedis } from './approvals/store.js';
 export { createApprovalTokenSigner, MIN_APPROVAL_KEY_LENGTH } from './approvals/token.js';
 export type { ApprovalTokenSigner, ApprovalTokenCheck } from './approvals/token.js';
+export {
+  createApprovalReceiptSigner,
+  generateApprovalReceiptKey,
+  approvalReceiptKeysProblem,
+  receiptIssuer,
+  MAX_RECEIPT_KID_LENGTH,
+} from './approvals/receipt.js';
+export type { ApprovalReceiptKey, ApprovalReceiptSigner, ApprovalReceiptSubject, IssuedApprovalReceipt } from './approvals/receipt.js';
+export { receiptJwksRouter } from './approvals/jwks-route.js';

@@ -11,7 +11,12 @@ export const pendingApprovalSchema = Joi.object({
   conversationId: id.required(),
   turnId: id.required(),
   userId: id.required(),
+  accountId: id,
   tool: id.required(),
+  toolKind: Joi.string().valid('ui', 'backend'),
+  operationId: id,
+  // An origin; the store checks it is exactly one.
+  audience: Joi.string().max(2048).pattern(/^https?:\/\/[^/?#]+$/),
   args: Joi.object().unknown(true).required(),
   argsHash: Joi.string().pattern(ARGS_HASH_PATTERN).required(),
   effect: Joi.string().min(1).max(64).required(),

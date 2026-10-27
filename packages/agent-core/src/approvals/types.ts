@@ -137,6 +137,7 @@ export type {
   ApprovalRefusalReason,
   ApprovalRequiredEvent,
   ApprovalStatus,
+  ApprovalReceiptClaims,
   ApprovalTokenClaims,
   ApprovedCall,
   PendingApprovalInput,

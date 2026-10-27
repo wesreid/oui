@@ -24,14 +24,14 @@ const ENTRIES: Record<string, string[]> = {
   '@ouispec/bindings/oui': ['connectBindings', 'createDeclaredJobTracker'],
   '@ouispec/cli': ['generate', 'loadConfig'],
   '@ouispec/testing': ['checkDesignSystem', 'checkApp', 'checkTier2', 'readShippedPackage'],
-  '@ouispec/agent-core': ['AGENT_SOCKET_EVENTS', 'APPROVAL_DECIDE_EVENT'],
+  '@ouispec/agent-core': ['AGENT_SOCKET_EVENTS', 'APPROVAL_DECIDE_EVENT', 'verifyApprovalReceipt', 'APPROVAL_RECEIPT_HEADER'],
   '@ouispec/agent-events': ['createEventCatalog', 'PLATFORM_EVENTS', 'AGENT_TURN_EVENTS'],
   '@ouispec/agent-events/validate': [],
   '@ouispec/agent-events/codegen': [],
   '@ouispec/agent-worker': ['createLambdaAgentHandler', 'startContainerAgentWorker', 'PROMPT_CACHE_BREAKPOINTS'],
   '@ouispec/agent-worker/lambda': ['createLambdaAgentHandler'],
   '@ouispec/agent-worker/container': ['startContainerAgentWorker'],
-  '@ouispec/agent-realtime': ['createRealtimeServer'],
+  '@ouispec/agent-realtime': ['createRealtimeServer', 'generateApprovalReceiptKey'],
   '@ouispec/agent-realtime/testing': ['startTestRedis'],
   '@ouispec/agent-react': ['AgentProvider', 'useAgent', 'ApprovalCard'],
   '@ouispec/agent-mcp': ['createMCPApiToolServer', 'handleMCPRequest'],
@@ -66,6 +66,21 @@ describe('the installed packages', () => {
     expect(files.length).toBeGreaterThanOrEqual(12);
     const manifest = JSON.parse(readFileSync(join(dir, 'oui-manifest.json'), 'utf8'));
     expect(manifest.$id).toMatch(/\/oui\/v1\/oui-manifest\.json$/);
+  });
+
+  it('an approval receipt verifies as the published vectors say, from the installed package', async () => {
+    const { verifyApprovalReceipt } = await import('@ouispec/agent-core');
+    const file = JSON.parse(readFileSync(join(ROOT, 'node_modules/@ouispec/agent-core/dist/receipt-vectors.json'), 'utf8'));
+    expect(file.vectors.length).toBeGreaterThan(0);
+    for (const vector of file.vectors) {
+      const result = await verifyApprovalReceipt(vector.receipt, {
+        jwks: file.jwks,
+        audience: file.audience,
+        expectedArgsHash: file.expectedArgsHash,
+        now: file.now * 1000,
+      });
+      expect(result.ok ? 'ok' : result.reason, vector.name).toBe(vector.result.ok ? 'ok' : vector.result.reason);
+    }
   });
 
   it('the platform\'s own events make a catalog', async () => {
