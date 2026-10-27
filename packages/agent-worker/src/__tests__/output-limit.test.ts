@@ -77,11 +77,18 @@ const inspect: RegisteredTool = {
 
 async function turn(model: unknown) {
   const tokens: string[] = [];
+  /** The turn's text and round ends, in order: `step:text` and `end:step:final`. */
+  const rounds: string[] = [];
   const config: AgentWorkerConfig = {
     tools: createToolRegistry([inspect]),
     emit: {
       emit: vi.fn(async (_room: string, event: string, data: unknown) => {
-        if (event === 'agent:token') tokens.push((data as { text: string }).text);
+        const d = data as { text: string; step: number; final: boolean };
+        if (event === 'agent:token') {
+          tokens.push(d.text);
+          rounds.push(`${d.step}:${d.text}`);
+        }
+        if (event === 'agent:round_end') rounds.push(`end:${d.step}:${d.final}`);
       }),
     },
     model: model as AgentWorkerConfig['model'],
@@ -97,7 +104,7 @@ async function turn(model: unknown) {
   };
   const { runAgentTurn } = await import('../orchestrator.js');
   const result = await runAgentTurn(config, input);
-  return { result, reply: tokens.join('') };
+  return { result, reply: tokens.join(''), rounds };
 }
 
 const text = (prompt: PromptMessage[]) =>
@@ -117,7 +124,9 @@ describe('a step cut off at the output limit before it said or called anything',
 
   it('runs again without the discarded output, told to plan less, and the turn goes on', async () => {
     const { model, prompts } = scripted([{ call: 'layer_inspect' }, 'cut-off', { say: 'Starting with the spin.' }]);
-    const { result, reply } = await turn(model);
+    const { result, reply, rounds } = await turn(model);
+    // Neither the round that called a tool nor the one cut off is the turn's last word; the one run again is.
+    expect(rounds).toEqual(['end:0:false', 'end:1:false', '2:Starting with the spin.', 'end:2:true']);
 
     expect(prompts).toHaveLength(3);
     // The cut-off step had no note; the step that replaced it is told why it runs again, after its conversation.
@@ -142,10 +151,12 @@ describe('a step cut off at the output limit before it said or called anything',
 
   it('tells the person, and stores it, when the step that replaced it is cut off too', async () => {
     const { model, prompts } = scripted(['cut-off', 'cut-off']);
-    const { result, reply } = await turn(model);
+    const { result, reply, rounds } = await turn(model);
 
     expect(prompts).toHaveLength(2);
     expect(reply).toMatch(/^I ran out of room while working out how to do this, before I could start, so nothing was changed\./);
+    // The apology is a round of its own, after the two cut-off rounds, and the turn's last word.
+    expect(rounds).toEqual(['end:0:false', 'end:1:false', `2:${reply}`, 'end:2:true']);
     expect(result.stopReason).toBe('output_limit');
     expect(result.newMessages).toEqual([{ role: 'assistant', content: reply }]);
   });

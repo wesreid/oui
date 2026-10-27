@@ -1844,9 +1844,11 @@ export async function runAgentTurn(
           cacheWriteTokens: stepUsage?.inputTokenDetails?.cacheWriteTokens ?? 0,
         });
         // A round that called tools is the last when the turn stops after it (an approval, a choice, the
-        // hand-back for time) or it was the last step allowed.
+        // hand-back for time) or it was the last step allowed. A round cut off at the output limit having
+        // said and called nothing never is: it runs again, or the person is told (below).
+        const cutOff = finishReason === 'length' && !text && !calledTools;
         const final =
-          !calledTools || recordedSteps.length >= maxRounds || endsAfterRound((toolCalls ?? []).map((tc) => tc.toolName));
+          !cutOff && (!calledTools || recordedSteps.length >= maxRounds || endsAfterRound((toolCalls ?? []).map((tc) => tc.toolName)));
         roundEnds.push({ at: stepTextReported, calledTools, final, paragraph: !!text && calledTools });
         // Sent now when the stream has already delivered the round's text; else when it has.
         await endReachedRounds();
