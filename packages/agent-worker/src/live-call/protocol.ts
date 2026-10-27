@@ -12,10 +12,12 @@
  *   Content-Type: application/json
  *   Accept: text/event-stream
  *
- *   { sessionId, clientRef, turnId, kind, text, input?, output?, supersedes? }
+ *   { sessionId, clientRef, turnId, kind, text, input?, output?, supersedes?, caller? }
  *
  * `input` is `{ mode: 'voice', language? }` for what the person said and
- * `{ mode: 'text' }` for what they typed during the call.
+ * `{ mode: 'text' }` for what they typed during the call. `caller` is
+ * `{ timeZone }`, the caller's IANA zone, when the call service knows it: the
+ * turn's date and time are given on that clock.
  *
  * and the answer is `200 text/event-stream`:
  *
@@ -27,6 +29,7 @@
  * with `: keep-alive` comments while nothing else is sent.
  */
 import { readMessageInput, readReplyOutput, type MessageInput, type ReplyOutput } from '@ouispec/agent-core';
+import { CLIENT_TIME_ZONE_KEY, readClientTimeZone } from '../prompt/clock.js';
 
 /** `message`: the person said `text`. `opening`: the call has just connected; nothing has been said, and the agent greets. */
 export const LIVE_CALL_TURN_KINDS = ['message', 'opening'] as const;
@@ -55,6 +58,13 @@ export interface LiveCallTurnRequest {
   output: ReplyOutput | null;
   /** Turns this one replaces: the call service closed their streams because the person spoke again. */
   supersedes: string[];
+  /**
+   * The caller's IANA time zone, as their browser reported it to the call
+   * service (`caller.timeZone` on the wire). The turn's `<now>` is on this clock
+   * unless the host's own context names one. Null when the call does not know it,
+   * or names a zone this runtime does not.
+   */
+  callerTimeZone: string | null;
 }
 
 /** The events of a live-call turn's response stream. */
@@ -167,8 +177,15 @@ export function readLiveCallTurnRequest(body: unknown): LiveCallRequestReading {
       input: kind === 'opening' || isTyped(b.input) ? null : readMessageInput(b.input),
       output: readReplyOutput(b.output),
       supersedes: [...new Set(supersedes as string[])].filter((id) => id !== b.turnId),
+      callerTimeZone: readCallerTimeZone(b.caller),
     },
   };
+}
+
+/** The caller's zone from `caller`, when it is one this runtime knows. Anything else is no zone, never a refusal: the date is then UTC. */
+function readCallerTimeZone(caller: unknown): string | null {
+  if (!caller || typeof caller !== 'object' || Array.isArray(caller)) return null;
+  return readClientTimeZone({ [CLIENT_TIME_ZONE_KEY]: (caller as Record<string, unknown>).timeZone });
 }
 
 /** Whether `input` says the message was typed during the call. */

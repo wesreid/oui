@@ -41,6 +41,7 @@ describe('readLiveCallTurnRequest', () => {
         input: { mode: 'voice', language: 'en' },
         output: { mode: 'voice' },
         supersedes: SPOKEN.supersedes,
+        callerTimeZone: null,
       },
     });
   });
@@ -54,7 +55,7 @@ describe('readLiveCallTurnRequest', () => {
     ]) {
       expect(readLiveCallTurnRequest(body)).toEqual({
         ok: true,
-        request: { sessionId: SPOKEN.sessionId, clientRef: SPOKEN.clientRef, turnId: SPOKEN.turnId, kind: 'opening', text: '', input: null, output: { mode: 'voice' }, supersedes: [] },
+        request: { sessionId: SPOKEN.sessionId, clientRef: SPOKEN.clientRef, turnId: SPOKEN.turnId, kind: 'opening', text: '', input: null, output: { mode: 'voice' }, supersedes: [], callerTimeZone: null },
       });
     }
   });
@@ -128,5 +129,19 @@ describe('liveCallError', () => {
 
   it('keeps an unknown code and says only that the turn failed', () => {
     expect(liveCallError('THROWN')).toEqual({ code: 'THROWN', message: 'The turn failed.' });
+  });
+});
+
+describe('the caller', () => {
+  it('reads the caller’s time zone when it is a real one, and no zone otherwise (never a refusal)', () => {
+    const zone = (caller: unknown) => {
+      const reading = readLiveCallTurnRequest({ ...SPOKEN, caller });
+      return reading.ok ? reading.request.callerTimeZone : 'refused';
+    };
+    expect(zone({ timeZone: 'America/New_York' })).toBe('America/New_York');
+    expect(zone(undefined)).toBeNull();
+    expect(zone({ timeZone: 'Mars/Olympus_Mons' })).toBeNull();
+    expect(zone({ timeZone: 42 })).toBeNull();
+    expect(zone('Europe/Paris')).toBeNull();
   });
 });

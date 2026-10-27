@@ -102,6 +102,20 @@ describe('the turn the handler runs', () => {
     expect(typeof runner.hosts[0].observe).toBe('function');
   });
 
+  it('puts the caller’s time zone on the context, unless the host’s context already names one', async () => {
+    const runner = stubRunner(async (p) => ({ status: 'completed', turnId: p.turnId, rounds: 1 }));
+    const url = await mount(runner);
+    await call(url, { text: 'What day is it?', caller: { timeZone: 'America/New_York' } });
+    expect(runner.payloads[0].context).toMatchObject({ timeZone: 'America/New_York' });
+
+    const hostKnows = stubRunner(async (p) => ({ status: 'completed', turnId: p.turnId, rounds: 1 }));
+    const hostUrl = await mount(hostKnows, {
+      resolveTurn: async () => ({ ...TARGET, context: { ...TARGET.context, timeZone: 'Europe/Paris' } }),
+    });
+    await call(hostUrl, { text: 'What day is it?', caller: { timeZone: 'America/New_York' } });
+    expect(hostKnows.payloads[0].context).toMatchObject({ timeZone: 'Europe/Paris' });
+  });
+
   it('runs a message typed during the call as typed: no input on the context, the reply still spoken', async () => {
     const runner = stubRunner(async (p) => ({ status: 'completed', turnId: p.turnId, rounds: 1 }));
     const res = await call(await mount(runner), { text: 'What is the VIN?', input: { mode: 'text' }, output: { mode: 'voice' } });

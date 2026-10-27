@@ -21,6 +21,7 @@
  *                 405 not POST · 409 turn already running · 413 too large
  *                 415 not JSON · 500 the host's resolver failed · 503 at capacity or closing
  */
+import { CLIENT_TIME_ZONE_KEY, readClientTimeZone } from '../prompt/clock.js';
 import crypto from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
@@ -331,6 +332,8 @@ function turnPayload(request: LiveCallTurnRequest, target: LiveCallTurnTarget): 
   delete context[REPLY_OUTPUT_CONTEXT_KEY];
   if (request.input) context[MESSAGE_INPUT_CONTEXT_KEY] = request.input;
   if (request.output) context[REPLY_OUTPUT_CONTEXT_KEY] = request.output;
+  // The caller's clock, when the host's own context does not already name one.
+  if (request.callerTimeZone && readClientTimeZone(context) === null) context[CLIENT_TIME_ZONE_KEY] = request.callerTimeZone;
   return {
     turnId: request.turnId,
     conversationId: target.conversationId,

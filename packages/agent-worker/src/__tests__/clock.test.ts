@@ -136,3 +136,20 @@ describe('a turn’s context names today’s date in the user’s zone', () => {
     expect((await firstStepTail()).text).toContain('It is Friday 2 October 2026 (2026-10-02), 23:30 UTC');
   });
 });
+
+/**
+ * Twin of the call service's own clock test (studio-gateway `present.rs`):
+ * a live call answered by Closure's model and a PA turn read the present in the
+ * same words, so the same instant and zone must give the same sentence here.
+ */
+describe('the sentence the gateway also writes', () => {
+  it('is word for word the gateway’s, with a zone and without one', () => {
+    const now = new Date('2026-10-27T14:49:24Z');
+    expect(clockText(now, 'Europe/Paris').split('\n')[1]).toBe(
+      "It is Tuesday 27 October 2026 (2026-10-27), 15:49 in the user's time zone, Europe/Paris (UTC+01:00).",
+    );
+    expect(clockText(now, null).split('\n')[1]).toBe(
+      "It is Tuesday 27 October 2026 (2026-10-27), 14:49 UTC (the user's time zone is not known, so say UTC when you name a time).",
+    );
+  });
+});
