@@ -1,10 +1,11 @@
 # @ouispec/agent-realtime
 
-The realtime server for agent turns and UI actions. One implementation serves every product. It does six things:
+The realtime server for agent turns and UI actions. One implementation serves every product. It does seven things:
 
 - **Carries events.** Turn events, UI action dispatches and the product's own events reach rooms through the internal emit API.
 - **Holds UI action results.** It keeps each browser's answer to a UI action for the agent worker that asked. Answers are shared across instances through Redis.
 - **Keeps approvals.** An irreversible action runs only on an approval the user gave, bound to the exact call by a single-use token.
+- **Signs approval receipts.** With receipt keys, the approved call carries a signed receipt to the tool's own API, which verifies it against the keys this server publishes.
 - **Signs and checks room tokens.** A room token admits one user to one room.
 - **Checks client events.** It accepts only the client events it declares, and puts each one through a chain: rate limit, size cap, schema, then authorization against the verified identity.
 - **Restricts relays.** A client can relay only allow-listed events, and only into rooms its socket has joined.
@@ -25,6 +26,7 @@ Every seam is required. When one is missing, the server fails at start-up and na
 | Port | `port` | The port to listen on. `0` picks a free one. |
 
 Optional:
+- `approvals.receiptKeys`, `approvals.receiptIssuer` and `approvals.defaultAudience`: approval receipts (see "Approval receipts"). The three go together.
 - `events`: your event declarations, with the platform's own: `createEventCatalog(PLATFORM_EVENTS, yourEvents)` from `@ouispec/agent-events` (see below).
 - `relay`: the client-relayable events, each with a room prefix and a data schema. With `events`, the declaration supplies both, so `{}` is enough; the event must be a declared `notice` that does not go to a turn's room.
 - `clientEvents`: your own declared events, built with `defineClientEvent`.
@@ -59,9 +61,9 @@ All of them require the `x-api-key` header.
 | `POST /api/emit` `{ event, data, rooms? }` | Sends a server event to rooms. With no `rooms`, it goes to every socket. |
 | `POST /internal/room-token` `{ userId, room }` | Signs a room token (see above). |
 | `GET /internal/oui/action-results/:requestId?userId=&waitMs=&final=1` | Returns the browser's answer to a UI action. The first answer wins. With `final=1` you get an async action's final answer instead. Answers are returned only to the turn's own user. `200` carries the result; `204` means not yet, so ask again. A wait lasts at most 25 s. |
-| `POST /internal/approvals` | Stores a pending approval (the worker, or a conversation engine). `201`; `400` for a bad body, a hash that does not match the arguments, or an expiry more than 30 minutes away; `409` for an id already stored. |
+| `POST /internal/approvals` | Stores a pending approval (the worker, or a conversation engine), with the receipt's audience fixed now (see "Approval receipts"). `201`; `400` for a bad body, a hash that does not match the arguments, an expiry more than 30 minutes away, an `audience` that is not an origin, or a UI action that names one; `409` for an id already stored. |
 | `POST /internal/approvals/:id/decide` `{ userId, decision, channel }` | A conversation channel's decision (`voice`, `phone`, `sms`, `chat`), made by the engine for the session's user. A `ui` decision is refused here: in a UI only the user's click counts. |
-| `POST /internal/approvals/redeem` `{ token, userId, conversationId }` | Atomic single use. `200 { call }` returns exactly the stored call. `403` for a token this environment did not sign, another user's or conversation's, or one not for the stored call; `410` for an expired or already used one. |
+| `POST /internal/approvals/redeem` `{ token, userId, conversationId }` | Atomic single use. `200 { call, receipt? }` returns exactly the stored call, and its receipt when this server has receipt keys and the call is a host or API tool's. `403` for a token this environment did not sign, another user's or conversation's, or one not for the stored call; `410` for an expired or already used one, with no receipt. |
 | `GET /internal/approvals/:id?userId=` | Where an approval of this user's stands: `pending`, `approved` or `declined` (remembered for 30 minutes). |
 | `POST /internal/approvals/:id/settle` `{ userId, conversationId, confirm? }` | Whether an approval a conversation still shows as waiting expired with nobody deciding it. Always `200 { approvalId, outcome, expiresAt? }`: `claimed` (it expired without having run, and this caller holds the claim to store that, for two minutes; `decided: "approved"` when the user had approved it and it was never used), `already` (another turn holds the claim, or it is stored), `open` (pending, or approved and not yet used), `unknown` (declined, used, another user's or conversation's, or not remembered). With `confirm: true`, the caller has stored it and the claim becomes permanent: `confirmed`. |
 | `POST /internal/approvals/:id/settle` `{ userId, conversationId, expire }` | Expires an approval now instead of at its time limit, saying why: `expire` is `superseded` (the user sent a new message while its card waited) or `stopped` (the turn that asked was stopped). `200 { approvalId, outcome }`: `withdrawn` (it was pending, or approved and not yet used, and is now gone: a decision is refused and its token answers `used`), `settled` (it had already ended), `unknown`. A later settle then answers `claimed` with `withdrawn: "superseded" \| "stopped"`. |
@@ -69,6 +71,7 @@ All of them require the `x-api-key` header.
 | `GET /internal/turns/:turnId/stop?userId=&waitMs=` | The stop asked for on a turn by its user, which the turn's worker holds open for as long as the turn runs. `200` carries `{ turnId, by, reason, at }`; `204` means none yet. A wait lasts at most 25 s. The record is kept 30 minutes. |
 | `GET /internal/events/settlements/:kind/:id?waitMs=` | How a job of a declared kind ended: `{ kind, role, event, id, payload }`, with `role` `completion` or `failure`. `204` means not yet; `400` an undeclared kind; `404` a server without `events`. A wait lasts at most 25 s. |
 | `GET /health` | Returns `200` with connection and pending-wait counts. No key needed. |
+| `GET /.well-known/oui-approval-jwks.json` | The approval receipt keys, public parts only, as a JWKS. No key needed, any origin, `Cache-Control: public, max-age=3600`. `404` on a server without receipt keys. |
 
 ## Approvals
 
@@ -83,6 +86,27 @@ An approval can also be withdrawn before its time is up (`settle` with `expire`)
 A declined approval is deleted and remembered for the next turn. Every issue, decision and redemption is logged with the approval id, user, tool, effect, channel and args hash. The arguments are logged only when their declaration marks them not sensitive, and a token never is.
 
 The token's claims are `aid sub cid tool ah eff ch iat exp jti`. `ah` is `argsHash(args)` from `@ouispec/agent-core`: SHA-256 over the RFC 8785 canonical JSON. The package ships `approval-vectors.json`, which every other implementation must match.
+
+## Approval receipts
+
+The approval token proves the user's decision inside the product. A tool's own API cannot check it: verifying an HS256 token takes the key that signs one, and redemption deletes the record. So when it redeems a token, the server also signs a **receipt**: this user approved exactly this call, in this conversation, and it was redeemed just now. The worker carries it on the approved call (the `OUI-Approval-Receipt` header for a generated API tool, `ctx.approval.receipt` for a host tool), and the tool verifies it offline with `verifyApprovalReceipt` from `@ouispec/agent-core`, or any JOSE library.
+
+- **Format.** A compact JWS, header `{ "alg": "EdDSA", "typ": "oui-approval-receipt+jwt", "kid" }`, signed with Ed25519. Claims: `iss` (`receiptIssuer`), `aud`, `approvalId`, `argsHash`, `tool`, `operationId` (a generated API tool's), `conversationId`, `userId`, `accountId` (when the turn has one), `channel` (how it was approved), `iat`, `exp` (`iat` + 120) and `jti`. `@ouispec/agent-core/receipt-vectors.json` holds every implementation to it.
+- **Audience.** Fixed when the approval is stored, from the pending approval's `audience`: the origin a generated API tool calls, or a host tool's declared `approvalAudience`. A host tool that names none gets `defaultAudience`, your own API's origin. A UI action (`toolKind: 'ui'`) gets no receipt: the browser checks its own grant. Redemption signs the stored audience and takes none.
+- **Issued once.** Only at redemption, so never for a pending, declined, expired or withdrawn approval, and a replayed token gets neither the call nor a receipt. Redemption logs the receipt's `kid`, `jti`, audience and expiry, never the receipt.
+- **Single use is the tool's.** The server never sees the tool's request. The tool records each `jti` it acts on for at least two minutes, and answers a repeat with the first result, or refuses it.
+
+### Keys and rotation
+
+`approvals.receiptKeys` is a list of Ed25519 private keys as JWKs (`{ kty: 'OKP', crv: 'Ed25519', kid, x, d }`), with `active: true` on exactly the one that signs. The server refuses to start on a key whose `x` is not its `d`'s, a key id listed twice, or anything but one active key. `generateApprovalReceiptKey({ kid, active })` makes one. Every key's public part is published, the active one first; `d`, `active` and any member of your own are not.
+
+Rotate without a restart, reading each step from your secret store:
+
+1. Add the new key, not active: `server.setReceiptKeys([current, next])`. It is published at once.
+2. An hour later (one cache period), make it the active one: `[{ ...next, active: true }, { ...current, active: false }]`.
+3. Keep the old key published for at least one more hour and the receipt lifetime, then remove it: `[{ ...next, active: true }]`.
+
+A verifier that meets a key id it does not know reads the key set again, at most once a minute. `setReceiptKeys` checks a list as start-up does, and keeps the keys in use when it throws. Each environment has its own keys and its own `receiptIssuer`.
 
 ## Stopping a turn
 
@@ -109,7 +133,13 @@ const server = await createRealtimeServer({
   },
   internalApiKey: secrets.realtimeInternalKey,
   roomTokens: { secret: secrets.roomTokenSecret },
-  approvals: { signingKey: secrets.approvalSigningKey },
+  approvals: {
+    signingKey: secrets.approvalSigningKey,
+    // Optional: approval receipts for your tools' own APIs.
+    receiptKeys: secrets.approvalReceiptKeys,
+    receiptIssuer: 'https://realtime.example.com',
+    defaultAudience: 'https://api.example.com',
+  },
   redis: { host: env.REDIS_HOST, port: 6379, tls: true },
   corsOrigins: ['https://app.example.com'],
   port: 3331,

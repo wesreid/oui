@@ -23,6 +23,7 @@ import type { ModelMessage, AssistantModelMessage, ToolModelMessage, TextPart, T
 import {
   AGENT_SOCKET_EVENTS,
   argsHash,
+  approvalReceiptAudience,
   canonicalJson,
   isTurnEndReason,
   turnStoppedNote,
@@ -34,7 +35,7 @@ import { DEFAULT_STOP_GRACE_MS, TurnStopped, stopOf, watchTurnStop, type TurnSto
 import { stoppedTurnMessages, type RecordedCall, type RecordedStep } from './stop/partial.js';
 import { resultText, stoppedNotRun, stoppedWhileRunning } from './stop/results.js';
 import type { AgentWorkerConfig, AgentTurnInput, AgentTurnResult, TurnMessage, TurnHistoryMessage } from './types.js';
-import type { RegisteredTool, ToolExecutionContext, ToolExecutionResult } from './tools/types.js';
+import type { RegisteredTool, ToolCallApproval, ToolExecutionContext, ToolExecutionResult } from './tools/types.js';
 import { defaultTurnPolicy, type StepTool, type TurnPolicy } from './turn-policy.js';
 import { createStepClock, timeHandBackNote } from './time-hand-back.js';
 import { createReasoningRelay } from './reasoning-relay.js';
@@ -457,7 +458,7 @@ export async function runAgentTurn(
     rawArgs: unknown,
     toolUseId: string,
     uiSlot: UISlot | undefined,
-    approved?: { approvalId: string; argsHash: string },
+    approved?: ToolCallApproval,
   ): Promise<CallOutcome> => {
     const startMs = Date.now();
     const isUI = t.kind === 'ui';
@@ -764,7 +765,10 @@ export async function runAgentTurn(
           ...toolCtx,
           toolCallId: toolUseId,
           ...(uiSlot ? { uiSlot } : {}),
-          ...(approved ? { approval: approved } : {}),
+          // Only this call carries its approval. A UI action gets no receipt: the browser checks its own grant.
+          ...(approved
+            ? { approval: isUI ? { approvalId: approved.approvalId, argsHash: approved.argsHash } : approved }
+            : {}),
         }),
         new Promise<ToolExecutionResult>((_, reject) => {
           timer = setTimeout(() => reject(new Error(`Tool ${t.name} timed out after ${timeoutMs}ms`)), timeoutMs);
@@ -914,6 +918,15 @@ export async function runAgentTurn(
       hold.title = preview.title;
     }
 
+    // The receipt's audience is fixed now, with the call: the API the tool calls. A UI action gets no receipt.
+    const isUI = t.kind === 'ui';
+    let audience: string | undefined;
+    if (!isUI && t.approvalAudience !== undefined) {
+      const origin = approvalReceiptAudience(t.approvalAudience);
+      if (!origin) return refuse(`its approvalAudience "${t.approvalAudience}" is not an origin such as https://api.example.com`);
+      audience = origin;
+    }
+
     const expiresAt = Date.now() + requirement.ttlMs;
     try {
       const hash = await argsHash(args);
@@ -923,7 +936,11 @@ export async function runAgentTurn(
         conversationId: input.conversationId,
         turnId,
         userId: input.userId,
+        ...(input.accountId ? { accountId: input.accountId } : {}),
         tool: t.name,
+        toolKind: isUI ? 'ui' : 'backend',
+        ...(!isUI && t.operationId ? { operationId: t.operationId } : {}),
+        ...(audience ? { audience } : {}),
         args,
         argsHash: hash,
         effect: requirement.effectName,
@@ -1235,6 +1252,7 @@ export async function runAgentTurn(
     const executed = await executeCall(tool, call.args, call.approvalId, uiSlot, {
       approvalId: call.approvalId,
       argsHash: call.argsHash,
+      ...(outcome.receipt ? { receipt: outcome.receipt } : {}),
     }).finally(() => uiSlot?.release());
     const { ran } = executed;
     // The result says it was approved by the person and run once (or not run), for this turn and every later one.

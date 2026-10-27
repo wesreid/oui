@@ -539,7 +539,8 @@ async function runAction(
     actionId: entry.id,
     params: input,
     timestamp: Date.now(),
-    ...(ctx.approval ? { approval: ctx.approval } : {}),
+    // The id and hash the tab checks against its grant; a receipt is never sent to a browser.
+    ...(ctx.approval ? { approval: { approvalId: ctx.approval.approvalId, argsHash: ctx.approval.argsHash } } : {}),
     ...(knownSurfaces ? { knownSurfaces } : {}),
     // The tab runs a request only for its current turn (oui-spec §7.3.1).
     turnId: ctx.turnId,

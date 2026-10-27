@@ -4,7 +4,11 @@
  * The API decides what the caller may do: a permission they lack comes back as the
  * route's own refusal (a 403), which is returned as the tool's error, with the
  * status and body, for the model to read. Nothing here widens or checks access.
+ *
+ * The call the person approved carries its approval receipt as the
+ * `OUI-Approval-Receipt` header, for the API to verify; no other call does.
  */
+import { APPROVAL_RECEIPT_HEADER } from '@ouispec/agent-core';
 import type { ToolExecutionContext, ToolExecutionResult } from '../tools/types.js';
 import type { HttpMethod } from './document.js';
 
@@ -146,6 +150,9 @@ export async function executeOperation(
   const headers: Record<string, string> = { accept: 'application/json' };
   if (body !== undefined) headers['content-type'] = 'application/json';
   Object.assign(headers, identity);
+  // Only the approved call has a receipt on its context. Set last: actAs never stands in for it.
+  for (const name of Object.keys(headers)) if (name.toLowerCase() === APPROVAL_RECEIPT_HEADER.toLowerCase()) delete headers[name];
+  if (ctx.approval?.receipt) headers[APPROVAL_RECEIPT_HEADER] = ctx.approval.receipt;
 
   let response: Response;
   try {

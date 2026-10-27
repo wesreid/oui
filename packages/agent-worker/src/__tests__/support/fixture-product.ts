@@ -9,8 +9,8 @@ import { io as connectClient, type Socket } from 'socket.io-client';
 import { createWebSocketTransport } from 'oui-spec/transport';
 import { createSurfaceRuntime, defineSurface, type ActionHandlerResult, type MountedSurface } from 'oui-spec/core';
 import type { OUIAction, OUIActionRequest, OUISurface } from 'oui-spec/spec';
-import { APPROVAL_DECIDE_EVENT, type ApprovalDecideResult, type ApprovalDecision } from '@ouispec/agent-core';
-import { createRealtimeServer, type RealtimeServerInstance, type RoomPolicy } from '@ouispec/agent-realtime';
+import { APPROVAL_DECIDE_EVENT, APPROVAL_RECEIPT_JWKS_PATH, type ApprovalDecideResult, type ApprovalDecision } from '@ouispec/agent-core';
+import { createRealtimeServer, generateApprovalReceiptKey, type RealtimeServerInstance, type RoomPolicy } from '@ouispec/agent-realtime';
 import { startTestRedis, type TestRedis } from '@ouispec/agent-realtime/testing';
 import { MANIFEST_VERSION, resolveKnowledge, type GeneratedKnowledge } from '@ouispec/bindings';
 import { fixtureEvents } from './fixture-events.js';
@@ -18,6 +18,10 @@ import { fixtureEvents } from './fixture-events.js';
 export const INTERNAL_KEY = 'fixture-product-internal-key';
 const TOKEN_SECRET = 'fixture-product-room-token-secret-000';
 export const APPROVAL_KEY = 'fixture-product-approval-signing-key-01';
+/** Every receipt's `iss`: the realtime server's public base URL, as the product configures it. */
+export const RECEIPT_ISSUER = 'https://realtime.fixture.example';
+/** The product's own API origin: the receipt audience of a host tool that names none. */
+export const PRODUCT_API_ORIGIN = 'https://api.fixture.example';
 
 /** The product's users, keyed by the session token its browser holds. */
 const SESSIONS: Record<string, { userId: string; accountId: string }> = {
@@ -269,6 +273,8 @@ function withHandlers(surface: OUISurface, show: (path: string) => void) {
 
 export interface FixtureProduct {
   realtimeUrl: string;
+  /** Where the realtime server publishes its approval receipt keys. */
+  receiptJwksUrl: string;
   /** Calls the realtime server's internal API with the product's key, as its backend does. */
   internal(path: string, body?: unknown): Promise<{ status: number; body: Record<string, unknown> }>;
   openTab(session: string, turnRoom: string): Promise<FixtureTab>;
@@ -291,7 +297,12 @@ export async function startFixtureProduct(): Promise<FixtureProduct> {
     roomPolicy: policy,
     internalApiKey: INTERNAL_KEY,
     roomTokens: { secret: TOKEN_SECRET },
-    approvals: { signingKey: APPROVAL_KEY },
+    approvals: {
+      signingKey: APPROVAL_KEY,
+      receiptKeys: [generateApprovalReceiptKey({ kid: 'fixture-receipt-key', active: true })],
+      receiptIssuer: RECEIPT_ISSUER,
+      defaultAudience: PRODUCT_API_ORIGIN,
+    },
     redis: redis.config,
     events: fixtureEvents,
     corsOrigins: ['http://localhost'],
@@ -302,6 +313,7 @@ export async function startFixtureProduct(): Promise<FixtureProduct> {
   const realtimeUrl = `http://127.0.0.1:${server.port}`;
   return {
     realtimeUrl,
+    receiptJwksUrl: `${realtimeUrl}${APPROVAL_RECEIPT_JWKS_PATH}`,
     async internal(path, body) {
       const res = await fetch(`${realtimeUrl}${path}`, {
         method: body === undefined ? 'GET' : 'POST',

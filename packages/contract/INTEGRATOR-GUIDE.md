@@ -696,6 +696,8 @@ Render the card with `ApprovalCard` from `@ouispec/agent-react`, drawn with your
 <ApprovalCard components={{ Card: MyCard, Button: MyButton }} labels={{ approve: 'Place order' }} />
 ```
 
+5. When the realtime server holds receipt keys, redemption also returns a signed **receipt**, and a host or API tool's approved call carries it to the tool's own API: a generated API tool as the `OUI-Approval-Receipt` header, a host tool on `ctx.approval.receipt`. The API verifies it offline with `verifyApprovalReceipt` from `@ouispec/agent-core` (or any JOSE library) against the server's keys at `/.well-known/oui-approval-jwks.json`, and acts on each receipt's `jti` once. The receipt names the one API it is for, fixed when the approval was stored, and lasts 120 seconds. A UI action gets none.
+
 The card takes no `agent` prop, and a package that ships its own card declares it under `oui.personOnly` (`{ "ApprovalCard": "the person's own approval" }`), so the generator refuses to bind it: the assistant can never operate its own approval. The args hash is SHA-256 over the RFC 8785 canonical JSON of the arguments, lowercase hex; `oui-spec/approval-vectors.json` holds every implementation to it, in any language.
 
 > **Schema:** [`approvals.json#/$defs/ApprovalRequiredEvent`](schemas/approvals.json) · `https://schemas.closurestudio.ai/oui/v1/approvals.json#/$defs/ApprovalRequiredEvent` · TypeScript: `ApprovalRequiredEvent` from `@ouispec/contract`
@@ -741,6 +743,24 @@ The card takes no `agent` prop, and a package that ships its own card declares i
 > | `iat` | integer | yes | Issued at, epoch seconds. |
 > | `exp` | integer | yes | Expires at, epoch seconds. |
 > | `jti` | string | yes | A nonce. |
+
+> **Schema:** [`approvals.json#/$defs/ApprovalReceiptClaims`](schemas/approvals.json) · `https://schemas.closurestudio.ai/oui/v1/approvals.json#/$defs/ApprovalReceiptClaims` · TypeScript: `ApprovalReceiptClaims` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `iss` | string | yes | The realtime server's public base URL. |
+> | `aud` | string | yes | The one API the receipt is for: an origin, fixed when the approval was created. |
+> | `approvalId` | string | yes | The approval id, which is the tool call id. |
+> | `argsHash` | ArgsHash | yes | The approved call's args hash. |
+> | `tool` | string | yes | The tool's name, as the worker offered it. |
+> | `operationId` | string |  | For a generated API tool, its OpenAPI `operationId`. |
+> | `conversationId` | string | yes |  |
+> | `userId` | string | yes | The user who approved it. |
+> | `accountId` | string |  | The user's account, when the product has one. |
+> | `channel` | ApprovalChannel | yes | How it was approved. |
+> | `iat` | integer | yes | Issued at, epoch seconds. |
+> | `exp` | integer | yes | Expires at, epoch seconds: `iat` + 120. |
+> | `jti` | string | yes | Unique to this receipt: the call's idempotency key. |
 
 ## The conformance kit
 

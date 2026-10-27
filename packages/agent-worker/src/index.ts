@@ -11,7 +11,7 @@ export type { AgentWorkerConfig, AgentTurnInput, AgentTurnResult, TurnMessage, T
 export type { RealtimeEmitAdapter } from './emit/types.js';
 export { filterEmitAdapter } from './emit/filter.js';
 export type { TurnEventFilter } from './emit/filter.js';
-export type { ToolRegistry, RegisteredTool, ToolExecutionResult, ToolExecutionContext } from './tools/types.js';
+export type { ToolRegistry, RegisteredTool, ToolExecutionResult, ToolExecutionContext, ToolCallApproval } from './tools/types.js';
 export { createToolRegistry } from './tools/types.js';
 export { loadToolsFromSchema } from './tools/schema-loader.js';
 export type { LoadToolsOptions } from './tools/schema-loader.js';

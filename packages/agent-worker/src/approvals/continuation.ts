@@ -9,8 +9,8 @@ import type { ApprovalContinuation, ApprovalRefusalReason, ApprovalWithdrawReaso
 import type { ApprovalStoreClient } from './client.js';
 
 export type ContinuationOutcome =
-  /** Approved and redeemed: run this call, exactly. */
-  | { kind: 'run'; call: ApprovedCall }
+  /** Approved and redeemed: run this call, exactly, carrying its receipt when the store issued one. */
+  | { kind: 'run'; call: ApprovedCall; receipt?: string }
   /**
    * Nothing runs; the model is told why. `settled`: the person's decision, or
    * the approval's expiry, ended the call for good, so the call's stored result
@@ -267,5 +267,5 @@ export async function resolveContinuation(
       ...(redeemed.reason === 'expired' ? { settled: 'expired' as const } : {}),
     };
   }
-  return { kind: 'run', call: redeemed.call };
+  return { kind: 'run', call: redeemed.call, ...(redeemed.receipt ? { receipt: redeemed.receipt } : {}) };
 }
