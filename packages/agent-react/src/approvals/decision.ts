@@ -8,7 +8,7 @@ import { createContext } from 'react';
 import type { ApprovalChannel, ApprovalDecision, ApprovalRefusal } from '@ouispec/agent-core';
 import type { AgentApprovalRequest } from '../provider/types.js';
 
-/** How the person decided the pending approval outside the card: by voice, on the phone or in chat (ADR-0284). */
+/** How the person decided the pending approval outside the card: by voice, on the phone or in chat. */
 export interface ApprovalDecidedElsewhere {
   decision: ApprovalDecision;
   channel: ApprovalChannel;

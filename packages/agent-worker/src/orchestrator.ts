@@ -180,7 +180,7 @@ export async function runAgentTurn(
   /**
    * How a call's approval is given: in the turn's channel, a UI action's too on
    * voice, phone and chat, where the readback approves it as its card does
-   * (ADR-0284); a UI action's on SMS by its card on the person's screen.
+   *; a UI action's on SMS by its card on the person's screen.
    */
   const confirmedBy = (t: RegisteredTool): ApprovalChannel => approvalConfirmedBy(approvalChannel, t.kind);
 

@@ -239,7 +239,7 @@ describe.each<HostAdapter>(['lambda', 'container'])('on the %s adapter', (adapte
     expect(await product.emit('oui:dispatch', forged, [`chat:turn:forged-${adapter}`])).toBe(200);
     const answer = await product.internal(`/internal/oui/action-results/${requestId}?userId=${FIXTURE_TURN.userId}&waitMs=5000`);
     expect(answer).toMatchObject({ status: 200, body: { requestId, success: false, error: { code: 'APPROVAL_REQUIRED' } } });
-    // With an approval this tab was never given: another tab's to answer (ADR-0284). Refused on its receipt, and neither
+    // With an approval this tab was never given: another tab's to answer. Refused on its receipt, and neither
     // run nor answered here, so the sender keeps sending it until the tab that holds the grant accepts it.
     const claimed = { ...forged, requestId: `${requestId}-claimed`, approval: { approvalId: 'call_never_approved', argsHash: await argsHash(cfo) } };
     const sent = await product.internal('/api/emit', { event: 'oui:dispatch', data: claimed, rooms: [`chat:turn:forged-${adapter}`], ackTimeoutMs: 2_000 });

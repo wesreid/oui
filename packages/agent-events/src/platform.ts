@@ -53,7 +53,7 @@ export const AGENT_CONVERSATION_EVENTS = {
 /**
  * What the approval store pushes to the room of the turn that asked for an
  * approval of an action on the person's page, when the person decides it in
- * a conversation channel (ADR-0284): the single-use grant one tab claims, or
+ * a conversation channel: the single-use grant one tab claims, or
  * the decline, so the card on screen says so. Only the approval store sends
  * them, in the step that decides: the realtime server's emit API refuses
  * them, so no backend or relay announces a grant the person did not give.

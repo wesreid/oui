@@ -29,7 +29,7 @@ export const APPROVAL_CLAIM_EVENT = 'approval:claim';
 /**
  * The conversation channels on which an action on the person's page is
  * approved by its verbatim readback and an affirmative next turn, as well as
- * by its card (ADR-0284): a call in the product's page, a call through a
+ * by its card: a call in the product's page, a call through a
  * carrier, and a chat that sends the readback as text. Never SMS, which has
  * no page beside it, and never `ui`, where a typed yes is a message.
  */

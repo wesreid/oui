@@ -301,7 +301,7 @@ export interface AgentClientConfig {
    * in oui-spec), so the approved UI action runs when the worker dispatches it.
    * Called after the user's click on the approval card is accepted, and when
    * this tab claimed the grant the realtime server pushed because the person
-   * approved by voice, on the phone or in chat (ADR-0284). Return the
+   * approved by voice, on the phone or in chat. Return the
    * runtime's answer: `false` when it refused the grant (one it held or used:
    * a replay), so the card does not say it was approved. Required for
    * approvals of UI actions: without it the tab refuses them. A platform whose

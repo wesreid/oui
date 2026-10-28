@@ -146,7 +146,7 @@ export interface FixtureTab {
   /**
    * The tab has this conversation open in this room (already joined): from now
    * on it takes a grant the store pushes for it, as agent-react's provider
-   * does (ADR-0284): checked against the conversation and the rooms it is in,
+   * does: checked against the conversation and the rooms it is in,
    * claimed on its own socket, and handed to its OUI runtime.
    */
   follow(conversationId: string, room: string): void;

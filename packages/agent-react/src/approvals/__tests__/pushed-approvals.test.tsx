@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * A UI action approved by voice (ADR-0284), in the tab: the card of a call's
+ * A UI action approved by voice, in the tab: the card of a call's
  * turn shows in the tab that follows the conversation; the grant the store
  * pushes to the conversation's room is claimed on the tab's own socket and
  * handed to its OUI runtime, which runs the approved request once; the card

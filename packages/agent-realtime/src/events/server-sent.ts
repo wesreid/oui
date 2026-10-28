@@ -2,7 +2,7 @@
  * The events only the server's own routes send, each with the state that
  * makes it true: a conversation's take-over, hand-back and messages (with the
  * hold), and the grant or decline of an approval given in a conversation
- * channel (with the decision, ADR-0284). `/api/emit` refuses them, and so does
+ * channel (with the decision). `/api/emit` refuses them, and so does
  * a client's relay, whatever its rules allow: an event never says a
  * conversation changed hands, or that the person approved, when they did not.
  */

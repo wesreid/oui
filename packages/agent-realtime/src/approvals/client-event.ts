@@ -6,7 +6,7 @@
  *   approval's token is answered only to this socket, in the event's ack.
  * - `approval:claim`: the tab takes the grant the store pushed to its room
  *   when the person approved an action on their page by voice, on the phone or
- *   in chat (ADR-0284). The claimer is the socket's verified identity, in the
+ *   in chat. The claimer is the socket's verified identity, in the
  *   rooms the server holds it in; only the first claim gets the grant.
  */
 import {

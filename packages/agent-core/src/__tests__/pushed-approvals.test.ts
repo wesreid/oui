@@ -1,5 +1,5 @@
 /**
- * What the approval store pushes to a tab (ADR-0284), as every tab reads it:
+ * What the approval store pushes to a tab, as every tab reads it:
  * only a well-formed grant or decline is taken, and a grant is a tab's only
  * for the conversation it has open, in a room it is in, before it expires.
  */

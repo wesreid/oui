@@ -29,7 +29,7 @@
  *                             userId, conversationId, room, argsHash,
  *                             expiresAt, channel, and the claiming socket once
  *                             claimed), written in the script that approves
- *                             it, until the grant expires (ADR-0284)
+ *                             it, until the grant expires
  *   approval:conversation:{conversationId}
  *                           → set of the conversation's approval ids, kept as
  *                             long as its longest-lived approval: what a
@@ -173,7 +173,7 @@ return 'ok'`;
 // ('1' or '0'), grant id, grant ttl ms.
 // A decline decides it: it is no longer something that can expire. An approval is recorded in the
 // memory (same TTL), so if the approved call is never run its expiry is not told as "undecided".
-// An action on the person's page is approved by its card, or by its readback on a channel that may (ADR-0284): then
+// An action on the person's page is approved by its card, or by its readback on a channel that may: then
 // only with the room stored with it, where the single-use grant is written for the tab to claim. The grant lasts
 // until the approval expires or its own ttl runs out, whichever is first. Answers the room for the store to push to.
 const DECIDE = `

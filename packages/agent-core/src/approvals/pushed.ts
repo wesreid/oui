@@ -1,6 +1,6 @@
 /**
  * What the approval store pushes to a tab when the person decides an action on
- * their page in a conversation channel (ADR-0284): the single-use grant, when
+ * their page in a conversation channel: the single-use grant, when
  * they approved it by voice, on the phone or in chat after its verbatim
  * readback; or the decline. Reading, checking and claiming them, browser-safe,
  * so every tab (agent-react's provider, a host's own UI, a scripted tab) does

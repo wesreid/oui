@@ -1021,7 +1021,7 @@ describe('approvals on a call', () => {
 
 });
 
-describe('a UI action approved by a spoken yes (ADR-0284)', () => {
+describe('a UI action approved by a spoken yes', () => {
   const onReports = { currentPath: '/reports', oui: { surfaces: [shellSurface, reportsSurface], observations: {} } };
   const input = { reportId: 'q3', to: 'cfo@desk.example' };
   const SEND = (id: string) => ({ id, name: 'ui_act', args: { action: 'reports_send', input } });

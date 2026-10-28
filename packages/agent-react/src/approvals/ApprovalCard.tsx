@@ -10,7 +10,7 @@
  * message text. A "yes" typed in the product's chat is only a message.
  *
  * On a call, or in a chat where the agent read the call back, the person may
- * also decide by saying so (ADR-0284). The card then shows how they decided
+ * also decide by saying so. The card then shows how they decided
  * ("Approved by voice") and its buttons go; the grant reaches this tab's
  * runtime from the store, and the conversation's own turn carries the token.
  *

@@ -535,7 +535,7 @@ describe('a conversation channel deciding through the engine route', () => {
   });
 });
 
-describe('an action on the person’s page (ADR-0284)', () => {
+describe('an action on the person’s page', () => {
   const ROOM = 'agent:conversation:conv-1';
   const page = { toolKind: 'ui' as const, tool: 'orders_place_ui', room: ROOM };
 

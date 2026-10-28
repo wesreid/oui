@@ -726,7 +726,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     });
   };
 
-  // --- An approval decided in a conversation channel, and a card from a turn this tab did not start (ADR-0284) ---
+  // --- An approval decided in a conversation channel, and a card from a turn this tab did not start ---
   // The grants this tab has claimed or tried to, by grant id: a replayed push is not claimed twice.
   const claimedGrantsRef = useRef<Set<string>>(new Set());
   const handleApprovalPushRef = useRef<(event: string, data: unknown) => void>(() => {});

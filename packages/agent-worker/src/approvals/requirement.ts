@@ -50,7 +50,7 @@ export const READBACK_APPROVAL_TOOL_NOTE =
   'back or ask for a yes yourself first, and never treat a yes given before the readback as confirmation.';
 
 /**
- * A UI action on a voice, phone or chat channel (ADR-0284): the customer is
+ * A UI action on a voice, phone or chat channel: the customer is
  * read the call back, word for word, and their confirming next message
  * approves it as a click on its card does; the card is on their screen too.
  */
@@ -76,7 +76,7 @@ export const VOICE_APPROVAL_CHANNELS: ReadonlySet<ApprovalChannel> = new Set<App
 /**
  * How a call's approval is given on the turn's channel: in a UI, the card; on
  * a conversation channel, the readback, a UI action's too on voice, phone and
- * chat (ADR-0284); a UI action on SMS, the card on the person's screen.
+ * chat; a UI action on SMS, the card on the person's screen.
  */
 export function approvalConfirmedBy(channel: ApprovalChannel, toolKind: RegisteredTool['kind'] = 'backend'): ApprovalChannel {
   return toolKind === 'ui' && !approvesUIByReadback(channel) ? 'ui' : channel;

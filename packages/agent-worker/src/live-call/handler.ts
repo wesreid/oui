@@ -24,7 +24,7 @@
  *
  * A call is a voice: an approval is read back (the host's `spokenReadback`
  * when it wrote one) and the person's next words confirm it, as on any voice
- * channel. A UI action's too (ADR-0284): its card is also on the person's
+ * channel. A UI action's too: its card is also on the person's
  * screen, and when the host decides a spoken yes, the realtime server pushes
  * the page the grant it runs the action on.
  *
