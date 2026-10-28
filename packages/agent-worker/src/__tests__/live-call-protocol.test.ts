@@ -44,6 +44,7 @@ describe('readLiveCallTurnRequest', () => {
         output: { mode: 'voice' },
         supersedes: SPOKEN.supersedes,
         disclosureLine: null,
+        client: null,
       },
     });
   });
@@ -57,7 +58,7 @@ describe('readLiveCallTurnRequest', () => {
     ]) {
       expect(readLiveCallTurnRequest(body)).toEqual({
         ok: true,
-        request: { sessionId: SPOKEN.sessionId, clientRef: SPOKEN.clientRef, turnId: SPOKEN.turnId, kind: 'opening', text: '', input: null, output: { mode: 'voice' }, supersedes: [], disclosureLine: null },
+        request: { sessionId: SPOKEN.sessionId, clientRef: SPOKEN.clientRef, turnId: SPOKEN.turnId, kind: 'opening', text: '', input: null, output: { mode: 'voice' }, supersedes: [], disclosureLine: null, client: null },
       });
     }
   });
@@ -190,5 +191,48 @@ describe('liveCallError', () => {
 
   it('keeps an unknown code and says only that the turn failed', () => {
     expect(liveCallError('THROWN')).toEqual({ code: 'THROWN', message: 'The turn failed.' });
+  });
+});
+
+describe('the person’s page on a call turn (client.ui)', () => {
+  const page = {
+    buildId: 'deos-site-b41c',
+    currentPath: '/inventory/rav4-hybrid-blue',
+    oui: { index: [{ id: 'page:Vehicle', name: 'Vehicle', description: 'One vehicle', index: ['vehicle.show_photos'] }], observations: {} },
+    uiKnowledge: { entries: [], workflows: [] },
+  };
+
+  it('is read as the page sent it, on a message and an opening alike', () => {
+    for (const body of [{ ...SPOKEN, client: { ui: page } }, { ...SPOKEN, kind: 'opening', text: '', client: { ui: page } }]) {
+      const reading = readLiveCallTurnRequest(body);
+      expect(reading.ok && reading.request.client).toEqual({ ui: page });
+    }
+  });
+
+  it('is null when the call says nothing of it, and ui is null when the page has none', () => {
+    const silent = readLiveCallTurnRequest(SPOKEN);
+    expect(silent.ok && silent.request.client).toBeNull();
+    const none = readLiveCallTurnRequest({ ...SPOKEN, client: { ui: null } });
+    expect(none.ok && none.request.client).toEqual({ ui: null });
+  });
+
+  it('keeps only the fields it knows, so a newer call service is read past', () => {
+    const reading = readLiveCallTurnRequest({ ...SPOKEN, client: { ui: { ...page, theme: 'dark' }, device: 'phone' } });
+    expect(reading.ok && reading.request.client).toEqual({ ui: page });
+  });
+
+  it('refuses a known field of the wrong type, and a page heavier than the bound, naming it', () => {
+    const cases: Array<[unknown, RegExp]> = [
+      ['phone', /^client must be an object/],
+      [{ ui: 'page' }, /^client\.ui must be an object/],
+      [{ ui: { buildId: 7 } }, /^client\.ui\.buildId/],
+      [{ ui: { currentPath: '/a\n/b' } }, /^client\.ui\.currentPath/],
+      [{ ui: { oui: [] } }, /^client\.ui\.oui must be an object/],
+      [{ ui: { uiKnowledge: 'x' } }, /^client\.ui\.uiKnowledge must be an object/],
+      [{ ui: { oui: { notes: 'x'.repeat(LIVE_CALL_LIMITS.clientUiBytes) } } }, /^client\.ui is \d+ bytes, more than 65536/],
+    ];
+    for (const [client, error] of cases) {
+      expect(refusal(readLiveCallTurnRequest({ ...SPOKEN, client }))).toMatch(error);
+    }
   });
 });

@@ -192,6 +192,8 @@ export type {
   LiveCallStreamEvents,
   LiveCallStreamEventName,
   LiveCallRequestReading,
+  LiveCallClient,
+  LiveCallClientUi,
 } from './live-call/protocol.js';
 export { DEFAULT_KEEP_ALIVE_MS as LIVE_CALL_KEEP_ALIVE_MS } from './live-call/event-stream.js';
 

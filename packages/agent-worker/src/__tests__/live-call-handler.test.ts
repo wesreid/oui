@@ -10,7 +10,7 @@ import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AGENT_SOCKET_EVENTS } from '@ouispec/agent-core';
 import { createLiveCallTurnHandler, type LiveCallTurnHandlerConfig, type LiveCallTurnTarget } from '../live-call/handler.js';
-import { LIVE_CALL_OPENING_MESSAGE, liveCallOpeningMessage } from '../live-call/protocol.js';
+import { LIVE_CALL_LIMITS, LIVE_CALL_OPENING_MESSAGE, liveCallOpeningMessage } from '../live-call/protocol.js';
 import type { AgentTurnRunner, TurnHost, TurnOutcome } from '../runtime/turn-runner.js';
 import type { AgentTurnPayload } from '../runtime/types.js';
 
@@ -177,6 +177,68 @@ describe('the turn the handler runs', () => {
     const runner = stubRunner(async (p) => ({ status: 'completed', turnId: p.turnId, rounds: 1 }));
     await call(await mount(runner), {});
     expect(runner.payloads[0].context).toEqual({ currentPath: '/inventory', oui: { surfaces: [] } });
+  });
+
+  it('puts the person’s page on the turn’s context as a typed turn from that page carries it', async () => {
+    const page = {
+      buildId: 'deos-site-b41c',
+      currentPath: '/inventory/rav4-hybrid-blue',
+      oui: { index: [{ id: 'page:Vehicle', name: 'Vehicle', description: 'One vehicle', index: ['vehicle.show_photos'] }], observations: {} },
+      uiKnowledge: { entries: [{ id: 'vehicle', text: 'One vehicle and its photos.' }], workflows: [] },
+    };
+    const runner = stubRunner(async (p) => ({ status: 'completed', turnId: p.turnId, rounds: 1 }));
+    const seen: unknown[] = [];
+    const bare = { ...TARGET, context: null };
+    const url = await mount(runner, {
+      resolveTurn: (request) => {
+        seen.push(request.client);
+        return bare;
+      },
+    });
+    await call(url, { output: { mode: 'voice' }, client: { ui: page } });
+    expect(runner.payloads[0].context).toEqual({
+      output: { mode: 'voice' },
+      oui: page.oui,
+      uiKnowledge: page.uiKnowledge,
+      currentPath: page.currentPath,
+    });
+    // The host sees the whole of it, its build included, to check or log.
+    expect(seen).toEqual([{ ui: page }]);
+  });
+
+  it('keeps what the host’s own context sets, and adds nothing for a call with no page', async () => {
+    const runner = stubRunner(async (p) => ({ status: 'completed', turnId: p.turnId, rounds: 1 }));
+    const url = await mount(runner);
+    await call(url, { client: { ui: { currentPath: '/service', oui: { index: [], observations: {} }, uiKnowledge: { entries: [] } } } });
+    // TARGET's context sets currentPath and oui itself: those stay; uiKnowledge is the page's.
+    expect(runner.payloads[0].context).toEqual({ currentPath: '/inventory', oui: { surfaces: [] }, uiKnowledge: { entries: [] } });
+
+    for (const client of [undefined, { ui: null }]) {
+      const plain = stubRunner(async (p) => ({ status: 'completed', turnId: p.turnId, rounds: 1 }));
+      await call(await mount(plain), client === undefined ? {} : { client });
+      expect(plain.payloads[0].context).toEqual({ currentPath: '/inventory', oui: { surfaces: [] } });
+    }
+  });
+
+  it('refuses a page that is not one, naming it, and runs nothing', async () => {
+    const runner = stubRunner(async (p) => ({ status: 'completed', turnId: p.turnId, rounds: 1 }));
+    const res = await fetch(await mount(runner), {
+      method: 'POST',
+      headers: { authorization: `Bearer ${CREDENTIAL}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: 's-1', clientRef: 'ref-1', turnId: 't-1', kind: 'message', text: 'Hello', client: { ui: { oui: 'x' } } }),
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: { code: 'INVALID_REQUEST', message: 'client.ui.oui must be an object' } });
+    expect(runner.payloads).toEqual([]);
+  });
+
+  it('takes a turn whose page is at its bound: the body limit leaves room for it', async () => {
+    const runner = stubRunner(async (p) => ({ status: 'completed', turnId: p.turnId, rounds: 1 }));
+    const notes = 'x'.repeat(LIVE_CALL_LIMITS.clientUiBytes - 64);
+    const url = await mount(runner, { resolveTurn: () => ({ ...TARGET, context: null }) });
+    const { status } = await call(url, { text: 'y'.repeat(LIVE_CALL_LIMITS.textChars), client: { ui: { oui: { notes } } } });
+    expect(status).toBe(200);
+    expect((runner.payloads[0].context as { oui: { notes: string } }).oui.notes).toBe(notes);
   });
 
   it('carries the decision the host made on a readback', async () => {

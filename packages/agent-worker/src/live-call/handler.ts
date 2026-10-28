@@ -22,6 +22,13 @@
  * stops there, with the same end. The call service quiets the character on it
  * until the conversation is handed back.
  *
+ * The person's page can send its UI into the call: the call service then
+ * carries its latest on every turn (`client.ui`), and the handler puts it on
+ * the turn's context under the names a typed turn from that page uses (`oui`,
+ * `uiKnowledge`, `currentPath`). The turn's UI tools are then the page's, as on
+ * a typed turn, and its UI actions reach that page through the room. What the
+ * host's `context` sets itself is kept.
+ *
  * A call is a voice: an approval is read back (the host's `spokenReadback`
  * when it wrote one) and the person's next words confirm it, as on any voice
  * channel. A UI action's too: its card is also on the person's
@@ -49,6 +56,8 @@ import {
   type ApprovalRequiredEvent,
 } from '@ouispec/agent-core';
 import { payloadRefusal, type AgentTurnRunner, type TurnOutcome } from '../runtime/turn-runner.js';
+import { CLIENT_SNAPSHOT_KEY } from '../ui/snapshot.js';
+import { CLIENT_KNOWLEDGE_KEY } from '../ui/knowledge.js';
 import { USER_INPUT_TOOLS } from '../orchestrator.js';
 import { createTurnSlots, type TurnSlots } from '../runtime/turn-slots.js';
 import type { AgentTurnPayload } from '../runtime/types.js';
@@ -79,6 +88,9 @@ export interface LiveCallTurnTarget {
    * The turn's context, as the product would send it for a typed message on
    * the conversation's page: its OUI snapshot, its knowledge, its page
    * context. `input` and `output` are the request's, and are set by the handler.
+   * When the call carries the person's page (`request.client.ui`), its `oui`,
+   * `uiKnowledge` and `currentPath` are added under those names, except where
+   * this context already sets them.
    */
   context?: Record<string, unknown> | null;
   /**
@@ -180,7 +192,7 @@ export interface LiveCallTurnHandlerConfig extends LiveCallTurnOptions {
   runner: AgentTurnRunner;
   /** Turns run at once; more are answered `503`. Default 8. */
   maxConcurrentTurns?: number;
-  /** Largest request body, in bytes. Default 64 KiB. */
+  /** Largest request body, in bytes. Default 128 KiB: a turn with the page's UI context at its 64 KiB bound fits. */
   maxBodyBytes?: number;
   /** Called with each turn's outcome, after it ends. */
   onTurnEnd?: (outcome: TurnOutcome) => void;
@@ -203,7 +215,8 @@ interface LiveCallRouteHost {
   onTurnEnd?: (outcome: TurnOutcome) => void;
 }
 
-const DEFAULT_MAX_BODY_BYTES = 64 * 1024;
+/** Room for the largest turn: its text, its directions, and the page's UI (`LIVE_CALL_LIMITS.clientUiBytes`). */
+const DEFAULT_MAX_BODY_BYTES = 128 * 1024;
 
 /**
  * Creates the live-call turn handler.
@@ -413,6 +426,15 @@ function turnPayload(request: LiveCallTurnRequest, target: LiveCallTurnTarget): 
   delete context[REPLY_OUTPUT_CONTEXT_KEY];
   if (request.input) context[MESSAGE_INPUT_CONTEXT_KEY] = request.input;
   if (request.output) context[REPLY_OUTPUT_CONTEXT_KEY] = request.output;
+  // The person's page, as its typed turns carry it: the host's own context wins.
+  const ui = request.client?.ui;
+  for (const [key, value] of [
+    [CLIENT_SNAPSHOT_KEY, ui?.oui],
+    [CLIENT_KNOWLEDGE_KEY, ui?.uiKnowledge],
+    [PAGE_PATH_CONTEXT_KEY, ui?.currentPath],
+  ] as const) {
+    if (value !== undefined && !(key in context)) context[key] = value;
+  }
   return {
     turnId: request.turnId,
     conversationId: target.conversationId,
@@ -428,6 +450,9 @@ function turnPayload(request: LiveCallTurnRequest, target: LiveCallTurnTarget): 
     ...(request.supersedes.length > 0 ? { supersedes: request.supersedes } : {}),
   };
 }
+
+/** Where the person is in the page, on a typed turn's context (`AgentMessageContext.currentPath`). */
+const PAGE_PATH_CONTEXT_KEY = 'currentPath';
 
 /** The channel the live-call handler's turns run on, as the host's hooks are told. */
 export const LIVE_CALL_CHANNEL = 'live-call';

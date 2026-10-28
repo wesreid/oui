@@ -292,7 +292,7 @@ process.on('SIGTERM', () => liveCall.close());        // waits for running turns
 | `holdingLine` | With `final-round` only: a line of yours spoken once, as the turn's first tool starts (not a choice the turn ends with), so the caller does not wait in silence. A string, or `(request, target)` returning one (localise from `request.input.language`); null or blank says nothing; a throw fails the turn. Set with `all`, the handler refuses to start: there the model's own words before a tool call are spoken. |
 | `keepAliveMs` | Default 5 s: a `: keep-alive` comment after this long with nothing written. |
 | `maxConcurrentTurns` | Default 8; more are answered `503`. |
-| `maxBodyBytes` | Default 64 KiB. |
+| `maxBodyBytes` | Default 128 KiB: room for a turn's longest text with the page's UI context at its 64 KiB bound. |
 | `onTurnEnd(outcome)` | Each turn's outcome, after it ends. |
 
 **The request.** `POST`, `Content-Type: application/json`, `Authorization: Bearer <credential>`:
@@ -308,6 +308,7 @@ process.on('SIGTERM', () => liveCall.close());        // waits for running turns
 | `output` | `{ mode: 'voice', voiceDirections? }`: set as the turn's `context.output`, so the model writes for the ear, and may use the voice's tags when `voiceDirections: { engine, tags, guidance }` offers them ("What a UI client sends with a turn"). |
 | `disclosureLine` | On an `opening`: what the call service has just said to the person before the greeting (that they are talking with an AI assistant), as spoken; at most 1,000 characters. The model is told it was said, and greets following on from it without repeating it. Not read on a `message`. |
 | `supersedes` | Turns this one replaces. Each still running in this process is stopped at once, and the turn's `getHistory` is given them to wait for, as for any superseding message. |
+| `client` | `{ ui }`: the person's page, when it sent its UI into the call (Closure's `<LiveCall uiContext>`), as its typed turns carry it: `{ buildId?, currentPath?, oui?, uiKnowledge? }`, at most 64 KiB (`LIVE_CALL_LIMITS.clientUiBytes`). Its `oui`, `uiKnowledge` and `currentPath` go on the turn's context under those names, so the turn's UI tools are the page's and its UI actions reach that page through the room, as on a typed turn; a key your target's `context` sets itself is kept. `buildId` stays on `request.client.ui`, for your `resolveTurn` to check against the build you expect. Fields it does not know are read past. Absent, or `ui: null`, for a call with no page (a phone call): the turn has only your context. |
 
 `readLiveCallTurnRequest` reads a body as the handler does, and `LIVE_CALL_LIMITS` holds its limits.
 
