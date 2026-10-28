@@ -5,11 +5,23 @@
  * `ApprovalCard`, which no build may bind for the assistant.
  */
 import { createContext } from 'react';
-import type { ApprovalDecision, ApprovalRefusal } from '@ouispec/agent-core';
+import type { ApprovalChannel, ApprovalDecision, ApprovalRefusal } from '@ouispec/agent-core';
 import type { AgentApprovalRequest } from '../provider/types.js';
+
+/** How the person decided the pending approval outside the card: by voice, on the phone or in chat (ADR-0284). */
+export interface ApprovalDecidedElsewhere {
+  decision: ApprovalDecision;
+  channel: ApprovalChannel;
+}
 
 export interface ApprovalDecisionState {
   pending: AgentApprovalRequest | null;
+  /**
+   * Set once the person decided the pending approval in a conversation
+   * channel: the card says so and no longer decides. The turn that carries
+   * the decision is the conversation's, not this tab's.
+   */
+  decidedElsewhere: ApprovalDecidedElsewhere | null;
   /** True while the approval store answers the click. */
   deciding: boolean;
   /** Why the last decision was refused, for the user. */

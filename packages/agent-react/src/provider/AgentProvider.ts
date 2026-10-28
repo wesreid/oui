@@ -2,13 +2,20 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import type {
   AgentClientConfig,
   AgentMessageContext,
+  ApprovalChannel,
   ApprovalContinuation,
   ApprovalDecideResult,
   ApprovalDecision,
 } from '@ouispec/agent-core';
 import {
+  AGENT_SOCKET_EVENTS,
   APPROVAL_DECIDE_EVENT,
+  APPROVAL_PUSH_EVENTS,
   CONVERSATION_EVENTS,
+  approvalGrantRefusal,
+  claimApprovalGrant,
+  readApprovalDeclined,
+  readApprovalGranted,
   TURN_STOP_EVENT,
   readConversationHold,
   readConversationMessage,
@@ -175,6 +182,12 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   const [lastTurnEnd, setLastTurnEnd] = useState<AgentTurnEnd | null>(null);
   const [approvalDeciding, setApprovalDeciding] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
+  // An approval the person decided in a conversation channel (by voice, on the phone, in chat), as its card shows it.
+  const [approvalDecidedElsewhere, setApprovalDecidedElsewhere] = useState<{
+    approvalId: string;
+    decision: ApprovalDecision;
+    channel: ApprovalChannel;
+  } | null>(null);
   // Who holds the open conversation, when a person on the staff took it over.
   const [hold, setHold] = useState<ConversationHold | null>(null);
   // The open conversation's room, once joined: joined again on every reconnect, left on a switch.
@@ -275,12 +288,14 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
       const following = conversationRoomRef.current;
       if (following) joinRoom(socket, following.room, following.token);
     });
-    // The open conversation's take-over, hand-back and staff messages.
-    const conversationListeners = Object.values(CONVERSATION_EVENTS).map((event) => {
-      const listener = (data: unknown) => handleConversationEventRef.current(event, data);
-      socket.on(event, listener);
-      return [event, listener] as const;
-    });
+    // The open conversation's take-over, hand-back and staff messages; an approval the person decided in a
+    // conversation channel; and an approval card from a turn of the conversation this tab did not start (a call's).
+    const conversationListeners = [
+      ...Object.values(CONVERSATION_EVENTS).map((event) => [event, (data: unknown) => handleConversationEventRef.current(event, data)] as const),
+      ...Object.values(APPROVAL_PUSH_EVENTS).map((event) => [event, (data: unknown) => handleApprovalPushRef.current(event, data)] as const),
+      [AGENT_SOCKET_EVENTS.APPROVAL_REQUIRED, (data: unknown) => handleOtherTurnApprovalRef.current(data)] as const,
+    ];
+    for (const [event, listener] of conversationListeners) socket.on(event, listener);
     socket.on('disconnect', (reason: string) => {
       setConnected(false);
       addDebugLog('warn', 'agent:socket', `Disconnected: ${reason}`, { reason });
@@ -711,6 +726,76 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     });
   };
 
+  // --- An approval decided in a conversation channel, and a card from a turn this tab did not start (ADR-0284) ---
+  // The grants this tab has claimed or tried to, by grant id: a replayed push is not claimed twice.
+  const claimedGrantsRef = useRef<Set<string>>(new Set());
+  const handleApprovalPushRef = useRef<(event: string, data: unknown) => void>(() => {});
+  handleApprovalPushRef.current = (event, data) => {
+    if (event === APPROVAL_PUSH_EVENTS.DECLINED) {
+      const declined = readApprovalDeclined(data);
+      if (!declined || declined.conversationId !== conversationIdRef.current) return;
+      addDebugLog('info', 'agent:state', `Approval declined ${declined.channel === 'phone' ? 'on the phone' : `by ${declined.channel}`}`, {
+        approvalId: declined.approvalId,
+      });
+      setApprovalDecidedElsewhere({ approvalId: declined.approvalId, decision: 'decline', channel: declined.channel });
+      return;
+    }
+    const grant = readApprovalGranted(data);
+    if (!grant) return;
+    const rooms = [conversationRoomRef.current?.room, activeRoomRef.current?.room].filter((r): r is string => !!r);
+    const refusal = approvalGrantRefusal(grant, { conversationId: conversationIdRef.current, rooms }, Date.now());
+    if (refusal) {
+      addDebugLog('info', 'agent:state', `A pushed approval grant is not this tab's: ${refusal}`, { approvalId: grant.approvalId, room: grant.room });
+      return;
+    }
+    // The person approved it: every tab on the conversation shows that, whichever of them takes the grant.
+    setApprovalDecidedElsewhere({ approvalId: grant.approvalId, decision: 'approve', channel: grant.channel });
+    if (claimedGrantsRef.current.has(grant.grantId)) return;
+    claimedGrantsRef.current.add(grant.grantId);
+    if (claimedGrantsRef.current.size > ENDED_TURNS_REMEMBERED) {
+      claimedGrantsRef.current.delete(claimedGrantsRef.current.values().next().value as string);
+    }
+    const grantApproval = configRef.current.grantApproval;
+    const socket = socketRef.current;
+    if (!grantApproval || !socket) {
+      addDebugLog('warn', 'agent:state', 'A pushed approval grant cannot be taken: this tab has no OUI runtime grant seam or no socket', {
+        approvalId: grant.approvalId,
+      });
+      return;
+    }
+    void claimApprovalGrant(socket, grant).then((answer) => {
+      if (!answer.ok) {
+        // Another tab took it (`used`), or it was withdrawn or expired: this tab's runtime holds nothing.
+        addDebugLog('info', 'agent:state', `Approval grant not claimed: ${answer.reason}`, { approvalId: grant.approvalId, reason: answer.reason });
+        return;
+      }
+      const taken = grantApproval({ approvalId: answer.approvalId, argsHash: answer.argsHash, expiresAt: answer.expiresAt });
+      if (taken === false) {
+        addDebugLog('warn', 'agent:state', 'The OUI runtime refused a claimed approval grant (one it held or used)', { approvalId: grant.approvalId });
+        return;
+      }
+      addDebugLog('info', 'agent:state', `Approval grant claimed: approved by ${answer.channel}`, { approvalId: grant.approvalId });
+    });
+  };
+
+  const handleOtherTurnApprovalRef = useRef<(data: unknown) => void>(() => {});
+  handleOtherTurnApprovalRef.current = (data) => {
+    const event = parseSocketEvent(AGENT_SOCKET_EVENTS.APPROVAL_REQUIRED, data, '');
+    if (event?.type !== 'approval_required' || !event.turnId || !event.approvalId) return;
+    if (event.conversationId !== conversationIdRef.current) return;
+    // The tab's own turns' cards come through the turn's own subscription; while a start is in flight, any card may be its.
+    const { starting, turnId: live } = liveTurnRef.current;
+    if (starting || event.turnId === live || endedTurnsRef.current.has(event.turnId)) return;
+    const { type: _type, ...request } = event;
+    addDebugLog('info', 'agent:state', 'An approval card from a turn of this conversation this tab did not start', {
+      turnId: event.turnId,
+      approvalId: event.approvalId,
+    });
+    setPendingApproval(request);
+    setApprovalError(null);
+    setApprovalDeciding(false);
+  };
+
   useEffect(() => {
     const seam = configRef.current.conversationRoom;
     if (!seam || !conversationId) return;
@@ -948,10 +1033,14 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   // nothing an app binds for the assistant can reach it.
   const pendingApprovalRef = useRef<AgentApprovalRequest | null>(null);
   pendingApprovalRef.current = pendingApproval;
+  const approvalDecidedElsewhereRef = useRef(approvalDecidedElsewhere);
+  approvalDecidedElsewhereRef.current = approvalDecidedElsewhere;
   const decideApproval = useCallback(async (decision: ApprovalDecision) => {
     const request = pendingApprovalRef.current;
     const socket = socketRef.current;
     if (!request) return;
+    // Already decided by voice, on the phone or in chat: the card no longer decides.
+    if (approvalDecidedElsewhereRef.current?.approvalId === request.approvalId) return;
     if (!socket) {
       setApprovalError('Not connected: try again once the assistant reconnects.');
       return;
@@ -1341,6 +1430,10 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
 
   const approvalDecision: ApprovalDecisionState = {
     pending: pendingApproval,
+    decidedElsewhere:
+      pendingApproval && approvalDecidedElsewhere?.approvalId === pendingApproval.approvalId
+        ? { decision: approvalDecidedElsewhere.decision, channel: approvalDecidedElsewhere.channel }
+        : null,
     deciding: approvalDeciding,
     error: approvalError,
     decide: decideApproval,

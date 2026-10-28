@@ -72,7 +72,7 @@ import { describeSchema } from './ui/outline.js';
 import { createUISequence, type UISlot } from './ui/ui-sequence.js';
 import { createTurnLedger } from './turn-ledger.js';
 import { DEFAULT_PAGE_STATE_CHARS, observationSchemas, observationsText } from './ui/observations.js';
-import { approvalRequirement, approvalToolNote, VOICE_APPROVAL_CHANNELS, type ApprovalRequirement } from './approvals/requirement.js';
+import { approvalConfirmedBy, approvalRequirement, approvalToolNote, VOICE_APPROVAL_CHANNELS, type ApprovalRequirement } from './approvals/requirement.js';
 import { buildApprovalPreview, declaredTitle } from './approvals/preview.js';
 import { readHostPreview, readValidation, type ApprovalHookContext, type ApprovalValidation } from './approvals/hooks.js';
 import { turnInfoOf } from './runtime/turn-info.js';
@@ -178,11 +178,11 @@ export async function runAgentTurn(
   // Where the person is: in a UI an approval is the card; on a conversation channel, the readback.
   const approvalChannel: ApprovalChannel = input.approvalChannel ?? 'ui';
   /**
-   * How a call's approval is given: a UI action's always by its card, on every
-   * channel, since the person's page runs it only on its own grant from that
-   * card; any other tool's in the turn's channel.
+   * How a call's approval is given: in the turn's channel, a UI action's too on
+   * voice, phone and chat, where the readback approves it as its card does
+   * (ADR-0284); a UI action's on SMS by its card on the person's screen.
    */
-  const confirmedBy = (t: RegisteredTool): ApprovalChannel => (t.kind === 'ui' ? 'ui' : approvalChannel);
+  const confirmedBy = (t: RegisteredTool): ApprovalChannel => approvalConfirmedBy(approvalChannel, t.kind);
 
   log('info', 'agent:turn', 'Turn started', {
     turnId,
@@ -966,6 +966,8 @@ export async function runAgentTurn(
         ...(input.accountId ? { accountId: input.accountId } : {}),
         tool: t.name,
         toolKind: isUI ? 'ui' : 'backend',
+        // Where a UI action is dispatched: its grant is pushed there when the person approves it by voice or in chat.
+        ...(isUI ? { room: socketRoom } : {}),
         ...(!isUI && t.operationId ? { operationId: t.operationId } : {}),
         ...(audience ? { audience } : {}),
         args,
@@ -1011,8 +1013,9 @@ export async function runAgentTurn(
               'The turn ends here: it runs only if they approve it there, and the next turn tells you the outcome. A yes they say or ' +
               'send in this conversation does not approve it, so tell them the card is on their screen.'
             : `Waiting for the customer to confirm "${preview.title}". They are sent this readback, word for word, after your reply: ` +
-              `"${hold.readback}" It has not run. The turn ends here: it runs only if they confirm it in their next message, ` +
-              'and the next turn tells you the outcome. Do not repeat the readback.',
+              `"${hold.readback}" It has not run. The turn ends here: it runs only if they confirm it in their next message` +
+              (isUI ? ' or approve the card on their screen' : '') +
+              ', and the next turn tells you the outcome. Do not repeat the readback.',
     });
   };
 

@@ -4,9 +4,12 @@
  *
  * An action whose effect is `transaction`, or one marked `confirm`
  * (destructive), runs only when the request carries `approval` matching a
- * grant this tab received from the user's own approval click: unused,
- * unexpired, and for exactly these params. Anything else is refused and
- * answered `APPROVAL_REQUIRED`, even during a turn the `accept` gate admits.
+ * grant this tab received from the user's own approval (their click, or a
+ * grant it claimed when they approved by voice): unused, unexpired, and for
+ * exactly these params. Anything else is refused and answered
+ * `APPROVAL_REQUIRED`, even during a turn the `accept` gate admits; a request
+ * carrying an approval this tab was never given is another tab's, refused on
+ * its receipt and never answered. A replayed grant is refused.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { createSurfaceRuntime } from '../../src/core/surface-runtime.js';
@@ -147,18 +150,76 @@ describe('the approval gate', () => {
     expect(deleted).toEqual(['d1']);
   });
 
-  it('refuses a request with no grant that arrives on the socket during a turn the accept gate admits, and answers it', async () => {
+  it('refuses on its receipt, and neither runs nor answers, a request carrying an approval this tab was never given: it is another tab’s', async () => {
     const placed: Array<Record<string, unknown>> = [];
     const socket = createMockSocket();
     const accept = vi.fn(() => true);
     const runtime = createSurfaceRuntime({ socket, announce: false, settle: FAST, accept });
     runtime.mount(trading(placed), () => ({}));
-    socket.receive('oui:dispatch', req('orders_place', order, { approvalId: 'call_forged', argsHash: await argsHash(order) }));
+    const receipts: unknown[] = [];
+    socket.receiveWithAck('oui:dispatch', req('orders_place', order, { approvalId: 'call_forged', argsHash: await argsHash(order) }), (r) => receipts.push(r));
     await wait(80);
+    expect(receipts).toEqual([{ ok: false, reason: expect.stringContaining('not given the approval') }]);
+    expect(accept).not.toHaveBeenCalled();
+    expect(placed).toEqual([]);
+    expect(socket.emitted.filter(e => e.event === 'oui:action:result')).toEqual([]);
+  });
+
+  it('answers APPROVAL_REQUIRED, during a turn the accept gate admits, a request under an approval this tab was given but for other params', async () => {
+    const placed: Array<Record<string, unknown>> = [];
+    const socket = createMockSocket();
+    const accept = vi.fn(() => true);
+    const runtime = createSurfaceRuntime({ socket, announce: false, settle: FAST, accept });
+    runtime.mount(trading(placed), () => ({}));
+    const hash = await argsHash(order);
+    expect(runtime.grantApproval({ approvalId: 'call_mine', argsHash: hash, expiresAt: Date.now() + 60_000 })).toBe(true);
+    const receipts: unknown[] = [];
+    socket.receiveWithAck('oui:dispatch', req('orders_place', { ...order, quantity: 9 }, { approvalId: 'call_mine', argsHash: hash }), (r) => receipts.push(r));
+    await wait(80);
+    expect(receipts).toEqual([{ ok: true }]);
     expect(accept).toHaveBeenCalled();
     expect(placed).toEqual([]);
     const answers = socket.emitted.filter(e => e.event === 'oui:action:result').map(e => e.data as OUIActionResult);
     expect(answers).toEqual([expect.objectContaining({ success: false, error: expect.objectContaining({ code: 'APPROVAL_REQUIRED' }) })]);
+  });
+
+  it('refuses a replayed grant: one it holds, one it has used, and one already expired; a replay never admits a second request', async () => {
+    const placed: Array<Record<string, unknown>> = [];
+    const runtime = createSurfaceRuntime({ announce: false, settle: FAST });
+    runtime.mount(trading(placed), () => ({}));
+    const hash = await argsHash(order);
+    const grant = { approvalId: 'call_once', argsHash: hash, expiresAt: Date.now() + 60_000 };
+    expect(runtime.grantApproval(grant)).toBe(true);
+    expect(runtime.grantApproval({ ...grant })).toBe(false);
+    expect(await runtime.execute(req('orders_place', order, { approvalId: 'call_once', argsHash: hash }))).toMatchObject({ success: true });
+    // Pushed again after it ran: refused, so the same approval cannot run twice.
+    expect(runtime.grantApproval({ ...grant, expiresAt: Date.now() + 120_000 })).toBe(false);
+    expect(await runtime.execute(req('orders_place', order, { approvalId: 'call_once', argsHash: hash }))).toMatchObject({ error: { code: 'APPROVAL_REQUIRED' } });
+    expect(runtime.grantApproval({ approvalId: 'call_stale', argsHash: hash, expiresAt: Date.now() - 1 })).toBe(false);
+    expect(placed).toEqual([order]);
+  });
+
+  it('two tabs on one conversation: only the tab that holds the grant accepts the request, runs it once and answers it', async () => {
+    const placedA: Array<Record<string, unknown>> = [];
+    const placedB: Array<Record<string, unknown>> = [];
+    const socketA = createMockSocket();
+    const socketB = createMockSocket();
+    const tabA = createSurfaceRuntime({ socket: socketA, announce: false, settle: FAST });
+    const tabB = createSurfaceRuntime({ socket: socketB, announce: false, settle: FAST });
+    tabA.mount(trading(placedA), () => ({}));
+    tabB.mount(trading(placedB), () => ({}));
+    const hash = await argsHash(order);
+    expect(tabA.grantApproval({ approvalId: 'call_shared', argsHash: hash, expiresAt: Date.now() + 60_000 })).toBe(true);
+    const request = req('orders_place', order, { approvalId: 'call_shared', argsHash: hash });
+    const receipts: Record<string, unknown[]> = { a: [], b: [] };
+    socketA.receiveWithAck('oui:dispatch', request, (r) => receipts.a.push(r));
+    socketB.receiveWithAck('oui:dispatch', request, (r) => receipts.b.push(r));
+    await wait(80);
+    expect(receipts).toEqual({ a: [{ ok: true }], b: [{ ok: false, reason: expect.any(String) }] });
+    expect(placedA).toEqual([order]);
+    expect(placedB).toEqual([]);
+    expect(socketB.emitted.filter(e => e.event === 'oui:action:result')).toEqual([]);
+    expect(socketA.emitted.filter(e => e.event === 'oui:action:result').map(e => (e.data as OUIActionResult).success)).toEqual([true]);
   });
 
   it('carries the approval on a dispatch through the transport', async () => {

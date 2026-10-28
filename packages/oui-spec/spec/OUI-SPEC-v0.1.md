@@ -608,6 +608,7 @@ When the agent invokes an action, the runtime sends an `action:request`:
 - `params` MUST conform to the action's declared `input` schema
 - The agent runtime SHOULD validate `params` before sending; the surface MUST validate upon receipt
 - `knownSurfaces` (OPTIONAL) is the `surfacesHash` of the client's surfaces that the agent runtime already holds, from the client's snapshot (§7.3.5) or an earlier result. A runtime that holds the client's surfaces SHOULD send it (§7.3.4).
+- `approval` (OPTIONAL) is the person's approval the request runs on: `{ approvalId, argsHash }`. A client runs an action that needs approval only when it matches an unused, unexpired grant this client holds for exactly these params, and answers anything else `APPROVAL_REQUIRED`. A client that was never given that approval MUST refuse the request on its receipt (§7.3.7), and MUST NOT run or answer it: another client holds the grant, and its answer is the one that counts. A client MUST refuse a grant it already holds or has used.
 - `turnId` (OPTIONAL) names the turn of the agent's work the request belongs to. An agent runtime whose work is divided into turns that a person can stop SHOULD send it. A client MAY refuse a request whose `turnId` is not its current turn; a refused request is not run, and its receipt (§7.3.7) says it was received and not accepted. A client MUST NOT refuse a request only because it carries no `turnId`.
 
 #### 7.3.2 Action Result (Success)

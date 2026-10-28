@@ -291,11 +291,13 @@ request's final result when the job ends.
 Some actions can't be undone: an order placed, a payment made, a message sent, something published, or something the person made deleted. An action declares this with `effect: 'transaction'`, or with `confirm: true` for a destructive write. It then runs only on the user's approval of the exact request.
 
 1. The agent runtime stops at the action and shows the user a confirmation built from the action's `title`, `description` and input schema.
-2. The user confirms. The approval store answers this tab, and only this tab, with a grant. The tab records it:
+2. The user confirms: by a click on the confirmation, or, on a call or in a chat where the agent read the request back, by saying yes. The approval store answers this tab, and only this tab, with a grant: in the answer to the click, or as the one tab that claimed the grant the store pushed when the person said yes. The tab records it:
 
    ```ts
-   runtime.grantApproval({ approvalId, argsHash, expiresAt });
+   runtime.grantApproval({ approvalId, argsHash, expiresAt }); // true when taken
    ```
+
+   A grant this tab already holds or has used, or one already expired, is refused (`false`): a replayed grant never admits a second request.
 
 3. The request that runs the action carries `approval: { approvalId, argsHash }`. The runtime runs it only when all of these hold:
    - the grant exists in this tab;
@@ -305,6 +307,8 @@ Some actions can't be undone: an order placed, a payment made, a message sent, s
    Otherwise it answers `{ success: false, error: { code: 'APPROVAL_REQUIRED' } }` and never calls the handler. That applies even during a turn the `accept` gate admits.
 
 4. A grant admits one request.
+
+5. A request carrying an `approval` this tab was never given is another tab's. It is refused on its receipt (§7.3.7), and neither run nor answered, so with the same conversation open in two tabs only the tab holding the grant runs the action and answers it. The agent runtime sends the request again until a tab accepts it.
 
 `argsHash` is SHA-256 over the RFC 8785 (JCS) canonical JSON of the params, as lowercase hex. Every implementation (the agent runtime, the approval store, this runtime, and engines in other languages) must reproduce [`spec/approval-vectors.json`](./spec/approval-vectors.json), which is also published as `oui-spec/approval-vectors.json`.
 

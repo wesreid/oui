@@ -9,7 +9,19 @@ import { io as connectClient, type Socket } from 'socket.io-client';
 import { createWebSocketTransport } from 'oui-spec/transport';
 import { createSurfaceRuntime, defineSurface, type ActionHandlerResult, type MountedSurface } from 'oui-spec/core';
 import type { OUIAction, OUIActionRequest, OUISurface } from 'oui-spec/spec';
-import { APPROVAL_DECIDE_EVENT, APPROVAL_RECEIPT_JWKS_PATH, type ApprovalDecideResult, type ApprovalDecision } from '@ouispec/agent-core';
+import {
+  APPROVAL_DECIDE_EVENT,
+  APPROVAL_PUSH_EVENTS,
+  APPROVAL_RECEIPT_JWKS_PATH,
+  approvalGrantRefusal,
+  claimApprovalGrant,
+  readApprovalGranted,
+  type ApprovalClaimResult,
+  type ApprovalDecideResult,
+  type ApprovalDecision,
+  type ApprovalGrant,
+  type ApprovalGrantedEvent,
+} from '@ouispec/agent-core';
 import { createRealtimeServer, generateApprovalReceiptKey, type RealtimeServerInstance, type RoomPolicy } from '@ouispec/agent-realtime';
 import { startTestRedis, type TestRedis } from '@ouispec/agent-realtime/testing';
 import { MANIFEST_VERSION, resolveKnowledge, type GeneratedKnowledge } from '@ouispec/bindings';
@@ -131,6 +143,19 @@ export interface FixtureTab {
   joinTurn(turnRoom: string): Promise<void>;
   /** The user's click on the approval card: `approval:decide` on this tab's own socket. */
   decide(approvalId: string, decision: ApprovalDecision): Promise<ApprovalDecideResult>;
+  /**
+   * The tab has this conversation open in this room (already joined): from now
+   * on it takes a grant the store pushes for it, as agent-react's provider
+   * does (ADR-0284): checked against the conversation and the rooms it is in,
+   * claimed on its own socket, and handed to its OUI runtime.
+   */
+  follow(conversationId: string, room: string): void;
+  /** Each pushed grant the tab received, and what became of it. Settled once `claim` or `refusal` is set. */
+  pushed: Array<{ grant: ApprovalGrantedEvent; refusal?: string; claim?: ApprovalClaimResult; taken?: boolean }>;
+  /** Hands a grant to this tab's OUI runtime directly: its answer. */
+  grantApproval(grant: ApprovalGrant): boolean;
+  /** The UI actions this tab's page really ran, in order. */
+  ran: Array<{ actionId: string; params: Record<string, unknown> }>;
   /** UI action requests the tab received. */
   dispatches: OUIActionRequest[];
   /** Every server event the tab received, in order. */
@@ -201,6 +226,7 @@ async function openTab(server: RealtimeServerInstance, session: string, firstTur
   //, and runs an approval-requiring one only on this tab's grant
   //. The requests are also kept, as the wire carried them.
   const runtime = createSurfaceRuntime({ announce: false, settle: { quietMs: 10, timeoutMs: 1_000 } });
+  const ran: FixtureTab['ran'] = [];
   let mounted: MountedSurface[] = [];
   let shownPath = '';
   const show = (path: string) => {
@@ -208,7 +234,7 @@ async function openTab(server: RealtimeServerInstance, session: string, firstTur
     const surfaces = PAGES[path];
     if (!surfaces) throw new Error(`the fixture has no page ${path}`);
     for (const m of mounted) m.unmount();
-    mounted = surfaces.map((surface) => runtime.mount(withHandlers(surface, show), () => ({})));
+    mounted = surfaces.map((surface) => runtime.mount(withHandlers(surface, show, ran), () => ({})));
     // A page reports what it shows, as a real one does.
     mounted.find((m) => m.surfaceId === reportsSurface.id)?.pushObservation('reports', SAVED_REPORTS);
     shownPath = path;
@@ -219,10 +245,40 @@ async function openTab(server: RealtimeServerInstance, session: string, firstTur
   const transport = createWebSocketTransport(socket);
   transport.onAction((request) => dispatches.push(request));
 
+  // A pushed grant, taken as the provider takes it: only for the conversation this tab follows, in a room it is in.
+  const joined = new Set<string>([firstTurnRoom]);
+  let following: string | null = null;
+  const pushed: FixtureTab['pushed'] = [];
+  socket.on(APPROVAL_PUSH_EVENTS.GRANTED, (data: unknown) => {
+    const grant = readApprovalGranted(data);
+    if (!grant) return;
+    const entry: FixtureTab['pushed'][number] = { grant };
+    pushed.push(entry);
+    const refusal = approvalGrantRefusal(grant, { conversationId: following, rooms: [...joined] }, Date.now());
+    if (refusal) {
+      entry.refusal = refusal;
+      return;
+    }
+    void claimApprovalGrant(socket, grant).then((claim) => {
+      entry.taken = claim.ok ? runtime.grantApproval({ approvalId: claim.approvalId, argsHash: claim.argsHash, expiresAt: claim.expiresAt }) : false;
+      entry.claim = claim;
+    });
+  });
+
   return {
     socket,
-    joinTurn,
+    joinTurn: async (turnRoom) => {
+      await joinTurn(turnRoom);
+      joined.add(turnRoom);
+    },
     show,
+    follow(conversationId, room) {
+      if (!joined.has(room)) throw new Error(`the fixture tab is not in ${room}`);
+      following = conversationId;
+    },
+    pushed,
+    grantApproval: (grant) => runtime.grantApproval(grant),
+    ran,
     // As the approval card does: the decision on the user's own socket, and an
     // approval's grant handed to this tab's runtime.
     decide: (approvalId, decision) =>
@@ -247,8 +303,8 @@ async function openTab(server: RealtimeServerInstance, session: string, firstTur
   };
 }
 
-/** A page's surface with what its actions really do on this tab. */
-function withHandlers(surface: OUISurface, show: (path: string) => void) {
+/** A page's surface with what its actions really do on this tab, each run recorded in `ran`. */
+function withHandlers(surface: OUISurface, show: (path: string) => void, ran: FixtureTab['ran']) {
   const handlers: Record<string, (params: Record<string, unknown>) => ActionHandlerResult> = {
     navigate: (params) => {
       const path = String(params.path ?? '');
@@ -263,8 +319,12 @@ function withHandlers(surface: OUISurface, show: (path: string) => void) {
     ...surface,
     actions: surface.actions.map((action) => ({
       ...action,
-      handler: async (params: Record<string, unknown>) =>
-        handlers[action.id]?.(params) ?? { success: false, error: { code: 'NOT_FOUND', message: `No action ${action.id}` } },
+      handler: async (params: Record<string, unknown>) => {
+        const run = handlers[action.id];
+        if (!run) return { success: false, error: { code: 'NOT_FOUND', message: `No action ${action.id}` } };
+        ran.push({ actionId: action.id, params });
+        return run(params);
+      },
     })),
   });
 }

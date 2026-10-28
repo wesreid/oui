@@ -18,6 +18,7 @@ export type {
   ApprovalCardFrameProps,
   ApprovalCardButtonProps,
   ApprovalCardLabels,
+  ApprovalCardElsewhereChannel,
 } from './approvals/ApprovalCard.js';
 
 export type {

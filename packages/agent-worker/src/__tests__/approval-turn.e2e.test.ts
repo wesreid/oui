@@ -230,7 +230,7 @@ describe.each<HostAdapter>(['lambda', 'container'])('on the %s adapter', (adapte
     expect(JSON.stringify(conversation.history)).not.toMatch(JWS);
   }, 60_000);
 
-  it('a dispatch of the transaction that reaches the tab with no grant is refused there and answered APPROVAL_REQUIRED', async () => {
+  it('a dispatch of the transaction that reaches the tab with no approval is refused there and answered APPROVAL_REQUIRED; one carrying an approval it was never given is left to the tab that was', async () => {
     const tab = await product.openTab('session-ana', `chat:turn:forged-${adapter}`);
     tab.show('/reports');
     const requestId = `forged_${adapter}`;
@@ -239,11 +239,14 @@ describe.each<HostAdapter>(['lambda', 'container'])('on the %s adapter', (adapte
     expect(await product.emit('oui:dispatch', forged, [`chat:turn:forged-${adapter}`])).toBe(200);
     const answer = await product.internal(`/internal/oui/action-results/${requestId}?userId=${FIXTURE_TURN.userId}&waitMs=5000`);
     expect(answer).toMatchObject({ status: 200, body: { requestId, success: false, error: { code: 'APPROVAL_REQUIRED' } } });
-    // With an approval it holds no grant for, too.
+    // With an approval this tab was never given: another tab's to answer (ADR-0284). Refused on its receipt, and neither
+    // run nor answered here, so the sender keeps sending it until the tab that holds the grant accepts it.
     const claimed = { ...forged, requestId: `${requestId}-claimed`, approval: { approvalId: 'call_never_approved', argsHash: await argsHash(cfo) } };
-    await product.emit('oui:dispatch', claimed, [`chat:turn:forged-${adapter}`]);
-    const answer2 = await product.internal(`/internal/oui/action-results/${claimed.requestId}?userId=${FIXTURE_TURN.userId}&waitMs=5000`);
-    expect(answer2.body).toMatchObject({ success: false, error: { code: 'APPROVAL_REQUIRED' } });
+    const sent = await product.internal('/api/emit', { event: 'oui:dispatch', data: claimed, rooms: [`chat:turn:forged-${adapter}`], ackTimeoutMs: 2_000 });
+    expect(sent.body).toMatchObject({ ok: true, receipts: { acknowledged: 1, accepted: 0 } });
+    const answer2 = await product.internal(`/internal/oui/action-results/${claimed.requestId}?userId=${FIXTURE_TURN.userId}&waitMs=1500`);
+    expect(answer2.status).toBe(204);
+    expect(tab.ran).toEqual([]);
   }, 30_000);
 
   it('runs the approved call on a tab that joins the continuation’s room only after the turn has started, as a browser does', async () => {

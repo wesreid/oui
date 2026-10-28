@@ -55,10 +55,12 @@ export { defaultToolPolicy, evaluateToolPolicySafe } from './authz/tool-policy.j
 export { createHttpApprovalStoreClient } from './approvals/client.js';
 export type { ApprovalStoreClient, HttpApprovalStoreClientConfig } from './approvals/client.js';
 export {
+  approvalConfirmedBy,
   approvalRequirement,
   approvalToolNote,
   APPROVAL_TOOL_NOTE,
   READBACK_APPROVAL_TOOL_NOTE,
+  READBACK_UI_APPROVAL_TOOL_NOTE,
   SCREEN_APPROVAL_TOOL_NOTE,
   VOICE_APPROVAL_CHANNELS,
 } from './approvals/requirement.js';

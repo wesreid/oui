@@ -227,13 +227,23 @@ export interface SurfaceRuntime<F extends SurfaceForm = "full"> {
   hold(): () => void;
 
   /**
-   * Record that the user approved one request, here, through their own
-   * confirmation (the agent runtime's approval store answered it to this tab).
-   * An action that needs approval — a `transaction`, or a destructive write —
-   * runs only on a request whose `approval` matches an unused, unexpired grant
-   * for exactly its params. Each grant admits one request.
+   * Record that the user approved one request, for this tab (the agent
+   * runtime's approval store answered it to this tab: from the person's
+   * click on its confirmation, or from the grant this tab claimed when they
+   * approved by voice). An action that needs approval — a `transaction`, or a
+   * destructive write — runs only on a request whose `approval` matches an
+   * unused, unexpired grant for exactly its params. Each grant admits one
+   * request.
+   *
+   * Returns whether the grant was taken. A grant this tab already holds or
+   * has used, or one already expired, is refused: a replayed grant never
+   * admits a second request.
+   *
+   * A request carrying an `approval` this tab was never given is another
+   * tab's: it is refused on its receipt (§7.3.7), and neither run nor
+   * answered, so the tab that holds the grant gives the only answer.
    */
-  grantApproval(grant: OUIApprovalGrant): void;
+  grantApproval(grant: OUIApprovalGrant): boolean;
 
   /** Called whenever the snapshot changes. */
   subscribe(listener: () => void): () => void;
@@ -346,6 +356,12 @@ export function createSurfaceRuntime(
   let lastChangeAt = Date.now();
   // Approvals the user gave in this tab, by approval id, until used or expired.
   const grants = new Map<string, OUIApprovalGrant>();
+  // Every approval this tab was given, by id, until a while after it expired:
+  // what refuses a replayed grant, and tells this tab's requests from another's.
+  const given = new Map<string, number>();
+  const forgetGiven = (now: number) => {
+    for (const [id, until] of given) if (now >= until) given.delete(id);
+  };
 
   /**
    * Why a request for an action that needs approval may not run, or null when
@@ -1184,6 +1200,21 @@ export function createSurfaceRuntime(
 
     detachTransport.push(
       t.onAction((request, receipt) => {
+        // A request carrying an approval this tab was never given is another
+        // tab's to run and answer: refused on its receipt, so the sender keeps
+        // sending it until the tab that holds the grant accepts it.
+        const approvalId = request.approval?.approvalId;
+        if (typeof approvalId === "string") {
+          forgetGiven(Date.now());
+          if (!given.has(approvalId)) {
+            receipt?.({
+              ok: false,
+              reason:
+                "this tab was not given the approval this request carries",
+            });
+            return;
+          }
+        }
         if (options.accept && !options.accept(request)) {
           console.warn(
             `[OUI] Refused a request the client does not accept: ${request.surfaceId}.${request.actionId} (${request.requestId})`,
@@ -1308,7 +1339,12 @@ export function createSurfaceRuntime(
       }
       const now = Date.now();
       for (const [id, g] of grants) if (now >= g.expiresAt) grants.delete(id);
+      forgetGiven(now);
+      // Held, used, or expired on arrival: a replay admits nothing.
+      if (given.has(grant.approvalId) || now >= grant.expiresAt) return false;
       grants.set(grant.approvalId, { ...grant });
+      given.set(grant.approvalId, grant.expiresAt + GIVEN_APPROVAL_MEMORY_MS);
+      return true;
     },
     subscribe(listener) {
       listeners.add(listener);
@@ -1330,11 +1366,19 @@ export function createSurfaceRuntime(
       answeredHash.clear();
       delivery.clear();
       grants.clear();
+      given.clear();
     },
   };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * How long a tab remembers an approval it was given after the grant expires:
+ * a repeat of its request is still this tab's to answer ("expired"), and a
+ * replayed grant is still refused.
+ */
+const GIVEN_APPROVAL_MEMORY_MS = 10 * 60_000;
 
 /** `result` without the fields `omitted` names, saying so and why (§7.3.6). */
 function trimmed(

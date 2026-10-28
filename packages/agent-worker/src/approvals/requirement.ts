@@ -5,7 +5,7 @@
  * The rule itself is OUI's `requiresApproval` (through oui-bindings), which the browser applies too; a host's
  * policy may require approval of more, never of less.
  */
-import { DEFAULT_APPROVAL_TTL_MS, MAX_APPROVAL_TTL_MS, type ApprovalChannel } from '@ouispec/agent-core';
+import { approvesUIByReadback, DEFAULT_APPROVAL_TTL_MS, MAX_APPROVAL_TTL_MS, type ApprovalChannel } from '@ouispec/agent-core';
 import { effectKind, requiresApproval } from '@ouispec/bindings';
 import type { RegisteredTool, ToolEffect } from '../tools/types.js';
 
@@ -50,9 +50,20 @@ export const READBACK_APPROVAL_TOOL_NOTE =
   'back or ask for a yes yourself first, and never treat a yes given before the readback as confirmation.';
 
 /**
- * A UI action on a conversation channel: the person's page runs it only on its
- * own grant, from a click on its card, so it is approved there and nowhere
- * else. A yes said or sent in the conversation does not approve it.
+ * A UI action on a voice, phone or chat channel (ADR-0284): the customer is
+ * read the call back, word for word, and their confirming next message
+ * approves it as a click on its card does; the card is on their screen too.
+ */
+export const READBACK_UI_APPROVAL_TOOL_NOTE =
+  "Needs the customer's confirmation: calling it sends them a readback of exactly these arguments, word for word, and shows " +
+  'the same call on an approval card on their screen. It runs only if they confirm that readback in their next message, or ' +
+  'approve the card. Call it directly when they ask for it. Do not read the details back or ask for a yes yourself first, and ' +
+  'never treat a yes given before the readback as confirmation.';
+
+/**
+ * A UI action on SMS: there is no page beside the conversation that the
+ * person is looking at, so a texted yes never runs an action on one. It is
+ * approved on its card, in the product's page, and nowhere else.
  */
 export const SCREEN_APPROVAL_TOOL_NOTE =
   "Needs the user's approval on their screen: calling it shows them an approval card with exactly these arguments, and it runs " +
@@ -63,11 +74,22 @@ export const SCREEN_APPROVAL_TOOL_NOTE =
 export const VOICE_APPROVAL_CHANNELS: ReadonlySet<ApprovalChannel> = new Set<ApprovalChannel>(['voice', 'phone']);
 
 /**
+ * How a call's approval is given on the turn's channel: in a UI, the card; on
+ * a conversation channel, the readback, a UI action's too on voice, phone and
+ * chat (ADR-0284); a UI action on SMS, the card on the person's screen.
+ */
+export function approvalConfirmedBy(channel: ApprovalChannel, toolKind: RegisteredTool['kind'] = 'backend'): ApprovalChannel {
+  return toolKind === 'ui' && !approvesUIByReadback(channel) ? 'ui' : channel;
+}
+
+/**
  * What the model reads on a tool whose calls need approval, for the turn's
- * channel: the card in a UI; the readback on a conversation channel; and, for
- * a UI action on a conversation channel, the card on the person's screen.
+ * channel: the card in a UI; the readback on a conversation channel, with the
+ * card beside it for a UI action on voice, phone or chat; and, for a UI action
+ * on SMS, the card on the person's screen.
  */
 export function approvalToolNote(channel: ApprovalChannel = 'ui', toolKind: RegisteredTool['kind'] = 'backend'): string {
   if (channel === 'ui') return APPROVAL_TOOL_NOTE;
-  return toolKind === 'ui' ? SCREEN_APPROVAL_TOOL_NOTE : READBACK_APPROVAL_TOOL_NOTE;
+  if (toolKind !== 'ui') return READBACK_APPROVAL_TOOL_NOTE;
+  return approvesUIByReadback(channel) ? READBACK_UI_APPROVAL_TOOL_NOTE : SCREEN_APPROVAL_TOOL_NOTE;
 }

@@ -12,6 +12,8 @@ import {
   APPROVAL_TOOL_NOTE,
   READBACK_APPROVAL_TOOL_NOTE,
   SCREEN_APPROVAL_TOOL_NOTE,
+  READBACK_UI_APPROVAL_TOOL_NOTE,
+  approvalConfirmedBy,
 } from '../approvals/requirement.js';
 import { buildApprovalPreview } from '../approvals/preview.js';
 import { approvalMarker, markedResult, notRunResult, resolveContinuation } from '../approvals/continuation.js';
@@ -130,15 +132,24 @@ describe('a UI action as a tool', () => {
     expect(confirm.description).toMatch(/Never use it for a tool marked "Needs the user's approval"/);
   });
 
-  it('tells the model how the turn’s channel takes approval: the card in a UI, the readback elsewhere, and a UI action’s card on the screen', () => {
+  it('tells the model how the turn’s channel takes approval: the card in a UI, the readback elsewhere, a UI action’s readback beside its card on voice, phone and chat, and its card alone on SMS', () => {
     expect(approvalToolNote()).toBe(APPROVAL_TOOL_NOTE);
     expect(approvalToolNote('ui', 'ui')).toBe(APPROVAL_TOOL_NOTE);
     for (const channel of ['chat', 'sms', 'voice', 'phone'] as const) {
       expect(approvalToolNote(channel)).toBe(READBACK_APPROVAL_TOOL_NOTE);
       expect(approvalToolNote(channel, 'backend')).toBe(READBACK_APPROVAL_TOOL_NOTE);
-      expect(approvalToolNote(channel, 'ui')).toBe(SCREEN_APPROVAL_TOOL_NOTE);
     }
+    for (const channel of ['chat', 'voice', 'phone'] as const) {
+      expect(approvalToolNote(channel, 'ui')).toBe(READBACK_UI_APPROVAL_TOOL_NOTE);
+      expect(approvalConfirmedBy(channel, 'ui')).toBe(channel);
+    }
+    expect(approvalToolNote('sms', 'ui')).toBe(SCREEN_APPROVAL_TOOL_NOTE);
+    expect(approvalConfirmedBy('sms', 'ui')).toBe('ui');
+    expect(approvalConfirmedBy('ui', 'ui')).toBe('ui');
+    expect(approvalConfirmedBy('sms', 'backend')).toBe('sms');
     expect(READBACK_APPROVAL_TOOL_NOTE).not.toMatch(/card/);
+    expect(READBACK_UI_APPROVAL_TOOL_NOTE).toMatch(/readback/);
+    expect(READBACK_UI_APPROVAL_TOOL_NOTE).not.toMatch(/does not approve/);
     expect(SCREEN_APPROVAL_TOOL_NOTE).toMatch(/does not approve it/);
   });
 });

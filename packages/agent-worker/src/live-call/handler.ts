@@ -24,8 +24,9 @@
  *
  * A call is a voice: an approval is read back (the host's `spokenReadback`
  * when it wrote one) and the person's next words confirm it, as on any voice
- * channel. A UI action's approval stays the card on the person's screen, which
- * is the only place its page takes it from.
+ * channel. A UI action's too (ADR-0284): its card is also on the person's
+ * screen, and when the host decides a spoken yes, the realtime server pushes
+ * the page the grant it runs the action on.
  *
  * What the caller hears is the host's to choose (`speak`): every round of the
  * reply as the model writes it (`all`, the default), or only the round the turn
@@ -444,9 +445,8 @@ export const LIVE_CALL_CHANNEL = 'live-call';
  * text: it is spoken after what the model said before the call. It is the
  * preview's `spokenReadback` when the host wrote one, else its `readback`. It
  * is sent only when the turn read it back (its readback pieces, which are not
- * sent as `text`): a UI action's approval is its card, never a readback. A
- * turn that was stopped instead withdrew its approval, so its readback is
- * never sent.
+ * sent as `text`). A turn that was stopped instead withdrew its approval, so
+ * its readback is never sent.
  */
 function relayTurn(
   turnId: string,
