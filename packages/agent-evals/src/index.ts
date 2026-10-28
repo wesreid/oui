@@ -1,5 +1,5 @@
 /**
- * @ouispec/agent-evals — agent evals as data (ADR-0260 §3).
+ * @ouispec/agent-evals — agent evals as data.
  *
  * A product writes scenarios as data: what a customer says, turn by turn, and
  * what must hold after each turn. The harness runs every scenario on every

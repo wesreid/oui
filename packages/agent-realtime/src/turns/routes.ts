@@ -13,7 +13,7 @@
  *   The stop asked for on a turn by its user, waiting up to `waitMs` (capped
  *   at 25 s) for one. A worker holds this open for the life of its turn. With
  *   `conversationId`, a person on the staff holding the conversation is a stop
- *   too: `taken_over` (ADR-0260 §2.3).
+ *   too: `taken_over`.
  *   200 — the TurnStopRecord
  *   204 — no stop yet; ask again
  *   400 — userId missing or waitMs invalid

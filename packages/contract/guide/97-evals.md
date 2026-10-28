@@ -1,6 +1,6 @@
 ## Evals: one scenario set, every channel, in CI
 
-`@ouispec/agent-evals` runs scenarios you write as data against your **real** agent configuration (its persona or system prompt, its tools, its `ToolPolicy` and `TurnPolicy`) through the SDK's own turn runner, on every channel you serve, and fails your CI when an assertion does not hold (ADR-0260 §3). In CI it replays recorded model responses: no credentials, no network, the same answer every run.
+`@ouispec/agent-evals` runs scenarios you write as data against your **real** agent configuration (its persona or system prompt, its tools, its `ToolPolicy` and `TurnPolicy`, and its hooks: `beforeTurn`, `filterEvent`, and its approval preview and check) through the SDK's own turn runner, on every channel you serve, and fails your CI when an assertion does not hold. In CI it replays recorded model responses: no credentials, no network, the same answer every run.
 
 **A suite** is a JSON or YAML file (`AgentEvalSuite`). A scenario's turns are the customer's messages (`user`), the customer's answer to a waiting approval (`approval: approve | decline`), and a person on the staff taking over, writing and handing back (`staff`). After a turn, `expect` says what must hold, and `expectOn.<channel>` what must also hold on one channel:
 
@@ -57,7 +57,7 @@ export default defineEvals({
       fetch,
       ...(mode === 'replay' ? { credentialProvider: async () => ({ accessKeyId: 'replay', secretAccessKey: 'replay' }) } : {}),
     })('us.anthropic.claude-sonnet-4-6'),
-  agent: ({ channel }) => dealerAgent({ channel }), // persona, tools, toolPolicy, turnPolicy
+  agent: ({ channel }) => dealerAgent({ channel }), // persona, tools, toolPolicy, turnPolicy, beforeTurn, filterEvent, approvals
 });
 ```
 

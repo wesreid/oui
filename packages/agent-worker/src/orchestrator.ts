@@ -2391,7 +2391,7 @@ function convertHistoryToCoreMessages(
   for (let idx = 0; idx < history.length; idx++) {
     const msg = history[idx];
     if (msg.role === 'staff') {
-      // A person on the staff (ADR-0260 §2.5): the business's side of the conversation, under their name, in the
+      // A person on the staff: the business's side of the conversation, under their name, in the
       // assistant's role, where no customer's text ever reaches. A run of entries is one message.
       const text = staffEntryText(msg);
       if (!text) continue;
@@ -2598,7 +2598,7 @@ function convertResponseToTurnMessages(
 
 
 /**
- * What the model reads for one of a person's entries (ADR-0260 §2.5): their
+ * What the model reads for one of a person's entries: their
  * message under the line that says whose it is, or the line that says they
  * took the conversation over or handed it back. Empty for an entry with
  * neither, which says nothing.

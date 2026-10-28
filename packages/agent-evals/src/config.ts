@@ -1,5 +1,5 @@
 /**
- * A product's eval configuration (ADR-0260 §3.4): its suites, where their
+ * A product's eval configuration: its suites, where their
  * recordings live, the channels it serves, its model, and its real agent
  * configuration, which the harness runs through the SDK's own turn runner.
  */
@@ -15,7 +15,7 @@ import type { AgentRuntimeConfig, LanguageModel, ProviderOptions, ToolExecutionC
  */
 export type EvalMode = 'replay' | 'record' | 'live';
 
-/** What a channel changes about a turn (ADR-0260 §3.3). */
+/** What a channel changes about a turn. */
 export interface EvalChannel {
   /**
    * How the customer confirms an approval: `ui` (the card, the default), or a

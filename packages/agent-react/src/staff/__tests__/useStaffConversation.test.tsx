@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * The staff console (ADR-0260 §2.7): it reads the conversation through the
+ * The staff console: it reads the conversation through the
  * platform, follows it live in its room, takes it over, writes to the
  * customer as the person, and hands it back. Every change goes through the
  * platform's routes; the hook decides no permission itself.

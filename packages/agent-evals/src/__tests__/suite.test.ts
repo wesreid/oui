@@ -1,5 +1,5 @@
 /**
- * Reading a suite and what it is held to (ADR-0260 §3.2): the contract's
+ * Reading a suite and what it is held to: the contract's
  * schema, the rules a schema cannot state, every problem at once with where
  * it is; and the matchers a reply is held to.
  */

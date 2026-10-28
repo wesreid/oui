@@ -1,5 +1,5 @@
 /**
- * Conversation holds (ADR-0260 §2.1): a person on the product's staff holds a
+ * Conversation holds: a person on the product's staff holds a
  * conversation, and while they do the agent does not answer it.
  *
  * One record per conversation, in Redis beside stop records and approvals, so
@@ -14,7 +14,7 @@
  * any instance, hears that it was taken over.
  *
  * The store decides nothing about who may take a conversation: the product's
- * own route checks that before it asks (ADR-0260 §2.2).
+ * own route checks that before it asks.
  */
 import { readConversationHold, type ConversationHold, type HandBackCause, type StaffSpeaker } from '@ouispec/agent-core';
 import type { RealtimeLogger } from '../logger.js';
@@ -47,7 +47,7 @@ export interface ConversationHoldStore {
   release(conversationId: string, userId?: string): Promise<ReleaseOutcome>;
 }
 
-/** How long Redis keeps a hold nobody ended: a bound on storage, not a policy (ADR-0260 §2.1). */
+/** How long Redis keeps a hold nobody ended: a bound on storage, not a policy. */
 export const HOLD_TTL_SEC = 7 * 24 * 60 * 60;
 
 const holdKey = (conversationId: string) => `conversation:hold:${conversationId}`;

@@ -56,7 +56,7 @@ export interface AgentMessage {
   id: string;
   /**
    * `staff`: a person on the staff wrote it, or it marks where they took the
-   * conversation over or handed it back (`takeover`, ADR-0260 §2.7).
+   * conversation over or handed it back (`takeover`).
    */
   role: 'user' | 'assistant' | 'tool' | 'staff';
   content: string | null;
@@ -337,7 +337,7 @@ export interface AgentContextValue {
   socket: SocketLike | null;
   /**
    * Who holds the open conversation, when a person on the staff has taken it
-   * over (ADR-0260 §2.7): the view shows who is answering. Null while the
+   * over: the view shows who is answering. Null while the
    * agent answers. Followed live when the platform gives `conversationRoom`.
    */
   hold: ConversationHold | null;

@@ -1,5 +1,5 @@
 /**
- * The harness end to end (ADR-0260 §3, acceptance 7): a suite recorded from a
+ * The harness end to end: a suite recorded from a
  * model through OpenAI's real provider package, then replayed with no
  * network, through the SDK's own turn runner. A compliant recording passes
  * every assertion; a violating one fails each, by name; a recording made

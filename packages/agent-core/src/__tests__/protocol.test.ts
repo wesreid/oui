@@ -76,7 +76,7 @@ describe('a stopped turn', () => {
     expect(isTurnStoppedReason('deadline')).toBe(true);
     expect(TURN_STOPPED_REASONS).toEqual(['user_stop', 'superseded', 'taken_over', 'deadline']);
     expect(turnStoppedNote({ reason: 'deadline' })).toMatch(/ran out of time/);
-    // Nobody asks for a take-over stop either: the realtime server answers it from the conversation's hold (ADR-0260).
+    // Nobody asks for a take-over stop either: the realtime server answers it from the conversation's hold.
     expect(isTurnStopReason('taken_over')).toBe(false);
     expect(isTurnStoppedReason('taken_over')).toBe(true);
     expect(turnStoppedNote({ reason: 'taken_over' })).toMatch(/person on the staff took this conversation over/);

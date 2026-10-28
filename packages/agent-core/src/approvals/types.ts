@@ -93,7 +93,7 @@ export interface ApprovalSettlement {
  * - `superseded`: the person sent a new message while the card waited.
  * - `stopped`: the turn that asked for it was stopped as it asked.
  * - `taken_over`: a person on the staff took the conversation over while it
- *   waited (ADR-0260 §2.6): the person now answering did not ask for it.
+ *   waited: the person now answering did not ask for it.
  *
  * A withdrawn approval is expired from that moment: its card is dead and its
  * token answers `used`. What is stored and told to the model says why, so it

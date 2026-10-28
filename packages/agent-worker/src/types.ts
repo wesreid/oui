@@ -236,7 +236,7 @@ export type TurnHistoryMessage =
     }
   | { role: 'tool'; content: string; tool_call_id: string; name?: string }
   /**
-   * A person on the staff (ADR-0260 §2.5): a message they wrote to the
+   * A person on the staff: a message they wrote to the
    * customer, or, with `takeover` and no content, where they took the
    * conversation over or handed it back. The model reads it under their name
    * as the business's side of the conversation, never as its own words.

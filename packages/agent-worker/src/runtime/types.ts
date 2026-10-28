@@ -62,7 +62,7 @@ export interface AgentTurnPayload {
    */
   attachments?: AttachmentRef[];
   /**
-   * Where the person is (ADR-0260 §3.3): `ui` (default) or a conversation
+   * Where the person is: `ui` (default) or a conversation
    * channel (`chat`, `sms`, `voice`, `phone`), where an approval is a readback
    * the next message confirms rather than a card.
    */
@@ -341,7 +341,7 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
   /**
    * Loads conversation history for context. Called once per turn.
    * Return prior user/assistant/tool messages in chronological order, and the
-   * `staff` entries of a person who took the conversation over (ADR-0260 §2.5).
+   * `staff` entries of a person who took the conversation over.
    *
    * The SDK handles appending the current user message — don't include it.
    */

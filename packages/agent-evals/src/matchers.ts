@@ -1,5 +1,5 @@
 /**
- * What a reply is held to (ADR-0260 §3.2): text matchers, argument subsets,
+ * What a reply is held to: text matchers, argument subsets,
  * and the usual phrasing of a refusal.
  */
 import type { AgentEvalTextMatcher } from '@ouispec/contract';

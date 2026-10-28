@@ -1,6 +1,6 @@
 /**
  * What the model and the tabs are told when a person takes a conversation
- * over (ADR-0260 §2.5): who wrote what, under a label the customer cannot
+ * over: who wrote what, under a label the customer cannot
  * forge into the line, and what arrives from the wire read strictly.
  */
 import { describe, expect, it } from 'vitest';

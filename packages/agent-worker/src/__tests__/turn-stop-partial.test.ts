@@ -56,7 +56,7 @@ describe('a stopped turn’s messages', () => {
     }
   });
 
-  it('stores nothing for a turn a take-over stopped before it produced anything: the take-over is already in the conversation (ADR-0260 §2.3)', () => {
+  it('stores nothing for a turn a take-over stopped before it produced anything: the take-over is already in the conversation', () => {
     const takenOver = { reason: 'taken_over', at: 2 } as const;
     expect(stoppedTurnMessages({ steps: [], calls: [], streamedText: '', marker: takenOver })).toEqual([]);
     // What it had produced is kept and marked, as for any stop.

@@ -1,10 +1,10 @@
 /**
- * ADR-0260 §2 on the real server, two instances on one real Redis: a person on
+ * A take-over on the real server, two instances on one real Redis: a person on
  * the staff takes a conversation, the customer's tab and the staff console see
  * it in the conversation's room, the turn's worker on the other instance hears
  * it as a stop, only the holder speaks for the business, and only the holder
  * (or the product) hands it back. The customer is an anonymous website
- * visitor, as Nova's is.
+ * visitor.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Socket } from 'socket.io-client';

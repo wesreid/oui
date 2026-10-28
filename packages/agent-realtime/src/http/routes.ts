@@ -120,7 +120,7 @@ export function emitRouter(deps: RouteDeps): Router {
       res.status(400).json({ error: `ackTimeoutMs must be a whole number of ms from 1 to ${MAX_RECEIPT_WAIT_MS}` });
       return;
     }
-    // A conversation's take-over, hand-back and messages are sent only with the hold that makes them true (ADR-0260 §2.4).
+    // A conversation's take-over, hand-back and messages are sent only with the hold that makes them true.
     if (SERVER_SENT_CONVERSATION_EVENTS.has(event)) {
       deps.logger.warn({ event }, 'Emit refused');
       res.status(400).json({ error: `"${event}" is sent only by the server's conversation routes (/internal/conversations/…)` });

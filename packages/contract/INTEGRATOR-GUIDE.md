@@ -688,7 +688,7 @@ It joins the room the completion declares for one job (`report:{jobId}`), and se
 A `transaction` — an order, a payment, a send, a publish — and any `write` declared `destructive` run only on an approval the person gave, bound to the exact call. No policy waives it.
 
 1. The agent worker stops the turn at the call, stores it with its args hash, and the person's tab receives `agent:approval_required` with a preview whose every word comes from the action's declaration, never from the model. A host may write that display copy itself (the worker's `approvals.preview`): to redact a value, or to say it in the person's language, with `spokenReadback` for a voice. The stored call and the args hash it is bound to stay the model's.
-2. The tab renders the approval card. In a UI only a click on the card counts: a "yes" typed in chat is a message. On voice, phone and SMS, the verbatim readback (on a voice, its `spokenReadback` when the host wrote one) and an affirmative next turn.
+2. The tab renders the approval card. In a UI only a click on the card counts: a "yes" typed in chat is a message. On voice, phone, SMS and chat, the verbatim readback (on a voice, its `spokenReadback` when the host wrote one) and an affirmative next turn. The turn says which: its payload's `channel` (`ui` by default; a live call's turns are `voice`, or `phone` when your `resolveTurn` says so), and the worker tells the model about approvals in that channel's terms. On a conversation channel the readback is sent as the turn's last words, its pieces marked `readback: true`, and stored as the agent's; your classifier of the next message decides as the user (`POST /internal/approvals/{id}/decide` with that channel). An action on the person's page is the exception on every channel: its page runs it only on its own grant, from a click on its card, so the model is told the card is on their screen, nothing is read back, and a conversation channel's approve of it is refused (`channel`). A spoken "no" still declines it.
 3. The click goes to the approval store on the person's own socket (`approval:decide`). The store answers the decider only, with a single-use token and the call's args hash, and the tab's OUI runtime receives a grant (`grantApproval`).
 4. The next turn carries the token, outside the message text. The worker redeems it for the stored call, exactly, and runs it. A UI action then reaches the tab carrying `approval: { approvalId, argsHash }`, and the tab runs it only when that matches its grant.
 
@@ -867,13 +867,13 @@ The agent client never makes HTTP requests; the product supplies callbacks. Beyo
 
 ## Staff take over a conversation, and hand it back
 
-A person on the product's staff can take a live conversation from the agent, answer the customer as themselves in the same conversation, and hand it back (ADR-0260 §2). While a person **holds** the conversation the agent does not answer: a turn that is running stops at a safe point and keeps what it had produced, marked `taken_over`; a turn that arrives is not run by the model and stores nothing. On hand-back the agent's next turn reads the whole exchange, the person's messages under their name, in its history.
+A person on the product's staff can take a live conversation from the agent, answer the customer as themselves in the same conversation, and hand it back. While a person **holds** the conversation the agent does not answer: a turn that is running stops at a safe point and keeps what it had produced, marked `taken_over`; a turn that arrives is not run by the model and stores nothing. On hand-back the agent's next turn reads the whole exchange, the person's messages under their name, in its history.
 
 **Who may take over is yours to decide.** The realtime server keeps the hold and enforces it, and never decides staff permissions: its routes take the internal key, and your API calls them after its own check that this person may take this conversation, as it does before it asks for a room token.
 
 | Your API's route does | Then calls (internal key) |
 |---|---|
-| Take over: check the staff member may; withdraw the conversation's waiting approval (`POST /internal/approvals/{id}/settle` with `expire: 'taken_over'`); store a take-over entry | `POST /internal/conversations/{id}/hold` with `TakeOverRequest` |
+| Take over: check the staff member may; store a take-over entry | `POST /internal/conversations/{id}/hold` with `TakeOverRequest`. The server stops the conversation's running turn and withdraws every approval of it still waiting, or approved and not yet used (`taken_over`): the person now answering asked for none of them. Its answer lists them as `withdrawn`; a later turn records each as withdrawn, and none of them runs or gets a receipt |
 | Send as staff: store the message with `role: 'staff'` and its speaker | `POST /internal/conversations/{id}/messages` with `AnnounceMessageRequest` (refused unless the speaker holds it) |
 | Hand back: store a hand-back entry | `POST /internal/conversations/{id}/hold/release` with `HandBackRequest`: with `userId`, only the holder may; without it, you release it on your own authority (an idle policy, a manager) |
 | Every customer and agent message you store | `POST /internal/conversations/{id}/messages`, so the staff watching see it |
@@ -889,6 +889,8 @@ A person on the product's staff can take a live conversation from the agent, ans
 **In the staff console.** Give `AgentClientConfig` a `staff` seam (`getConversation`, `takeOver`, `handBack`, `sendMessage`: your routes above) and `conversationRoom`, and use `useStaffConversation(conversationId)` inside the provider: it loads the conversation, follows it live, and takes over, sends and hands back.
 
 **An anonymous customer.** Nothing requires a signed-in user. Issue a website visitor a session token when your widget loads (after your origin check and rate limit), with a visitor id as `userId`; have your `AuthAdapter` verify it, and mint the visitor's conversation-room and turn-room tokens only for its own conversation. Its turns, stops and approvals are then the visitor's.
+
+**On a live call.** The live-call handler answers a turn of a held conversation with `done { stopReason: 'taken_over' }` and no words, and makes no model call; a turn speaking when the conversation is taken over stops there with the same end, and an opening is not greeted, your template included. The call service keeps its own state: quiet the character there too, so it stops at once rather than when its next turn is refused. Take the conversation's hold first (every channel stops answering), then the call's; to hand back, resume the call, then release the conversation's hold, so the agent answers the caller's next words. What the person says in the call reaches you as the call service's transcript: store each of their turns as a `staff` message with their `speaker`, so after the hand-back the agent answers from the whole exchange.
 
 **What stays yours:** who is on duty, the alert to staff and how long they have to answer it, the mobile take-over screen, warm transfer on a phone call, and when an idle conversation goes back to the agent. Each has its seam above: your route before the hold, the events in your own rooms, `release` without a `userId`.
 
@@ -914,6 +916,10 @@ A person on the product's staff can take a live conversation from the agent, ans
 > |---|---|---|---|
 > | `holder` | StaffSpeaker | yes |  |
 > | `rooms` | ConversationRooms | yes |  |
+
+> **Schema:** [`conversation-takeover.json#/$defs/TakeOverResult`](schemas/conversation-takeover.json) · `https://schemas.closurestudio.ai/oui/v1/conversation-takeover.json#/$defs/TakeOverResult` · TypeScript: `TakeOverResult` from `@ouispec/contract`
+>
+> One of: { ok: true, change: "taken_over" \| "already", hold: ConversationHold, withdrawn?: string[] } \| { ok: false, reason: "held", hold: ConversationHold }.
 
 > **Schema:** [`conversation-takeover.json#/$defs/HandBackRequest`](schemas/conversation-takeover.json) · `https://schemas.closurestudio.ai/oui/v1/conversation-takeover.json#/$defs/HandBackRequest` · TypeScript: `HandBackRequest` from `@ouispec/contract`
 >
@@ -958,7 +964,7 @@ A person on the product's staff can take a live conversation from the agent, ans
 
 ## Evals: one scenario set, every channel, in CI
 
-`@ouispec/agent-evals` runs scenarios you write as data against your **real** agent configuration (its persona or system prompt, its tools, its `ToolPolicy` and `TurnPolicy`) through the SDK's own turn runner, on every channel you serve, and fails your CI when an assertion does not hold (ADR-0260 §3). In CI it replays recorded model responses: no credentials, no network, the same answer every run.
+`@ouispec/agent-evals` runs scenarios you write as data against your **real** agent configuration (its persona or system prompt, its tools, its `ToolPolicy` and `TurnPolicy`, and its hooks: `beforeTurn`, `filterEvent`, and its approval preview and check) through the SDK's own turn runner, on every channel you serve, and fails your CI when an assertion does not hold. In CI it replays recorded model responses: no credentials, no network, the same answer every run.
 
 **A suite** is a JSON or YAML file (`AgentEvalSuite`). A scenario's turns are the customer's messages (`user`), the customer's answer to a waiting approval (`approval: approve | decline`), and a person on the staff taking over, writing and handing back (`staff`). After a turn, `expect` says what must hold, and `expectOn.<channel>` what must also hold on one channel:
 
@@ -1015,7 +1021,7 @@ export default defineEvals({
       fetch,
       ...(mode === 'replay' ? { credentialProvider: async () => ({ accessKeyId: 'replay', secretAccessKey: 'replay' }) } : {}),
     })('us.anthropic.claude-sonnet-4-6'),
-  agent: ({ channel }) => dealerAgent({ channel }), // persona, tools, toolPolicy, turnPolicy
+  agent: ({ channel }) => dealerAgent({ channel }), // persona, tools, toolPolicy, turnPolicy, beforeTurn, filterEvent, approvals
 });
 ```
 
@@ -1048,7 +1054,7 @@ The package ships an example: a fake dealer tool set, with scenarios for disclos
 > | `approvalRequested` | false \| AgentEvalApprovalExpectation |  | The turn stopped for the customer's approval of this call; `false`: it did not stop for any. |
 > | `refusal` | true \| AgentEvalTextMatcher |  | The reply declines: `true` for the usual phrasing of a refusal (can't, cannot, unable, not able, won't, not allowed), or a matcher for the agent's own words. |
 > | `doesNotStore` | AgentEvalTextMatcher[] |  | None of these appears in anything the turn stored: its text, its tool calls' arguments, its tool results. |
-> | `held` | boolean |  | `true`: the turn ran no model call, because a person held the conversation (ADR-0260 §2.3). |
+> | `held` | boolean |  | `true`: the turn ran no model call, because a person held the conversation. |
 
 > **Schema:** [`agent-evals.json#/$defs/AgentEvalStubCase`](schemas/agent-evals.json) · `https://schemas.closurestudio.ai/oui/v1/agent-evals.json#/$defs/AgentEvalStubCase` · TypeScript: `AgentEvalStubCase` from `@ouispec/contract`
 >

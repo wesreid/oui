@@ -36,7 +36,7 @@ export const EVENT_DECLARATIONS_VERSION = 1;
 export const TURN_ROOM = 'turn';
 
 /**
- * The room a conversation's events go to (ADR-0260 §2.4): the people watching
+ * The room a conversation's events go to: the people watching
  * one conversation, the customer and the staff. Each host names it, as it
  * names a turn's.
  */

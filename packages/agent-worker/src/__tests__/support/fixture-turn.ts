@@ -47,7 +47,7 @@ export class FixtureConversation {
     if (content) this.history.push({ role: 'user', content });
   }
 
-  /** What the product stores for a person on the staff (ADR-0260 §2.5): their message, or a take-over or hand-back. */
+  /** What the product stores for a person on the staff: their message, or a take-over or hand-back. */
   addStaff(speaker: StaffSpeaker, entry: { content: string } | { takeover: TakeoverChange }): void {
     this.history.push({ role: 'staff', speaker, ...('content' in entry ? { content: entry.content } : { content: null, takeover: entry.takeover }) });
   }

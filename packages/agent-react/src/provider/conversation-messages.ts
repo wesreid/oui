@@ -1,5 +1,5 @@
 /**
- * A conversation's people as the chat shows them (ADR-0260 §2.7): one reading
+ * A conversation's people as the chat shows them: one reading
  * of a person's message, and of a take-over or hand-back, for the customer's
  * view and the staff console alike.
  */

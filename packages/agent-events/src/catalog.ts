@@ -26,7 +26,7 @@ export interface DeclaredRoom {
   name: string;
   /**
    * Null for a room each host names: `turn`, the room of the agent turn, and
-   * `conversation`, the room of the conversation (ADR-0260 §2.4).
+   * `conversation`, the room of the conversation.
    */
   pattern: string | null;
 }

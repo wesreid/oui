@@ -1,5 +1,5 @@
 /**
- * The product API's side of a conversation's hold (ADR-0260 §2.2): take a
+ * The product API's side of a conversation's hold: take a
  * conversation over, hand it back, announce a stored message, ask who holds
  * it. The realtime server keeps the hold and enforces it; the product calls
  * these from its own routes, after its own check that this person may.

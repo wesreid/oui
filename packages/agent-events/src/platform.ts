@@ -38,7 +38,7 @@ export const AGENT_TURN_EVENTS = {
 } as const;
 
 /**
- * A conversation's events (ADR-0260 §2.4): a person on the staff took it over,
+ * A conversation's events: a person on the staff took it over,
  * handed it back, or a message of it was stored. They go to the
  * conversation's room, which each host names, and only the realtime server's
  * conversation routes send them: its emit API refuses them, so an event never
@@ -201,7 +201,7 @@ export const PLATFORM_EVENTS: EventDeclarationDocument = {
       ['conversationId', 'approvalId', 'tool', 'effect', 'destructive', 'preview', 'expiresAt'],
     ),
     [AGENT_CONVERSATION_EVENTS.TAKEN_OVER]: conversationEvent(
-      'A person on the staff took the conversation over: the agent stopped answering it (ADR-0260 §2).',
+      'A person on the staff took the conversation over: the agent stopped answering it.',
       'ConversationTakenOverEvent',
     ),
     [AGENT_CONVERSATION_EVENTS.HANDED_BACK]: conversationEvent(

@@ -2,7 +2,7 @@
  * Recorded model responses: kept as they arrived from a live model, then
  * replayed through the product's real provider package, so the provider builds
  * its real requests and parses the recorded wire format. The worker's fixture
- * turn and the eval harness (`@ouispec/agent-evals`, ADR-0260 §3.5) record and
+ * turn and the eval harness (`@ouispec/agent-evals`) record and
  * replay with these, and nothing else.
  *
  * Only responses are kept: status, content type and body bytes. Requests, and

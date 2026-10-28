@@ -1,12 +1,12 @@
 ## Staff take over a conversation, and hand it back
 
-A person on the product's staff can take a live conversation from the agent, answer the customer as themselves in the same conversation, and hand it back (ADR-0260 §2). While a person **holds** the conversation the agent does not answer: a turn that is running stops at a safe point and keeps what it had produced, marked `taken_over`; a turn that arrives is not run by the model and stores nothing. On hand-back the agent's next turn reads the whole exchange, the person's messages under their name, in its history.
+A person on the product's staff can take a live conversation from the agent, answer the customer as themselves in the same conversation, and hand it back. While a person **holds** the conversation the agent does not answer: a turn that is running stops at a safe point and keeps what it had produced, marked `taken_over`; a turn that arrives is not run by the model and stores nothing. On hand-back the agent's next turn reads the whole exchange, the person's messages under their name, in its history.
 
 **Who may take over is yours to decide.** The realtime server keeps the hold and enforces it, and never decides staff permissions: its routes take the internal key, and your API calls them after its own check that this person may take this conversation, as it does before it asks for a room token.
 
 | Your API's route does | Then calls (internal key) |
 |---|---|
-| Take over: check the staff member may; withdraw the conversation's waiting approval (`POST /internal/approvals/{id}/settle` with `expire: 'taken_over'`); store a take-over entry | `POST /internal/conversations/{id}/hold` with `TakeOverRequest` |
+| Take over: check the staff member may; store a take-over entry | `POST /internal/conversations/{id}/hold` with `TakeOverRequest`. The server stops the conversation's running turn and withdraws every approval of it still waiting, or approved and not yet used (`taken_over`): the person now answering asked for none of them. Its answer lists them as `withdrawn`; a later turn records each as withdrawn, and none of them runs or gets a receipt |
 | Send as staff: store the message with `role: 'staff'` and its speaker | `POST /internal/conversations/{id}/messages` with `AnnounceMessageRequest` (refused unless the speaker holds it) |
 | Hand back: store a hand-back entry | `POST /internal/conversations/{id}/hold/release` with `HandBackRequest`: with `userId`, only the holder may; without it, you release it on your own authority (an idle policy, a manager) |
 | Every customer and agent message you store | `POST /internal/conversations/{id}/messages`, so the staff watching see it |
@@ -23,6 +23,8 @@ A person on the product's staff can take a live conversation from the agent, ans
 
 **An anonymous customer.** Nothing requires a signed-in user. Issue a website visitor a session token when your widget loads (after your origin check and rate limit), with a visitor id as `userId`; have your `AuthAdapter` verify it, and mint the visitor's conversation-room and turn-room tokens only for its own conversation. Its turns, stops and approvals are then the visitor's.
 
+**On a live call.** The live-call handler answers a turn of a held conversation with `done { stopReason: 'taken_over' }` and no words, and makes no model call; a turn speaking when the conversation is taken over stops there with the same end, and an opening is not greeted, your template included. The call service keeps its own state: quiet the character there too, so it stops at once rather than when its next turn is refused. Take the conversation's hold first (every channel stops answering), then the call's; to hand back, resume the call, then release the conversation's hold, so the agent answers the caller's next words. What the person says in the call reaches you as the call service's transcript: store each of their turns as a `staff` message with their `speaker`, so after the hand-back the agent answers from the whole exchange.
+
 **What stays yours:** who is on duty, the alert to staff and how long they have to answer it, the mobile take-over screen, warm transfer on a phone call, and when an idle conversation goes back to the agent. Each has its seam above: your route before the hold, the events in your own rooms, `release` without a `userId`.
 
 <!-- schema: conversation-takeover.json#/$defs/StaffSpeaker -->
@@ -30,6 +32,8 @@ A person on the product's staff can take a live conversation from the agent, ans
 <!-- schema: conversation-takeover.json#/$defs/ConversationHold -->
 
 <!-- schema: conversation-takeover.json#/$defs/TakeOverRequest -->
+
+<!-- schema: conversation-takeover.json#/$defs/TakeOverResult -->
 
 <!-- schema: conversation-takeover.json#/$defs/HandBackRequest -->
 

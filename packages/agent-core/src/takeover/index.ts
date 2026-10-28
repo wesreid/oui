@@ -1,6 +1,6 @@
 /**
- * A person takes a conversation from the agent, and hands it back (ADR-0260
- * §2): the shapes every party exchanges, and what the model is told.
+ * A person takes a conversation from the agent, and hands it back: the shapes
+ * every party exchanges, and what the model is told.
  *
  * While a person on the product's staff holds a conversation the agent does
  * not answer it. The person's messages and the take-over and hand-back are

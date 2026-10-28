@@ -1,5 +1,5 @@
 /**
- * The staff console's side of a conversation (ADR-0260 §2.7): read it, follow
+ * The staff console's side of a conversation: read it, follow
  * it live, take it over from the agent, write to the customer as yourself,
  * and hand it back.
  *

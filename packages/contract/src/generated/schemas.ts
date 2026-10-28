@@ -3406,7 +3406,7 @@ export const CONTRACT_SCHEMAS = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://schemas.closurestudio.ai/oui/v1/conversation-takeover.json",
     "title": "Conversation takeover",
-    "description": "A person on the product's staff takes a live conversation from the agent, answers the customer as themselves, and hands it back (ADR-0260 §2): the shapes the realtime server, the agent worker, the product's API, the customer's tab and the staff console exchange.\n\n1. The product's own route checks that this person may take this conversation, then asks the realtime server to hold it (`POST /internal/conversations/{id}/hold`, `TakeOverRequest`). The server keeps one `ConversationHold`, stops any turn of the conversation that is running, and sends `agent:conversation_taken_over` (`ConversationTakenOverEvent`) to the conversation's room.\n2. While the conversation is held, the agent does not answer: a turn that arrives is not run by the model.\n3. The person's messages are stored by the product with `role: 'staff'` and their speaker, and announced (`POST /internal/conversations/{id}/messages`, `AnnounceMessageRequest`) as `agent:conversation_message` (`ConversationMessageEvent`), only while they hold the conversation.\n4. The holder, or the product on its own authority, hands it back (`POST /internal/conversations/{id}/hold/release`, `HandBackRequest`); `agent:conversation_handed_back` (`ConversationHandedBackEvent`) follows, and the agent's next turn reads the whole exchange in its history.\n\nThe realtime server never decides who may take over: its routes take the internal key, and the product calls them after its own check, as it does before it asks for a room token.",
+    "description": "A person on the product's staff takes a live conversation from the agent, answers the customer as themselves, and hands it back: the shapes the realtime server, the agent worker, the product's API, the customer's tab and the staff console exchange.\n\n1. The product's own route checks that this person may take this conversation, then asks the realtime server to hold it (`POST /internal/conversations/{id}/hold`, `TakeOverRequest`). The server keeps one `ConversationHold`, stops any turn of the conversation that is running, and sends `agent:conversation_taken_over` (`ConversationTakenOverEvent`) to the conversation's room.\n2. While the conversation is held, the agent does not answer: a turn that arrives is not run by the model.\n3. The person's messages are stored by the product with `role: 'staff'` and their speaker, and announced (`POST /internal/conversations/{id}/messages`, `AnnounceMessageRequest`) as `agent:conversation_message` (`ConversationMessageEvent`), only while they hold the conversation.\n4. The holder, or the product on its own authority, hands it back (`POST /internal/conversations/{id}/hold/release`, `HandBackRequest`); `agent:conversation_handed_back` (`ConversationHandedBackEvent`) follows, and the agent's next turn reads the whole exchange in its history.\n\nThe realtime server never decides who may take over: its routes take the internal key, and the product calls them after its own check, as it does before it asks for a room token.",
     "$defs": {
       "StaffSpeaker": {
         "description": "A person on the product's staff, as the conversation names them. `displayName` and `role` are shown to the customer; `userId` is what a hand-back and a staff message are checked against. It reaches the customer's tab, so name an id you are content to show (an opaque staff id).",
@@ -3816,7 +3816,7 @@ export const CONTRACT_SCHEMAS = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://schemas.closurestudio.ai/oui/v1/agent-evals.json",
     "title": "AgentEvalSuite",
-    "description": "A suite of agent eval scenarios, written as data (ADR-0260 §3): what a customer says, turn by turn, and what must hold after each turn. `@ouispec/agent-evals` runs every scenario on every channel the suite names, against the product's real agent configuration (persona, tools, tool policy, turn policy), from recorded model responses in CI or against the live model, and fails on any assertion that does not hold.",
+    "description": "A suite of agent eval scenarios, written as data: what a customer says, turn by turn, and what must hold after each turn. `@ouispec/agent-evals` runs every scenario on every channel the suite names, against the product's real agent configuration (persona, tools, tool policy, turn policy), from recorded model responses in CI or against the live model, and fails on any assertion that does not hold.",
     "type": "object",
     "properties": {
       "version": {
@@ -3973,7 +3973,7 @@ export const CONTRACT_SCHEMAS = {
         "additionalProperties": false
       },
       "AgentEvalStaffTurn": {
-        "description": "A person on the staff takes the conversation over, writes to the customer, or hands it back (ADR-0260 §2). No agent turn runs.",
+        "description": "A person on the staff takes the conversation over, writes to the customer, or hands it back. No agent turn runs.",
         "type": "object",
         "properties": {
           "staff": {
@@ -4104,7 +4104,7 @@ export const CONTRACT_SCHEMAS = {
         "additionalProperties": false
       },
       "AgentEvalApprovalExpectation": {
-        "description": "The turn stopped at a call that needs the customer's approval (ADR-0228), with a readback present.",
+        "description": "The turn stopped at a call that needs the customer's approval, with a readback present.",
         "type": "object",
         "properties": {
           "tool": {
@@ -4186,7 +4186,7 @@ export const CONTRACT_SCHEMAS = {
             }
           },
           "held": {
-            "description": "`true`: the turn ran no model call, because a person held the conversation (ADR-0260 §2.3).",
+            "description": "`true`: the turn ran no model call, because a person held the conversation.",
             "type": "boolean"
           }
         },

@@ -1,5 +1,5 @@
 /**
- * ADR-0260 §2.3 and §2.5 end to end: the fixture product, the SDK realtime
+ * A take-over end to end: the fixture product, the SDK realtime
  * server on real Redis, the worker on both adapters, real `ai` providers.
  *
  * - A turn that arrives while a person on the staff holds the conversation
@@ -32,7 +32,7 @@ afterAll(async () => product?.stop());
 
 const conversations = () => createHttpConversationClient({ url: product.realtimeUrl, apiKey: INTERNAL_KEY });
 
-describe('a person on the staff holds the conversation (ADR-0260 §2.3)', () => {
+describe('a person on the staff holds the conversation', () => {
   it.each(['container', 'lambda'] as const)(
     'on the %s adapter, a turn that arrives while it is held makes no model call and stores nothing, and its tab is told',
     async (adapter) => {
@@ -107,7 +107,7 @@ describe('a person on the staff holds the conversation (ADR-0260 §2.3)', () => 
   });
 });
 
-describe('after the hand-back, the agent reads the exchange under the person’s name (ADR-0260 §2.5)', () => {
+describe('after the hand-back, the agent reads the exchange under the person’s name', () => {
   /** The conversation as the product stored it: the agent's answer, the take-over, the person's message, the hand-back. */
   function storedConversation(): FixtureConversation {
     const conversation = new FixtureConversation();
@@ -186,7 +186,7 @@ describe('after the hand-back, the agent reads the exchange under the person’s
   });
 });
 
-describe('the conversation client (ADR-0260 §2.2)', () => {
+describe('the conversation client', () => {
   it('takes a conversation over, announces a staff message to the customer’s tab, and hands it back', async () => {
     const conversationId = 'conv-client';
     const room = conversationRoom(conversationId);

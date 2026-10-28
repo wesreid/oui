@@ -71,7 +71,7 @@ export interface RealtimeServerInstance {
   settlements: SettlementStore | null;
   /** Stop requests for turns. */
   stops: TurnStopStore;
-  /** Conversations a person on the staff holds (ADR-0260). */
+  /** Conversations a person on the staff holds. */
   holds: ConversationHoldStore;
   close(): Promise<void>;
 }

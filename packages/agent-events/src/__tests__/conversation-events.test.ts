@@ -1,5 +1,5 @@
 /**
- * A conversation's events (ADR-0260 §2.4): declared by the platform, to the
+ * A conversation's events: declared by the platform, to the
  * conversation's room each host names, with payloads the contract defines.
  */
 import { describe, expect, it } from 'vitest';

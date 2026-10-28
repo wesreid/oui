@@ -1,7 +1,7 @@
 /**
- * The turn's channel (ADR-0260 §3.3): in a UI an approval is the card; on a
+ * The turn's channel: in a UI an approval is the card; on a
  * conversation channel (SMS here) the customer is sent the readback, verbatim,
- * as the turn's last words, and their next message confirms it (ADR-0228 D7).
+ * as the turn's last words, and their next message confirms it.
  * The model is told about approvals in its channel's terms. End to end on the
  * fixture product, with the approval store on the real realtime server.
  */

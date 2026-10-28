@@ -1,5 +1,5 @@
 /**
- * The realtime server, as one eval run needs it, in memory (ADR-0260 §3.4):
+ * The realtime server, as one eval run needs it, in memory:
  * turn events kept for the assertions, approvals stored, decided and redeemed
  * as the realtime server's store does, and stops and conversation holds as its
  * stop record answers them. Nothing leaves the process.
@@ -145,7 +145,7 @@ export function createMemoryApprovalStore(): MemoryApprovalStore {
 }
 
 export interface MemoryStops extends TurnStopClient {
-  /** A person on the staff holds the conversation from now (ADR-0260 §2.3). */
+  /** A person on the staff holds the conversation from now. */
   hold(conversationId: string, holder: StaffSpeaker): ConversationHold;
   /** The hold ends. */
   release(conversationId: string): ConversationHold | null;

@@ -1,6 +1,5 @@
 /**
- * Stop requests for agent turns, held for the worker that runs the turn
- *.
+ * Stop requests for agent turns, held for the worker that runs the turn.
  *
  * The worker has no socket. A stop is written here, by the user's own socket
  * or by the host's API, and the worker asks for it for as long as its turn
@@ -19,7 +18,7 @@
  * The record outlives any turn: a worker that starts late, or whose wait
  * failed and was retried, still hears it.
  *
- * A turn's conversation held by a person on the staff (ADR-0260 §2.3) is a
+ * A turn's conversation held by a person on the staff is a
  * stop too, for every turn of that conversation, whoever's: a worker that
  * names its conversation is answered `taken_over` while the conversation is
  * held, and its wait wakes when a hold is taken (`conversation:{id}` on the

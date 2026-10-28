@@ -1,6 +1,6 @@
 /**
- * A conversation's hold and its messages, for the product's API (ADR-0260
- * §2.2). Every route takes the internal key: the product calls them from its
+ * A conversation's hold and its messages, for the product's API. Every route
+ * takes the internal key: the product calls them from its
  * own routes, after its own check that this person may do this. The server
  * records and enforces; it never decides staff permissions.
  *

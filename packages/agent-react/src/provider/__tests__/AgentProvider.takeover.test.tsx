@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * The customer's view of a conversation a person on the staff takes over
- * (ADR-0260 §2.7): it follows the conversation's room, shows who is
+ *: it follows the conversation's room, shows who is
  * answering, shows the person's messages under their name, and keeps the
  * customer typing; a turn the worker declines while the conversation is held
  * adds nothing, and the hand-back returns the conversation to the agent. A

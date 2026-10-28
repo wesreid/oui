@@ -1757,11 +1757,11 @@ export interface ConversationMessageEvent {
 // https://schemas.closurestudio.ai/oui/v1/agent-evals.json
 
 /**
- * A suite of agent eval scenarios, written as data (ADR-0260 §3): what a customer says, turn by
- * turn, and what must hold after each turn. `@ouispec/agent-evals` runs every scenario on every
- * channel the suite names, against the product's real agent configuration (persona, tools, tool
- * policy, turn policy), from recorded model responses in CI or against the live model, and
- * fails on any assertion that does not hold.
+ * A suite of agent eval scenarios, written as data: what a customer says, turn by turn, and
+ * what must hold after each turn. `@ouispec/agent-evals` runs every scenario on every channel
+ * the suite names, against the product's real agent configuration (persona, tools, tool policy,
+ * turn policy), from recorded model responses in CI or against the live model, and fails on any
+ * assertion that does not hold.
  */
 export interface AgentEvalSuite {
   /** The suite format's version. */
@@ -1828,8 +1828,8 @@ export interface AgentEvalApprovalTurn {
 }
 
 /**
- * A person on the staff takes the conversation over, writes to the customer, or hands it back
- * (ADR-0260 §2). No agent turn runs.
+ * A person on the staff takes the conversation over, writes to the customer, or hands it back.
+ * No agent turn runs.
  */
 export interface AgentEvalStaffTurn {
   staff: {
@@ -1868,10 +1868,7 @@ export interface AgentEvalToolCall {
   args?: Readonly<Record<string, unknown>>;
 }
 
-/**
- * The turn stopped at a call that needs the customer's approval (ADR-0228), with a readback
- * present.
- */
+/** The turn stopped at a call that needs the customer's approval, with a readback present. */
 export interface AgentEvalApprovalExpectation {
   tool?: string;
   /** A subset of the call's arguments. */
@@ -1905,9 +1902,7 @@ export interface AgentEvalExpectation {
    * tool results.
    */
   doesNotStore?: readonly AgentEvalTextMatcher[];
-  /**
-   * `true`: the turn ran no model call, because a person held the conversation (ADR-0260 §2.3).
-   */
+  /** `true`: the turn ran no model call, because a person held the conversation. */
   held?: boolean;
 }
 

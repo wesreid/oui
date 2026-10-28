@@ -6,7 +6,7 @@
  * room-token secret, the approval signing key, Redis and its CORS origins,
  * and optionally its approval receipt keys and its event declarations.
  * The server handles: declared client events, room tokens, the UI action
- * result store, the approval store, conversation holds (ADR-0260), the emit
+ * result store, the approval store, conversation holds, the emit
  * API (held to the declarations), job settlements, and fan-out across
  * instances.
  */

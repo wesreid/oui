@@ -1,5 +1,5 @@
 /**
- * Reading a suite (ADR-0260 §3.2): a JSON or YAML file, held to the
+ * Reading a suite: a JSON or YAML file, held to the
  * contract's `agent-evals.json`, then to what a schema cannot say: unique
  * scenario ids, channels the configuration serves, regular expressions that
  * compile, an approval answered only after a turn could have asked for one,

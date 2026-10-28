@@ -1,5 +1,5 @@
 /**
- * A scenario's recording on one channel (ADR-0260 §3.5): the model's
+ * A scenario's recording on one channel: the model's
  * responses in order, as they arrived, and what they were recorded against.
  *
  * The fingerprint is a hash of everything that shapes what the model is

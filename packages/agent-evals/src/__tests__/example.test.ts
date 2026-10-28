@@ -1,5 +1,5 @@
 /**
- * The dealer example (ADR-0260 §3.8, acceptance 8): a dealer agent's first
+ * The dealer example: a dealer agent's first
  * acceptance cases, recorded from Claude on Bedrock, replayed on web chat, SMS
  * and voice with no network and no credentials; and the CLI a product runs in
  * its CI, with its exit codes and reports.

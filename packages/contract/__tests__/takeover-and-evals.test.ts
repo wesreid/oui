@@ -1,8 +1,8 @@
 /**
- * ADR-0260's two schemas: the takeover messages the realtime server, the
- * worker, the product's API and both tabs exchange, and the eval suite a
- * product writes. Each accepts what the ADR specifies and refuses what it
- * forbids, and the integrator guide documents both.
+ * The take-over and eval schemas: the takeover messages the realtime server,
+ * the worker, the product's API and both tabs exchange, and the eval suite a
+ * product writes. Each accepts what it specifies and refuses what it forbids,
+ * and the integrator guide documents both.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

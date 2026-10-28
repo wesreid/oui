@@ -28,7 +28,7 @@ function parseResult(content: string | null): unknown {
  *   `ui_act` is shown as that action, as the live stream named it;
  * - a stored `tool` message fills in its call's result (by `toolCallId`, else
  *   the next call without one), so a `present_options` choice renders again;
- * - a person on the staff's message (ADR-0260 §2.5) is a `staff` message with
+ * - a person on the staff's message is a `staff` message with
  *   its `speaker`; a take-over or hand-back is a `staff` message with
  *   `takeover` and no content. One that names no speaker is left out.
  *

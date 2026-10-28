@@ -1,5 +1,5 @@
 /**
- * A rubric's verdict (ADR-0260 §3.2): a judge model reads the customer's
+ * A rubric's verdict: a judge model reads the customer's
  * message, the agent's reply and the rubric, and answers whether the reply
  * does what the rubric says. Its call goes through the same fetch as the
  * agent's, so in CI it is replayed from the scenario's recording like every

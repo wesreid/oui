@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * agent-evals — runs a product's agent evals (ADR-0260 §3.7).
+ * agent-evals — runs a product's agent evals.
  *
  *   agent-evals [--config <file>] [--record | --live] [--channel <name>]… [--scenario <id>]…
  *               [--json <file>] [--junit <file>] [--verbose]

@@ -34,8 +34,8 @@ export type TurnStopRecordReason = TurnStopReason | 'taken_over';
 /**
  * Why a turn ended on the stop path, keeping what it had produced: a stop that
  * was asked for (`TurnStopReason`), its conversation taken over by a person
- * (`taken_over`), or its own deadline (`deadline`: it ran out of time,
- * ADR-0252 §6.4). Nobody asks for `deadline` either: it is only a stopped
+ * (`taken_over`), or its own deadline (`deadline`: it ran out of time).
+ * Nobody asks for `deadline` either: it is only a stopped
  * turn's reason.
  */
 export type TurnStoppedReason = TurnStopRecordReason | 'deadline';

@@ -69,7 +69,7 @@ export interface TurnStopClient {
    * that was asked for before the watch began has been heard.
    *
    * With `conversationId`, a person on the staff holding the conversation is
-   * a stop as well (`taken_over`, ADR-0260 §2.3), heard the same way.
+   * a stop as well (`taken_over`), heard the same way.
    */
   watch(
     turnId: string,
@@ -253,7 +253,7 @@ export function watchTurnStop(
   client: TurnStopClient | undefined,
   turnId: string,
   userId: string,
-  /** The turn's conversation: a person taking it over stops the turn too (ADR-0260 §2.3). */
+  /** The turn's conversation: a person taking it over stops the turn too. */
   conversationId?: string,
 ): TurnStopWatch {
   const controller = new AbortController();

@@ -1,5 +1,5 @@
 /**
- * Running a suite (ADR-0260 §3): every scenario on every channel it runs on,
+ * Running a suite: every scenario on every channel it runs on,
  * each turn through the SDK's own turn runner with the product's real agent
  * configuration, and every expectation checked after its turn.
  *

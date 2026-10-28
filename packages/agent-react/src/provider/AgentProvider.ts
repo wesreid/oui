@@ -275,7 +275,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
       const following = conversationRoomRef.current;
       if (following) joinRoom(socket, following.room, following.token);
     });
-    // The open conversation's take-over, hand-back and staff messages (ADR-0260 §2.7).
+    // The open conversation's take-over, hand-back and staff messages.
     const conversationListeners = Object.values(CONVERSATION_EVENTS).map((event) => {
       const listener = (data: unknown) => handleConversationEventRef.current(event, data);
       socket.on(event, listener);
@@ -369,7 +369,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
       return m.isStreaming ? { ...m, isStreaming: false } : m;
     });
     // A turn stopped before it said anything still shows that it was stopped; one a take-over stopped
-    // shows nothing of its own, since the take-over is in the conversation (ADR-0260 §2.3).
+    // shows nothing of its own, since the take-over is in the conversation.
     if (marked.some((m) => m.id === msgId) || reason === 'taken_over') return marked;
     return [...marked, { id: msgId, role: 'assistant' as const, content: '', timestamp: Date.now(), stopped: reason }];
   };
@@ -680,7 +680,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     };
   }, [handleProtocolEvent, addDebugLog, joinRoom]);
 
-  // --- The open conversation's room (ADR-0260 §2.7) ---
+  // --- The open conversation's room ---
   // With the platform's `conversationRoom`, the tab follows its conversation between turns: a person on the
   // staff taking it over, their messages, and the hand-back.
   const appendOnce = useCallback((message: AgentMessage) => {
@@ -703,7 +703,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     const change: TakeoverChange = event === CONVERSATION_EVENTS.TAKEN_OVER ? 'taken_over' : 'handed_back';
     const at = typeof payload.at === 'number' ? payload.at : Date.now();
     setHold(change === 'taken_over' ? changed : null);
-    // The person now answering did not ask for the card: it is withdrawn (ADR-0260 §2.6).
+    // The person now answering did not ask for the card: it is withdrawn.
     if (change === 'taken_over') setPendingApproval(null);
     appendOnce(conversationChangeMessage(change, changed, at));
     addDebugLog('info', 'agent:state', change === 'taken_over' ? 'A person took the conversation over' : 'The conversation was handed back', {

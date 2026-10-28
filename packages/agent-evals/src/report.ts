@@ -1,5 +1,5 @@
 /**
- * What a run says (ADR-0260 §3.7): a line per case, every failed assertion
+ * What a run says: a line per case, every failed assertion
  * with its turn, its channel and the reply; and JUnit XML for a CI's test
  * view.
  */

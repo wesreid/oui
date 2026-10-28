@@ -148,7 +148,7 @@ export function payloadRefusal(payload: unknown): string | null {
  * The system prompt the host's configuration gives a turn: its persona through
  * the SDK's prompt framework, or its own builder. One reading for the runner
  * and for anything that must know what the model is told (an eval's
- * recording, ADR-0260 §3.5).
+ * recording).
  */
 export function hostSystemPrompt(
   config: Pick<AgentRuntimeConfig<unknown>, 'persona' | 'systemPrompt'>,

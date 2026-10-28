@@ -99,7 +99,7 @@ export function stoppedTurnMessages(recorded: {
     messages.push({ role: 'assistant', content: turnStoppedNote(marker), stopped: marker });
   }
   // A turn a take-over stopped before it said anything stores nothing: the take-over itself is in the
-  // conversation, as the product's entry (ADR-0260 §2.3), and a marker for every message the customer sent
+  // conversation, as the product's entry, and a marker for every message the customer sent
   // while a person held it would fill the transcript with stops nobody asked for.
   return messages;
 }
