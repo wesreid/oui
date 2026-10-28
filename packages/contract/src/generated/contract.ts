@@ -1650,13 +1650,19 @@ export interface TakeOverRequest {
 }
 
 /**
- * The answer to a take-over: `taken_over` the first time, `already` when this holder had it;
- * 409 `held` when someone else holds it.
+ * The answer to a take-over: `taken_over` the first time, with the approvals it withdrew;
+ * `already` when this holder had it; 409 `held` when someone else holds it.
  */
 export type TakeOverResult = {
   ok: true;
   change: 'taken_over' | 'already';
   hold: ConversationHold;
+  /**
+   * On `taken_over`: the ids of the conversation's approvals that were waiting, or approved and
+   * not yet used, and are now withdrawn (`taken_over`), since the person now answering asked
+   * for none of them. Empty when there were none.
+   */
+  withdrawn?: Array<string>;
 } | {
   ok: false;
   reason: 'held';

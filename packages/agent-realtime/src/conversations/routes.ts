@@ -5,7 +5,7 @@
  * records and enforces; it never decides staff permissions.
  *
  *   GET  /internal/conversations/:id/hold            who holds it: 200 with the hold, 204 nobody
- *   POST /internal/conversations/:id/hold            { holder, rooms }  take it over
+ *   POST /internal/conversations/:id/hold            { holder, rooms }  take it over, withdrawing its waiting approvals
  *   POST /internal/conversations/:id/hold/release    { userId?, rooms } hand it back
  *   POST /internal/conversations/:id/messages        { message, rooms } announce a stored message
  *
@@ -30,17 +30,21 @@ import {
   type ConversationTakenOverEvent,
   type HandBackRequest,
   type TakeOverRequest,
+  type TakeOverResult,
 } from '@ouispec/agent-core';
 import { contractProblems, type ContractRef } from '@ouispec/contract/validate';
 import type { RoomPolicy } from '../types.js';
 import type { RealtimeLogger } from '../logger.js';
 import type { ConversationHoldStore } from './holds.js';
+import type { ApprovalStore } from '../approvals/store.js';
 
 export interface ConversationRouteDeps {
   io: Server;
   roomPolicy: RoomPolicy;
   /** Null until Redis is connected. */
   holds: () => ConversationHoldStore | null;
+  /** The approval store, whose waiting approvals of a conversation a take-over withdraws. Null until Redis is connected. */
+  approvals: () => ApprovalStore | null;
   isInternalKey: (presented: string | undefined) => boolean;
   logger: RealtimeLogger;
 }
@@ -117,14 +121,24 @@ export function conversationsRouter(deps: ConversationRouteDeps): Router {
         res.status(409).json(result);
         return;
       }
-      if (result.change === 'taken_over') {
-        send(request.rooms, CONVERSATION_EVENTS.TAKEN_OVER, {
-          conversationId: ok.conversationId,
-          hold: result.hold,
-          at: Date.now(),
-        } satisfies ConversationTakenOverEvent);
+      if (result.change !== 'taken_over') {
+        res.json(result);
+        return;
       }
-      res.json(result);
+      // The person now answering asked for none of the conversation's waiting approvals: each is withdrawn, and a
+      // later turn records it so. Held, the conversation runs no turn that could use one meanwhile.
+      let withdrawn: string[] = [];
+      try {
+        withdrawn = (await deps.approvals()?.withdrawOpen(ok.conversationId, 'taken_over')) ?? [];
+      } catch (err) {
+        deps.logger.error({ err, conversationId: ok.conversationId }, 'The conversation’s waiting approvals could not be withdrawn; it is held, so none of them runs');
+      }
+      send(request.rooms, CONVERSATION_EVENTS.TAKEN_OVER, {
+        conversationId: ok.conversationId,
+        hold: result.hold,
+        at: Date.now(),
+      } satisfies ConversationTakenOverEvent);
+      res.json({ ...result, withdrawn } satisfies TakeOverResult);
     } catch (err) {
       deps.logger.error({ err, conversationId: ok.conversationId }, 'Conversation take-over failed');
       res.status(500).json({ error: 'Conversation take-over failed' });

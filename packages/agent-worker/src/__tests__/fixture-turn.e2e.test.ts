@@ -131,7 +131,7 @@ describe('the host’s hooks around the fixture turn', () => {
     });
 
     expect(run.outcome.status).toBe('completed');
-    expect(told).toEqual([{ id: `turn-fx-hooks-${adapter}`, channel: adapter, inputMode: 'text', language: null }]);
+    expect(told).toEqual([{ id: `turn-fx-hooks-${adapter}`, channel: adapter, inputMode: 'text', language: null, approvalChannel: 'ui' }]);
     // ── What the provider was sent: the host's copy ──
     const first = JSON.stringify(provider.requests[0]);
     expect(first).toContain('Open my reports, my account is [account]');

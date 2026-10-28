@@ -174,7 +174,7 @@ export async function runAgentTurn(
   }
   const { turnId, socketRoom } = input;
   // The turn as every host hook is told of it: its id, its channel, how its message was entered.
-  const turnInfo = turnInfoOf(input, input.channel);
+  const turnInfo = turnInfoOf(input, input.channel, input.approvalChannel);
   // Where the person is: in a UI an approval is the card; on a conversation channel, the readback.
   const approvalChannel: ApprovalChannel = input.approvalChannel ?? 'ui';
   /**
@@ -1003,12 +1003,16 @@ export async function runAgentTurn(
       awaitingApproval: true,
       approvalId: toolUseId,
       message:
-        hold.readback === null
+        hold.readback === null && approvalChannel === 'ui'
           ? `Waiting for the user to approve "${preview.title}" on the approval card. It has not run. ` +
             'The turn ends here: it runs only if they approve it there, and the next turn tells you the outcome.'
-          : `Waiting for the customer to confirm "${preview.title}". They are sent this readback, word for word, after your reply: ` +
-            `"${hold.readback}" It has not run. The turn ends here: it runs only if they confirm it in their next message, ` +
-            'and the next turn tells you the outcome. Do not repeat the readback.',
+          : hold.readback === null
+            ? `Waiting for the user to approve "${preview.title}" on the approval card on their screen. It has not run. ` +
+              'The turn ends here: it runs only if they approve it there, and the next turn tells you the outcome. A yes they say or ' +
+              'send in this conversation does not approve it, so tell them the card is on their screen.'
+            : `Waiting for the customer to confirm "${preview.title}". They are sent this readback, word for word, after your reply: ` +
+              `"${hold.readback}" It has not run. The turn ends here: it runs only if they confirm it in their next message, ` +
+              'and the next turn tells you the outcome. Do not repeat the readback.',
     });
   };
 

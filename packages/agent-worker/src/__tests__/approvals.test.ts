@@ -6,7 +6,13 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import type { ApprovalRedeemResult, ApprovalStatus } from '@ouispec/agent-core';
-import { approvalRequirement, APPROVAL_TOOL_NOTE } from '../approvals/requirement.js';
+import {
+  approvalRequirement,
+  approvalToolNote,
+  APPROVAL_TOOL_NOTE,
+  READBACK_APPROVAL_TOOL_NOTE,
+  SCREEN_APPROVAL_TOOL_NOTE,
+} from '../approvals/requirement.js';
 import { buildApprovalPreview } from '../approvals/preview.js';
 import { approvalMarker, markedResult, notRunResult, resolveContinuation } from '../approvals/continuation.js';
 import { createHttpApprovalStoreClient, type ApprovalStoreClient } from '../approvals/client.js';
@@ -122,6 +128,18 @@ describe('a UI action as a tool', () => {
     expect(APPROVAL_TOOL_NOTE).toMatch(/never treat a typed yes as approval/);
     const confirm = loadBuiltinTools().find((t) => t.name === 'confirm_action')!;
     expect(confirm.description).toMatch(/Never use it for a tool marked "Needs the user's approval"/);
+  });
+
+  it('tells the model how the turn’s channel takes approval: the card in a UI, the readback elsewhere, and a UI action’s card on the screen', () => {
+    expect(approvalToolNote()).toBe(APPROVAL_TOOL_NOTE);
+    expect(approvalToolNote('ui', 'ui')).toBe(APPROVAL_TOOL_NOTE);
+    for (const channel of ['chat', 'sms', 'voice', 'phone'] as const) {
+      expect(approvalToolNote(channel)).toBe(READBACK_APPROVAL_TOOL_NOTE);
+      expect(approvalToolNote(channel, 'backend')).toBe(READBACK_APPROVAL_TOOL_NOTE);
+      expect(approvalToolNote(channel, 'ui')).toBe(SCREEN_APPROVAL_TOOL_NOTE);
+    }
+    expect(READBACK_APPROVAL_TOOL_NOTE).not.toMatch(/card/);
+    expect(SCREEN_APPROVAL_TOOL_NOTE).toMatch(/does not approve it/);
   });
 });
 

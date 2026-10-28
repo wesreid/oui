@@ -76,6 +76,9 @@ describe('approvals in the turn’s channel', () => {
       .map((e) => (e.data as { text: string }).text)
       .join('');
     expect(streamed).toBe(`I can book that for you.\n\n${READBACK}`);
+    // Its pieces say they are the readback, so a consumer that sends it its own way (a call) does not say it twice.
+    const pieces = asked.tab.turnEvents('turn-sms-book').filter((e) => e.event === AGENT_SOCKET_EVENTS.TOKEN) as Array<{ data: { text: string; readback?: boolean } }>;
+    expect(pieces.filter((e) => e.data.readback === true).map((e) => e.data.text)).toEqual([`\n\n${READBACK}`]);
     expect(booked).toEqual([]);
 
     // The product's classifier read "yes" as confirming the readback: it decides for the customer on the SMS channel.

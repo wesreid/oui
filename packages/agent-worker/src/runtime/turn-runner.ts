@@ -91,8 +91,10 @@ export interface AgentTurnRunner {
    * Answers the turn with `text` instead of the model: a reply the host has
    * already (a greeting from a template). It is a turn like any other to the
    * host and the room: recorded, its text streamed to the room, stored as the
-   * turn's one assistant message, then announced complete. Never throws for
-   * the turn's own failure.
+   * turn's one assistant message, then announced complete. A conversation a
+   * person on the staff holds is not answered: the outcome is `stopped`,
+   * `taken_over`, and nothing but that is stored. Never throws for the turn's
+   * own failure.
    */
   reply(payload: AgentTurnPayload, text: string, host?: Pick<TurnHost, 'observe' | 'channel'>): Promise<TurnOutcome>;
   /** The model, as logs name it. */
@@ -199,7 +201,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
     payload: AgentTurnPayload,
     host: Pick<TurnHost, 'observe' | 'channel'>,
   ): Promise<{ payload: AgentTurnPayload; turn: AgentTurnInfo } | { outcome: TurnOutcome }> {
-    const asSent = turnInfoOf(payload, host.channel);
+    const asSent = turnInfoOf(payload, host.channel, payload.channel);
     if (!config.beforeTurn) return { payload, turn: asSent };
     let admitted: AgentTurnPayload | null;
     try {
@@ -216,7 +218,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
     if (invalid) {
       return { outcome: await fail(payload, turnEmit(asSent, host.observe), new Error(`[agent-sdk] beforeTurn returned a turn that cannot run: ${invalid}`)) };
     }
-    return { payload: admitted, turn: turnInfoOf(admitted, host.channel) };
+    return { payload: admitted, turn: turnInfoOf(admitted, host.channel, admitted.channel) };
   }
   // UI actions reach the client through the same realtime server, and its
   // answers come back through it.
@@ -472,6 +474,23 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
 
       try {
         const usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+        // A conversation a person on the staff holds is theirs to answer: the host's text is not said, and nothing is
+        // stored but that the turn was taken over, as for a model's turn that arrives while it is held.
+        const watch = watchTurnStop(stops, turnId, userId, conversationId);
+        await watch.checked();
+        const held = watch.current();
+        watch.close();
+        if (held?.reason === 'taken_over') {
+          const stopped: TurnStoppedMarker = { reason: 'taken_over', at: held.at };
+          try {
+            await config.persistMessages({ turnId, conversationId, messages: [], usage, stopped, db });
+          } catch (err) {
+            logger.error('[agent-sdk] persistMessages failed', { turnId, error: messageOf(err) });
+          }
+          await emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TURN_COMPLETE, { turnId, rounds: 0, usage, stopReason: 'taken_over', timestamp: Date.now() });
+          logger.info('[agent-sdk] Turn not answered: a person on the staff holds the conversation', { turnId, conversationId });
+          return { status: 'stopped', turnId, rounds: 0, stopReason: 'taken_over' };
+        }
         // One round, the turn's last word, as a model's reply that called no tool streams.
         await emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TOKEN, { turnId, text, step: 0, timestamp: Date.now() });
         await emit.emit(socketRoom, AGENT_SOCKET_EVENTS.ROUND_END, { turnId, step: 0, calledTools: false, final: true, timestamp: Date.now() });

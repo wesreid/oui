@@ -142,7 +142,7 @@
       "additionalProperties": false
     },
     "TakeOverResult": {
-      "description": "The answer to a take-over: `taken_over` the first time, `already` when this holder had it; 409 `held` when someone else holds it.",
+      "description": "The answer to a take-over: `taken_over` the first time, with the approvals it withdrew; `already` when this holder had it; 409 `held` when someone else holds it.",
       "oneOf": [
         {
           "type": "object",
@@ -158,6 +158,13 @@
             },
             "hold": {
               "$ref": "#/$defs/ConversationHold"
+            },
+            "withdrawn": {
+              "description": "On `taken_over`: the ids of the conversation's approvals that were waiting, or approved and not yet used, and are now withdrawn (`taken_over`), since the person now answering asked for none of them. Empty when there were none.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           },
           "required": [

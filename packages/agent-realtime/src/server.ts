@@ -176,7 +176,9 @@ export async function createRealtimeServer(config: RealtimeServerConfig): Promis
   app.use(approvalRouter({ approvals, isInternalKey: deps.isInternalKey }));
   app.use(settlementsRouter(deps));
   app.use(turnStopsRouter({ stops: () => stops, isInternalKey: deps.isInternalKey, logger }));
-  app.use(conversationsRouter({ io, roomPolicy: config.roomPolicy, holds: () => holds, isInternalKey: deps.isInternalKey, logger }));
+  app.use(
+    conversationsRouter({ io, roomPolicy: config.roomPolicy, holds: () => holds, approvals: () => approvals, isInternalKey: deps.isInternalKey, logger }),
+  );
 
   // Authentication, once per socket, through the product's verifier.
   io.use(async (socket, next) => {

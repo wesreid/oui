@@ -22,9 +22,11 @@ export interface ConversationClient {
   /** Who holds the conversation, or null when the agent answers it. */
   hold(conversationId: string): Promise<ConversationHold | null>;
   /**
-   * Take it over for `request.holder`: `taken_over` (the rooms are told, and
-   * its running turn stops), `already` (this holder had it), or refused with
-   * who holds it. Call it after the product's own permission check.
+   * Take it over for `request.holder`: `taken_over` (the rooms are told, its
+   * running turn stops, and every approval of it still waiting, or approved
+   * and not yet used, is withdrawn: their ids are `withdrawn`), `already`
+   * (this holder had it), or refused with who holds it. Call it after the
+   * product's own permission check.
    */
   takeOver(conversationId: string, request: TakeOverRequest): Promise<TakeOverResult>;
   /**

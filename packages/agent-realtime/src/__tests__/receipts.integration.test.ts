@@ -5,7 +5,8 @@
  * keys A publishes, with agent-core's own verifier, as a tool would.
  *
  * Issued once, at redemption, for the audience fixed at creation; never for a
- * declined, expired or withdrawn approval, nor for a UI action. Rotation: a
+ * declined, expired or withdrawn approval, one its conversation's take-over
+ * withdrew, nor for a UI action. Rotation: a
  * receipt of the previous key verifies while that key is published, and is
  * refused with `key` once it is removed.
  */
@@ -270,6 +271,43 @@ describe('a receipt is never issued', () => {
       expect(res.status).toBe(410);
       expect(res.body).toEqual({ error: expect.any(String), reason: 'used' });
     }
+  });
+
+  it('for an approval its conversation’s take-over withdrew: one waiting and one approved and not yet used, whoever asked', async () => {
+    const conversationId = `conv-taken-${crypto.randomUUID().slice(0, 8)}`;
+    const waiting = await stored({ conversationId });
+    const { p: decided, token } = await approved({ conversationId });
+    // Another conversation's approval is not the take-over's to withdraw.
+    const elsewhere = await approved();
+    const jordan = { userId: 'staff-17', displayName: 'Jordan', role: 'Sales' };
+
+    const rooms = [`agent:conversation:${conversationId}`];
+    const taken = await internal(b, `/internal/conversations/${conversationId}/hold`, { holder: jordan, rooms });
+    expect(taken.status).toBe(200);
+    expect(taken.body).toMatchObject({ ok: true, change: 'taken_over' });
+    expect([...(taken.body.withdrawn as string[])].sort()).toEqual([waiting.approvalId, decided.approvalId].sort());
+
+    // The approved call's token is spent: no call, no receipt, on either instance.
+    for (const server of [a, b]) {
+      const res = await internal(server, '/internal/approvals/redeem', { token, userId: 'u1', conversationId });
+      expect(res.status).toBe(410);
+      expect(res.body).toEqual({ error: expect.any(String), reason: 'used' });
+    }
+    // The waiting one can no longer be approved, so it never gets a token to redeem.
+    expect(await decide(await connect(a), waiting.approvalId, 'approve')).toMatchObject({ ok: false, reason: 'unknown' });
+    // A later turn is told why each ended without running.
+    for (const id of [waiting.approvalId, decided.approvalId]) {
+      const settled = await internal(a, `/internal/approvals/${id}/settle`, { userId: 'u1', conversationId });
+      expect(settled.body).toMatchObject({ withdrawn: 'taken_over' });
+    }
+    // Taking it over again withdraws nothing more, and the other conversation's approval still redeems with its receipt.
+    const again = await internal(a, `/internal/conversations/${conversationId}/hold`, { holder: jordan, rooms });
+    expect(again.body).toMatchObject({ ok: true, change: 'already' });
+    expect(again.body).not.toHaveProperty('withdrawn');
+    const other = await redeem(a, elsewhere.token);
+    expect(other.status).toBe(200);
+    expect(typeof other.body.receipt).toBe('string');
+    expect((await internal(a, `/internal/conversations/${conversationId}/hold/release`, { rooms })).body).toMatchObject({ change: 'handed_back' });
   });
 
   it('by a server with no receipt keys: it stores no audience and answers the call alone', async () => {

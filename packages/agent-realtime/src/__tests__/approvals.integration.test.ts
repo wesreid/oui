@@ -531,6 +531,26 @@ describe('a conversation channel deciding through the engine route', () => {
   });
 });
 
+describe('an action on the person’s page', () => {
+  it('is approved only on its card: a spoken or texted yes is refused with channel, a spoken no declines it, and the click still approves', async () => {
+    const page = { toolKind: 'ui' as const, tool: 'orders_place_ui' };
+    const said = await stored(page);
+    for (const channel of ['voice', 'phone', 'sms', 'chat']) {
+      const yes = await internal(a, `/internal/approvals/${said.approvalId}/decide`, { body: { userId: 'u1', decision: 'approve', channel } });
+      expect(yes.status).toBe(400);
+      expect(yes.body).toEqual({ error: expect.stringContaining('only on its card'), reason: 'channel' });
+    }
+    // Still waiting: the person's click on its card approves it, and only the deciding socket gets the token.
+    const clicked = await decide(await connect(b, 'token-u1'), said.approvalId, 'approve');
+    expect(clicked).toMatchObject({ ok: true, decision: 'approve', channel: 'ui' });
+
+    // Declining is always safe: a spoken no ends the card's wait.
+    const declined = await stored(page);
+    const no = await internal(a, `/internal/approvals/${declined.approvalId}/decide`, { body: { userId: 'u1', decision: 'decline', channel: 'voice' } });
+    expect(no.body).toMatchObject({ ok: true, decision: 'decline' });
+  });
+});
+
 describe('storing a pending approval', () => {
   it('requires the internal key, a hash that matches the arguments, an expiry within 30 minutes and a unique id', async () => {
     const p = await pending();

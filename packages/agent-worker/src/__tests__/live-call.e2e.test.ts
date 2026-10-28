@@ -15,7 +15,15 @@ import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createOpenAI } from '@ai-sdk/openai';
 import { AGENT_SOCKET_EVENTS, type ApprovalRequiredEvent, type TurnStoppedMarker } from '@ouispec/agent-core';
-import { inboxSurface, INTERNAL_KEY, shellSurface, startFixtureProduct, type FixtureProduct, type FixtureTab } from './support/fixture-product.js';
+import {
+  inboxSurface,
+  INTERNAL_KEY,
+  reportsSurface,
+  shellSurface,
+  startFixtureProduct,
+  type FixtureProduct,
+  type FixtureTab,
+} from './support/fixture-product.js';
 import { FixtureConversation } from './support/fixture-turn.js';
 import { chunk, sse, type ChatRequest, type ScriptedReply } from './support/replay.js';
 import { createAgentTurnRunner, type TurnOutcome } from '../runtime/turn-runner.js';
@@ -23,6 +31,8 @@ import { startContainerAgentWorker, DEFAULT_LIVE_CALL_PATH } from '../container/
 import { createLiveCallTurnHandler, type LiveCallTurnHandler, type LiveCallTurnOptions, type LiveCallTurnTarget } from '../live-call/handler.js';
 import { LIVE_CALL_OPENING_MESSAGE, liveCallOpeningMessage, type LiveCallTurnRequest } from '../live-call/protocol.js';
 import { createHttpApprovalStoreClient } from '../approvals/client.js';
+import { createHttpConversationClient } from '../conversations/client.js';
+import { READBACK_APPROVAL_TOOL_NOTE } from '../approvals/requirement.js';
 import { buildApprovalPreview } from '../approvals/preview.js';
 import type { AgentRuntimeConfig } from '../runtime/types.js';
 import type { RegisteredTool } from '../tools/types.js';
@@ -165,6 +175,8 @@ interface CallProductOptions {
   runtime?: Partial<AgentRuntimeConfig<object>>;
   /** What of the reply is spoken, and the holding line. */
   speech?: Pick<LiveCallTurnOptions, 'speak' | 'holdingLine'>;
+  /** The page the conversation is open on, when not the inbox. */
+  context?: Record<string, unknown>;
 }
 
 function runtimeConfig(name: string, options: CallProductOptions, state: Pick<CallProduct, 'conversation' | 'histories' | 'persisted'>): AgentRuntimeConfig<object> {
@@ -201,7 +213,7 @@ function resolver(state: Omit<CallProduct, 'url' | 'handler' | 'close' | 'outcom
       userId: 'ana',
       accountId: 'desk-1',
       socketRoom: state.room,
-      context: { ...ON_INBOX, output: { mode: 'text' } },
+      context: { ...(options.context ?? ON_INBOX), output: { mode: 'text' } },
     };
     // The readback waiting for an answer is answered by this message, or dropped by it.
     const waiting = request.kind === 'message' ? waitingApproval(state.conversation) : null;
@@ -814,6 +826,8 @@ describe('what the product decides for its calls', () => {
         channel: 'live-call',
         inputMode: 'voice',
         language: 'en',
+        // A call is spoken: its approvals are read back.
+        approvalChannel: 'voice',
       });
       expect(m.requests).toHaveLength(0);
       expect(call.persisted).toEqual([]);
@@ -874,6 +888,148 @@ describe('barge-in', () => {
       await reader.rest();
       expect(reader.events.at(-1)).toEqual({ event: 'done', data: { stopReason: 'superseded' } });
       expect(m.aborted).toEqual([0]);
+    } finally {
+      await call.close();
+    }
+  }, 30_000);
+});
+
+describe('a conversation a person on the staff takes over, on a live call', () => {
+  const jordan = { userId: 'staff-17', displayName: 'Jordan', role: 'Desk sales' };
+  const conversations = () => createHttpConversationClient({ url: product.realtimeUrl, apiKey: INTERNAL_KEY });
+  const roomsOf = (call: { room: string }) => [call.room];
+
+  it('answers a turn that arrives while it is held with no model call and no words, ends it taken_over, and stores only that; after the hand-back the next turn is answered', async () => {
+    const m = scriptedModel([{ text: 'Happy to help again: the blue RAV4 is still here.' }]);
+    const call = await startCallProduct({ model: m.model });
+    try {
+      expect(await conversations().takeOver(call.conversationId, { holder: jordan, rooms: roomsOf(call) })).toMatchObject({ ok: true, change: 'taken_over' });
+
+      const held = turnRequest(call, { text: 'Is the blue RAV4 still there?' });
+      const stream = await streamOf(await post(call.url, held));
+      // What the call service receives: nothing to say, and why, so it keeps the character quiet.
+      expect(stream.events).toEqual([{ event: 'done', data: { stopReason: 'taken_over' } }]);
+      expect(m.requests).toHaveLength(0);
+      // The page is told the turn ended because the conversation is held; it got no words.
+      const complete = (await call.tab.waitForTurn(AGENT_SOCKET_EVENTS.TURN_COMPLETE, held.turnId)) as { stopReason?: string };
+      expect(complete.stopReason).toBe('taken_over');
+      expect(roomText(call.tab, held.turnId)).toBe('');
+      // Nothing is stored but that it was taken over: the take-over itself is already in the conversation.
+      expect(call.persisted).toEqual([{ turnId: held.turnId, messages: [], stopped: expect.objectContaining({ reason: 'taken_over' }) }]);
+      expect(call.outcomes).toEqual([{ status: 'stopped', turnId: held.turnId, rounds: 0, stopReason: 'taken_over' }]);
+
+      // ── Handed back: the agent answers the next turn ──
+      expect(await conversations().handBack(call.conversationId, { userId: jordan.userId, rooms: roomsOf(call) })).toMatchObject({ change: 'handed_back' });
+      const after = await streamOf(await post(call.url, turnRequest(call, { text: 'And is it still there now?' })));
+      expect(after.text()).toBe('Happy to help again: the blue RAV4 is still here.');
+      expect(after.events.at(-1)).toEqual({ event: 'done', data: { stopReason: 'complete' } });
+    } finally {
+      await call.close();
+    }
+  }, 30_000);
+
+  it('does not greet a call whose conversation is held, even with the product’s template', async () => {
+    const m = scriptedModel([]);
+    const call = await startCallProduct({ model: m.model, opening: () => 'Welcome to Desk! How can I help?' });
+    try {
+      await conversations().takeOver(call.conversationId, { holder: jordan, rooms: roomsOf(call) });
+      const opening = turnRequest(call, { kind: 'opening', text: '' });
+      const stream = await streamOf(await post(call.url, opening));
+      expect(stream.events).toEqual([{ event: 'done', data: { stopReason: 'taken_over' } }]);
+      expect(m.requests).toHaveLength(0);
+      await call.tab.waitForTurn(AGENT_SOCKET_EVENTS.TURN_COMPLETE, opening.turnId);
+      expect(roomText(call.tab, opening.turnId)).toBe('');
+      expect(call.persisted).toEqual([{ turnId: opening.turnId, messages: [], stopped: expect.objectContaining({ reason: 'taken_over' }) }]);
+      expect(call.outcomes).toEqual([{ status: 'stopped', turnId: opening.turnId, rounds: 0, stopReason: 'taken_over' }]);
+    } finally {
+      await conversations().handBack(call.conversationId, { rooms: roomsOf(call) });
+      await call.close();
+    }
+  }, 30_000);
+
+  it('stops a turn that is speaking when the conversation is taken over: what it said is kept, marked taken_over, and its stream ends so', async () => {
+    const m = scriptedModel([{ hold: 'We have three blue RAV4s, ' }]);
+    const call = await startCallProduct({ model: m.model });
+    try {
+      const speaking = turnRequest(call, { text: 'What blue RAV4s do you have?' });
+      const reader = new EventStreamReader(await post(call.url, speaking));
+      expect(await reader.next()).toEqual({ event: 'text', data: { text: 'We have three blue RAV4s, ' } });
+
+      await conversations().takeOver(call.conversationId, { holder: jordan, rooms: roomsOf(call) });
+
+      await reader.rest();
+      expect(reader.events.at(-1)).toEqual({ event: 'done', data: { stopReason: 'taken_over' } });
+      expect(m.aborted).toEqual([0]);
+      const stored = call.persisted.find((p) => p.turnId === speaking.turnId)!;
+      expect(stored.stopped).toMatchObject({ reason: 'taken_over' });
+      expect(stored.messages.at(-1)).toMatchObject({ role: 'assistant', stopped: { reason: 'taken_over' } });
+      expect(stored.messages.at(-1)!.content).toContain('We have three blue RAV4s,');
+      await expect.poll(() => call.outcomes).toEqual([{ status: 'stopped', turnId: speaking.turnId, rounds: 0, stopReason: 'taken_over' }]);
+    } finally {
+      await conversations().handBack(call.conversationId, { rooms: roomsOf(call) });
+      await call.close();
+    }
+  }, 30_000);
+});
+
+describe('approvals on a call', () => {
+  const sent: Array<Record<string, unknown>> = [];
+  const quote: RegisteredTool = {
+    name: 'quote_send',
+    title: 'Text a quote',
+    description: 'Texts the caller a written quote.',
+    effect: { kind: 'transaction' },
+    inputSchema: { type: 'object', properties: { stock: { type: 'string', title: 'Stock' } }, required: ['stock'], additionalProperties: false },
+    async execute(input) {
+      sent.push(input);
+      return { success: true, data: { sent: true } };
+    },
+  };
+
+  it('tells the model a call is read back, and reads it back once, as its own event: never as text as well', async () => {
+    const m = scriptedModel([{ toolCalls: [{ id: 'call_quote_1', name: 'quote_send', args: { stock: 'T2417' } }] }]);
+    const call = await startCallProduct({ model: m.model, tools: [quote] });
+    try {
+      const ask = turnRequest(call, { text: 'Text me a quote for T2417.' });
+      const stream = await streamOf(await post(call.url, ask));
+      // The readback is its own event, said once: never also as text.
+      expect(stream.events.map((e) => e.event)).toEqual(['readback', 'done']);
+      expect(stream.text()).toBe('');
+      // The model is told the call is read back and confirmed by the next words, not shown a card.
+      const offered = m.requests[0].tools?.find((t) => t.function.name === 'quote_send')?.function.description ?? '';
+      expect(offered).toContain(READBACK_APPROVAL_TOOL_NOTE);
+      expect(offered).not.toContain('approval card');
+      // The page still hears the readback as the turn's last words, marked as the readback.
+      await call.tab.waitForTurn(AGENT_SOCKET_EVENTS.TURN_COMPLETE, ask.turnId);
+      const readbackPieces = call.tab.turnEvents(ask.turnId).filter((e) => e.event === AGENT_SOCKET_EVENTS.TOKEN && (e.data as { readback?: boolean }).readback);
+      expect(readbackPieces.map((e) => (e.data as { text: string }).text)).toEqual([stream.events[0].data.text]);
+      // And the next turn reads it in the conversation, as what the agent said.
+      expect(call.persisted.find((p) => p.turnId === ask.turnId)!.messages.at(-1)).toEqual({ role: 'assistant', content: stream.events[0].data.text });
+      expect(sent).toEqual([]);
+    } finally {
+      sent.length = 0;
+      await call.close();
+    }
+  }, 30_000);
+
+  it('keeps a UI action’s approval on its card on the person’s screen: nothing is read back, and a spoken yes cannot approve it', async () => {
+    const onReports = { currentPath: '/reports', oui: { surfaces: [shellSurface, reportsSurface], observations: {} } };
+    const m = scriptedModel([{ toolCalls: [{ id: 'call_send_9', name: 'ui_act', args: { action: 'reports_send', input: { reportId: 'q3', to: 'cfo@desk.example' } } }] }]);
+    const call = await startCallProduct({ model: m.model, context: onReports });
+    try {
+      const ask = turnRequest(call, { text: 'Email the Q3 report to the CFO.' });
+      const stream = await streamOf(await post(call.url, ask));
+      expect(stream.events).toEqual([{ event: 'done', data: { stopReason: 'awaiting_approval' } }]);
+      // The card reaches the page; the model is told it is there, and that a spoken yes does not approve it.
+      const [card] = call.tab.turnEvents(ask.turnId).filter((e) => e.event === AGENT_SOCKET_EVENTS.APPROVAL_REQUIRED).map((e) => e.data as ApprovalRequiredEvent);
+      expect(card).toMatchObject({ approvalId: 'call_send_9', tool: 'reports_send' });
+      const told = call.persisted.find((p) => p.turnId === ask.turnId)!.messages.find((msg) => msg.role === 'tool')!;
+      expect(JSON.parse(told.content!).message).toContain('on the approval card on their screen');
+      expect(call.tab.turnEvents(ask.turnId).some((e) => e.event === AGENT_SOCKET_EVENTS.TOKEN && (e.data as { readback?: boolean }).readback)).toBe(false);
+      // A host that took a spoken yes for it is refused by the store: only the card's click approves an action on the page.
+      const approvals = createHttpApprovalStoreClient({ url: product.realtimeUrl, apiKey: INTERNAL_KEY });
+      expect(await approvals.decide!('call_send_9', { userId: 'ana', decision: 'approve', channel: 'voice' })).toMatchObject({ ok: false, reason: 'channel' });
+      expect(call.tab.dispatches.filter((d) => d.actionId === 'reports_send')).toEqual([]);
     } finally {
       await call.close();
     }

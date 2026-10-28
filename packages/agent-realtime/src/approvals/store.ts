@@ -7,7 +7,10 @@
  *   approval:{id}:state     → hash: status (pending | approved), userId,
  *                             conversationId, tool, argsHash, expiresAt, the
  *                             receipt's audience (fixed here, empty for none),
- *                             and once approved the token's jti and the channel
+ *                             the tool's kind (`ui` for an action on the
+ *                             person's page, which is approved only by its
+ *                             card), and once approved the token's jti and the
+ *                             channel
  *   approval:declined:{id}  → what the next turn tells the model, 30 min
  *   approval:{id}:seen      → that it was asked for and has not run or been
  *                             declined (userId, conversationId, expiresAt,
@@ -20,6 +23,11 @@
  *                             having run: undecided, or approved and unused.
  *   approval:{id}:settled   → a turn's claim to store that expiry: a two
  *                             minute lease, permanent once confirmed
+ *   approval:conversation:{conversationId}
+ *                           → set of the conversation's approval ids, kept as
+ *                             long as its longest-lived approval: what a
+ *                             take-over withdraws (`withdrawOpen`). An id
+ *                             whose approval has gone is removed then.
  *
  * Each decision and each redemption is one Lua script, so two instances can
  * never both approve one call, or both redeem one token. The stored call is
@@ -90,6 +98,13 @@ export interface ApprovalStore {
    * as any expiry (`settleExpired`), and is told it was withdrawn.
    */
   withdraw(approvalId: string, owner: ApprovalOwner, reason: ApprovalWithdrawReason): Promise<ApprovalWithdrawal>;
+  /**
+   * Withdraw every approval of a conversation that is still waiting, or
+   * approved and not yet used, whoever's turn asked for it: a person on the
+   * staff took the conversation over, and did not ask for any of them. Each
+   * as `withdraw` does it. Resolves with the ids withdrawn.
+   */
+  withdrawOpen(conversationId: string, reason: ApprovalWithdrawReason): Promise<string[]>;
 }
 
 /** How long a decline is remembered for the turn that follows it. */
@@ -101,29 +116,36 @@ const declinedKey = (id: string) => `approval:declined:${id}`;
 const seenKey = (id: string) => `approval:${id}:seen`;
 const settledKey = (id: string) => `approval:${id}:settled`;
 const withdrawnKey = (id: string) => `approval:${id}:withdrawn`;
+const conversationKey = (conversationId: string) => `approval:conversation:${conversationId}`;
 
-// KEYS: record, state, declined, seen, settled, withdrawn. ARGV: record JSON, ttl ms, userId, conversationId, tool,
-// argsHash, expiresAt, seen JSON, seen ttl ms, receipt audience ('' for none).
+// KEYS: record, state, declined, seen, settled, withdrawn, conversation. ARGV: record JSON, ttl ms, userId,
+// conversationId, tool, argsHash, expiresAt, seen JSON, seen ttl ms, receipt audience ('' for none), tool kind,
+// approval id.
 // A new approval supersedes an old decline under the same id, an old expiry's settlement, and an old withdrawal.
+// The conversation's set of approvals lasts as long as its longest-lived one.
 const CREATE = `
 if redis.call('EXISTS', KEYS[1]) == 1 or redis.call('EXISTS', KEYS[2]) == 1 then return 'exists' end
 redis.call('DEL', KEYS[3], KEYS[5], KEYS[6])
 redis.call('SET', KEYS[4], ARGV[8], 'PX', ARGV[9])
 redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
-redis.call('HSET', KEYS[2], 'status', 'pending', 'userId', ARGV[3], 'conversationId', ARGV[4], 'tool', ARGV[5], 'argsHash', ARGV[6], 'expiresAt', ARGV[7], 'audience', ARGV[10])
+redis.call('HSET', KEYS[2], 'status', 'pending', 'userId', ARGV[3], 'conversationId', ARGV[4], 'tool', ARGV[5], 'argsHash', ARGV[6], 'expiresAt', ARGV[7], 'audience', ARGV[10], 'toolKind', ARGV[11])
 redis.call('PEXPIRE', KEYS[2], ARGV[2])
+redis.call('SADD', KEYS[7], ARGV[12])
+if redis.call('PTTL', KEYS[7]) < tonumber(ARGV[2]) then redis.call('PEXPIRE', KEYS[7], ARGV[2]) end
 return 'ok'`;
 
 // KEYS: state, record, declined, seen. ARGV: userId, decision, now ms, jti, channel, declined ttl s, declined JSON,
 // seen JSON once approved.
 // A decline decides it: it is no longer something that can expire. An approval is recorded in the
 // memory (same TTL), so if the approved call is never run its expiry is not told as "undecided".
+// An action on the person's page is approved only by its card: the page runs it only on its own grant from that click.
 const DECIDE = `
 if redis.call('EXISTS', KEYS[1]) == 0 then return {'unknown'} end
-local s = redis.call('HMGET', KEYS[1], 'status', 'userId', 'expiresAt')
+local s = redis.call('HMGET', KEYS[1], 'status', 'userId', 'expiresAt', 'toolKind')
 if s[2] ~= ARGV[1] then return {'forbidden'} end
 if s[1] ~= 'pending' then return {'decided'} end
 if tonumber(ARGV[3]) >= tonumber(s[3]) then return {'expired'} end
+if ARGV[2] == 'approve' and s[4] == 'ui' and ARGV[5] ~= 'ui' then return {'channel'} end
 local record = redis.call('GET', KEYS[2])
 if ARGV[2] == 'approve' then
   redis.call('HSET', KEYS[1], 'status', 'approved', 'jti', ARGV[4], 'channel', ARGV[5])
@@ -146,26 +168,31 @@ local record = redis.call('GET', KEYS[2])
 redis.call('DEL', KEYS[1], KEYS[2], KEYS[3])
 return {'ok', record, s[7], s[8] or ''}`;
 
-// KEYS: state, record, seen, withdrawn. ARGV: userId, conversationId, reason.
+// KEYS: state, record, seen, withdrawn, and the conversation's set when the hold withdraws it. ARGV: userId ('' for
+// any user of the conversation: the server's own authority, on a take-over), conversationId, reason, approval id.
 // Expire-now. A pending approval, or an approved one not yet redeemed, loses its state and record,
 // which is exactly what its time running out does: a decision is then refused, a token redeemed
 // after it answers 'used', and SETTLE finds "state gone, seen present". The memory (seen) is left
 // as it is, so one the person had approved still says 'approved'; why it was withdrawn is kept
 // beside it for as long as the memory lasts.
 const WITHDRAW = `
+if KEYS[5] then redis.call('SREM', KEYS[5], ARGV[4]) end
 if redis.call('EXISTS', KEYS[1]) == 0 then
   local seen = redis.call('GET', KEYS[3])
   if not seen then return 'unknown' end
   local m = cjson.decode(seen)
-  if m['userId'] ~= ARGV[1] or m['conversationId'] ~= ARGV[2] then return 'unknown' end
+  if (ARGV[1] ~= '' and m['userId'] ~= ARGV[1]) or m['conversationId'] ~= ARGV[2] then return 'unknown' end
   return 'settled'
 end
 local o = redis.call('HMGET', KEYS[1], 'userId', 'conversationId')
-if o[1] ~= ARGV[1] or o[2] ~= ARGV[2] then return 'unknown' end
+if (ARGV[1] ~= '' and o[1] ~= ARGV[1]) or o[2] ~= ARGV[2] then return 'unknown' end
 redis.call('DEL', KEYS[1], KEYS[2])
 local left = redis.call('PTTL', KEYS[3])
 if left > 0 then redis.call('SET', KEYS[4], ARGV[3], 'PX', left) end
 return 'withdrawn'`;
+
+// KEYS: conversation set. The conversation's approval ids.
+const OPEN_IN_CONVERSATION = `return redis.call('SMEMBERS', KEYS[1])`;
 
 // KEYS: state, seen, settled, withdrawn. ARGV: userId, conversationId, lease ms.
 // The approval's own keys lapse in Redis at its expiry, so "state gone, seen present" is this
@@ -225,6 +252,7 @@ const REFUSALS: Partial<Record<string, string>> = {
   expired: 'this approval has expired',
   used: 'this approval has already been used',
   mismatch: 'this token is not for the stored call',
+  channel: "an action on the person's page is approved only on its card, by their click",
 };
 
 type Seen =
@@ -334,13 +362,14 @@ export function createApprovalStore(
       const seen = { userId: input.userId, conversationId: input.conversationId, expiresAt: input.expiresAt };
       const result = await redis.eval(
         CREATE,
-        6,
+        7,
         recordKey(input.approvalId),
         stateKey(input.approvalId),
         declinedKey(input.approvalId),
         seenKey(input.approvalId),
         settledKey(input.approvalId),
         withdrawnKey(input.approvalId),
+        conversationKey(input.conversationId),
         JSON.stringify(input),
         input.expiresAt - now,
         input.userId,
@@ -351,6 +380,8 @@ export function createApprovalStore(
         JSON.stringify(seen),
         input.expiresAt - now + EXPIRED_APPROVAL_MEMORY_MS,
         audience.audience,
+        input.toolKind ?? 'backend',
+        input.approvalId,
       );
       if (result !== 'ok') return refusal('decided', `an approval ${input.approvalId} already exists`);
       logger.info(audit(input, { expiresAt: input.expiresAt, ...(audience.audience ? { audience: audience.audience } : {}) }), 'Approval stored');
@@ -507,9 +538,33 @@ export function createApprovalStore(
         userId,
         conversationId,
         reason,
+        approvalId,
       )) as ApprovalWithdrawal['outcome'] | null;
       if (outcome === 'withdrawn') logger.info({ approvalId, userId, conversationId, reason }, 'Approval withdrawn before it was used');
       return { approvalId, outcome: outcome === 'withdrawn' || outcome === 'settled' ? outcome : 'unknown' };
+    },
+
+    async withdrawOpen(conversationId, reason) {
+      const ids = ((await redis.eval(OPEN_IN_CONVERSATION, 1, conversationKey(conversationId))) ?? []) as string[];
+      const withdrawn: string[] = [];
+      for (const approvalId of ids) {
+        const outcome = await redis.eval(
+          WITHDRAW,
+          5,
+          stateKey(approvalId),
+          recordKey(approvalId),
+          seenKey(approvalId),
+          withdrawnKey(approvalId),
+          conversationKey(conversationId),
+          '',
+          conversationId,
+          reason,
+          approvalId,
+        );
+        if (outcome === 'withdrawn') withdrawn.push(approvalId);
+      }
+      if (withdrawn.length > 0) logger.info({ conversationId, reason, approvalIds: withdrawn }, 'Approvals of the conversation withdrawn before they were used');
+      return withdrawn;
     },
 
     async confirmExpirySettled(approvalId, { userId, conversationId }) {

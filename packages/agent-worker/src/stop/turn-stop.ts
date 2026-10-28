@@ -192,14 +192,15 @@ export function withLocalStop(client: TurnStopClient, local: AbortSignal): TurnS
   });
 
   return {
-    async watch(turnId, userId, signal, onChecked) {
+    async watch(turnId, userId, signal, onChecked, conversationId) {
       if (signal.aborted) return null;
       if (local.aborted) {
         onChecked?.();
         return localRecord(turnId, userId);
       }
       const either = AbortSignal.any([signal, local]);
-      const heard = await client.watch(turnId, userId, either, onChecked);
+      // The conversation's hold is still the server's to say: a held conversation stops this turn too.
+      const heard = await client.watch(turnId, userId, either, onChecked, conversationId);
       if (heard) return heard;
       // The server keeps no stops, or answered nothing: the local stop can still come.
       if (!either.aborted) await new Promise<void>((resolve) => either.addEventListener('abort', () => resolve(), { once: true }));

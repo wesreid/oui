@@ -99,6 +99,8 @@ describe('the turn the handler runs', () => {
         content: 'Is the blue one still there?',
         // The host's own `input` and `output` give way to the request's.
         context: { currentPath: '/inventory', oui: { surfaces: [] }, input: { mode: 'voice', language: 'en-US' }, output: { mode: 'voice' } },
+        // A call is spoken: its approvals are read back, and the person's next words confirm them.
+        channel: 'voice',
         userToken: 'visitor-token',
         supersedes: ['t-0'],
       },
@@ -107,6 +109,18 @@ describe('the turn the handler runs', () => {
     expect(typeof runner.hosts[0].observe).toBe('function');
     // The host's hooks are told the turn came by a live call.
     expect(runner.hosts[0].channel).toBe('live-call');
+  });
+
+  it('is a phone call’s approvals when the host says the call came through a carrier, and refuses a channel no call can be', async () => {
+    const runner = stubRunner(async (p) => ({ status: 'completed', turnId: p.turnId, rounds: 1 }));
+    await call(await mount(runner, { resolveTurn: () => ({ ...TARGET, channel: 'phone' }) }), {});
+    expect(runner.payloads[0].channel).toBe('phone');
+    for (const channel of ['ui', 'sms', 'fax']) {
+      const refused = stubRunner(async (p) => ({ status: 'completed', turnId: p.turnId, rounds: 1 }));
+      const url = await mount(refused, { resolveTurn: () => ({ ...TARGET, channel: channel as LiveCallTurnTarget['channel'] }) });
+      expect((await call(url, {})).status).toBe(500);
+      expect(refused.payloads).toEqual([]);
+    }
   });
 
   it('gives the model the host’s copy of the person’s words in place of what was said', async () => {
@@ -187,6 +201,8 @@ describe('how the stream ends', () => {
       emit(AGENT_SOCKET_EVENTS.TOKEN, { text: 'I can ' });
       emit(AGENT_SOCKET_EVENTS.APPROVAL_REQUIRED, { approvalId: 'call_1', expiresAt: Date.UTC(2026, 9, 23, 12, 5), preview: { title: 'Book', arguments: [], readback: 'Book a service.' } });
       emit(AGENT_SOCKET_EVENTS.TOKEN, { text: 'book that.' });
+      // The runtime's readback, as the turn's last words: its own event on the call, never text as well.
+      emit(AGENT_SOCKET_EVENTS.TOKEN, { text: '\n\nBook a service.', readback: true });
       emit(AGENT_SOCKET_EVENTS.TURN_COMPLETE, { endReason: 'awaiting_approval' });
       return { status: 'completed', turnId: p.turnId, rounds: 1 };
     });
@@ -199,6 +215,27 @@ describe('how the stream ends', () => {
     ]);
   });
 
+  it('reads back nothing for an approval the turn did not read back: a UI action’s, which is its card on the person’s screen', async () => {
+    const runner = stubRunner(async (p, emit) => {
+      emit(AGENT_SOCKET_EVENTS.TOKEN, { text: 'The approval card is on your screen.' });
+      emit(AGENT_SOCKET_EVENTS.APPROVAL_REQUIRED, { approvalId: 'call_1', expiresAt: Date.now() + 60_000, preview: { title: 'Send', arguments: [], readback: 'Send a report.' } });
+      emit(AGENT_SOCKET_EVENTS.TURN_COMPLETE, { endReason: 'awaiting_approval' });
+      return { status: 'completed', turnId: p.turnId, rounds: 1 };
+    });
+    expect((await call(await mount(runner), {})).events).toEqual([
+      { event: 'text', data: { text: 'The approval card is on your screen.' } },
+      { event: 'done', data: { stopReason: 'awaiting_approval' } },
+    ]);
+  });
+
+  it('says nothing for a turn of a conversation a person on the staff holds, and ends it taken_over', async () => {
+    const runner = stubRunner(async (p, emit) => {
+      emit(AGENT_SOCKET_EVENTS.TURN_COMPLETE, { stopReason: 'taken_over' });
+      return { status: 'stopped', turnId: p.turnId, rounds: 0, stopReason: 'taken_over' };
+    });
+    expect((await call(await mount(runner), {})).events).toEqual([{ event: 'done', data: { stopReason: 'taken_over' } }]);
+  });
+
   it('reads back the host’s spoken readback when it wrote one', async () => {
     const runner = stubRunner(async (p, emit) => {
       emit(AGENT_SOCKET_EVENTS.APPROVAL_REQUIRED, {
@@ -206,6 +243,7 @@ describe('how the stream ends', () => {
         expiresAt: Date.UTC(2026, 9, 23, 12, 5),
         preview: { title: 'Book', arguments: [], readback: 'Book a visit on 2026-10-28 at 13:30.', spokenReadback: 'Book a visit on October twenty-eighth at one thirty.' },
       });
+      emit(AGENT_SOCKET_EVENTS.TOKEN, { text: 'Book a visit on October twenty-eighth at one thirty.', readback: true });
       emit(AGENT_SOCKET_EVENTS.TURN_COMPLETE, { endReason: 'awaiting_approval' });
       return { status: 'completed', turnId: p.turnId, rounds: 1 };
     });
@@ -341,6 +379,8 @@ describe('what of the reply is spoken', () => {
       emit(AGENT_SOCKET_EVENTS.TOKEN, { text: 'I can book that for you.', step: 0 });
       emit(AGENT_SOCKET_EVENTS.APPROVAL_REQUIRED, { approvalId: 'call_1', expiresAt: Date.UTC(2026, 9, 23, 12, 5), preview: { title: 'Book', arguments: [], readback: 'Book a visit.' } });
       emit(AGENT_SOCKET_EVENTS.ROUND_END, { step: 0, calledTools: true, final: true });
+      // The readback belongs to no round: it is its own event, whatever of the rounds is spoken.
+      emit(AGENT_SOCKET_EVENTS.TOKEN, { text: '\n\nBook a visit.', readback: true });
       emit(AGENT_SOCKET_EVENTS.TURN_COMPLETE, { endReason: 'awaiting_approval' });
       return { status: 'completed', turnId: p.turnId, rounds: 1 };
     };

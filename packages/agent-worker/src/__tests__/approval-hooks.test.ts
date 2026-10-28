@@ -126,7 +126,7 @@ describe('the host’s display copy of an approval', () => {
     const preview = vi.fn(async (_t: RegisteredTool, _a: Record<string, unknown>, ctx: ApprovalPreviewContext) => ctx.built);
     await turnWith([callBook()], { preview }, [bookTool()]);
     expect((preview.mock.calls[0][2] as ApprovalPreviewContext).locale).toBeNull();
-    expect((preview.mock.calls[0][2] as ApprovalPreviewContext).turn).toEqual({ id: 'turn-book', channel: 'direct', inputMode: 'text', language: null });
+    expect((preview.mock.calls[0][2] as ApprovalPreviewContext).turn).toEqual({ id: 'turn-book', channel: 'direct', inputMode: 'text', language: null, approvalChannel: 'ui' });
   });
 
   it('that throws, or is not a preview, means the approval is not asked for: nothing is stored or shown, and the call does not run', async () => {

@@ -96,17 +96,26 @@ describe('beforeTurn', () => {
     const outcome = await createAgentTurnRunner(config({ beforeTurn })).run(SPOKEN_TURN, { channel: 'sms' });
 
     expect(outcome).toEqual({ status: 'completed', turnId: 't1', rounds: 2 });
-    expect(beforeTurn).toHaveBeenCalledExactlyOnceWith(SPOKEN_TURN, { id: 't1', channel: 'sms', inputMode: 'voice', language: 'es' });
+    expect(beforeTurn).toHaveBeenCalledExactlyOnceWith(SPOKEN_TURN, { id: 't1', channel: 'sms', inputMode: 'voice', language: 'es', approvalChannel: 'ui' });
     const [, input] = ranWith()!;
     expect(input.content).toBe(REDACTED);
     expect(input.channel).toBe('sms');
     expect(input.context).toEqual(SPOKEN_TURN.context);
   });
 
+  it('is told where the person approves: the payload’s channel, which the turn carries on to the orchestrator', async () => {
+    const beforeTurn = vi.fn(async (payload: AgentTurnPayload) => payload);
+    await createAgentTurnRunner(config({ beforeTurn })).run({ ...SPOKEN_TURN, channel: 'sms' }, { channel: 'container' });
+    expect(beforeTurn.mock.calls[0][1]).toMatchObject({ channel: 'container', approvalChannel: 'sms' });
+    const [, input] = ranWith()!;
+    expect(input.channel).toBe('container');
+    expect(input.approvalChannel).toBe('sms');
+  });
+
   it('names the turn’s channel `direct` when the host names none', async () => {
     const beforeTurn = vi.fn(async (payload: AgentTurnPayload) => payload);
     await createAgentTurnRunner(config({ beforeTurn })).run({ ...SPOKEN_TURN, context: null });
-    expect(beforeTurn.mock.calls[0][1]).toEqual({ id: 't1', channel: 'direct', inputMode: 'text', language: null });
+    expect(beforeTurn.mock.calls[0][1]).toEqual({ id: 't1', channel: 'direct', inputMode: 'text', language: null, approvalChannel: 'ui' });
     expect(ranWith()![1].channel).toBe('direct');
   });
 
@@ -193,7 +202,7 @@ describe('filterEvent', () => {
     // The host observing the turn (the live-call handler) gets exactly what the room got.
     expect(observed).toEqual(room);
     // Told which turn each event is of.
-    expect(filterEvent.mock.calls[0][2]).toEqual({ id: 't1', channel: 'live-call', inputMode: 'voice', language: 'es' });
+    expect(filterEvent.mock.calls[0][2]).toEqual({ id: 't1', channel: 'live-call', inputMode: 'voice', language: 'es', approvalChannel: 'ui' });
     // Given a copy: what it changes reaches no other part of the turn.
     expect(callInput).toEqual({ card: '4111 1111 1111 1111', note: 'pay' });
   });

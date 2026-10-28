@@ -164,9 +164,10 @@ export type { ContainerAgentConfig, ContainerAgentWorker, ContainerLiveCallRoute
 
 // Live calls: the call service's turns, answered by the product's own agent as
 // a server-sent event stream, while the turn streams to its room as any turn does.
-export { createLiveCallTurnHandler, LIVE_CALL_SPEECH, LIVE_CALL_CHANNEL } from './live-call/handler.js';
+export { createLiveCallTurnHandler, LIVE_CALL_SPEECH, LIVE_CALL_CHANNEL, LIVE_CALL_APPROVAL_CHANNELS } from './live-call/handler.js';
 export type {
   LiveCallSpeech,
+  LiveCallApprovalChannel,
   LiveCallTurnHandler,
   LiveCallTurnHandlerConfig,
   LiveCallTurnOptions,
