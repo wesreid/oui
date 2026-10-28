@@ -50,14 +50,38 @@ export const AGENT_CONVERSATION_EVENTS = {
   MESSAGE: 'agent:conversation_message',
 } as const;
 
+/**
+ * What the approval store pushes to the room of the turn that asked for an
+ * approval of an action on the person's page, when the person decides it in
+ * a conversation channel: the single-use grant one tab claims, or
+ * the decline, so the card on screen says so. Only the approval store sends
+ * them, in the step that decides: the realtime server's emit API refuses
+ * them, so no backend or relay announces a grant the person did not give.
+ */
+export const AGENT_APPROVAL_EVENTS = {
+  GRANTED: 'agent:approval_granted',
+  DECLINED: 'agent:approval_declined',
+} as const;
+
 /** The takeover shapes, as the contract defines them; the conversation events' payloads refer to them. */
 const TAKEOVER_DEFS = CONTRACT_SCHEMAS['conversation-takeover.json'].$defs as unknown as Record<string, JsonSchema>;
+/** The approval shapes, as the contract defines them; the pushed approval events' payloads refer to them. */
+const APPROVAL_DEFS = CONTRACT_SCHEMAS['approvals.json'].$defs as unknown as Record<string, JsonSchema>;
 
 const conversationEvent = (description: string, def: string) => ({
   description,
   payload: { $ref: `#/$defs/${def}` } satisfies JsonSchema,
   rooms: [CONVERSATION_ROOM],
   correlation: ['conversationId'],
+  role: 'notice' as const,
+});
+
+const approvalEvent = (description: string, def: string) => ({
+  description,
+  payload: { $ref: `#/$defs/${def}` } satisfies JsonSchema,
+  // The room stored with the approval: the room of the turn that asked, which the host named.
+  rooms: [TURN_ROOM, CONVERSATION_ROOM],
+  correlation: ['approvalId'],
   role: 'notice' as const,
 });
 
@@ -81,8 +105,8 @@ export const PLATFORM_EVENTS: EventDeclarationDocument = {
   version: 1,
   product: 'agent-sdk',
   description:
-    "The agent worker's turn events and UI action dispatches, emitted to the room of the turn they belong to; and a conversation's take-over, hand-back and stored messages, emitted to the room of the conversation.",
-  $defs: TAKEOVER_DEFS,
+    "The agent worker's turn events and UI action dispatches, emitted to the room of the turn they belong to; a conversation's take-over, hand-back and stored messages, emitted to the room of the conversation; and the grant or decline of an approval given in a conversation channel, pushed to the room of the turn that asked for it.",
+  $defs: { ...TAKEOVER_DEFS, ...APPROVAL_DEFS },
   rooms: {},
   events: {
     [AGENT_TURN_EVENTS.TOKEN]: turnEvent(
@@ -211,6 +235,14 @@ export const PLATFORM_EVENTS: EventDeclarationDocument = {
     [AGENT_CONVERSATION_EVENTS.MESSAGE]: conversationEvent(
       "A message of the conversation was stored: the customer's, the agent's, or a person's on the staff, for the people watching it.",
       'ConversationMessageEvent',
+    ),
+    [AGENT_APPROVAL_EVENTS.GRANTED]: approvalEvent(
+      "The person approved an action on their page by voice, on the phone or in chat, after its verbatim readback: the single-use grant a tab on the conversation claims (`approval:claim`) and hands to its OUI runtime.",
+      'ApprovalGrantedEvent',
+    ),
+    [AGENT_APPROVAL_EVENTS.DECLINED]: approvalEvent(
+      'The person declined an action on their page in a conversation channel: the card on screen says so.',
+      'ApprovalDeclinedEvent',
     ),
     [OUI_WIRE.dispatch]: {
       description: "A UI action request for the tab that sent the turn. The tab answers on OUI's result event.",

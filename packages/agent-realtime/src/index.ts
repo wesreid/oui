@@ -49,6 +49,7 @@ export { createTurnStopStore, TURN_STOP_TTL_SEC, TURN_STOPS_CHANNEL } from './tu
 export { createConversationHoldStore, HOLD_TTL_SEC } from './conversations/holds.js';
 export type { ConversationHoldStore, HoldRedis, TakeOutcome, ReleaseOutcome } from './conversations/holds.js';
 export { conversationsRouter, SERVER_SENT_CONVERSATION_EVENTS } from './conversations/routes.js';
+export { SERVER_SENT_EVENTS } from './events/server-sent.js';
 export type { TurnStopStore } from './turns/stops.js';
 export { createTurnStopEvent } from './turns/client-event.js';
 export { turnStopsRouter, MAX_STOP_WAIT_MS } from './turns/routes.js';
@@ -58,7 +59,7 @@ export { createConsoleLogger } from './logger.js';
 export type { RealtimeLogger } from './logger.js';
 
 export { createApprovalStore, DECLINED_TTL_SEC } from './approvals/store.js';
-export type { ApprovalStore, ApprovalRedis } from './approvals/store.js';
+export type { ApprovalStore, ApprovalRedis, ApprovalClaimer, ApprovalStoreOptions } from './approvals/store.js';
 export { createApprovalTokenSigner, MIN_APPROVAL_KEY_LENGTH } from './approvals/token.js';
 export type { ApprovalTokenSigner, ApprovalTokenCheck } from './approvals/token.js';
 export {

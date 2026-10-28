@@ -1,5 +1,12 @@
 # @ouispec/testing
 
+## 0.6.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/contract@0.6.0
+
 ## 0.5.0
 
 ### Patch Changes

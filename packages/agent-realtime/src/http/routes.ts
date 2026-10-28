@@ -12,7 +12,7 @@ import type { OUIResultStore } from '../oui/results.js';
 import type { RealtimeLogger } from '../logger.js';
 import { declaredRefusal, type DeclaredEvents } from '../events/declared.js';
 import type { SettlementStore } from '../events/settlements.js';
-import { SERVER_SENT_CONVERSATION_EVENTS } from '../conversations/routes.js';
+import { serverSentBy } from '../events/server-sent.js';
 
 /** The longest a single result wait may hold a request open. Callers ask again until their own deadline. */
 export const MAX_RESULT_WAIT_MS = 25_000;
@@ -82,7 +82,9 @@ export function healthRouter(deps: Pick<RouteDeps, 'io' | 'results'>): Router {
  * a 400, logged. A completion or failure is then kept as its job's settlement.
  *
  * A conversation's take-over, hand-back and messages are refused here: the
- * conversation routes send them, with the hold that makes them true.
+ * conversation routes send them, with the hold that makes them true. So are an
+ * approval's pushed grant and decline: the approval store sends them, with the
+ * person's decision.
  *
  * With `ackTimeoutMs` (rooms only, at most MAX_RECEIPT_WAIT_MS): the event asks
  * its receivers for a receipt, and the response says how many acknowledged it
@@ -120,10 +122,12 @@ export function emitRouter(deps: RouteDeps): Router {
       res.status(400).json({ error: `ackTimeoutMs must be a whole number of ms from 1 to ${MAX_RECEIPT_WAIT_MS}` });
       return;
     }
-    // A conversation's take-over, hand-back and messages are sent only with the hold that makes them true.
-    if (SERVER_SENT_CONVERSATION_EVENTS.has(event)) {
+    // A conversation's take-over, hand-back and messages are sent only with the hold that makes them true, and an
+    // approval's grant or decline only with the decision.
+    const sender = serverSentBy(event);
+    if (sender) {
       deps.logger.warn({ event }, 'Emit refused');
-      res.status(400).json({ error: `"${event}" is sent only by the server's conversation routes (/internal/conversations/…)` });
+      res.status(400).json({ error: `"${event}" is sent only by ${sender}` });
       return;
     }
     const targets = (rooms as string[] | undefined) ?? [];

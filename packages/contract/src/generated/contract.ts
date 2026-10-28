@@ -1168,7 +1168,9 @@ export type ArgsHash = string;
 
 /**
  * Where the person confirmed. In a UI only a click on the card counts (`ui`); in a conversation
- * channel, the verbatim readback and an affirmative next turn.
+ * channel, the verbatim readback and an affirmative next turn. An action on the person's page
+ * is approved by its card, or on `voice`, `phone` and `chat` (`READBACK_UI_APPROVAL_CHANNELS`)
+ * by its readback; never by SMS.
  */
 export type ApprovalChannel = 'ui' | 'voice' | 'phone' | 'sms' | 'chat';
 
@@ -1237,6 +1239,12 @@ export interface PendingApprovalInput {
    * grant); `backend` for a host or API tool. Absent is `backend`.
    */
   toolKind?: 'ui' | 'backend';
+  /**
+   * For an action on the person's page: the realtime room of the turn that asked (its
+   * `socketRoom`), where the action is dispatched. When the person approves it by voice or in
+   * chat, its grant is pushed to this room and nowhere else. Never set on a host or API tool.
+   */
+  room?: string;
   /** For a generated API tool, its OpenAPI `operationId`: carried on the call's receipt. */
   operationId?: string;
   /**
@@ -1289,15 +1297,17 @@ export interface ApprovalDecidePayload {
 /**
  * Why an approval was refused:
  *
- * - `unknown`: no such pending approval: never stored, already declined or redeemed, or expired
- * and gone.
- * - `forbidden`: another user's approval, or another conversation's.
+ * - `unknown`: no such pending approval, or grant: never stored, already declined or redeemed,
+ * withdrawn, or expired and gone.
+ * - `forbidden`: another user's approval, or another conversation's; or a grant claimed from a
+ * socket that is not in its room.
  * - `expired`.
  * - `decided`: already decided.
- * - `used`: already redeemed.
+ * - `used`: already redeemed; or a grant another tab has claimed.
  * - `invalid`: not a token this environment signed, or malformed.
  * - `mismatch`: signed, but not for the stored call.
- * - `channel`: a decision from a channel that may not make it.
+ * - `channel`: a decision from a channel that may not make it: an action on the person's page
+ * approved by SMS, or by voice or chat when no room was stored with it.
  */
 export type ApprovalRefusalReason = 'unknown' | 'forbidden' | 'expired' | 'decided' | 'used' | 'invalid' | 'mismatch' | 'channel';
 
@@ -1325,6 +1335,77 @@ export type ApprovalDecideResult = {
   ok: true;
   decision: 'decline';
   approvalId: string;
+} | ApprovalRefusal;
+
+/**
+ * `agent:approval_granted`: the person approved an action on their page by voice, on the phone
+ * or in chat, after its verbatim readback. The approval store pushes it, in the same step as
+ * the decision, to the room stored with the approval and nowhere else; the realtime server's
+ * emit API refuses it. A tab whose open conversation is `conversationId` and which is joined to
+ * `room` claims it (`approval:claim`); only the first claim is answered with the grant.
+ */
+export interface ApprovalGrantedEvent {
+  approvalId: string;
+  /** This grant, single use: what a claim names. */
+  grantId: string;
+  /**
+   * The approved call's args hash: what the tab's OUI runtime checks the request's params
+   * against.
+   */
+  argsHash: ArgsHash;
+  /**
+   * Epoch ms: two minutes after the decision (`APPROVAL_GRANT_TTL_MS`), or the approval's own
+   * expiry if sooner. A claim after it is refused, and the runtime admits nothing after it.
+   */
+  expiresAt: number;
+  conversationId: string;
+  /** The room it was pushed to: that of the turn that asked. */
+  room: string;
+  /** Where the person approved it. */
+  channel: ReadbackUIApprovalChannel;
+  timestamp: number;
+}
+
+/**
+ * The conversation channels on which an action on the person's page is approved by its readback
+ * and an affirmative next turn, as well as by its card.
+ */
+export type ReadbackUIApprovalChannel = 'voice' | 'phone' | 'chat';
+
+/**
+ * `agent:approval_declined`: the person declined an action on their page in a conversation
+ * channel. Pushed by the approval store to the room stored with the approval, so the card on
+ * screen says so. The emit API refuses it.
+ */
+export interface ApprovalDeclinedEvent {
+  approvalId: string;
+  conversationId: string;
+  /** Where the person declined it: a conversation channel. */
+  channel: 'voice' | 'phone' | 'sms' | 'chat';
+  timestamp: number;
+}
+
+/**
+ * `approval:claim`, from the person's own socket: this tab takes the pushed grant. The store
+ * answers only the first claim, from a socket of the approval's user that is in the grant's
+ * room, before the grant expires.
+ */
+export interface ApprovalClaimPayload {
+  approvalId: string;
+  grantId: string;
+}
+
+/**
+ * The answer to a claim: the grant, for this tab's OUI runtime (`runtime.grantApproval`), with
+ * where the person approved it; or why not. Only one claim of a grant is ever answered with it.
+ */
+export type ApprovalClaimResult = {
+  ok: true;
+  approvalId: string;
+  argsHash: ArgsHash;
+  /** Epoch ms after which the grant no longer admits anything. */
+  expiresAt: number;
+  channel: ReadbackUIApprovalChannel;
 } | ApprovalRefusal;
 
 /** The token's claims: a compact JWS (HS256), signed with the environment's approval key. */
@@ -1447,7 +1528,8 @@ export type ApprovalContinuation = {
 /**
  * What a UI action request carries when it runs an approved call (`OUIActionApproval`): the
  * browser runs a `transaction` or destructive action only when this matches a grant this tab
- * received from its own card click.
+ * received from its own card click, or claimed from the push of an approval given by voice or
+ * in chat.
  */
 export interface ActionRequestApproval {
   approvalId: string;
@@ -1456,8 +1538,8 @@ export interface ActionRequestApproval {
 }
 
 /**
- * What the person's approval click gives this tab's OUI runtime (`runtime.grantApproval`,
- * `OUIApprovalGrant`): the request it approved, until it expires.
+ * What this tab's OUI runtime holds (`runtime.grantApproval`, `OUIApprovalGrant`): the request
+ * the person approved, from their click on the card or from a claimed push, until it expires.
  */
 export interface ApprovalGrant {
   approvalId: string;

@@ -14,7 +14,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createOpenAI } from '@ai-sdk/openai';
-import { AGENT_SOCKET_EVENTS, type ApprovalRequiredEvent, type TurnStoppedMarker } from '@ouispec/agent-core';
+import { AGENT_SOCKET_EVENTS, APPROVAL_CLAIM_EVENT, APPROVAL_PUSH_EVENTS, argsHash, type ApprovalRequiredEvent, type TurnStoppedMarker } from '@ouispec/agent-core';
 import {
   inboxSurface,
   INTERNAL_KEY,
@@ -138,6 +138,8 @@ function waitingApproval(conversation: FixtureConversation): string | null {
 
 /** The product's classifier for an answer to a readback: a plain yes. */
 const AFFIRMATIVE = /^\s*(yes|yeah|yep|sure|go ahead|please do)\b/i;
+/** And a plain no. */
+const NEGATIVE = /^\s*(no|nope|don't|do not)\b/i;
 
 /**
  * The product's side of the call: its conversation for the call's
@@ -157,7 +159,7 @@ interface CallProduct {
   persisted: Array<{ turnId: string; messages: TurnMessage[]; stopped?: TurnStoppedMarker }>;
   outcomes: TurnOutcome[];
   /** The decisions the product made on a readback from what the person said. */
-  decisions: Array<{ approvalId: string; channel: string }>;
+  decisions: Array<{ approvalId: string; channel: string; decision?: 'decline' }>;
   handler: LiveCallTurnHandler;
   close(): Promise<void>;
 }
@@ -226,6 +228,11 @@ function resolver(state: Omit<CallProduct, 'url' | 'handler' | 'close' | 'outcom
       if (!decided.ok || decided.decision !== 'approve') throw new Error(`the store refused the decision: ${JSON.stringify(decided)}`);
       state.decisions.push({ approvalId: waiting, channel: decided.channel });
       target.approval = { approvalId: waiting, decision: 'approve', token: decided.token };
+    } else if (waiting && NEGATIVE.test(request.text)) {
+      const decided = await approvals.decide!(waiting, { userId: 'ana', decision: 'decline', channel: 'voice' });
+      if (!decided.ok || decided.decision !== 'decline') throw new Error(`the store refused the decision: ${JSON.stringify(decided)}`);
+      state.decisions.push({ approvalId: waiting, channel: 'voice', decision: 'decline' });
+      target.approval = { approvalId: waiting, decision: 'decline' };
     }
     return target;
   };
@@ -1012,24 +1019,175 @@ describe('approvals on a call', () => {
     }
   }, 30_000);
 
-  it('keeps a UI action’s approval on its card on the person’s screen: nothing is read back, and a spoken yes cannot approve it', async () => {
-    const onReports = { currentPath: '/reports', oui: { surfaces: [shellSurface, reportsSurface], observations: {} } };
-    const m = scriptedModel([{ toolCalls: [{ id: 'call_send_9', name: 'ui_act', args: { action: 'reports_send', input: { reportId: 'q3', to: 'cfo@desk.example' } } }] }]);
+});
+
+describe('a UI action approved by a spoken yes', () => {
+  const onReports = { currentPath: '/reports', oui: { surfaces: [shellSurface, reportsSurface], observations: {} } };
+  const input = { reportId: 'q3', to: 'cfo@desk.example' };
+  const SEND = (id: string) => ({ id, name: 'ui_act', args: { action: 'reports_send', input } });
+  const READBACK = 'Send a report: Report q3, Recipient cfo@desk.example. Emails a saved report to a recipient. Once sent it cannot be unsent.';
+  const approvals = () => createHttpApprovalStoreClient({ url: product.realtimeUrl, apiKey: INTERNAL_KEY });
+  const settled = async (tab: FixtureTab, count: number) => {
+    for (let i = 0; i < 200 && tab.pushed.filter((p) => p.claim || p.refusal).length < count; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(tab.pushed.filter((p) => p.claim || p.refusal)).toHaveLength(count);
+  };
+  /** Another tab of the same person, joined to the call's room. */
+  const secondTab = async (call: CallProduct, conversationId: string) => {
+    const tab = await product.openTab('session-ana', call.room);
+    tab.show('/reports');
+    tab.follow(conversationId, call.room);
+    return tab;
+  };
+
+  it('reads the action back; a spoken yes pushes the grant, one tab claims it and runs the action once; another tab and a stale tab run nothing', async () => {
+    const m = scriptedModel([{ text: 'I can send that.', toolCalls: [SEND('call_send_voice')] }, { text: 'Sent to the CFO.' }, { text: 'It has already gone.' }]);
     const call = await startCallProduct({ model: m.model, context: onReports });
+    call.tab.show('/reports');
+    call.tab.follow(call.conversationId, call.room);
+    const other = await secondTab(call, call.conversationId);
+    const stale = await secondTab(call, 'conv-somewhere-else');
     try {
+      // ── Turn 1: the call stops at the readback, and the card is on the page too ──
       const ask = turnRequest(call, { text: 'Email the Q3 report to the CFO.' });
-      const stream = await streamOf(await post(call.url, ask));
-      expect(stream.events).toEqual([{ event: 'done', data: { stopReason: 'awaiting_approval' } }]);
-      // The card reaches the page; the model is told it is there, and that a spoken yes does not approve it.
+      const first = await streamOf(await post(call.url, ask));
+      expect(first.text()).toBe('I can send that.');
+      expect(first.events.slice(-2)).toEqual([
+        { event: 'readback', data: { approvalId: 'call_send_voice', text: READBACK, expiresAt: expect.any(String) } },
+        { event: 'done', data: { stopReason: 'awaiting_approval' } },
+      ]);
+      const told = JSON.parse(call.persisted.find((p) => p.turnId === ask.turnId)!.messages.find((msg) => msg.role === 'tool')!.content!) as { message: string };
+      expect(told.message).toContain(`"${READBACK}"`);
+      expect(told.message).toContain('or approve the card on their screen');
+      expect(told.message).not.toContain('does not approve it');
       const [card] = call.tab.turnEvents(ask.turnId).filter((e) => e.event === AGENT_SOCKET_EVENTS.APPROVAL_REQUIRED).map((e) => e.data as ApprovalRequiredEvent);
-      expect(card).toMatchObject({ approvalId: 'call_send_9', tool: 'reports_send' });
-      const told = call.persisted.find((p) => p.turnId === ask.turnId)!.messages.find((msg) => msg.role === 'tool')!;
-      expect(JSON.parse(told.content!).message).toContain('on the approval card on their screen');
-      expect(call.tab.turnEvents(ask.turnId).some((e) => e.event === AGENT_SOCKET_EVENTS.TOKEN && (e.data as { readback?: boolean }).readback)).toBe(false);
-      // A host that took a spoken yes for it is refused by the store: only the card's click approves an action on the page.
-      const approvals = createHttpApprovalStoreClient({ url: product.realtimeUrl, apiKey: INTERNAL_KEY });
-      expect(await approvals.decide!('call_send_9', { userId: 'ana', decision: 'approve', channel: 'voice' })).toMatchObject({ ok: false, reason: 'channel' });
+      expect(card).toMatchObject({ approvalId: 'call_send_voice', tool: 'reports_send', preview: { readback: READBACK } });
+      expect(call.tab.ran).toEqual([]);
+
+      // ── Turn 2: "yes" — the product decides on voice; the grant reaches the room; the turn runs the action once ──
+      const yes = turnRequest(call, { text: 'Yes, send it.' });
+      const second = await streamOf(await post(call.url, yes));
+      expect(call.decisions).toEqual([{ approvalId: 'call_send_voice', channel: 'voice' }]);
+      expect(second.text()).toBe('Sent to the CFO.');
+      expect(second.events.at(-1)).toEqual({ event: 'done', data: { stopReason: 'complete' } });
+      for (const tab of [call.tab, other, stale]) await settled(tab, 1);
+      const winner = [call.tab, other].find((t) => t.pushed[0].claim?.ok)!;
+      const loser = winner === call.tab ? other : call.tab;
+      expect(winner.pushed[0]).toMatchObject({ claim: { ok: true, approvalId: 'call_send_voice', channel: 'voice' }, taken: true });
+      expect(winner.pushed[0].grant).toMatchObject({ conversationId: call.conversationId, room: call.room, channel: 'voice', argsHash: await argsHash(input) });
+      expect(loser.pushed[0]).toMatchObject({ claim: { ok: false, reason: 'used' }, taken: false });
+      expect(stale.pushed[0].refusal).toMatch(/conversation/);
+      expect(stale.pushed[0].claim).toBeUndefined();
+      // Exactly one page ran it, once, carrying the approval; the others received it and ran nothing.
+      expect(winner.ran).toEqual([{ actionId: 'reports_send', params: input }]);
+      expect(loser.ran).toEqual([]);
+      expect(stale.ran).toEqual([]);
+      expect(loser.dispatches.some((d) => d.approval?.approvalId === 'call_send_voice')).toBe(true);
+      const ran = call.persisted.find((p) => p.turnId === yes.turnId)!.messages[0];
+      expect(JSON.parse(ran.content!)).toMatchObject({ approval: { decided: 'approved', ran: true } });
+
+      // ── Replays: the push cannot be re-sent through the emit API, a second claim and the runtime refuse it ──
+      const grant = winner.pushed[0].grant;
+      expect(await product.emit(APPROVAL_PUSH_EVENTS.GRANTED, grant, [call.room])).toBe(400);
+      expect(winner.grantApproval({ approvalId: grant.approvalId, argsHash: grant.argsHash, expiresAt: Date.now() + 60_000 })).toBe(false);
+      const again = await new Promise<{ ok: boolean; reason?: string }>((resolve) =>
+        winner.socket.emit(APPROVAL_CLAIM_EVENT, { approvalId: grant.approvalId, grantId: grant.grantId }, resolve),
+      );
+      expect(again).toMatchObject({ ok: false, reason: 'used' });
+
+      // ── Turn 3: another yes is an ordinary message; nothing runs again ──
+      const third = await streamOf(await post(call.url, turnRequest(call, { text: 'Yes.' })));
+      expect(third.text()).toBe('It has already gone.');
+      expect(call.decisions).toHaveLength(1);
+      expect([...call.tab.ran, ...other.ran]).toEqual([{ actionId: 'reports_send', params: input }]);
+    } finally {
+      other.close();
+      stale.close();
+      await call.close();
+    }
+  }, 40_000);
+
+  it('a request with other params under the claimed grant is refused, and a grant that expired admits nothing and cannot be claimed', async () => {
+    const m = scriptedModel([]);
+    const call = await startCallProduct({ model: m.model, context: onReports });
+    call.tab.show('/reports');
+    call.tab.follow(call.conversationId, call.room);
+    try {
+      // The worker stores the page's call with its turn's room, as it does for a UI action; it expires in 1.5 s.
+      const store = approvals();
+      const hash = await argsHash(input);
+      await store.create({
+        approvalId: 'call_send_short',
+        toolCallId: 'call_send_short',
+        conversationId: call.conversationId,
+        turnId: 'call-turn-short',
+        userId: 'ana',
+        tool: 'reports_send',
+        toolKind: 'ui',
+        room: call.room,
+        args: input,
+        argsHash: hash,
+        effect: 'transaction',
+        destructive: false,
+        argsSensitive: false,
+        expiresAt: Date.now() + 1_500,
+        preview: { title: 'Send a report', arguments: [], readback: READBACK },
+      });
+      expect(await store.decide!('call_send_short', { userId: 'ana', decision: 'approve', channel: 'phone' })).toMatchObject({ ok: true, channel: 'phone' });
+      await settled(call.tab, 1);
+      expect(call.tab.pushed[0]).toMatchObject({ claim: { ok: true }, taken: true });
+
+      // A forged request under the grant, for another recipient: refused by the page, which runs nothing.
+      const forged = {
+        requestId: 'forged-other-recipient',
+        surfaceId: 'reports',
+        actionId: 'reports_send',
+        params: { ...input, to: 'attacker@evil.example' },
+        timestamp: Date.now(),
+        approval: { approvalId: 'call_send_short', argsHash: hash },
+      };
+      expect(await product.emit('oui:dispatch', forged, [call.room])).toBe(200);
+      const refused = await product.internal(`/internal/oui/action-results/forged-other-recipient?userId=ana&waitMs=5000`);
+      expect(refused.body).toMatchObject({ success: false, error: { code: 'APPROVAL_REQUIRED', message: expect.stringContaining('not the ones the user approved') } });
+
+      // Past its expiry: the grant admits nothing, and a tab that arrives now cannot claim it.
+      await new Promise((r) => setTimeout(r, 1_700));
+      const late = { ...forged, requestId: 'late-after-expiry', params: input };
+      expect(await product.emit('oui:dispatch', late, [call.room])).toBe(200);
+      const expired = await product.internal(`/internal/oui/action-results/late-after-expiry?userId=ana&waitMs=5000`);
+      expect(expired.body).toMatchObject({ success: false, error: { code: 'APPROVAL_REQUIRED', message: expect.stringContaining('expired') } });
+      const latecomer = await product.openTab('session-ana', call.room);
+      const tooLate = await new Promise<{ ok: boolean; reason?: string }>((resolve) =>
+        latecomer.socket.emit(APPROVAL_CLAIM_EVENT, { approvalId: 'call_send_short', grantId: call.tab.pushed[0].grant.grantId }, resolve),
+      );
+      expect(tooLate).toMatchObject({ ok: false, reason: 'expired' });
+      latecomer.close();
+      expect(call.tab.ran).toEqual([]);
+    } finally {
+      await call.close();
+    }
+  }, 30_000);
+
+  it('a spoken no declines it: nothing is granted or run, the page is told, and the model hears it was declined', async () => {
+    const m = scriptedModel([{ toolCalls: [SEND('call_send_no')] }, { text: 'Fine, I will not send it.' }]);
+    const call = await startCallProduct({ model: m.model, context: onReports });
+    call.tab.show('/reports');
+    call.tab.follow(call.conversationId, call.room);
+    try {
+      await streamOf(await post(call.url, turnRequest(call, { text: 'Email the Q3 report to the CFO.' })));
+      const no = turnRequest(call, { text: 'No, do not send it.' });
+      const answer = await streamOf(await post(call.url, no));
+      expect(call.decisions).toEqual([{ approvalId: 'call_send_no', channel: 'voice', decision: 'decline' }]);
+      expect(answer.text()).toBe('Fine, I will not send it.');
+      expect(await call.tab.waitFor(APPROVAL_PUSH_EVENTS.DECLINED)).toEqual({
+        approvalId: 'call_send_no',
+        conversationId: call.conversationId,
+        channel: 'voice',
+        timestamp: expect.any(Number),
+      });
+      expect(call.tab.pushed).toEqual([]);
+      expect(call.tab.ran).toEqual([]);
       expect(call.tab.dispatches.filter((d) => d.actionId === 'reports_send')).toEqual([]);
+      expect(textsOf(m.requests[1]).join('\n')).toMatch(/declined/i);
     } finally {
       await call.close();
     }

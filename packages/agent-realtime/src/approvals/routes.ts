@@ -29,6 +29,8 @@ import { internalDecideSchema, pendingApprovalSchema, redeemSchema } from './sch
 export interface ApprovalRouteDeps {
   approvals: ApprovalStore;
   isInternalKey: (presented: string | undefined) => boolean;
+  /** The product's room names: the room stored with an action on the person's page must be one. */
+  isValidRoom: (room: string) => boolean;
 }
 
 const DECIDE_STATUS: Record<ApprovalRefusalReason, number> = {
@@ -77,6 +79,10 @@ export function approvalRouter(deps: ApprovalRouteDeps): Router {
   router.post('/internal/approvals', async (req, res) => {
     const body = accept<PendingApprovalInput>(req, res, pendingApprovalSchema);
     if (!body) return;
+    if (body.room !== undefined && !deps.isValidRoom(body.room)) {
+      res.status(400).json({ error: `room "${body.room}" is not a room this product uses`, reason: 'invalid' });
+      return;
+    }
     const result = await deps.approvals.create(body);
     if (!result.ok) {
       res.status(result.reason === 'decided' ? 409 : 400).json({ error: result.error, reason: result.reason });

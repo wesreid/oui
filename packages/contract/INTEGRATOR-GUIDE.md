@@ -48,7 +48,7 @@ Every schema of the contract is versioned together by `MANIFEST_VERSION`, and th
 | [`oui-manifest.json`](schemas/oui-manifest.json) | `OuiManifest` | `https://schemas.closurestudio.ai/oui/v1/oui-manifest.json` |
 | [`generated-knowledge.json`](schemas/generated-knowledge.json) | `GeneratedKnowledge` | `https://schemas.closurestudio.ai/oui/v1/generated-knowledge.json` |
 | [`oui-config.json`](schemas/oui-config.json) | `OuiConfigFile` | `https://schemas.closurestudio.ai/oui/v1/oui-config.json` |
-| [`approvals.json`](schemas/approvals.json) | its 20 `$defs`, one type each | `https://schemas.closurestudio.ai/oui/v1/approvals.json` |
+| [`approvals.json`](schemas/approvals.json) | its 25 `$defs`, one type each | `https://schemas.closurestudio.ai/oui/v1/approvals.json` |
 | [`event-declarations.json`](schemas/event-declarations.json) | `EventDeclarationDocument` | `https://schemas.closurestudio.ai/agent-sdk/event-declarations/v1.json` |
 | [`conversation-takeover.json`](schemas/conversation-takeover.json) | its 16 `$defs`, one type each | `https://schemas.closurestudio.ai/oui/v1/conversation-takeover.json` |
 | [`agent-evals.json`](schemas/agent-evals.json) | `AgentEvalSuite` | `https://schemas.closurestudio.ai/oui/v1/agent-evals.json` |
@@ -688,9 +688,9 @@ It joins the room the completion declares for one job (`report:{jobId}`), and se
 A `transaction` — an order, a payment, a send, a publish — and any `write` declared `destructive` run only on an approval the person gave, bound to the exact call. No policy waives it.
 
 1. The agent worker stops the turn at the call, stores it with its args hash, and the person's tab receives `agent:approval_required` with a preview whose every word comes from the action's declaration, never from the model. A host may write that display copy itself (the worker's `approvals.preview`): to redact a value, or to say it in the person's language, with `spokenReadback` for a voice. The stored call and the args hash it is bound to stay the model's.
-2. The tab renders the approval card. In a UI only a click on the card counts: a "yes" typed in chat is a message. On voice, phone, SMS and chat, the verbatim readback (on a voice, its `spokenReadback` when the host wrote one) and an affirmative next turn. The turn says which: its payload's `channel` (`ui` by default; a live call's turns are `voice`, or `phone` when your `resolveTurn` says so), and the worker tells the model about approvals in that channel's terms. On a conversation channel the readback is sent as the turn's last words, its pieces marked `readback: true`, and stored as the agent's; your classifier of the next message decides as the user (`POST /internal/approvals/{id}/decide` with that channel). An action on the person's page is the exception on every channel: its page runs it only on its own grant, from a click on its card, so the model is told the card is on their screen, nothing is read back, and a conversation channel's approve of it is refused (`channel`). A spoken "no" still declines it.
-3. The click goes to the approval store on the person's own socket (`approval:decide`). The store answers the decider only, with a single-use token and the call's args hash, and the tab's OUI runtime receives a grant (`grantApproval`).
-4. The next turn carries the token, outside the message text. The worker redeems it for the stored call, exactly, and runs it. A UI action then reaches the tab carrying `approval: { approvalId, argsHash }`, and the tab runs it only when that matches its grant.
+2. The tab renders the approval card. In a UI only a click on the card counts: a "yes" typed in chat is a message. On voice, phone, SMS and chat, the verbatim readback (on a voice, its `spokenReadback` when the host wrote one) and an affirmative next turn. The turn says which: its payload's `channel` (`ui` by default; a live call's turns are `voice`, or `phone` when your `resolveTurn` says so), and the worker tells the model about approvals in that channel's terms. On a conversation channel the readback is sent as the turn's last words, its pieces marked `readback: true`, and stored as the agent's; your classifier of the next message decides as the user (`POST /internal/approvals/{id}/decide` with that channel). An action on the person's page is approved by its card, and on `voice`, `phone` and `chat` by its readback too: it is read back like any other call, and its card is on the person's screen as well. On SMS, which has no page beside it, it stays card-only: the model is told the card is on their screen, nothing is read back, and an SMS approve of it is refused (`channel`). A spoken or texted "no" always declines it.
+3. The click goes to the approval store on the person's own socket (`approval:decide`). The store answers the decider only, with a single-use token and the call's args hash, and the tab's OUI runtime receives a grant (`grantApproval`). When a page's action is approved by its readback on `voice`, `phone` or `chat`, the engine gets the token and the store pushes a single-use grant (`agent:approval_granted`) to the room the worker stored with the call: the turn's own. A tab whose open conversation it is, and which is in that room, claims it on its own socket (`approval:claim`); only the first claim gets the grant, which lasts two minutes at most, and that tab's runtime takes it. A decline is pushed too (`agent:approval_declined`), and the card says how the person decided. Only the store sends these: the emit API and a client's relay refuse them.
+4. The next turn carries the token, outside the message text. The worker redeems it for the stored call, exactly, and runs it. A UI action then reaches the tab carrying `approval: { approvalId, argsHash }`, and the tab runs it only when that matches its grant. A tab that was never given that approval refuses the request on its receipt and neither runs nor answers it, so with the conversation open in two tabs only the one holding the grant runs it; a replayed grant is refused.
 
 Render the card with `ApprovalCard` from `@ouispec/agent-react`, drawn with your design system's parts:
 
@@ -719,6 +719,39 @@ The card takes no `agent` prop, and a package that ships its own card declares i
 > **Schema:** [`approvals.json#/$defs/ApprovalDecideResult`](schemas/approvals.json) · `https://schemas.closurestudio.ai/oui/v1/approvals.json#/$defs/ApprovalDecideResult` · TypeScript: `ApprovalDecideResult` from `@ouispec/contract`
 >
 > One of: { ok: true, decision: "approve", approvalId: string, token: string, argsHash: ArgsHash, expiresAt: number, channel: ApprovalChannel } \| { ok: true, decision: "decline", approvalId: string } \| ApprovalRefusal.
+
+> **Schema:** [`approvals.json#/$defs/ApprovalGrantedEvent`](schemas/approvals.json) · `https://schemas.closurestudio.ai/oui/v1/approvals.json#/$defs/ApprovalGrantedEvent` · TypeScript: `ApprovalGrantedEvent` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `approvalId` | string | yes |  |
+> | `grantId` | string | yes | This grant, single use: what a claim names. |
+> | `argsHash` | ArgsHash | yes | The approved call's args hash: what the tab's OUI runtime checks the request's params against. |
+> | `expiresAt` | number | yes | Epoch ms: two minutes after the decision (`APPROVAL_GRANT_TTL_MS`), or the approval's own expiry if sooner. |
+> | `conversationId` | string | yes |  |
+> | `room` | string | yes | The room it was pushed to: that of the turn that asked. |
+> | `channel` | ReadbackUIApprovalChannel | yes | Where the person approved it. |
+> | `timestamp` | number | yes |  |
+
+> **Schema:** [`approvals.json#/$defs/ApprovalClaimPayload`](schemas/approvals.json) · `https://schemas.closurestudio.ai/oui/v1/approvals.json#/$defs/ApprovalClaimPayload` · TypeScript: `ApprovalClaimPayload` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `approvalId` | string | yes |  |
+> | `grantId` | string | yes |  |
+
+> **Schema:** [`approvals.json#/$defs/ApprovalClaimResult`](schemas/approvals.json) · `https://schemas.closurestudio.ai/oui/v1/approvals.json#/$defs/ApprovalClaimResult` · TypeScript: `ApprovalClaimResult` from `@ouispec/contract`
+>
+> One of: { ok: true, approvalId: string, argsHash: ArgsHash, expiresAt: number, channel: ReadbackUIApprovalChannel } \| ApprovalRefusal.
+
+> **Schema:** [`approvals.json#/$defs/ApprovalDeclinedEvent`](schemas/approvals.json) · `https://schemas.closurestudio.ai/oui/v1/approvals.json#/$defs/ApprovalDeclinedEvent` · TypeScript: `ApprovalDeclinedEvent` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `approvalId` | string | yes |  |
+> | `conversationId` | string | yes |  |
+> | `channel` | "voice" \| "phone" \| "sms" \| "chat" | yes | Where the person declined it: a conversation channel. |
+> | `timestamp` | number | yes |  |
 
 > **Schema:** [`approvals.json#/$defs/ApprovalContinuation`](schemas/approvals.json) · `https://schemas.closurestudio.ai/oui/v1/approvals.json#/$defs/ApprovalContinuation` · TypeScript: `ApprovalContinuation` from `@ouispec/contract`
 >

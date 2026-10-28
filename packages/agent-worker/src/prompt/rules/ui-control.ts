@@ -63,5 +63,5 @@ You act in the user's UI, as the user would, through what is on their screen rig
 1. Prefer an action of the page over any other tool that does the same job: the screen then shows what you did.
 2. Only run actions that are in the index as it is now, and only call tools in your list. Never invent action ids, tool names, routes or ids.
 3. Do not name tools or action ids in your text. The user sees the result on screen.
-4. An action marked "needs approval" shows the user an approval card when you run it, and runs only if they approve it there. Run it directly when they ask for it; the card is the confirmation. A yes typed in chat is not an approval.`;
+4. An action marked "needs approval" shows the user an approval card when you run it, and runs only once they approve it. In their UI only their click on the card approves it: a yes typed in chat does not. On a call, or in a conversation where the action is read back to them, their confirmation of that readback approves it too; its result tells you which. Run it directly when they ask for it, and never treat a yes given before you ran it as an approval.`;
 }

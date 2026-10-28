@@ -2422,7 +2422,7 @@ export const CONTRACT_SCHEMAS = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://schemas.closurestudio.ai/oui/v1/approvals.json",
     "title": "Approvals",
-    "description": "Approvals: the shapes the agent worker, the approval store in the realtime server, the browser's approval card, OUI's surface runtime and a conversation engine exchange. An irreversible action — a `transaction`, or a `write` declared `destructive` — runs only on an approval the person gave, bound to the exact call by a single-use token.\n\n1. The worker stops the turn at the call and stores it (`PendingApprovalInput`); the person's tab receives `agent:approval_required` (`ApprovalRequiredEvent`) and renders the approval card from its `preview`, whose every word comes from the action's declaration, never from the model.\n2. In a UI only a click on the card counts: the card sends `approval:decide` (`ApprovalDecidePayload`) from the person's own socket. On a conversation channel, the verbatim `readback` and an affirmative next turn.\n3. The store answers the decider only (`ApprovalDecideResult`): a single-use token, a compact JWS (`ApprovalTokenClaims`), and the call's `argsHash`. The tab's OUI runtime holds an `ApprovalGrant`.\n4. The next turn carries the token (`ApprovalContinuation`); the worker redeems it for the stored call, exactly (`ApprovedCall`), and runs it. A UI action request then carries `approval` (`ActionRequestApproval`), which the browser checks against its grant before it runs the handler.\n5. When the realtime server holds receipt keys, redemption also returns a receipt (`ApprovalReceiptClaims`): a compact JWS, EdDSA over Ed25519, that the approved host or API call carries to the tool's own API (the `OUI-Approval-Receipt` header). The tool verifies it offline against the realtime server's published keys (`/.well-known/oui-approval-jwks.json`); a UI action gets none.\n\nThe args hash is SHA-256 over the RFC 8785 (JCS) canonical JSON of the call's arguments, lowercase hex; `oui-spec/approval-vectors.json` holds every implementation, in any language, to it.",
+    "description": "Approvals: the shapes the agent worker, the approval store in the realtime server, the browser's approval card, OUI's surface runtime and a conversation engine exchange. An irreversible action — a `transaction`, or a `write` declared `destructive` — runs only on an approval the person gave, bound to the exact call by a single-use token.\n\n1. The worker stops the turn at the call and stores it (`PendingApprovalInput`); the person's tab receives `agent:approval_required` (`ApprovalRequiredEvent`) and renders the approval card from its `preview`, whose every word comes from the action's declaration, never from the model.\n2. In a UI only a click on the card counts: the card sends `approval:decide` (`ApprovalDecidePayload`) from the person's own socket. On a conversation channel, the verbatim `readback` and an affirmative next turn. An action on the person's page is approved by its card, or on `voice`, `phone` and `chat` by its readback and an affirmative next turn: the store then pushes the tab a single-use grant (`ApprovalGrantedEvent`), which one tab claims (`ApprovalClaimPayload`, `ApprovalClaimResult`).\n3. The store answers the decider only (`ApprovalDecideResult`): a single-use token, a compact JWS (`ApprovalTokenClaims`), and the call's `argsHash`. The tab's OUI runtime holds an `ApprovalGrant`: from the click's answer, or from the claimed push.\n4. The next turn carries the token (`ApprovalContinuation`); the worker redeems it for the stored call, exactly (`ApprovedCall`), and runs it. A UI action request then carries `approval` (`ActionRequestApproval`), which the browser checks against its grant before it runs the handler.\n5. When the realtime server holds receipt keys, redemption also returns a receipt (`ApprovalReceiptClaims`): a compact JWS, EdDSA over Ed25519, that the approved host or API call carries to the tool's own API (the `OUI-Approval-Receipt` header). The tool verifies it offline against the realtime server's published keys (`/.well-known/oui-approval-jwks.json`); a UI action gets none.\n\nThe args hash is SHA-256 over the RFC 8785 (JCS) canonical JSON of the call's arguments, lowercase hex; `oui-spec/approval-vectors.json` holds every implementation, in any language, to it.",
     "$defs": {
       "ArgsHash": {
         "description": "SHA-256 of the RFC 8785 canonical JSON of a call's arguments, lowercase hex.",
@@ -2430,7 +2430,7 @@ export const CONTRACT_SCHEMAS = {
         "pattern": "^[0-9a-f]{64}$"
       },
       "ApprovalChannel": {
-        "description": "Where the person confirmed. In a UI only a click on the card counts (`ui`); in a conversation channel, the verbatim readback and an affirmative next turn.",
+        "description": "Where the person confirmed. In a UI only a click on the card counts (`ui`); in a conversation channel, the verbatim readback and an affirmative next turn. An action on the person's page is approved by its card, or on `voice`, `phone` and `chat` (`READBACK_UI_APPROVAL_CHANNELS`) by its readback; never by SMS.",
         "enum": [
           "ui",
           "voice",
@@ -2542,6 +2542,11 @@ export const CONTRACT_SCHEMAS = {
               "ui",
               "backend"
             ]
+          },
+          "room": {
+            "description": "For an action on the person's page: the realtime room of the turn that asked (its `socketRoom`), where the action is dispatched. When the person approves it by voice or in chat, its grant is pushed to this room and nowhere else. Never set on a host or API tool.",
+            "type": "string",
+            "minLength": 1
           },
           "operationId": {
             "description": "For a generated API tool, its OpenAPI `operationId`: carried on the call's receipt.",
@@ -2659,7 +2664,7 @@ export const CONTRACT_SCHEMAS = {
         "additionalProperties": false
       },
       "ApprovalRefusalReason": {
-        "description": "Why an approval was refused:\n\n- `unknown`: no such pending approval: never stored, already declined or redeemed, or expired and gone.\n- `forbidden`: another user's approval, or another conversation's.\n- `expired`.\n- `decided`: already decided.\n- `used`: already redeemed.\n- `invalid`: not a token this environment signed, or malformed.\n- `mismatch`: signed, but not for the stored call.\n- `channel`: a decision from a channel that may not make it.",
+        "description": "Why an approval was refused:\n\n- `unknown`: no such pending approval, or grant: never stored, already declined or redeemed, withdrawn, or expired and gone.\n- `forbidden`: another user's approval, or another conversation's; or a grant claimed from a socket that is not in its room.\n- `expired`.\n- `decided`: already decided.\n- `used`: already redeemed; or a grant another tab has claimed.\n- `invalid`: not a token this environment signed, or malformed.\n- `mismatch`: signed, but not for the stored call.\n- `channel`: a decision from a channel that may not make it: an action on the person's page approved by SMS, or by voice or chat when no room was stored with it.",
         "enum": [
           "unknown",
           "forbidden",
@@ -2749,6 +2754,153 @@ export const CONTRACT_SCHEMAS = {
               "ok",
               "decision",
               "approvalId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "$ref": "#/$defs/ApprovalRefusal"
+          }
+        ]
+      },
+      "ApprovalGrantedEvent": {
+        "description": "`agent:approval_granted`: the person approved an action on their page by voice, on the phone or in chat, after its verbatim readback. The approval store pushes it, in the same step as the decision, to the room stored with the approval and nowhere else; the realtime server's emit API refuses it. A tab whose open conversation is `conversationId` and which is joined to `room` claims it (`approval:claim`); only the first claim is answered with the grant.",
+        "type": "object",
+        "properties": {
+          "approvalId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "grantId": {
+            "description": "This grant, single use: what a claim names.",
+            "type": "string",
+            "minLength": 1
+          },
+          "argsHash": {
+            "description": "The approved call's args hash: what the tab's OUI runtime checks the request's params against.",
+            "$ref": "#/$defs/ArgsHash"
+          },
+          "expiresAt": {
+            "description": "Epoch ms: two minutes after the decision (`APPROVAL_GRANT_TTL_MS`), or the approval's own expiry if sooner. A claim after it is refused, and the runtime admits nothing after it.",
+            "type": "number"
+          },
+          "conversationId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "room": {
+            "description": "The room it was pushed to: that of the turn that asked.",
+            "type": "string",
+            "minLength": 1
+          },
+          "channel": {
+            "description": "Where the person approved it.",
+            "$ref": "#/$defs/ReadbackUIApprovalChannel"
+          },
+          "timestamp": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "approvalId",
+          "grantId",
+          "argsHash",
+          "expiresAt",
+          "conversationId",
+          "room",
+          "channel",
+          "timestamp"
+        ],
+        "additionalProperties": false
+      },
+      "ReadbackUIApprovalChannel": {
+        "description": "The conversation channels on which an action on the person's page is approved by its readback and an affirmative next turn, as well as by its card.",
+        "enum": [
+          "voice",
+          "phone",
+          "chat"
+        ]
+      },
+      "ApprovalDeclinedEvent": {
+        "description": "`agent:approval_declined`: the person declined an action on their page in a conversation channel. Pushed by the approval store to the room stored with the approval, so the card on screen says so. The emit API refuses it.",
+        "type": "object",
+        "properties": {
+          "approvalId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "conversationId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "channel": {
+            "description": "Where the person declined it: a conversation channel.",
+            "enum": [
+              "voice",
+              "phone",
+              "sms",
+              "chat"
+            ]
+          },
+          "timestamp": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "approvalId",
+          "conversationId",
+          "channel",
+          "timestamp"
+        ],
+        "additionalProperties": false
+      },
+      "ApprovalClaimPayload": {
+        "description": "`approval:claim`, from the person's own socket: this tab takes the pushed grant. The store answers only the first claim, from a socket of the approval's user that is in the grant's room, before the grant expires.",
+        "type": "object",
+        "properties": {
+          "approvalId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "grantId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "approvalId",
+          "grantId"
+        ],
+        "additionalProperties": false
+      },
+      "ApprovalClaimResult": {
+        "description": "The answer to a claim: the grant, for this tab's OUI runtime (`runtime.grantApproval`), with where the person approved it; or why not. Only one claim of a grant is ever answered with it.",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "approvalId": {
+                "type": "string"
+              },
+              "argsHash": {
+                "$ref": "#/$defs/ArgsHash"
+              },
+              "expiresAt": {
+                "description": "Epoch ms after which the grant no longer admits anything.",
+                "type": "number"
+              },
+              "channel": {
+                "$ref": "#/$defs/ReadbackUIApprovalChannel"
+              }
+            },
+            "required": [
+              "ok",
+              "approvalId",
+              "argsHash",
+              "expiresAt",
+              "channel"
             ],
             "additionalProperties": false
           },
@@ -3045,7 +3197,7 @@ export const CONTRACT_SCHEMAS = {
         ]
       },
       "ActionRequestApproval": {
-        "description": "What a UI action request carries when it runs an approved call (`OUIActionApproval`): the browser runs a `transaction` or destructive action only when this matches a grant this tab received from its own card click.",
+        "description": "What a UI action request carries when it runs an approved call (`OUIActionApproval`): the browser runs a `transaction` or destructive action only when this matches a grant this tab received from its own card click, or claimed from the push of an approval given by voice or in chat.",
         "type": "object",
         "properties": {
           "approvalId": {
@@ -3063,7 +3215,7 @@ export const CONTRACT_SCHEMAS = {
         "additionalProperties": false
       },
       "ApprovalGrant": {
-        "description": "What the person's approval click gives this tab's OUI runtime (`runtime.grantApproval`, `OUIApprovalGrant`): the request it approved, until it expires.",
+        "description": "What this tab's OUI runtime holds (`runtime.grantApproval`, `OUIApprovalGrant`): the request the person approved, from their click on the card or from a claimed push, until it expires.",
         "type": "object",
         "properties": {
           "approvalId": {
@@ -4325,6 +4477,11 @@ export const CONTRACT_TYPES = {
   ApprovalRefusalReason: 'approvals.json#/$defs/ApprovalRefusalReason',
   ApprovalRefusal: 'approvals.json#/$defs/ApprovalRefusal',
   ApprovalDecideResult: 'approvals.json#/$defs/ApprovalDecideResult',
+  ApprovalGrantedEvent: 'approvals.json#/$defs/ApprovalGrantedEvent',
+  ReadbackUIApprovalChannel: 'approvals.json#/$defs/ReadbackUIApprovalChannel',
+  ApprovalDeclinedEvent: 'approvals.json#/$defs/ApprovalDeclinedEvent',
+  ApprovalClaimPayload: 'approvals.json#/$defs/ApprovalClaimPayload',
+  ApprovalClaimResult: 'approvals.json#/$defs/ApprovalClaimResult',
   ApprovalTokenClaims: 'approvals.json#/$defs/ApprovalTokenClaims',
   ApprovalReceiptClaims: 'approvals.json#/$defs/ApprovalReceiptClaims',
   ApprovedCall: 'approvals.json#/$defs/ApprovedCall',

@@ -8,9 +8,9 @@
  *                             conversationId, tool, argsHash, expiresAt, the
  *                             receipt's audience (fixed here, empty for none),
  *                             the tool's kind (`ui` for an action on the
- *                             person's page, which is approved only by its
- *                             card), and once approved the token's jti and the
- *                             channel
+ *                             person's page) and, for one, the room of the
+ *                             turn that asked; once approved the token's jti
+ *                             and the channel
  *   approval:declined:{id}  → what the next turn tells the model, 30 min
  *   approval:{id}:seen      → that it was asked for and has not run or been
  *                             declined (userId, conversationId, expiresAt,
@@ -23,14 +23,22 @@
  *                             having run: undecided, or approved and unused.
  *   approval:{id}:settled   → a turn's claim to store that expiry: a two
  *                             minute lease, permanent once confirmed
+ *   approval:{id}:grant     → for an action on the person's page approved
+ *                             by voice, on the phone or in chat: the
+ *                             single-use grant pushed to its room (grantId,
+ *                             userId, conversationId, room, argsHash,
+ *                             expiresAt, channel, and the claiming socket once
+ *                             claimed), written in the script that approves
+ *                             it, until the grant expires
  *   approval:conversation:{conversationId}
  *                           → set of the conversation's approval ids, kept as
  *                             long as its longest-lived approval: what a
  *                             take-over withdraws (`withdrawOpen`). An id
  *                             whose approval has gone is removed then.
  *
- * Each decision and each redemption is one Lua script, so two instances can
- * never both approve one call, or both redeem one token. The stored call is
+ * Each decision, each claim and each redemption is one Lua script, so two
+ * instances can never both approve one call, both hand one grant to a tab, or
+ * both redeem one token. The stored call is
  * kept as the worker wrote it and never re-encoded inside Redis: Lua's JSON
  * would round numbers and turn `[]` into `{}`, and the redeemed call must be
  * exactly the one the user approved.
@@ -41,14 +49,20 @@
  */
 import crypto from 'node:crypto';
 import {
+  APPROVAL_GRANT_TTL_MS,
+  APPROVAL_PUSH_EVENTS,
   APPROVAL_WITHDRAW_REASONS,
   approvalReceiptAudience,
+  approvesUIByReadback,
   argsHash as hashOf,
   EXPIRED_APPROVAL_MEMORY_MS,
   EXPIRY_CLAIM_LEASE_MS,
   MAX_APPROVAL_TTL_MS,
   type ApprovalChannel,
+  type ApprovalClaimResult,
   type ApprovalDecideResult,
+  type ApprovalDeclinedEvent,
+  type ApprovalGrantedEvent,
   type ApprovalDecision,
   type ApprovalOwner,
   type ApprovalRedeemResult,
@@ -73,8 +87,20 @@ export interface ApprovalRedis {
 export interface ApprovalStore {
   /** Keep a pending approval until it expires. */
   create(input: PendingApprovalInput): Promise<{ ok: true; approvalId: string; argsHash: string; expiresAt: number } | ApprovalRefusal>;
-  /** The user's decision. An approval's token is returned only here, to the decider. */
+  /**
+   * The user's decision. An approval's token is returned only here, to the
+   * decider. An action on the person's page approved on `voice`, `phone` or
+   * `chat` also gets a single-use grant, pushed to the room stored with it
+   * (`agent:approval_granted`); declined in any conversation channel, the
+   * decline is pushed there (`agent:approval_declined`).
+   */
   decide(approvalId: string, by: { userId: string; decision: ApprovalDecision; channel: ApprovalChannel }): Promise<ApprovalDecideResult>;
+  /**
+   * A tab takes the grant pushed to its room: answered with the grant only for
+   * the first claim, from a socket of the approval's user that is in the
+   * grant's room, before the grant expires.
+   */
+  claim(approvalId: string, grantId: string, claimer: ApprovalClaimer): Promise<ApprovalClaimResult>;
   /** Atomic single use: the stored call, for a valid, unexpired, unused token of this user and conversation. */
   redeem(token: string, caller: { userId: string; conversationId: string }): Promise<ApprovalRedeemResult>;
   /** Where an approval of this user's stands, or null when it is not theirs or not known. */
@@ -107,6 +133,13 @@ export interface ApprovalStore {
   withdrawOpen(conversationId: string, reason: ApprovalWithdrawReason): Promise<string[]>;
 }
 
+/** Who claims a pushed grant: the socket's verified user, the socket, and the rooms it is in now. */
+export interface ApprovalClaimer {
+  userId: string;
+  socketId: string;
+  rooms: readonly string[];
+}
+
 /** How long a decline is remembered for the turn that follows it. */
 export const DECLINED_TTL_SEC = 30 * 60;
 
@@ -116,11 +149,12 @@ const declinedKey = (id: string) => `approval:declined:${id}`;
 const seenKey = (id: string) => `approval:${id}:seen`;
 const settledKey = (id: string) => `approval:${id}:settled`;
 const withdrawnKey = (id: string) => `approval:${id}:withdrawn`;
+const grantKey = (id: string) => `approval:${id}:grant`;
 const conversationKey = (conversationId: string) => `approval:conversation:${conversationId}`;
 
 // KEYS: record, state, declined, seen, settled, withdrawn, conversation. ARGV: record JSON, ttl ms, userId,
 // conversationId, tool, argsHash, expiresAt, seen JSON, seen ttl ms, receipt audience ('' for none), tool kind,
-// approval id.
+// approval id, room ('' for none).
 // A new approval supersedes an old decline under the same id, an old expiry's settlement, and an old withdrawal.
 // The conversation's set of approvals lasts as long as its longest-lived one.
 const CREATE = `
@@ -128,33 +162,62 @@ if redis.call('EXISTS', KEYS[1]) == 1 or redis.call('EXISTS', KEYS[2]) == 1 then
 redis.call('DEL', KEYS[3], KEYS[5], KEYS[6])
 redis.call('SET', KEYS[4], ARGV[8], 'PX', ARGV[9])
 redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
-redis.call('HSET', KEYS[2], 'status', 'pending', 'userId', ARGV[3], 'conversationId', ARGV[4], 'tool', ARGV[5], 'argsHash', ARGV[6], 'expiresAt', ARGV[7], 'audience', ARGV[10], 'toolKind', ARGV[11])
+redis.call('HSET', KEYS[2], 'status', 'pending', 'userId', ARGV[3], 'conversationId', ARGV[4], 'tool', ARGV[5], 'argsHash', ARGV[6], 'expiresAt', ARGV[7], 'audience', ARGV[10], 'toolKind', ARGV[11], 'room', ARGV[13])
 redis.call('PEXPIRE', KEYS[2], ARGV[2])
 redis.call('SADD', KEYS[7], ARGV[12])
 if redis.call('PTTL', KEYS[7]) < tonumber(ARGV[2]) then redis.call('PEXPIRE', KEYS[7], ARGV[2]) end
 return 'ok'`;
 
-// KEYS: state, record, declined, seen. ARGV: userId, decision, now ms, jti, channel, declined ttl s, declined JSON,
-// seen JSON once approved.
+// KEYS: state, record, declined, seen, grant. ARGV: userId, decision, now ms, jti, channel, declined ttl s, declined
+// JSON, seen JSON once approved, whether this channel may approve an action on the person's page by its readback
+// ('1' or '0'), grant id, grant ttl ms.
 // A decline decides it: it is no longer something that can expire. An approval is recorded in the
 // memory (same TTL), so if the approved call is never run its expiry is not told as "undecided".
-// An action on the person's page is approved only by its card: the page runs it only on its own grant from that click.
+// An action on the person's page is approved by its card, or by its readback on a channel that may: then
+// only with the room stored with it, where the single-use grant is written for the tab to claim. The grant lasts
+// until the approval expires or its own ttl runs out, whichever is first. Answers the room for the store to push to.
 const DECIDE = `
 if redis.call('EXISTS', KEYS[1]) == 0 then return {'unknown'} end
-local s = redis.call('HMGET', KEYS[1], 'status', 'userId', 'expiresAt', 'toolKind')
+local s = redis.call('HMGET', KEYS[1], 'status', 'userId', 'expiresAt', 'toolKind', 'room', 'conversationId', 'argsHash')
 if s[2] ~= ARGV[1] then return {'forbidden'} end
 if s[1] ~= 'pending' then return {'decided'} end
-if tonumber(ARGV[3]) >= tonumber(s[3]) then return {'expired'} end
-if ARGV[2] == 'approve' and s[4] == 'ui' and ARGV[5] ~= 'ui' then return {'channel'} end
+local now = tonumber(ARGV[3])
+if now >= tonumber(s[3]) then return {'expired'} end
+local onPage = s[4] == 'ui' and ARGV[5] ~= 'ui'
+local room = s[5] or ''
+if ARGV[2] == 'approve' and onPage and (ARGV[9] ~= '1' or room == '') then return {'channel'} end
 local record = redis.call('GET', KEYS[2])
 if ARGV[2] == 'approve' then
   redis.call('HSET', KEYS[1], 'status', 'approved', 'jti', ARGV[4], 'channel', ARGV[5])
   if redis.call('EXISTS', KEYS[4]) == 1 then redis.call('SET', KEYS[4], ARGV[8], 'KEEPTTL') end
-  return {'approved', record}
+  if not onPage then return {'approved', record} end
+  local until_ = math.min(now + tonumber(ARGV[11]), tonumber(s[3]))
+  redis.call('DEL', KEYS[5])
+  redis.call('HSET', KEYS[5], 'grantId', ARGV[10], 'userId', s[2], 'conversationId', s[6], 'room', room, 'argsHash', s[7], 'expiresAt', tostring(until_), 'channel', ARGV[5], 'claimed', '')
+  -- Kept a minute past its end, so a late or replayed claim is told why.
+  redis.call('PEXPIRE', KEYS[5], until_ - now + 60000)
+  return {'approved', record, room, tostring(until_)}
 end
 redis.call('DEL', KEYS[1], KEYS[2], KEYS[4])
 redis.call('SET', KEYS[3], ARGV[7], 'EX', ARGV[6])
+if onPage then return {'declined', record, room} end
 return {'declined', record}`;
+
+// KEYS: grant. ARGV: grant id, userId, now ms, socket id, the socket's rooms (JSON array).
+// The first claim from the approval's user, on a socket in the grant's room, before it expires, takes it. The grant
+// is kept until it expires, so a replayed claim is refused as used.
+const CLAIM = `
+if redis.call('EXISTS', KEYS[1]) == 0 then return {'unknown'} end
+local g = redis.call('HMGET', KEYS[1], 'grantId', 'userId', 'room', 'expiresAt', 'claimed', 'argsHash', 'channel')
+if g[1] ~= ARGV[1] then return {'mismatch'} end
+if g[2] ~= ARGV[2] then return {'forbidden'} end
+if tonumber(ARGV[3]) >= tonumber(g[4]) then return {'expired'} end
+local inRoom = false
+for _, r in ipairs(cjson.decode(ARGV[5])) do if r == g[3] then inRoom = true end end
+if not inRoom then return {'forbidden'} end
+if g[5] ~= '' then return {'used'} end
+redis.call('HSET', KEYS[1], 'claimed', ARGV[4])
+return {'ok', g[6], g[4], g[7], g[3]}`;
 
 // KEYS: state, record, seen. ARGV: jti, argsHash, tool, userId, conversationId.
 // A redemption uses it: it did not expire undecided. It answers the receipt audience fixed at creation.
@@ -168,15 +231,15 @@ local record = redis.call('GET', KEYS[2])
 redis.call('DEL', KEYS[1], KEYS[2], KEYS[3])
 return {'ok', record, s[7], s[8] or ''}`;
 
-// KEYS: state, record, seen, withdrawn, and the conversation's set when the hold withdraws it. ARGV: userId ('' for
-// any user of the conversation: the server's own authority, on a take-over), conversationId, reason, approval id.
+// KEYS: state, record, seen, withdrawn, grant, and the conversation's set when the hold withdraws it. ARGV: userId (''
+// for any user of the conversation: the server's own authority, on a take-over), conversationId, reason, approval id.
 // Expire-now. A pending approval, or an approved one not yet redeemed, loses its state and record,
 // which is exactly what its time running out does: a decision is then refused, a token redeemed
 // after it answers 'used', and SETTLE finds "state gone, seen present". The memory (seen) is left
 // as it is, so one the person had approved still says 'approved'; why it was withdrawn is kept
-// beside it for as long as the memory lasts.
+// beside it for as long as the memory lasts. A grant pushed for it and not yet claimed can no longer be claimed.
 const WITHDRAW = `
-if KEYS[5] then redis.call('SREM', KEYS[5], ARGV[4]) end
+if KEYS[6] then redis.call('SREM', KEYS[6], ARGV[4]) end
 if redis.call('EXISTS', KEYS[1]) == 0 then
   local seen = redis.call('GET', KEYS[3])
   if not seen then return 'unknown' end
@@ -186,7 +249,7 @@ if redis.call('EXISTS', KEYS[1]) == 0 then
 end
 local o = redis.call('HMGET', KEYS[1], 'userId', 'conversationId')
 if (ARGV[1] ~= '' and o[1] ~= ARGV[1]) or o[2] ~= ARGV[2] then return 'unknown' end
-redis.call('DEL', KEYS[1], KEYS[2])
+redis.call('DEL', KEYS[1], KEYS[2], KEYS[5])
 local left = redis.call('PTTL', KEYS[3])
 if left > 0 then redis.call('SET', KEYS[4], ARGV[3], 'PX', left) end
 return 'withdrawn'`;
@@ -252,7 +315,16 @@ const REFUSALS: Partial<Record<string, string>> = {
   expired: 'this approval has expired',
   used: 'this approval has already been used',
   mismatch: 'this token is not for the stored call',
-  channel: "an action on the person's page is approved only on its card, by their click",
+  channel:
+    "an action on the person's page is approved on its card, or by its readback by voice, on the phone or in chat when it was stored with its turn's room; never by SMS",
+};
+
+const CLAIM_REFUSALS: Partial<Record<string, string>> = {
+  unknown: 'no such grant is waiting: it was never pushed, was withdrawn, or has expired',
+  mismatch: 'this is not the grant that was pushed',
+  forbidden: "this grant is another user's, or this tab is not in its room",
+  expired: 'this grant has expired',
+  used: 'another tab has already taken this grant',
 };
 
 type Seen =
@@ -268,6 +340,13 @@ export interface ApprovalStoreOptions {
    * Without them no audience is stored and no receipt is issued.
    */
   receipts?: { signer: ApprovalReceiptSigner; defaultAudience: string };
+  /**
+   * Sends a server event to a room: how a grant or a decline reaches the tab
+   * of an action on the person's page decided in a conversation channel. The
+   * realtime server passes its socket.io server's. Without it, nothing is
+   * pushed, and an action on the person's page is approved only on its card.
+   */
+  push?: (room: string, event: string, payload: ApprovalGrantedEvent | ApprovalDeclinedEvent) => void;
 }
 
 export function createApprovalStore(
@@ -278,6 +357,7 @@ export function createApprovalStore(
 ): ApprovalStore {
   const expiryClaimLeaseMs = options.expiryClaimLeaseMs ?? EXPIRY_CLAIM_LEASE_MS;
   const receipts = options.receipts ?? null;
+  const push = options.push ?? null;
 
   /**
    * The receipt audience, fixed as the approval is stored: none for a UI action
@@ -291,6 +371,7 @@ export function createApprovalStore(
     if (input.toolKind === 'ui') {
       return input.audience === undefined ? { ok: true, audience: '' } : refusal('invalid', 'a UI action gets no receipt, so it names no audience');
     }
+    if (input.room !== undefined) return refusal('invalid', "only an action on the person's page names the room of its turn");
     if (!receipts) return { ok: true, audience: '' };
     return { ok: true, audience: input.audience ?? receipts.defaultAudience };
   };
@@ -382,9 +463,13 @@ export function createApprovalStore(
         audience.audience,
         input.toolKind ?? 'backend',
         input.approvalId,
+        input.room ?? '',
       );
       if (result !== 'ok') return refusal('decided', `an approval ${input.approvalId} already exists`);
-      logger.info(audit(input, { expiresAt: input.expiresAt, ...(audience.audience ? { audience: audience.audience } : {}) }), 'Approval stored');
+      logger.info(
+        audit(input, { expiresAt: input.expiresAt, ...(audience.audience ? { audience: audience.audience } : {}), ...(input.room ? { room: input.room } : {}) }),
+        'Approval stored',
+      );
       return { ok: true, approvalId: input.approvalId, argsHash: input.argsHash, expiresAt: input.expiresAt };
     },
 
@@ -399,13 +484,15 @@ export function createApprovalStore(
         title: seen.kind === 'open' ? seen.pending.preview.title : '',
       };
 
-      const [outcome, raw] = (await redis.eval(
+      const grantId = crypto.randomUUID();
+      const [outcome, raw, room, grantUntil] = (await redis.eval(
         DECIDE,
-        4,
+        5,
         stateKey(approvalId),
         recordKey(approvalId),
         declinedKey(approvalId),
         seenKey(approvalId),
+        grantKey(approvalId),
         userId,
         decision,
         Date.now(),
@@ -417,7 +504,11 @@ export function createApprovalStore(
         seen.kind === 'open'
           ? JSON.stringify({ userId: seen.pending.userId, conversationId: seen.pending.conversationId, expiresAt: seen.pending.expiresAt, decided: 'approved' })
           : '',
-      )) as [string, string | undefined];
+        // A grant can reach the tab only when the server can push it.
+        push && approvesUIByReadback(channel) ? '1' : '0',
+        grantId,
+        APPROVAL_GRANT_TTL_MS,
+      )) as [string, string | undefined, string | undefined, string | undefined];
 
       if (outcome !== 'approved' && outcome !== 'declined') {
         logger.warn({ approvalId, userId, decision, channel, reason: outcome }, 'Approval decision refused');
@@ -425,7 +516,11 @@ export function createApprovalStore(
       }
       const pending = JSON.parse(raw!) as PendingApprovalInput;
       if (outcome === 'declined') {
-        logger.info(audit(pending, { channel }), 'Approval declined');
+        logger.info(audit(pending, { channel, ...(room ? { room } : {}) }), 'Approval declined');
+        // The card on the person's page says it was declined where they said so.
+        if (room && push && channel !== 'ui') {
+          push(room, APPROVAL_PUSH_EVENTS.DECLINED, { approvalId, conversationId: pending.conversationId, channel, timestamp: Date.now() });
+        }
         return { ok: true, decision: 'decline', approvalId };
       }
       const token = signer.sign({
@@ -440,8 +535,44 @@ export function createApprovalStore(
         exp: Math.floor(pending.expiresAt / 1000),
         jti,
       });
-      logger.info(audit(pending, { channel, expiresAt: pending.expiresAt }), 'Approval approved');
+      if (room && grantUntil && push && approvesUIByReadback(channel)) {
+        // Written in the script that approved it: the tab on the room claims it, once.
+        const grant: ApprovalGrantedEvent = {
+          approvalId,
+          grantId,
+          argsHash: pending.argsHash,
+          expiresAt: Number(grantUntil),
+          conversationId: pending.conversationId,
+          room,
+          channel,
+          timestamp: Date.now(),
+        };
+        push(room, APPROVAL_PUSH_EVENTS.GRANTED, grant);
+        logger.info(audit(pending, { channel, expiresAt: pending.expiresAt, room, grantId, grantExpiresAt: grant.expiresAt }), 'Approval approved; grant pushed to the room');
+      } else {
+        logger.info(audit(pending, { channel, expiresAt: pending.expiresAt }), 'Approval approved');
+      }
       return { ok: true, decision: 'approve', approvalId, token, argsHash: pending.argsHash, expiresAt: pending.expiresAt, channel };
+    },
+
+    async claim(approvalId, grantId, claimer) {
+      const [outcome, hash, until, channel, room] = ((await redis.eval(
+        CLAIM,
+        1,
+        grantKey(approvalId),
+        grantId,
+        claimer.userId,
+        Date.now(),
+        claimer.socketId,
+        JSON.stringify(claimer.rooms),
+      )) ?? []) as [string | undefined, string | undefined, string | undefined, string | undefined, string | undefined];
+      if (outcome !== 'ok' || !hash || !until || !channel) {
+        const reason = (outcome ?? 'unknown') as ApprovalRefusalReason;
+        logger.warn({ approvalId, grantId, userId: claimer.userId, socketId: claimer.socketId, reason }, 'Approval grant claim refused');
+        return refusal(reason, CLAIM_REFUSALS[reason] ?? reason);
+      }
+      logger.info({ approvalId, grantId, userId: claimer.userId, socketId: claimer.socketId, room, channel }, 'Approval grant claimed');
+      return { ok: true, approvalId, argsHash: hash, expiresAt: Number(until), channel: channel as ApprovalGrantedEvent['channel'] };
     },
 
     async redeem(token, caller) {
@@ -530,11 +661,12 @@ export function createApprovalStore(
     async withdraw(approvalId, { userId, conversationId }, reason) {
       const outcome = (await redis.eval(
         WITHDRAW,
-        4,
+        5,
         stateKey(approvalId),
         recordKey(approvalId),
         seenKey(approvalId),
         withdrawnKey(approvalId),
+        grantKey(approvalId),
         userId,
         conversationId,
         reason,
@@ -550,11 +682,12 @@ export function createApprovalStore(
       for (const approvalId of ids) {
         const outcome = await redis.eval(
           WITHDRAW,
-          5,
+          6,
           stateKey(approvalId),
           recordKey(approvalId),
           seenKey(approvalId),
           withdrawnKey(approvalId),
+          grantKey(approvalId),
           conversationKey(conversationId),
           '',
           conversationId,

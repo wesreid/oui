@@ -1,5 +1,18 @@
 # @ouispec/contract
 
+## 0.6.0
+
+### Minor Changes
+
+- A spoken "yes" approves an action on the person's page as a click on its card does, on `voice`, `phone` and `chat`.
+
+  - **agent-worker:** on those channels a UI action is read back like any other call (the host's `spokenReadback` on a voice), with its card on the person's screen as well, and its approval is stored with the turn's room (`PendingApprovalInput.room`). The 0.18 note that a yes in the conversation does not count, and that the card is on the screen, stays only for SMS. `approvalConfirmedBy` and `READBACK_UI_APPROVAL_TOOL_NOTE` are new; the UI prompt rule says how each channel approves.
+  - **agent-realtime:** when the engine decides `approve` on `voice`, `phone` or `chat` for a UI action stored with its room, the same script writes a single-use grant (two minutes at most, never past the approval) and the store pushes `agent:approval_granted` to that room. A tab claims it with `approval:claim` on its own socket: only the first claim from a socket of the approval's user in that room, before it expires, gets it (`used`, `forbidden`, `expired`, `unknown` otherwise). A decline in a conversation channel pushes `agent:approval_declined`. `/api/emit` and a client's relay refuse both events (`SERVER_SENT_EVENTS`). A withdrawn approval's grant can no longer be claimed. An SMS approve, or one of a UI action stored without a room, is still refused `channel`. Upgrade the realtime server before the worker: an older server refuses the room.
+  - **agent-core:** `APPROVAL_CLAIM_EVENT`, `APPROVAL_PUSH_EVENTS`, `READBACK_UI_APPROVAL_CHANNELS`, `approvesUIByReadback`, `APPROVAL_GRANT_TTL_MS`, and the browser-safe `readApprovalGranted`, `readApprovalDeclined`, `approvalGrantRefusal` and `claimApprovalGrant` every tab takes a grant with. `grantApproval` in the client config may return the runtime's answer.
+  - **agent-react:** the provider shows the card of a turn of the open conversation it did not start (a call's), checks a pushed grant against its conversation and rooms, claims it, and hands it to `grantApproval`; the card then says how the person decided (`labels.approvedBy`, `labels.declinedBy`) and offers no buttons.
+  - **oui-spec:** `runtime.grantApproval` returns whether it took the grant and refuses one it holds or has used, or one already expired, so a replay never admits a second request. A request carrying an approval the tab was never given is refused on its receipt and neither run nor answered: with a conversation open in two tabs, only the tab holding the grant runs the action and answers.
+  - **contract:** `ApprovalGrantedEvent`, `ApprovalDeclinedEvent`, `ApprovalClaimPayload`, `ApprovalClaimResult`, `ReadbackUIApprovalChannel`, and `room` on `PendingApprovalInput`; the events are declared among the platform's.
+
 ## 0.5.0
 
 ### Minor Changes
