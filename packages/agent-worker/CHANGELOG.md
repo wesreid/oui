@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.20.0
+
+### Minor Changes
+
+- A live-call turn carries the person's page (`client.ui`). When the page sent its UI into the call, the call service puts its latest on every turn as `client: { ui: { buildId?, currentPath?, oui?, uiKnowledge? } }`, the names a typed turn from that page uses. `createLiveCallTurnHandler` reads it (`LiveCallTurnRequest.client`, `LiveCallClient`, `LiveCallClientUi`; at most 64 KiB, `LIVE_CALL_LIMITS.clientUiBytes`; unknown fields read past, a known field of the wrong type refused with 400 naming it) and puts `oui`, `uiKnowledge` and `currentPath` on the turn's context, so the turn's UI tools are the page's as on a typed turn. What the host's target `context` sets itself is kept. The handler's default `maxBodyBytes` is 128 KiB, so a turn with a page at its bound fits.
+
 ## 0.19.0
 
 ### Minor Changes

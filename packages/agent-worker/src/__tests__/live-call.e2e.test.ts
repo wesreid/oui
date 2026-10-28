@@ -1241,7 +1241,7 @@ describe('requests that are not a turn it can run', () => {
       await refused(await post(call.url, turnRequest(call, { turnId: 'not an id' })), 400, 'INVALID_REQUEST', /^turnId/);
       await refused(await post(call.url, turnRequest(call, { supersedes: 'call-turn-1' })), 400, 'INVALID_REQUEST', /^supersedes/);
       await refused(await post(call.url, turnRequest(call), { contentType: 'text/plain' }), 415, 'UNSUPPORTED_MEDIA_TYPE');
-      await refused(await post(call.url, turnRequest(call, { text: 'x'.repeat(70 * 1024) })), 413, 'BODY_TOO_LARGE');
+      await refused(await post(call.url, turnRequest(call, { text: 'x'.repeat(130 * 1024) })), 413, 'BODY_TOO_LARGE');
       const get = await post(call.url, undefined, { method: 'GET' });
       expect(get.status).toBe(405);
       expect(get.headers.get('allow')).toBe('POST');

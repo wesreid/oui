@@ -12,7 +12,7 @@
  *   Content-Type: application/json
  *   Accept: text/event-stream
  *
- *   { sessionId, clientRef, turnId, kind, text, input?, output?, supersedes?, disclosureLine? }
+ *   { sessionId, clientRef, turnId, kind, text, input?, output?, supersedes?, disclosureLine?, client? }
  *
  * `input` is `{ mode: 'voice', language? }` for what the person said and
  * `{ mode: 'text' }` for what they typed during the call. `output` is
@@ -20,6 +20,8 @@
  * the tags that voice can be directed with. `disclosureLine`, on an `opening`
  * turn, is what the call service has just said to the person before the
  * agent's greeting (that they are talking with an AI assistant), as spoken.
+ * `client.ui`, when the person's page sent its UI into the call, is that page
+ * as its typed turns carry it: `{ buildId?, currentPath?, oui?, uiKnowledge? }`.
  *
  * and the answer is `200 text/event-stream`:
  *
@@ -36,6 +38,29 @@ import { readMessageInput, readReplyOutput, type MessageInput, type ReplyOutput 
 export const LIVE_CALL_TURN_KINDS = ['message', 'opening'] as const;
 
 export type LiveCallTurnKind = (typeof LIVE_CALL_TURN_KINDS)[number];
+
+/**
+ * The person's page, as it sent its UI into the call: the same context a typed
+ * turn from that page carries, by the same names. The handler puts `oui`,
+ * `uiKnowledge` and `currentPath` on the turn's context, so the turn's UI tools
+ * are the page's, as on a typed turn.
+ */
+export interface LiveCallClientUi {
+  /** The OUI build the page runs: its manifest's `buildId`. */
+  buildId?: string;
+  /** Where the person is in the page, as a typed turn's `currentPath`. */
+  currentPath?: string;
+  /** The page's OUI snapshot, as a typed turn's `context.oui` (`CLIENT_SNAPSHOT_KEY`). */
+  oui?: Record<string, unknown>;
+  /** The page's knowledge for the turn, as a typed turn's `context.uiKnowledge` (`CLIENT_KNOWLEDGE_KEY`). */
+  uiKnowledge?: Record<string, unknown>;
+}
+
+/** What the call service says of the person's own side of the call. */
+export interface LiveCallClient {
+  /** Their page's latest UI, when it sent one into the call. */
+  ui: LiveCallClientUi | null;
+}
 
 /** A live-call turn request, as read: every field checked, `input` and `output` kept only as far as they are known. */
 export interface LiveCallTurnRequest {
@@ -71,6 +96,12 @@ export interface LiveCallTurnRequest {
    * a `message` turn, where it is not read.
    */
   disclosureLine: string | null;
+  /**
+   * The person's own side of the call: their page's latest UI, when the page
+   * sent it into the call (`client.ui`). Null when the call service said
+   * nothing of it, as for a call with no page (a phone call).
+   */
+  client: LiveCallClient | null;
 }
 
 /** The events of a live-call turn's response stream. */
@@ -147,6 +178,8 @@ export const LIVE_CALL_LIMITS = {
   supersedes: 32,
   /** The longest `disclosureLine`. */
   disclosureLineChars: 1_000,
+  /** The most `client.ui` may weigh, as UTF-8 JSON: the bound the page and the call service hold it to. */
+  clientUiBytes: 64 * 1024,
 } as const;
 
 /** An id: letters, digits and `.` `_` `:` `-`, starting with a letter or digit. */
@@ -202,6 +235,9 @@ export function readLiveCallTurnRequest(body: unknown): LiveCallRequestReading {
     return refuse(`disclosureLine must be a string of at most ${LIVE_CALL_LIMITS.disclosureLineChars} characters with no control characters`);
   }
 
+  const client = readClient(b.client);
+  if (typeof client === 'string') return refuse(client);
+
   return {
     ok: true,
     request: {
@@ -216,8 +252,42 @@ export function readLiveCallTurnRequest(body: unknown): LiveCallRequestReading {
       supersedes: [...new Set(supersedes as string[])].filter((id) => id !== b.turnId),
       // Said before the greeting: an opening turn's alone.
       disclosureLine: kind === 'opening' && disclosureLine?.trim() ? disclosureLine.trim() : null,
+      client,
     },
   };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * The request's `client`, or why it is not one. Fields it does not know are
+ * left out, so a newer call service is read past; a known field of the wrong
+ * type is refused, naming it.
+ */
+function readClient(value: unknown): LiveCallClient | null | string {
+  if (value === undefined || value === null) return null;
+  if (!isPlainObject(value)) return 'client must be an object';
+  const raw = value.ui;
+  if (raw === undefined || raw === null) return { ui: null };
+  if (!isPlainObject(raw)) return 'client.ui must be an object';
+  const bytes = Buffer.byteLength(JSON.stringify(raw));
+  if (bytes > LIVE_CALL_LIMITS.clientUiBytes) return `client.ui is ${bytes} bytes, more than ${LIVE_CALL_LIMITS.clientUiBytes}`;
+  const ui: LiveCallClientUi = {};
+  for (const field of ['buildId', 'currentPath'] as const) {
+    const v = raw[field];
+    if (v === undefined || v === null) continue;
+    if (typeof v !== 'string' || CONTROL.test(v)) return `client.ui.${field} must be a string with no control characters`;
+    ui[field] = v;
+  }
+  for (const field of ['oui', 'uiKnowledge'] as const) {
+    const v = raw[field];
+    if (v === undefined || v === null) continue;
+    if (!isPlainObject(v)) return `client.ui.${field} must be an object`;
+    ui[field] = v;
+  }
+  return { ui };
 }
 
 /** Whether `input` says the message was typed during the call. */
