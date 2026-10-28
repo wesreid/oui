@@ -11,9 +11,13 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import crypto from 'node:crypto';
 import { io as connectClient, type Socket } from 'socket.io-client';
 import {
+  APPROVAL_CLAIM_EVENT,
+  APPROVAL_GRANT_TTL_MS,
   APPROVAL_PREVIEW_LIMITS,
   APPROVAL_DECIDE_EVENT,
+  APPROVAL_PUSH_EVENTS,
   argsHash,
+  type ApprovalClaimResult,
   type ApprovalDecideResult,
   type PendingApprovalInput,
 } from '@ouispec/agent-core';
@@ -531,23 +535,158 @@ describe('a conversation channel deciding through the engine route', () => {
   });
 });
 
-describe('an action on the person’s page', () => {
-  it('is approved only on its card: a spoken or texted yes is refused with channel, a spoken no declines it, and the click still approves', async () => {
-    const page = { toolKind: 'ui' as const, tool: 'orders_place_ui' };
-    const said = await stored(page);
-    for (const channel of ['voice', 'phone', 'sms', 'chat']) {
-      const yes = await internal(a, `/internal/approvals/${said.approvalId}/decide`, { body: { userId: 'u1', decision: 'approve', channel } });
+describe('an action on the person’s page (ADR-0284)', () => {
+  const ROOM = 'agent:conversation:conv-1';
+  const page = { toolKind: 'ui' as const, tool: 'orders_place_ui', room: ROOM };
+
+  /** A tab of u1 joined to the conversation's room, with a token the product minted. */
+  async function tab(server: RealtimeServerInstance, room = ROOM, user = 'token-u1'): Promise<Socket & { seen: string[] }> {
+    const socket = await connect(server, user);
+    const userId = users[user].userId;
+    const joined = await new Promise<{ ok: boolean }>((resolve) =>
+      socket.emit('subscribe', { rooms: [room], tokens: { [room]: server.roomTokens.sign(userId, room) } }, resolve),
+    );
+    expect(joined.ok).toBe(true);
+    return socket;
+  }
+  const claim = (socket: Socket, approvalId: string, grantId: string) =>
+    new Promise<ApprovalClaimResult>((resolve) => socket.emit(APPROVAL_CLAIM_EVENT, { approvalId, grantId }, resolve));
+  const pushed = async (socket: Socket & { seen: string[] }, event: string, approvalId: string): Promise<Record<string, unknown>> => {
+    for (let i = 0; i < 100; i++) {
+      const line = socket.seen.find((l) => l.startsWith(`${event} `) && l.includes(approvalId));
+      if (line) return JSON.parse(line.slice(event.length + 1)) as Record<string, unknown>;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error(`${event} for ${approvalId} never arrived`);
+  };
+  const voiceDecide = (approvalId: string, decision: 'approve' | 'decline', channel: string, server = a) =>
+    internal(server, `/internal/approvals/${approvalId}/decide`, { body: { userId: 'u1', decision, channel } });
+
+  it('approved by voice, on the phone or in chat: the token goes to the engine and a grant is pushed to the room, which one tab claims', async () => {
+    for (const channel of ['voice', 'phone', 'chat'] as const) {
+      const p = await stored(page);
+      // Two tabs of the person on the conversation, on different instances, and one tab elsewhere.
+      const first = await tab(a);
+      const second = await tab(b);
+      const elsewhere = await tab(a, 'agent:conversation:conv-other');
+
+      const yes = await voiceDecide(p.approvalId, 'approve', channel);
+      expect(yes.status).toBe(200);
+      expect(yes.body).toMatchObject({ ok: true, decision: 'approve', channel, argsHash: p.argsHash });
+      expect(claimsOf(yes.body.token as string)).toMatchObject({ ch: channel, aid: p.approvalId });
+
+      const grant = await pushed(first, APPROVAL_PUSH_EVENTS.GRANTED, p.approvalId);
+      expect(grant).toEqual({
+        approvalId: p.approvalId,
+        grantId: expect.any(String),
+        argsHash: p.argsHash,
+        expiresAt: expect.any(Number),
+        conversationId: 'conv-1',
+        room: ROOM,
+        channel,
+        timestamp: expect.any(Number),
+      });
+      // Short-lived: two minutes at most, never past the approval.
+      expect(grant.expiresAt as number).toBeLessThanOrEqual(Math.min(Date.now() + APPROVAL_GRANT_TTL_MS, p.expiresAt));
+      expect(await pushed(second, APPROVAL_PUSH_EVENTS.GRANTED, p.approvalId)).toEqual(grant);
+      // Never the token, and never to a tab outside the room.
+      expect(first.seen.join('\n')).not.toContain(yes.body.token as string);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(elsewhere.seen.join('\n')).not.toContain(APPROVAL_PUSH_EVENTS.GRANTED);
+
+      // The first claim gets the grant; the second tab, a replay and the tab outside the room do not.
+      const claimed = await claim(first, p.approvalId, grant.grantId as string);
+      expect(claimed).toEqual({ ok: true, approvalId: p.approvalId, argsHash: p.argsHash, expiresAt: grant.expiresAt, channel });
+      expect(await claim(second, p.approvalId, grant.grantId as string)).toMatchObject({ ok: false, reason: 'used' });
+      expect(await claim(first, p.approvalId, grant.grantId as string)).toMatchObject({ ok: false, reason: 'used' });
+      expect(await claim(elsewhere, p.approvalId, grant.grantId as string)).toMatchObject({ ok: false, reason: 'forbidden' });
+
+      // The engine's next turn redeems the token for exactly the stored call.
+      const res = await redeem(b, yes.body.token as string);
+      expect(res.body.call).toMatchObject({ channel, args: p.args, tool: 'orders_place_ui' });
+      expect(res.body).not.toHaveProperty('receipt');
+    }
+  });
+
+  it('refuses a claim that is not the pushed grant’s, from another user, from outside the room, or after it expired', async () => {
+    const p = await stored({ ...page, expiresAt: Date.now() + 1_500 });
+    const mine = await tab(a);
+    const outside = await connect(a, 'token-u1');
+    const theirs = await tab(a, ROOM, 'token-u2');
+    expect((await voiceDecide(p.approvalId, 'approve', 'voice')).status).toBe(200);
+    const grant = await pushed(mine, APPROVAL_PUSH_EVENTS.GRANTED, p.approvalId);
+    // The grant ends with the approval when that is sooner.
+    expect(grant.expiresAt).toBe(p.expiresAt);
+    expect(await claim(mine, p.approvalId, 'not-the-grant')).toMatchObject({ ok: false, reason: 'mismatch' });
+    expect(await claim(theirs, p.approvalId, grant.grantId as string)).toMatchObject({ ok: false, reason: 'forbidden' });
+    expect(await claim(outside, p.approvalId, grant.grantId as string)).toMatchObject({ ok: false, reason: 'forbidden' });
+    await new Promise((r) => setTimeout(r, p.expiresAt - Date.now() + 100));
+    expect(await claim(mine, p.approvalId, grant.grantId as string)).toMatchObject({ ok: false, reason: 'expired' });
+  });
+
+  it('is never approved by SMS, nor by voice when stored without its turn’s room; the click still approves', async () => {
+    const p = await stored(page);
+    const sms = await voiceDecide(p.approvalId, 'approve', 'sms');
+    expect(sms.status).toBe(400);
+    expect(sms.body).toEqual({ error: expect.stringContaining('never by SMS'), reason: 'channel' });
+    const roomless = await stored({ toolKind: 'ui', tool: 'orders_place_ui' });
+    for (const channel of ['voice', 'phone', 'chat']) {
+      const yes = await voiceDecide(roomless.approvalId, 'approve', channel);
       expect(yes.status).toBe(400);
-      expect(yes.body).toEqual({ error: expect.stringContaining('only on its card'), reason: 'channel' });
+      expect(yes.body.reason).toBe('channel');
     }
     // Still waiting: the person's click on its card approves it, and only the deciding socket gets the token.
-    const clicked = await decide(await connect(b, 'token-u1'), said.approvalId, 'approve');
+    const clicked = await decide(await connect(b, 'token-u1'), roomless.approvalId, 'approve');
     expect(clicked).toMatchObject({ ok: true, decision: 'approve', channel: 'ui' });
+  });
 
-    // Declining is always safe: a spoken no ends the card's wait.
-    const declined = await stored(page);
-    const no = await internal(a, `/internal/approvals/${declined.approvalId}/decide`, { body: { userId: 'u1', decision: 'decline', channel: 'voice' } });
+  it('declined by a spoken no: nothing is granted, and the decline is pushed to the room for the card', async () => {
+    const p = await stored(page);
+    const watching = await tab(b);
+    const no = await voiceDecide(p.approvalId, 'decline', 'voice');
     expect(no.body).toMatchObject({ ok: true, decision: 'decline' });
+    expect(await pushed(watching, APPROVAL_PUSH_EVENTS.DECLINED, p.approvalId)).toEqual({
+      approvalId: p.approvalId,
+      conversationId: 'conv-1',
+      channel: 'voice',
+      timestamp: expect.any(Number),
+    });
+    expect(watching.seen.join('\n')).not.toContain(APPROVAL_PUSH_EVENTS.GRANTED);
+    // Declined is gone: a later yes is refused, and grants nothing.
+    expect((await voiceDecide(p.approvalId, 'approve', 'voice')).body.reason).toBe('unknown');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(watching.seen.join('\n')).not.toContain(APPROVAL_PUSH_EVENTS.GRANTED);
+  });
+
+  it('withdrawn before it is claimed (a take-over): the grant can no longer be claimed', async () => {
+    const p = await stored(page);
+    const mine = await tab(a);
+    expect((await voiceDecide(p.approvalId, 'approve', 'phone')).status).toBe(200);
+    const grant = await pushed(mine, APPROVAL_PUSH_EVENTS.GRANTED, p.approvalId);
+    expect(await a.approvals.withdrawOpen('conv-1', 'taken_over')).toContain(p.approvalId);
+    expect(await claim(mine, p.approvalId, grant.grantId as string)).toMatchObject({ ok: false, reason: 'unknown' });
+  });
+
+  it('keeps its room only for an action on the person’s page, and only a room the product uses', async () => {
+    const backend = await pending({ room: ROOM });
+    const refusedBackend = await internal(b, '/internal/approvals', { body: backend });
+    expect(refusedBackend.status).toBe(400);
+    expect(refusedBackend.body.error).toContain('only an action on the person');
+    const badRoom = await pending({ ...page, room: 'no such room' });
+    expect((await internal(b, '/internal/approvals', { body: badRoom })).status).toBe(400);
+  });
+
+  it('is pushed only by the store: the emit API and a client relay refuse the grant and the decline', async () => {
+    for (const event of Object.values(APPROVAL_PUSH_EVENTS)) {
+      const emitted = await internal(a, '/api/emit', { body: { event, data: { approvalId: 'x' }, rooms: [ROOM] } });
+      expect(emitted.status).toBe(400);
+      expect(emitted.body.error).toContain('approval store');
+      const sender = await tab(a);
+      const relayed = await new Promise<{ ok: boolean; error?: string }>((resolve) =>
+        sender.emit('relay', { event, data: { approvalId: 'x' }, rooms: [ROOM] }, resolve),
+      );
+      expect(relayed.ok).toBe(false);
+    }
   });
 });
 

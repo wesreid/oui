@@ -48,7 +48,7 @@ Every schema of the contract is versioned together by `MANIFEST_VERSION`, and th
 | [`oui-manifest.json`](schemas/oui-manifest.json) | `OuiManifest` | `https://schemas.closurestudio.ai/oui/v1/oui-manifest.json` |
 | [`generated-knowledge.json`](schemas/generated-knowledge.json) | `GeneratedKnowledge` | `https://schemas.closurestudio.ai/oui/v1/generated-knowledge.json` |
 | [`oui-config.json`](schemas/oui-config.json) | `OuiConfigFile` | `https://schemas.closurestudio.ai/oui/v1/oui-config.json` |
-| [`approvals.json`](schemas/approvals.json) | its 20 `$defs`, one type each | `https://schemas.closurestudio.ai/oui/v1/approvals.json` |
+| [`approvals.json`](schemas/approvals.json) | its 25 `$defs`, one type each | `https://schemas.closurestudio.ai/oui/v1/approvals.json` |
 | [`event-declarations.json`](schemas/event-declarations.json) | `EventDeclarationDocument` | `https://schemas.closurestudio.ai/agent-sdk/event-declarations/v1.json` |
 | [`conversation-takeover.json`](schemas/conversation-takeover.json) | its 16 `$defs`, one type each | `https://schemas.closurestudio.ai/oui/v1/conversation-takeover.json` |
 | [`agent-evals.json`](schemas/agent-evals.json) | `AgentEvalSuite` | `https://schemas.closurestudio.ai/oui/v1/agent-evals.json` |

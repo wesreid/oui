@@ -1,4 +1,4 @@
-/** The shapes the approval endpoints and the `approval:decide` event accept. Unknown keys are refused. */
+/** The shapes the approval endpoints and the `approval:decide` and `approval:claim` events accept. Unknown keys are refused. */
 import Joi from 'joi';
 import { APPROVAL_CHANNELS, APPROVAL_PREVIEW_LIMITS as L, ARGS_HASH_PATTERN } from '@ouispec/agent-core';
 
@@ -14,6 +14,8 @@ export const pendingApprovalSchema = Joi.object({
   accountId: id,
   tool: id.required(),
   toolKind: Joi.string().valid('ui', 'backend'),
+  // The room of the turn that asked, for an action on the person's page; the route checks it is one of the product's.
+  room: Joi.string().min(1).max(200),
   operationId: id,
   // An origin; the store checks it is exactly one.
   audience: Joi.string().max(2048).pattern(/^https?:\/\/[^/?#]+$/),
@@ -44,6 +46,11 @@ export const pendingApprovalSchema = Joi.object({
 export const decidePayloadSchema = Joi.object({
   approvalId: id.required(),
   decision: Joi.string().valid('approve', 'decline').required(),
+});
+
+export const claimPayloadSchema = Joi.object({
+  approvalId: id.required(),
+  grantId: id.required(),
 });
 
 export const internalDecideSchema = Joi.object({

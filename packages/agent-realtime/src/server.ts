@@ -33,7 +33,7 @@ import { createConversationHoldStore, type ConversationHoldStore } from './conve
 import { conversationsRouter } from './conversations/routes.js';
 import { createTurnStopEvent } from './turns/client-event.js';
 import { turnStopsRouter } from './turns/routes.js';
-import { createApprovalDecideEvent } from './approvals/client-event.js';
+import { createApprovalClaimEvent, createApprovalDecideEvent } from './approvals/client-event.js';
 import { approvalRouter } from './approvals/routes.js';
 import { createDeclaredEvents } from './events/declared.js';
 import { createSettlementStore, type SettlementStore } from './events/settlements.js';
@@ -124,7 +124,15 @@ export async function createRealtimeServer(config: RealtimeServerConfig): Promis
     );
   }
   const results = createOUIResultStore(pub, resultsSub, logger);
-  const approvals = createApprovalStore(pub, approvalTokens, logger, receipts ? { receipts: { signer: receipts, defaultAudience: defaultAudience! } } : {});
+  // The socket.io server exists once the HTTP server does (below); a grant is pushed only after a decision, by then.
+  let pushTo: ((room: string, event: string, payload: unknown) => void) | null = null;
+  const approvals = createApprovalStore(pub, approvalTokens, logger, {
+    ...(receipts ? { receipts: { signer: receipts, defaultAudience: defaultAudience! } } : {}),
+    push: (room, event, payload) => {
+      if (!pushTo) throw new Error('[agent-sdk-realtime] An approval was decided before the socket server started');
+      pushTo(room, event, payload);
+    },
+  });
   const holds = createConversationHoldStore(pub, logger);
   // A hold is a stop for every turn of its conversation.
   const stops = createTurnStopStore(pub, resultsSub, logger, holds);
@@ -139,6 +147,7 @@ export async function createRealtimeServer(config: RealtimeServerConfig): Promis
       results: () => results,
     }),
     createApprovalDecideEvent(() => approvals),
+    createApprovalClaimEvent(() => approvals),
     createTurnStopEvent(config.roomPolicy, () => stops),
     ...(config.clientEvents ?? []),
   ];
@@ -158,6 +167,7 @@ export async function createRealtimeServer(config: RealtimeServerConfig): Promis
     pingTimeout: config.pingTimeout ?? 20_000,
   });
   io.adapter(createAdapter(pub, sub));
+  pushTo = (room, event, payload) => io.to(room).emit(event, payload);
 
   const deps: RouteDeps = {
     io,
@@ -173,7 +183,7 @@ export async function createRealtimeServer(config: RealtimeServerConfig): Promis
   app.use(emitRouter(deps));
   app.use(roomTokenRouter(deps));
   app.use(ouiResultsRouter(deps));
-  app.use(approvalRouter({ approvals, isInternalKey: deps.isInternalKey }));
+  app.use(approvalRouter({ approvals, isInternalKey: deps.isInternalKey, isValidRoom: (room) => config.roomPolicy.isValidRoom(room) }));
   app.use(settlementsRouter(deps));
   app.use(turnStopsRouter({ stops: () => stops, isInternalKey: deps.isInternalKey, logger }));
   app.use(

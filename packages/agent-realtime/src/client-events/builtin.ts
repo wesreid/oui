@@ -12,6 +12,7 @@ import type { OUIResultStore } from '../oui/results.js';
 import { OUI_WIRE } from '@ouispec/agent-events';
 import type { RelayRule, RoomPolicy } from '../types.js';
 import { declaredRefusal, type DeclaredEvents } from '../events/declared.js';
+import { serverSentBy } from '../events/server-sent.js';
 
 // A client re-sends every room it holds on reconnect, in one subscribe.
 const MAX_ROOMS = 100;
@@ -53,6 +54,8 @@ export function relayRefusal(
   payload: RelayPayload,
   declared: DeclaredEvents | null = null,
 ): string | null {
+  const sender = serverSentBy(payload.event);
+  if (sender) return `event "${payload.event}" is sent only by ${sender}, never relayed by a client`;
   const rule = relay[payload.event];
   if (!rule) return `event "${payload.event}" may not be relayed by a client`;
   if (declared) {

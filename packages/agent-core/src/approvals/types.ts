@@ -1,5 +1,6 @@
 import type { OUIActionApproval, OUIApprovalGrant } from 'oui-spec/spec';
-import type { ActionRequestApproval, ApprovalChannel, ApprovalGrant } from '@ouispec/contract';
+import { AGENT_APPROVAL_EVENTS } from '@ouispec/agent-events';
+import type { ActionRequestApproval, ApprovalChannel, ApprovalGrant, ReadbackUIApprovalChannel } from '@ouispec/contract';
 
 /**
  * Approvals: the shapes the worker, the approval store in the
@@ -10,6 +11,42 @@ import type { ActionRequestApproval, ApprovalChannel, ApprovalGrant } from '@oui
 
 /** The client event a user's socket sends when they click the approval card. */
 export const APPROVAL_DECIDE_EVENT = 'approval:decide';
+
+/**
+ * What the approval store pushes to the room of the turn that asked, when the
+ * person decides an action on their page in a conversation channel: the grant
+ * (`ApprovalGrantedEvent`) or the decline (`ApprovalDeclinedEvent`). Only the
+ * store sends them; the realtime server's emit API refuses them.
+ */
+export const APPROVAL_PUSH_EVENTS = AGENT_APPROVAL_EVENTS;
+
+/**
+ * The client event a tab's socket sends to take a grant the approval store
+ * pushed it (`agent:approval_granted`): only the first claim gets the grant.
+ */
+export const APPROVAL_CLAIM_EVENT = 'approval:claim';
+
+/**
+ * The conversation channels on which an action on the person's page is
+ * approved by its verbatim readback and an affirmative next turn, as well as
+ * by its card (ADR-0284): a call in the product's page, a call through a
+ * carrier, and a chat that sends the readback as text. Never SMS, which has
+ * no page beside it, and never `ui`, where a typed yes is a message.
+ */
+export const READBACK_UI_APPROVAL_CHANNELS: ReadonlySet<ApprovalChannel> = new Set<ReadbackUIApprovalChannel>(['voice', 'phone', 'chat']);
+
+/** Whether a decision on `channel` may approve an action on the person's page by its readback. */
+export function approvesUIByReadback(channel: ApprovalChannel): channel is ReadbackUIApprovalChannel {
+  return READBACK_UI_APPROVAL_CHANNELS.has(channel);
+}
+
+/**
+ * How long a grant pushed to the tab for an approval given by voice or in
+ * chat lasts, at most: long enough for the turn that redeems the token to
+ * dispatch the action, short enough that an unclaimed grant does not linger.
+ * It never outlasts the approval itself.
+ */
+export const APPROVAL_GRANT_TTL_MS = 2 * 60_000;
 
 /**
  * The longest each part of an approval's preview may be, in characters: what
@@ -126,12 +163,16 @@ export interface ApprovalOwner {
 export type {
   ActionRequestApproval,
   ApprovalChannel,
+  ApprovalClaimPayload,
+  ApprovalClaimResult,
   ApprovalContinuation,
   ApprovalDecidePayload,
   ApprovalDecideResult,
   ApprovalDecision,
   ApprovalEffect,
+  ApprovalDeclinedEvent,
   ApprovalGrant,
+  ApprovalGrantedEvent,
   ApprovalPreview,
   ApprovalPreviewArgument,
   ApprovalRedeemResult,
@@ -143,6 +184,7 @@ export type {
   ApprovalTokenClaims,
   ApprovedCall,
   PendingApprovalInput,
+  ReadbackUIApprovalChannel,
 } from '@ouispec/contract';
 
 // What a UI action request carries, and what a tab's runtime holds, are OUI's
