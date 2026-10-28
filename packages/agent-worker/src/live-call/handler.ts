@@ -16,6 +16,17 @@
  * the reply. The turn is stopped as a superseding message stops it, and the
  * next request names it in `supersedes`.
  *
+ * A conversation a person on the staff has taken over is theirs to answer: a
+ * turn that arrives while it is held runs no model call, says nothing and
+ * ends `done { stopReason: 'taken_over' }`; one running when it is taken over
+ * stops there, with the same end. The call service quiets the character on it
+ * until the conversation is handed back.
+ *
+ * A call is a voice: an approval is read back (the host's `spokenReadback`
+ * when it wrote one) and the person's next words confirm it, as on any voice
+ * channel. A UI action's approval stays the card on the person's screen, which
+ * is the only place its page takes it from.
+ *
  * What the caller hears is the host's to choose (`speak`): every round of the
  * reply as the model writes it (`all`, the default), or only the round the turn
  * ends with (`final-round`), so nothing the model wrote before a tool call is
@@ -32,6 +43,7 @@ import {
   AGENT_SOCKET_EVENTS,
   MESSAGE_INPUT_CONTEXT_KEY,
   REPLY_OUTPUT_CONTEXT_KEY,
+  type ApprovalChannel,
   type ApprovalContinuation,
   type ApprovalRequiredEvent,
 } from '@ouispec/agent-core';
@@ -71,12 +83,24 @@ export interface LiveCallTurnTarget {
   /**
    * The decision on an approval the agent read back, when the host takes this
    * message as the answer to it: the host classified the person's words, and
-   * decided as the user (`ApprovalStoreClient.decide` with a conversation
-   * channel). With `approve`, its `token`: the turn redeems it and runs
+   * decided as the user (`ApprovalStoreClient.decide` with the target's
+   * `channel`). With `approve`, its `token`: the turn redeems it and runs
    * exactly the stored call.
    */
   approval?: ApprovalContinuation;
+  /**
+   * The conversation channel the call is, for approvals: `voice` (the
+   * default: a call in the product's page) or `phone` (a call through a
+   * carrier). Either way a call that needs approval is read back and the
+   * person's next words confirm it; decide on it with this channel.
+   */
+  channel?: LiveCallApprovalChannel;
 }
+
+/** The approval channels a live call can be: it is always spoken. */
+export const LIVE_CALL_APPROVAL_CHANNELS = ['voice', 'phone'] as const satisfies readonly ApprovalChannel[];
+
+export type LiveCallApprovalChannel = (typeof LIVE_CALL_APPROVAL_CHANNELS)[number];
 
 /** What the host's callbacks are told beside the request. */
 export interface LiveCallTurnCallContext {
@@ -327,7 +351,11 @@ export function liveCallRoute(options: LiveCallTurnOptions, host: LiveCallRouteH
 
       const payload = turnPayload(request, target);
       const invalid =
-        target.content !== undefined && typeof target.content !== 'string' ? 'content must be a string' : payloadRefusal(payload);
+        target.content !== undefined && typeof target.content !== 'string'
+          ? 'content must be a string'
+          : target.channel !== undefined && !(LIVE_CALL_APPROVAL_CHANNELS as readonly unknown[]).includes(target.channel)
+            ? `channel must be one of ${LIVE_CALL_APPROVAL_CHANNELS.join(', ')}`
+            : payloadRefusal(payload);
       if (invalid) {
         logger.error('[agent-sdk] resolveTurn answered a turn that cannot run; nothing was run', { turnId, error: invalid });
         refuse(res, 500, 'RESOLVE_FAILED', 'The turn could not be resolved');
@@ -392,6 +420,8 @@ function turnPayload(request: LiveCallTurnRequest, target: LiveCallTurnTarget): 
     socketRoom: target.socketRoom,
     content: target.content ?? (request.kind === 'opening' ? liveCallOpeningMessage(request) : request.text),
     context,
+    // A call is spoken: an approval is read back, and the person's next words confirm it.
+    channel: target.channel ?? 'voice',
     ...(target.userToken ? { userToken: target.userToken } : {}),
     ...(target.approval ? { approval: target.approval } : {}),
     ...(request.supersedes.length > 0 ? { supersedes: request.supersedes } : {}),
@@ -412,7 +442,9 @@ export const LIVE_CALL_CHANNEL = 'live-call';
  *
  * The readback is sent when the turn has ended, after every piece of its
  * text: it is spoken after what the model said before the call. It is the
- * preview's `spokenReadback` when the host wrote one, else its `readback`. A
+ * preview's `spokenReadback` when the host wrote one, else its `readback`. It
+ * is sent only when the turn read it back (its readback pieces, which are not
+ * sent as `text`): a UI action's approval is its card, never a readback. A
  * turn that was stopped instead withdrew its approval, so its readback is
  * never sent.
  */
@@ -429,6 +461,8 @@ function relayTurn(
   let sent = false;
   /** With `final-round`: the text of the round being written, until it ends. */
   let held: { step: number; text: string } | null = null;
+  /** Whether the turn read its approval back: only then is the person's next utterance the answer to it. */
+  let readBack = false;
   const send = (text: string) => {
     stream.send('text', { text });
     sent = true;
@@ -445,6 +479,11 @@ function relayTurn(
         case AGENT_SOCKET_EVENTS.TOKEN: {
           const text = data.text;
           if (typeof text !== 'string' || !text) return;
+          // The readback goes as its own event, after the turn: never said twice.
+          if (data.readback === true) {
+            readBack = true;
+            return;
+          }
           if (speak === 'all') {
             send(text);
             return;
@@ -484,7 +523,7 @@ function relayTurn(
           return;
         }
         case AGENT_SOCKET_EVENTS.TURN_COMPLETE: {
-          if (readback && data.stopReason === undefined) stream.send('readback', readback);
+          if (readback && readBack && data.stopReason === undefined) stream.send('readback', readback);
           const reason = data.stopReason ?? data.endReason;
           ended = typeof reason === 'string' ? { stopReason: reason } : {};
           return;

@@ -6,7 +6,15 @@ import type {
   ApprovalDecideResult,
   ApprovalDecision,
 } from '@ouispec/agent-core';
-import { APPROVAL_DECIDE_EVENT, TURN_STOP_EVENT, readMessageInput } from '@ouispec/agent-core';
+import {
+  APPROVAL_DECIDE_EVENT,
+  CONVERSATION_EVENTS,
+  TURN_STOP_EVENT,
+  readConversationHold,
+  readConversationMessage,
+  readMessageInput,
+} from '@ouispec/agent-core';
+import type { ConversationHold, TakeoverChange } from '@ouispec/agent-core';
 import type { AttachmentRef, MessageInput, TurnStopPayload, TurnStoppedReason, TurnStopResult } from '@ouispec/agent-core';
 import { useComposerAttachments, type TakeForSend } from './attachments.js';
 import type { AgentProtocolEvent } from '@ouispec/agent-core';
@@ -40,6 +48,8 @@ import { storedToAgentMessages } from './stored-messages.js';
 import { agentStatusOf, applyReasoningEvent, endOpenReasoning, turnEndOf } from './turn-progress.js';
 import { readConversationSummaries, readConversationSummary } from './conversation-summaries.js';
 import { SDK_PACKAGE, SDK_VERSION } from '../version.js';
+import { AgentInternalsContext, type AgentInternals } from './internals.js';
+import { conversationChangeMessage, staffAgentMessage } from './conversation-messages.js';
 
 const AgentContext = createContext<AgentContextValue | null>(null);
 
@@ -165,6 +175,10 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   const [lastTurnEnd, setLastTurnEnd] = useState<AgentTurnEnd | null>(null);
   const [approvalDeciding, setApprovalDeciding] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
+  // Who holds the open conversation, when a person on the staff took it over.
+  const [hold, setHold] = useState<ConversationHold | null>(null);
+  // The open conversation's room, once joined: joined again on every reconnect, left on a switch.
+  const conversationRoomRef = useRef<{ conversationId: string; room: string; token?: string } | null>(null);
   // The turn the person asked to stop, from their Stop until its end arrives.
   const [isStopping, setIsStopping] = useState(false);
   const stoppingRef = useRef<{ turnId: string; timer: ReturnType<typeof setTimeout> | null } | null>(null);
@@ -258,6 +272,14 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
         addDebugLog('info', 'agent:socket', `Rejoining turn room after reconnect: ${active.room}`, { room: active.room });
         joinRoom(socket, active.room, active.token);
       }
+      const following = conversationRoomRef.current;
+      if (following) joinRoom(socket, following.room, following.token);
+    });
+    // The open conversation's take-over, hand-back and staff messages.
+    const conversationListeners = Object.values(CONVERSATION_EVENTS).map((event) => {
+      const listener = (data: unknown) => handleConversationEventRef.current(event, data);
+      socket.on(event, listener);
+      return [event, listener] as const;
     });
     socket.on('disconnect', (reason: string) => {
       setConnected(false);
@@ -275,6 +297,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     socketRef.current = socket;
 
     return () => {
+      for (const [event, listener] of conversationListeners) socket.off(event, listener);
       socket.disconnect();
       socketRef.current = null;
       setConnected(false);
@@ -345,10 +368,10 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
       if (m.toolCall?.status === 'running') return { ...m, toolCall: { ...m.toolCall, status: 'stopped' as const } };
       return m.isStreaming ? { ...m, isStreaming: false } : m;
     });
-    // A turn stopped before it said anything still shows that it was stopped.
-    return marked.some((m) => m.id === msgId)
-      ? marked
-      : [...marked, { id: msgId, role: 'assistant' as const, content: '', timestamp: Date.now(), stopped: reason }];
+    // A turn stopped before it said anything still shows that it was stopped; one a take-over stopped
+    // shows nothing of its own, since the take-over is in the conversation.
+    if (marked.some((m) => m.id === msgId) || reason === 'taken_over') return marked;
+    return [...marked, { id: msgId, role: 'assistant' as const, content: '', timestamp: Date.now(), stopped: reason }];
   };
   /** A stop is no longer waited on: its turn ended, or the tab moved on. */
   const clearStopping = () => {
@@ -657,6 +680,60 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     };
   }, [handleProtocolEvent, addDebugLog, joinRoom]);
 
+  // --- The open conversation's room ---
+  // With the platform's `conversationRoom`, the tab follows its conversation between turns: a person on the
+  // staff taking it over, their messages, and the hand-back.
+  const appendOnce = useCallback((message: AgentMessage) => {
+    setMessages(prev => (prev.some(m => m.id === message.id) ? prev : [...prev, message]));
+  }, []);
+  const handleConversationEventRef = useRef<(event: string, data: unknown) => void>(() => {});
+  handleConversationEventRef.current = (event, data) => {
+    const payload = (data ?? {}) as Record<string, unknown>;
+    // Another conversation's event, from a room this tab is still leaving: not this one's.
+    if (typeof payload.conversationId !== 'string' || payload.conversationId !== conversationIdRef.current) return;
+    addDebugLog('socket', 'agent:socket', `← ${event}`, { event, data });
+    if (event === CONVERSATION_EVENTS.MESSAGE) {
+      // The customer's and the agent's own messages reach this tab through its turns; a person's only here.
+      const message = readConversationMessage(payload.message);
+      if (message?.role === 'staff') appendOnce(staffAgentMessage(message));
+      return;
+    }
+    const changed = readConversationHold(payload.hold);
+    if (!changed) return;
+    const change: TakeoverChange = event === CONVERSATION_EVENTS.TAKEN_OVER ? 'taken_over' : 'handed_back';
+    const at = typeof payload.at === 'number' ? payload.at : Date.now();
+    setHold(change === 'taken_over' ? changed : null);
+    // The person now answering did not ask for the card: it is withdrawn.
+    if (change === 'taken_over') setPendingApproval(null);
+    appendOnce(conversationChangeMessage(change, changed, at));
+    addDebugLog('info', 'agent:state', change === 'taken_over' ? 'A person took the conversation over' : 'The conversation was handed back', {
+      holder: changed.holder.userId,
+    });
+  };
+
+  useEffect(() => {
+    const seam = configRef.current.conversationRoom;
+    if (!seam || !conversationId) return;
+    let cancelled = false;
+    void seam(conversationId).then(
+      ({ room, roomToken }) => {
+        if (cancelled) return;
+        conversationRoomRef.current = { conversationId, room, ...(roomToken ? { token: roomToken } : {}) };
+        const socket = socketRef.current;
+        if (socket?.connected) joinRoom(socket, room, roomToken);
+      },
+      (err: unknown) => addDebugLog('warn', 'agent:api', `The conversation's room could not be had: ${reasonOf(err)}`, { conversationId }),
+    );
+    return () => {
+      cancelled = true;
+      const followed = conversationRoomRef.current;
+      if (followed?.conversationId === conversationId) {
+        conversationRoomRef.current = null;
+        socketRef.current?.emit('unsubscribe', [followed.room]);
+      }
+    };
+  }, [conversationId, joinRoom, addDebugLog]);
+
   // Collect context from visible annotations and current route
   const collectContext = useCallback((): AgentMessageContext => {
     const annotations = annotationRegistry.getVisibleAnnotations();
@@ -962,6 +1039,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
         setMessages(storedToAgentMessages(stored.messages));
         setReasoning([]);
         setLastTurnEnd(null);
+        setHold(stored.hold ? readConversationHold(stored.hold) : null);
         setPresentedOptions(null);
         setPendingApproval(null);
         setHistoryError(null);
@@ -1088,6 +1166,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     setMessages([]);
     setReasoning([]);
     setLastTurnEnd(null);
+    setHold(null);
     clearComposer();
     setPresentedOptions(null);
     setPendingApproval(null);
@@ -1194,7 +1273,8 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   const statusValue = useMemo(
     () =>
       agentStatusOf({
-        isStreaming,
+        // A turn the worker declines while a person holds the conversation is not the agent working.
+        isStreaming: isStreaming && !hold,
         currentTurnId,
         messages,
         reasoning,
@@ -1203,7 +1283,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
         toolLabels: config.toolLabels,
         planningText: config.planningText,
       }),
-    [isStreaming, currentTurnId, messages, reasoning, pendingApproval, presentedOptions, lastTurnEnd, config.toolLabels, config.planningText],
+    [isStreaming, hold, currentTurnId, messages, reasoning, pendingApproval, presentedOptions, lastTurnEnd, config.toolLabels, config.planningText],
   );
   const status: AgentStatus = useMemo(() => ({ ...statusValue, clearDone }), [statusValue, clearDone]);
 
@@ -1219,7 +1299,8 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     acceptedTurnId,
     messages,
     isStreaming,
-    isProcessing: isStreaming,
+    // A turn the worker declines while a person holds the conversation is not the agent answering.
+    isProcessing: isStreaming && !hold,
     currentTurnId,
     conversationId,
     connected,
@@ -1229,6 +1310,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     dismissOptions,
     pendingApproval,
     socket: socketRef.current,
+    hold,
     history: {
       available: Boolean(config.listConversations && config.getConversation),
       manage: {
@@ -1265,10 +1347,22 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     dismiss: dismissApproval,
   };
 
+  const internals: AgentInternals = {
+    config: () => configRef.current,
+    socket: () => socketRef.current,
+    connected,
+    joinRoom,
+    log: addDebugLog,
+  };
+
   return React.createElement(
     AgentContext.Provider,
     { value: contextValue },
-    React.createElement(ApprovalDecisionContext.Provider, { value: approvalDecision }, children),
+    React.createElement(
+      AgentInternalsContext.Provider,
+      { value: internals },
+      React.createElement(ApprovalDecisionContext.Provider, { value: approvalDecision }, children),
+    ),
   );
 }
 

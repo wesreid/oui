@@ -17,6 +17,8 @@
  * | `oui-config.json` | `oui.config.json` |
  * | `approvals.json` | The approval messages |
  * | `event-declarations.json` | A product's event declarations |
+ * | `conversation-takeover.json` | A person taking a conversation from the agent, and handing it back |
+ * | `agent-evals.json` | A suite of agent eval scenarios |
  *
  * Browser-safe and dependency-free. Validation is `./validate`; the type
  * renderer is `./codegen`; the files are `./schemas/<file>`; the integrator

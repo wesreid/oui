@@ -1,5 +1,11 @@
 # @ouispec/contract
 
+## 0.5.0
+
+### Minor Changes
+
+- Two schemas: `conversation-takeover.json` (a person on the staff takes a conversation over, writes as themselves, and hands it back: the hold, its requests and answers, including the approvals a take-over withdrew, and the three conversation events) and `agent-evals.json` (a suite of agent eval scenarios). An event declaration may name the room `conversation`, the conversation's room, as it names `turn`. The integrator guide gains "Staff take over a conversation, and hand it back", live calls included, and "Evals", and says how a turn's channel decides an approval.
+
 ## 0.4.9
 
 ### Patch Changes

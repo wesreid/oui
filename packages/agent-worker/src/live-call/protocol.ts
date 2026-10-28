@@ -87,8 +87,11 @@ export interface LiveCallStreamEvents {
   /**
    * The turn is over. `stopReason` is how it ended: `complete`,
    * `awaiting_approval`, `present_options`, `time_limit`, `output_limit` or
-   * `step_count` for a turn that ended by itself; `user_stop`, `superseded`
-   * or `deadline` (and any later stop reason) for one that was stopped.
+   * `step_count` for a turn that ended by itself; `user_stop`, `superseded`,
+   * `deadline` or `taken_over` (and any later stop reason) for one that was
+   * stopped. `taken_over`: a person on the staff holds the conversation, and
+   * the agent does not answer it until they hand it back; a turn that arrives
+   * while it is held says nothing, and the character stays quiet.
    */
   done: { stopReason?: string };
   /** The turn failed. `message` is a fixed line for the code; the cause is in the host's logs, never on the wire. */

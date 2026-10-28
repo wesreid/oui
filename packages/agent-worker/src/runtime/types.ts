@@ -16,12 +16,13 @@ import type { ToolPolicy } from '../authz/tool-policy.js';
 import type { UIActionChannel } from '../ui/channel.js';
 import type { LanguageModel, ProviderOptions } from '../model.js';
 import type { ApprovalStoreClient } from '../approvals/client.js';
-import type { ApprovalContinuation, AttachmentRef, TurnStoppedReason, TurnStoppedMarker } from '@ouispec/agent-core';
+import type { ApprovalChannel, ApprovalContinuation, AttachmentRef, TurnStoppedReason, TurnStoppedMarker } from '@ouispec/agent-core';
 import type { AttachmentWorkerConfig } from '../attachments/store.js';
 import type { AttachmentUsage } from '../attachments/guard.js';
 import type { TurnStopClient } from '../stop/turn-stop.js';
 import type { ApprovalPreviewHook, ValidateBeforeApproval } from '../approvals/hooks.js';
 import type { AgentTurnInfo } from './turn-info.js';
+import type { RealtimeEmitAdapter } from '../emit/types.js';
 
 /**
  * Database handle — opaque to the SDK. The integrator's callbacks receive
@@ -60,6 +61,12 @@ export interface AgentTurnPayload {
    * enqueued the turn; the worker reads them through `attachments.store`.
    */
   attachments?: AttachmentRef[];
+  /**
+   * Where the person is: `ui` (default) or a conversation
+   * channel (`chat`, `sms`, `voice`, `phone`), where an approval is a readback
+   * the next message confirms rather than a card.
+   */
+  channel?: ApprovalChannel;
 }
 
 /**
@@ -223,6 +230,12 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
   realtime: {
     url: string;
     apiKey: string;
+    /**
+     * How turn events reach the client. Defaults to the realtime server's
+     * `POST {url}/api/emit`. An eval harness, or a host that emits through
+     * its own channel, supplies its own.
+     */
+    emit?: RealtimeEmitAdapter;
   };
 
   /**
@@ -327,7 +340,8 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
 
   /**
    * Loads conversation history for context. Called once per turn.
-   * Return prior user/assistant/tool messages in chronological order.
+   * Return prior user/assistant/tool messages in chronological order, and the
+   * `staff` entries of a person who took the conversation over.
    *
    * The SDK handles appending the current user message — don't include it.
    */

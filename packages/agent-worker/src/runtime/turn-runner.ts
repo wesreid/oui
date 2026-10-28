@@ -6,7 +6,7 @@
  * decides how a turn arrives and what a failure means to its transport.
  */
 import { APICallError, RetryError } from 'ai';
-import { AGENT_SOCKET_EVENTS, isAttachmentId, type TurnStoppedReason, type TurnStoppedMarker } from '@ouispec/agent-core';
+import { AGENT_SOCKET_EVENTS, APPROVAL_CHANNELS, isAttachmentId, type TurnStoppedReason, type TurnStoppedMarker } from '@ouispec/agent-core';
 import { runAgentTurn } from '../orchestrator.js';
 import { createHttpEmitAdapter } from '../emit/http-adapter.js';
 import { createHttpUIActionChannel } from '../ui/channel.js';
@@ -91,8 +91,10 @@ export interface AgentTurnRunner {
    * Answers the turn with `text` instead of the model: a reply the host has
    * already (a greeting from a template). It is a turn like any other to the
    * host and the room: recorded, its text streamed to the room, stored as the
-   * turn's one assistant message, then announced complete. Never throws for
-   * the turn's own failure.
+   * turn's one assistant message, then announced complete. A conversation a
+   * person on the staff holds is not answered: the outcome is `stopped`,
+   * `taken_over`, and nothing but that is stored. Never throws for the turn's
+   * own failure.
    */
   reply(payload: AgentTurnPayload, text: string, host?: Pick<TurnHost, 'observe' | 'channel'>): Promise<TurnOutcome>;
   /** The model, as logs name it. */
@@ -124,6 +126,9 @@ export function payloadRefusal(payload: unknown): string | null {
   if (missing.length > 0) return `the turn payload is missing ${missing.join(', ')}`;
   if (p.context !== undefined && p.context !== null && typeof p.context !== 'object') return 'context must be an object';
   if (p.userToken !== undefined && typeof p.userToken !== 'string') return 'userToken must be a string';
+  if (p.channel !== undefined && !(APPROVAL_CHANNELS as readonly unknown[]).includes(p.channel)) {
+    return `channel must be one of ${APPROVAL_CHANNELS.join(', ')}`;
+  }
   if (p.supersedes !== undefined && !(Array.isArray(p.supersedes) && p.supersedes.every((id) => typeof id === 'string' && id))) {
     return 'supersedes must be a list of turn ids';
   }
@@ -137,6 +142,19 @@ export function payloadRefusal(payload: unknown): string | null {
     }
   }
   return null;
+}
+
+/**
+ * The system prompt the host's configuration gives a turn: its persona through
+ * the SDK's prompt framework, or its own builder. One reading for the runner
+ * and for anything that must know what the model is told (an eval's
+ * recording).
+ */
+export function hostSystemPrompt(
+  config: Pick<AgentRuntimeConfig<unknown>, 'persona' | 'systemPrompt'>,
+  promptContext: { userId: string; accountId: string; context?: Record<string, unknown> | null },
+): string {
+  return config.systemPrompt ? config.systemPrompt(promptContext) : buildAgentSystemPrompt(config.persona!, promptContext);
 }
 
 export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): AgentTurnRunner {
@@ -153,7 +171,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
   const turnDeadlineMs = config.turnDeadlineMs ?? 840_000;
   const retries = config.retries ?? 3;
 
-  const roomEmit = createHttpEmitAdapter({ url: config.realtime.url, apiKey: config.realtime.apiKey });
+  const roomEmit = config.realtime.emit ?? createHttpEmitAdapter({ url: config.realtime.url, apiKey: config.realtime.apiKey });
   /**
    * The turn's emits: through the host's filter first when it has one, then to
    * the host observing the turn, then to the room. What the filter drops
@@ -183,7 +201,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
     payload: AgentTurnPayload,
     host: Pick<TurnHost, 'observe' | 'channel'>,
   ): Promise<{ payload: AgentTurnPayload; turn: AgentTurnInfo } | { outcome: TurnOutcome }> {
-    const asSent = turnInfoOf(payload, host.channel);
+    const asSent = turnInfoOf(payload, host.channel, payload.channel);
     if (!config.beforeTurn) return { payload, turn: asSent };
     let admitted: AgentTurnPayload | null;
     try {
@@ -200,7 +218,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
     if (invalid) {
       return { outcome: await fail(payload, turnEmit(asSent, host.observe), new Error(`[agent-sdk] beforeTurn returned a turn that cannot run: ${invalid}`)) };
     }
-    return { payload: admitted, turn: turnInfoOf(admitted, host.channel) };
+    return { payload: admitted, turn: turnInfoOf(admitted, host.channel, admitted.channel) };
   }
   // UI actions reach the client through the same realtime server, and its
   // answers come back through it.
@@ -268,7 +286,8 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
 
       // Open before history is read: a stop asked for while the turn waited in the
       // queue, or waits now for the turns it supersedes, is the first thing it hears.
-      const stopWatch = watchTurnStop(host.stopSignal ? withLocalStop(stops, host.stopSignal) : stops, turnId, userId);
+      // A person on the staff taking the conversation over stops it too.
+      const stopWatch = watchTurnStop(host.stopSignal ? withLocalStop(stops, host.stopSignal) : stops, turnId, userId, conversationId);
       const waiting = new AbortController();
       stopWatch.onStop(() => waiting.abort());
 
@@ -287,9 +306,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
         // rendered after the host's prompt (orchestrator), and how the message
         // was entered is said on the message (prompt/spoken-input.ts).
         const promptContext = { userId, accountId, context: withoutClientUI(context) };
-        const systemPrompt = config.systemPrompt
-          ? config.systemPrompt(promptContext)
-          : buildAgentSystemPrompt(config.persona!, promptContext);
+        const systemPrompt = hostSystemPrompt(config as AgentRuntimeConfig<unknown>, promptContext);
 
         const turnInput: AgentTurnInput = {
           turnId,
@@ -304,6 +321,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
           userToken,
           ...(approval ? { approval } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
+          ...(payload.channel ? { approvalChannel: payload.channel } : {}),
           stopWatch,
           ...(host.remainingMs ? { remainingMs: host.remainingMs } : {}),
           channel: turn.channel,
@@ -456,6 +474,23 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
 
       try {
         const usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+        // A conversation a person on the staff holds is theirs to answer: the host's text is not said, and nothing is
+        // stored but that the turn was taken over, as for a model's turn that arrives while it is held.
+        const watch = watchTurnStop(stops, turnId, userId, conversationId);
+        await watch.checked();
+        const held = watch.current();
+        watch.close();
+        if (held?.reason === 'taken_over') {
+          const stopped: TurnStoppedMarker = { reason: 'taken_over', at: held.at };
+          try {
+            await config.persistMessages({ turnId, conversationId, messages: [], usage, stopped, db });
+          } catch (err) {
+            logger.error('[agent-sdk] persistMessages failed', { turnId, error: messageOf(err) });
+          }
+          await emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TURN_COMPLETE, { turnId, rounds: 0, usage, stopReason: 'taken_over', timestamp: Date.now() });
+          logger.info('[agent-sdk] Turn not answered: a person on the staff holds the conversation', { turnId, conversationId });
+          return { status: 'stopped', turnId, rounds: 0, stopReason: 'taken_over' };
+        }
         // One round, the turn's last word, as a model's reply that called no tool streams.
         await emit.emit(socketRoom, AGENT_SOCKET_EVENTS.TOKEN, { turnId, text, step: 0, timestamp: Date.now() });
         await emit.emit(socketRoom, AGENT_SOCKET_EVENTS.ROUND_END, { turnId, step: 0, calledTools: false, final: true, timestamp: Date.now() });

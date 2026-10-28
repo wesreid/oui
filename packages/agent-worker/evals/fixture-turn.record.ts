@@ -15,7 +15,8 @@ import { describe, expect, it } from 'vitest';
 import { PROMPT_CACHE_BREAKPOINTS } from '../src/model.js';
 import { startFixtureProduct } from '../src/__tests__/support/fixture-product.js';
 import { runFixtureTurn } from '../src/__tests__/support/fixture-turn.js';
-import type { RecordedExchange, FixtureRecording } from '../src/__tests__/support/replay.js';
+import type { FixtureRecording } from '../src/__tests__/support/replay.js';
+import { recordingFetch, type RecordedExchange } from '../src/testing/cassette.js';
 import { LIVE_MODEL_ID, liveBedrock } from './support/bedrock.js';
 
 const OUT = fileURLToPath(new URL('../src/__tests__/fixtures/fixture-turn.bedrock.json', import.meta.url));
@@ -23,18 +24,7 @@ const OUT = fileURLToPath(new URL('../src/__tests__/fixtures/fixture-turn.bedroc
 describe('record the fixture turn', () => {
   it(`from ${LIVE_MODEL_ID} on Bedrock`, async () => {
     const exchanges: RecordedExchange[] = [];
-    const tee: typeof fetch = async (input, init) => {
-      const res = await fetch(input, init);
-      const body = Buffer.from(await res.arrayBuffer());
-      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
-      exchanges.push({
-        path: decodeURIComponent(url.pathname),
-        status: res.status,
-        contentType: res.headers.get('content-type') ?? 'application/octet-stream',
-        bodyBase64: body.toString('base64'),
-      });
-      return new Response(body, { status: res.status, headers: { 'content-type': exchanges.at(-1)!.contentType } });
-    };
+    const tee = recordingFetch(exchanges);
 
     const product = await startFixtureProduct();
     try {

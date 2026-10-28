@@ -148,8 +148,8 @@ describe('Custom TurnPolicy integration', () => {
 
     await runAgentTurn(config, input);
 
-    // The turn every policy hook is told of: its id, its channel (none named: `direct`), how its message was entered.
-    const turn = { id: 'turn-policy-1', channel: 'direct', inputMode: 'text', language: null };
+    // The turn every policy hook is told of: its id, its channel (none named: `direct`), how its message was entered, where approvals are given (none named: the card).
+    const turn = { id: 'turn-policy-1', channel: 'direct', inputMode: 'text', language: null, approvalChannel: 'ui' };
 
     // classifyTurn was called with the message content and the turn
     expect(classifyTurn).toHaveBeenCalledWith('test message', expect.any(Array), turn);

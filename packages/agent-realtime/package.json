@@ -1,6 +1,6 @@
 {
   "name": "@ouispec/agent-realtime",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "description": "Realtime server for agent turns and UI actions — declared client events, room tokens, the UI action result store, the approval store and its signed receipts, declared product events and their job settlements, Redis fan-out; the product supplies auth, room policy and keys",
   "homepage": "https://github.com/wesreid/oui/tree/main/packages/agent-realtime#readme",
   "bugs": {
@@ -38,6 +38,7 @@
   "dependencies": {
     "@ouispec/agent-core": "workspace:^",
     "@ouispec/agent-events": "workspace:^",
+    "@ouispec/contract": "workspace:^",
     "@socket.io/redis-adapter": "^8.3.0",
     "cors": "^2.8.5",
     "express": "^5.1.0",

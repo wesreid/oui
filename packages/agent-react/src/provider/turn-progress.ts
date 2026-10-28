@@ -42,7 +42,8 @@ export function endOpenReasoning(list: readonly AgentReasoning[], turnId: string
 
 /** How a turn's end reads for the status: a problem, or done. A stop the person asked for is neither. */
 export function turnEndOf(turnId: string | null, ended: { endReason?: TurnEndReason; stopReason?: TurnStoppedReason }, now: number): AgentTurnEnd | null {
-  if (ended.stopReason === 'user_stop' || ended.stopReason === 'superseded') return null;
+  // Stopped by the person, by a newer message, or by a person on the staff taking the conversation over: nothing to report.
+  if (ended.stopReason === 'user_stop' || ended.stopReason === 'superseded' || ended.stopReason === 'taken_over') return null;
   if (ended.stopReason === 'deadline') return { turnId, kind: 'problem', reason: 'deadline', at: now };
   if (ended.endReason === 'output_limit' || ended.endReason === 'step_count') return { turnId, kind: 'problem', reason: ended.endReason, at: now };
   return { turnId, kind: 'done', ...(ended.endReason ? { reason: ended.endReason } : {}), at: now };

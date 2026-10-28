@@ -26,7 +26,9 @@ export class TurnStopped extends Error {
         ? 'The turn was superseded by a newer message'
         : reason === 'deadline'
           ? 'The turn ran out of time'
-          : 'The turn was stopped by the person',
+          : reason === 'taken_over'
+            ? 'A person on the staff took the conversation over'
+            : 'The turn was stopped by the person',
     );
     this.name = 'TurnStopped';
   }
@@ -65,8 +67,17 @@ export interface TurnStopClient {
    * The first question is asked without waiting, and `onChecked` is called
    * once it is answered, whatever the answer, or has failed: from then a stop
    * that was asked for before the watch began has been heard.
+   *
+   * With `conversationId`, a person on the staff holding the conversation is
+   * a stop as well (`taken_over`), heard the same way.
    */
-  watch(turnId: string, userId: string, signal: AbortSignal, onChecked?: () => void): Promise<TurnStopRecord | null>;
+  watch(
+    turnId: string,
+    userId: string,
+    signal: AbortSignal,
+    onChecked?: () => void,
+    conversationId?: string,
+  ): Promise<TurnStopRecord | null>;
 }
 
 export interface HttpTurnStopClientConfig {
@@ -96,8 +107,8 @@ const UNHELD_ANSWER_MS = 50;
 
 /**
  * The stop record over the realtime server's internal HTTP API:
- * `GET {url}/internal/turns/{turnId}/stop?userId=&waitMs=` (200 with the
- * record, 204 when none was asked for in `waitMs`).
+ * `GET {url}/internal/turns/{turnId}/stop?userId=&waitMs=&conversationId=`
+ * (200 with the record, 204 when none was asked for in `waitMs`).
  *
  * It fails open. A failure (the server restarting, a 5xx) is retried with a
  * growing pause, and the turn runs on meanwhile: a turn must never fail
@@ -111,7 +122,7 @@ export function createHttpTurnStopClient(config: HttpTurnStopClientConfig): Turn
   const maxBackoffMs = config.maxBackoffMs ?? 5_000;
 
   return {
-    async watch(turnId, userId, signal, onChecked) {
+    async watch(turnId, userId, signal, onChecked, conversationId) {
       let backoff = FIRST_BACKOFF_MS;
       let attempt = 0;
       let checked = false;
@@ -126,7 +137,7 @@ export function createHttpTurnStopClient(config: HttpTurnStopClientConfig): Turn
         // The first question does not wait: is there a stop already?
         const waitMs = checked ? maxPollMs : 0;
         try {
-          const query = new URLSearchParams({ userId, waitMs: String(waitMs) });
+          const query = new URLSearchParams({ userId, waitMs: String(waitMs), ...(conversationId ? { conversationId } : {}) });
           const res = await fetch(`${url}/internal/turns/${encodeURIComponent(turnId)}/stop?${query}`, {
             headers: { 'X-Api-Key': apiKey },
             signal: AbortSignal.any([signal, AbortSignal.timeout(waitMs + 5_000)]),
@@ -181,14 +192,15 @@ export function withLocalStop(client: TurnStopClient, local: AbortSignal): TurnS
   });
 
   return {
-    async watch(turnId, userId, signal, onChecked) {
+    async watch(turnId, userId, signal, onChecked, conversationId) {
       if (signal.aborted) return null;
       if (local.aborted) {
         onChecked?.();
         return localRecord(turnId, userId);
       }
       const either = AbortSignal.any([signal, local]);
-      const heard = await client.watch(turnId, userId, either, onChecked);
+      // The conversation's hold is still the server's to say: a held conversation stops this turn too.
+      const heard = await client.watch(turnId, userId, either, onChecked, conversationId);
       if (heard) return heard;
       // The server keeps no stops, or answered nothing: the local stop can still come.
       if (!either.aborted) await new Promise<void>((resolve) => either.addEventListener('abort', () => resolve(), { once: true }));
@@ -237,7 +249,13 @@ export interface TurnStopWatch {
   close(): void;
 }
 
-export function watchTurnStop(client: TurnStopClient | undefined, turnId: string, userId: string): TurnStopWatch {
+export function watchTurnStop(
+  client: TurnStopClient | undefined,
+  turnId: string,
+  userId: string,
+  /** The turn's conversation: a person taking it over stops the turn too. */
+  conversationId?: string,
+): TurnStopWatch {
   const controller = new AbortController();
   let heard: TurnStopRecord | null = null;
   let closed = false;
@@ -250,7 +268,7 @@ export function watchTurnStop(client: TurnStopClient | undefined, turnId: string
   if (client) {
     const limit = setTimeout(markChecked, FIRST_CHECK_LIMIT_MS);
     void firstCheck.then(() => clearTimeout(limit));
-    void client.watch(turnId, userId, controller.signal, markChecked).then(
+    void client.watch(turnId, userId, controller.signal, markChecked, conversationId).then(
       (record) => {
         if (record && !closed) {
           heard = record;

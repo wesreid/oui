@@ -7,6 +7,7 @@
 import type { SQSEvent } from 'aws-lambda';
 import { AGENT_SOCKET_EVENTS } from '@ouispec/agent-core';
 import { createLambdaAgentHandler } from '../../lambda/handler.js';
+import { historyOf } from '../../history.js';
 import { startContainerAgentWorker } from '../../container/server.js';
 import { createHttpUIActionChannel } from '../../ui/channel.js';
 import type { AgentRuntimeConfig } from '../../runtime/types.js';
@@ -16,7 +17,7 @@ import type { TurnHistoryMessage, TurnMessage } from '../../types.js';
 import type { RegisteredTool } from '../../tools/types.js';
 import type { ToolPolicy } from '../../authz/tool-policy.js';
 import type { AgentTurnPayload } from '../../runtime/types.js';
-import type { AgentApiSurface } from '@ouispec/agent-core';
+import type { AgentApiSurface, StaffSpeaker, TakeoverChange, TurnStoppedMarker } from '@ouispec/agent-core';
 import { FIXTURE_TURN, INTERNAL_KEY, type FixtureProduct, type FixtureTab } from './fixture-product.js';
 
 export type HostAdapter = 'lambda' | 'container';
@@ -24,7 +25,7 @@ export type HostAdapter = 'lambda' | 'container';
 export interface FixtureTurnRun {
   tab: FixtureTab;
   outcome: TurnOutcome;
-  persisted: Array<{ turnId: string; conversationId: string; messages: TurnMessage[] }>;
+  persisted: Array<{ turnId: string; conversationId: string; messages: TurnMessage[]; stopped?: TurnStoppedMarker }>;
   startedWithModel: string[];
 }
 
@@ -46,20 +47,13 @@ export class FixtureConversation {
     if (content) this.history.push({ role: 'user', content });
   }
 
+  /** What the product stores for a person on the staff: their message, or a take-over or hand-back. */
+  addStaff(speaker: StaffSpeaker, entry: { content: string } | { takeover: TakeoverChange }): void {
+    this.history.push({ role: 'staff', speaker, ...('content' in entry ? { content: entry.content } : { content: null, takeover: entry.takeover }) });
+  }
+
   persist(messages: TurnMessage[]): void {
-    for (const m of messages) {
-      if (m.role === 'assistant') {
-        this.history.push({
-          role: 'assistant',
-          content: m.content,
-          ...(m.toolCalls?.length
-            ? { tool_calls: m.toolCalls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.arguments) } })) }
-            : {}),
-        });
-      } else {
-        this.history.push({ role: 'tool', content: m.content ?? '', tool_call_id: m.toolCallId ?? '', name: m.name });
-      }
-    }
+    this.history.push(...historyOf(messages));
   }
 }
 
@@ -71,7 +65,7 @@ export interface FixtureTurnOptions {
   /** The tab that sends the turn; a new one is opened when none is given. */
   tab?: FixtureTab;
   /** What the turn carries beyond the fixture turn's defaults: its message, context, an approval. */
-  payload?: Partial<Pick<AgentTurnPayload, 'content' | 'context' | 'approval'>>;
+  payload?: Partial<Pick<AgentTurnPayload, 'content' | 'context' | 'approval' | 'conversationId' | 'channel'>>;
   /** Earlier turns of the conversation, and where this one's messages go. */
   conversation?: FixtureConversation;
   tools?: RegisteredTool[];
@@ -135,8 +129,8 @@ export async function runFixtureTurn(product: FixtureProduct, options: FixtureTu
     uiActions: { resultTimeoutMs: 10_000, channel: observedChannel(product, options.onUIDispatch) },
     getDb: async () => ({}),
     getHistory: async () => history,
-    persistMessages: async ({ turnId: id, conversationId, messages }) => {
-      persisted.push({ turnId: id, conversationId, messages });
+    persistMessages: async ({ turnId: id, conversationId, messages, stopped }) => {
+      persisted.push({ turnId: id, conversationId, messages, ...(stopped ? { stopped } : {}) });
       conversation?.persist(messages);
     },
     recordTurnStart: async ({ model }) => {

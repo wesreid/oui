@@ -136,14 +136,22 @@ describe('teeEmitAdapter', () => {
 describe('openLiveCallEventStream', () => {
   it('answers 200 text/event-stream, writes each event as it is sent, and keeps a silent stream alive', async () => {
     const server = http.createServer((_req, res) => {
+      // The rest is sent once the silence has been kept alive twice, however slowly the clock runs under load.
+      let kept = 0;
+      const write = res.write.bind(res) as (chunk: string) => boolean;
+      res.write = ((chunk: string) => {
+        const written = write(chunk);
+        if (chunk === ': keep-alive\n\n' && ++kept === 2) setImmediate(finish);
+        return written;
+      }) as typeof res.write;
       const stream = openLiveCallEventStream(res, 40);
       stream.send('text', { text: 'One moment, ' });
-      setTimeout(() => {
+      function finish() {
         stream.send('text', { text: 'here it is.\nLine two' });
         stream.send('done', { stopReason: 'complete' });
         stream.end();
         stream.send('text', { text: 'never written' });
-      }, 130);
+      }
     });
     await new Promise<void>((resolve) => server.listen(0, resolve));
     try {

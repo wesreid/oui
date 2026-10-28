@@ -24,17 +24,20 @@ const ENTRIES: Record<string, string[]> = {
   '@ouispec/bindings/oui': ['connectBindings', 'createDeclaredJobTracker'],
   '@ouispec/cli': ['generate', 'loadConfig'],
   '@ouispec/testing': ['checkDesignSystem', 'checkApp', 'checkTier2', 'readShippedPackage'],
-  '@ouispec/agent-core': ['AGENT_SOCKET_EVENTS', 'APPROVAL_DECIDE_EVENT', 'verifyApprovalReceipt', 'APPROVAL_RECEIPT_HEADER'],
+  '@ouispec/agent-core': ['AGENT_SOCKET_EVENTS', 'APPROVAL_DECIDE_EVENT', 'verifyApprovalReceipt', 'APPROVAL_RECEIPT_HEADER', 'CONVERSATION_EVENTS', 'staffMessageNote'],
   '@ouispec/agent-events': ['createEventCatalog', 'PLATFORM_EVENTS', 'AGENT_TURN_EVENTS'],
   '@ouispec/agent-events/validate': [],
   '@ouispec/agent-events/codegen': [],
-  '@ouispec/agent-worker': ['createLambdaAgentHandler', 'startContainerAgentWorker', 'PROMPT_CACHE_BREAKPOINTS'],
+  '@ouispec/agent-worker': ['createLambdaAgentHandler', 'startContainerAgentWorker', 'PROMPT_CACHE_BREAKPOINTS', 'createHttpConversationClient', 'createLiveCallTurnHandler'],
   '@ouispec/agent-worker/lambda': ['createLambdaAgentHandler'],
   '@ouispec/agent-worker/container': ['startContainerAgentWorker'],
-  '@ouispec/agent-realtime': ['createRealtimeServer', 'generateApprovalReceiptKey'],
+  '@ouispec/agent-worker/testing': ['recordingFetch', 'replayingFetch', 'scriptedChatCompletions', 'conversationOf'],
+  '@ouispec/agent-worker/history': ['answerWithoutState', 'historyOf'],
+  '@ouispec/agent-realtime': ['createRealtimeServer', 'generateApprovalReceiptKey', 'createConversationHoldStore'],
   '@ouispec/agent-realtime/testing': ['startTestRedis'],
-  '@ouispec/agent-react': ['AgentProvider', 'useAgent', 'ApprovalCard'],
+  '@ouispec/agent-react': ['AgentProvider', 'useAgent', 'ApprovalCard', 'useStaffConversation'],
   '@ouispec/agent-mcp': ['createMCPApiToolServer', 'handleMCPRequest'],
+  '@ouispec/agent-evals': ['defineEvals', 'evalCases', 'runEvals'],
 };
 
 describe('the installed packages', () => {
@@ -91,6 +94,15 @@ describe('the installed packages', () => {
     expect(catalog.has('not:declared')).toBe(false);
   });
 
+  it('the eval harness replays its dealer example from the installed package, on every channel, with no network or credentials', () => {
+    const bin = join(ROOT, 'node_modules/.bin/agent-evals');
+    expect(existsSync(bin)).toBe(true);
+    const config = join(ROOT, 'node_modules/@ouispec/agent-evals/examples/dealer/agent-evals.config.mjs');
+    const run = spawnSync(bin, ['--config', config], { encoding: 'utf8', env: { ...process.env, AWS_PROFILE: '', AWS_ACCESS_KEY_ID: '', AWS_SECRET_ACCESS_KEY: '' } });
+    expect(run.status, run.stderr).toBe(0);
+    expect(run.stdout.trim().split('\n').at(-1)).toBe('21 passed, 0 failed, of 21 (from the recordings)');
+  });
+
   it.each(['oui', 'closure-oui'])('the generator runs as %s', name => {
     const bin = join(ROOT, 'node_modules/.bin', name);
     expect(existsSync(bin)).toBe(true);
@@ -116,7 +128,7 @@ describe('the installed packages', () => {
     };
     visit(tree);
     expect([...versions.keys()].sort()).toEqual(
-      ['oui-spec', ...['contract', 'bindings', 'cli', 'testing', 'agent-core', 'agent-events', 'agent-worker', 'agent-realtime', 'agent-react', 'agent-mcp'].map(n => `@ouispec/${n}`)].sort(),
+      ['oui-spec', ...['contract', 'bindings', 'cli', 'testing', 'agent-core', 'agent-events', 'agent-worker', 'agent-realtime', 'agent-react', 'agent-mcp', 'agent-evals'].map(n => `@ouispec/${n}`)].sort(),
     );
     for (const [name, set] of versions) expect([...set], `${name} versions installed`).toHaveLength(1);
   });

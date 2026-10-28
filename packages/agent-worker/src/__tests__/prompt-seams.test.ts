@@ -114,7 +114,7 @@ describe('the turn every policy hook is told of', () => {
         channel: 'live-call',
       },
     );
-    const turn = { id: 'call-turn-7', channel: 'live-call', inputMode: 'voice', language: 'pt-BR' };
+    const turn = { id: 'call-turn-7', channel: 'live-call', inputMode: 'voice', language: 'pt-BR', approvalChannel: 'ui' };
     expect(classifyTurn).toHaveBeenCalledWith('I want to talk to someone', [], turn);
     expect(onTurnClassified).toHaveBeenCalledWith(expect.objectContaining({ turnClass: 'browse', turn }));
     expect(prepareStep).toHaveBeenCalledWith(expect.objectContaining({ turnClass: 'browse', turn }));

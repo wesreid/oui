@@ -1,12 +1,13 @@
 /**
  * Which turn a host's hook is called for: its id, how it reached the
- * runtime, and how the person entered its message.
+ * runtime, how the person entered its message, and where they approve.
  *
  * Every hook that acts on one turn is given this one description
  * (`beforeTurn`, `filterEvent`, the turn policy, `approvals.preview`,
  * `approvals.validateBeforeApproval`), so a host decides by the turn itself
  * rather than by a label it threads through on its own.
  */
+import type { ApprovalChannel } from '@ouispec/agent-core';
 import { readClientMessageInput } from '../prompt/spoken-input.js';
 
 /**
@@ -33,12 +34,23 @@ export interface AgentTurnInfo {
    * it was spoken and the recogniser said. Null otherwise.
    */
   language: string | null;
+  /**
+   * Where the person is, for approvals: `ui` (the card) or a conversation
+   * channel (`chat`, `sms`, `voice`, `phone`), where a call is read back and
+   * the next message confirms it. The turn payload's `channel`; `ui` when it
+   * names none.
+   */
+  approvalChannel: ApprovalChannel;
 }
 
-/** The description of a turn: its id, its channel, and how its message was entered (its context's `input`). */
+/**
+ * The description of a turn: its id, how it reached the runtime, how its
+ * message was entered (its context's `input`), and where the person approves.
+ */
 export function turnInfoOf(
   turn: { turnId: string; context?: Record<string, unknown> | null },
   channel: AgentTurnChannel | undefined,
+  approvalChannel?: ApprovalChannel,
 ): AgentTurnInfo {
   const input = readClientMessageInput(turn.context ?? null);
   return {
@@ -46,5 +58,6 @@ export function turnInfoOf(
     channel: typeof channel === 'string' && channel ? channel : DEFAULT_TURN_CHANNEL,
     inputMode: input?.mode === 'voice' ? 'voice' : 'text',
     language: input?.language ?? null,
+    approvalChannel: approvalChannel ?? 'ui',
   };
 }
