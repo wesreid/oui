@@ -13,6 +13,10 @@
 | `refusal` | the reply declines (`true`: the usual phrasing; or a matcher) |
 | `doesNotStore` | the matchers appear nowhere the turn stored: its text, its tool arguments, its tool results |
 | `held` | the turn ran no model call, because a person held the conversation |
+| `calls` | each tool (`tool`), or each of the page's actions run through `ui_act` (`action`, by its id or its index name), was called exactly `times`, or `min` to `max` times (none given: at least once), counting only calls whose arguments or input hold `args` |
+| `usage` | the turn's model calls stayed within each bound: `modelCalls`, `firstCallInputTokens`, `callInputTokens` (every call), `inputTokens` and `outputTokens` (all of them), and `cachedShare` (the share of its input read from the prompt cache, 0 to 1), as the provider reported them |
+| `choices` | the turn offered choice buttons (`present_options`) with an option matching each of `options`, a question matching each of `question`, and a `count` of options within its bound (`false`: it offered none) |
+| `page` | the page is `at` that path after the turn (with a query string, those parameters too), each of `ran` ran on it with input holding `input`, and none of `notRan` did (`*`: nothing) |
 
 ```yaml
 version: 1
@@ -32,7 +36,32 @@ scenarios:
           mustNotSay: [{ pattern: "per month|/mo|APR", flags: i }]
 ```
 
-**Every tool is stubbed.** A stub is data in the suite or the scenario (`when`, a subset of the call's arguments; `result`), first match wins, the scenario's first; or a function in the configuration. A call to a tool with no stub fails the scenario: an eval never reaches your backend.
+**Every tool is stubbed.** A stub is data in the suite or the scenario (`when`, a subset of the call's arguments; `result`), first match wins, the scenario's first; or a function in the configuration. A call to a tool with no stub fails the scenario: an eval never reaches your backend. The SDK's own interaction tools (`present_options`, `confirm_action`, `request_user_decision`) reach no backend, so with no stub they run as they are, and the choices they offer are read from the turn.
+
+**The person's page.** A suite, or a scenario in its place (`page: false` for none), declares the page its turns are sent from (`AgentEvalPage`). The harness runs it on a real oui-spec surface runtime in index form, sends every turn from wherever the page is, with its snapshot and its address (`oui`, `currentPath`, and `uiKnowledge` when the configuration gives your knowledge), and answers the agent's `ui_act`, `ui_describe` and `ui_read` from it, as the person's tab would. Its surfaces are either declared in the suite (`surfaces`: each one's `routes`, its observations as `state`, and its actions, each with the `result` it answers, the `state` it leaves and the address it goes to, by `cases` on its input), or are your own: give the configuration your generated manifest (`page: { manifest, knowledge }`) and name your controls by binding id (`controls`: each one's value, rows and what it does; `allControls` mounts the rest of a surface's, empty). They are registered with a real binding registry and connected with `connectBindings`, as your tab does, so the agent is offered exactly what your build declares. Going to a page (`app.navigate`) mounts what is at the new address; the next turn is sent from there.
+
+```yaml
+page:
+  at: /dashboard
+  controls:
+    service-lane.view: { value: open }
+    service-lane.declined.advisor: {}
+scenarios:
+  - id: declined-work-opens-the-lane
+    title: Opens the service lane once, on its declined work, and pastes nothing
+    turns:
+      - user: Show me the declined work
+        expect:
+          page: { at: /dashboard/service-lane, ran: [{ action: service-lane.view, input: { value: declined } }] }
+          calls: [{ action: app.navigate, times: 1 }, { tool: listRepairOrders, times: 0 }]
+          usage: { firstCallInputTokens: { max: 20000 }, callInputTokens: { max: 40000 } }
+```
+
+**Your conversation store.** By default the harness keeps the whole conversation. To run later turns on what your worker really reads (a window that cuts old tool results, a summary, a step context), give the configuration `history`: your store as `EvalHistory` (`append`, `getHistory`, `persistMessages`), or `createMemoryHistory({ window })` with your window over the whole conversation.
+
+**Your agent's settings.** `agent` returns what your worker runs with, `modelProviderOptions`, `forcedToolChoice` and `uiActions` (its waits and how much of the page the model reads; the channel is the page's) included.
+
+**The judge.** A rubric's verdict is asked for as structured output, which the provider gives its own way (a JSON schema, a forced tool, or instructions for a model that refuses one); an answer that is still no verdict is read as text, then asked for again (`judgeOptions: { retries, maxOutputTokens }`). A judge that never gives one is reported apart: the case is `unjudged`, not failed (`JUDGE` in the report, an `error` in JUnit, exit 3 when nothing failed).
 
 **Channels.** Your configuration names them, and what each changes: `approvals` (the card, `ui`, or a conversation channel, `chat`, `sms`, `voice`, `phone`, where the readback is sent and the next message confirms it), `input` (what each customer message carries as `context.input`, so a voice channel marks it spoken), and `context`. The turn carries its channel, and the worker tells the model about approvals in that channel's terms. Every scenario runs on every channel of its suite unless it names fewer, so a change that breaks SMS and not web chat fails.
 
@@ -61,9 +90,9 @@ export default defineEvals({
 });
 ```
 
-**Run it.** `agent-evals` (in CI: replays the recordings), `agent-evals --record` (runs the live model and writes them), `agent-evals --live` (runs it and writes nothing). `--channel` and `--scenario` narrow a run; `--json` and `--junit` write reports. It exits 1 when any case fails, listing each failed assertion with its turn, channel and the reply. In a test runner, `evalCases(config)` gives one case per scenario and channel, each throwing with every failure.
+**Run it.** `agent-evals` (in CI: replays the recordings), `agent-evals --record` (runs the live model and writes them), `agent-evals --live` (runs it and writes nothing). `--channel` and `--scenario` narrow a run; `--json` and `--junit` write reports. It exits 1 when any case fails, listing each failed assertion with its turn, channel and the reply, and 3 when none failed but a rubric could not be judged. In a test runner, `evalCases(config)` gives one case per scenario and channel, each throwing with every failure.
 
-**A recording knows what it was recorded against**: your system prompt, your tools' names, descriptions and schemas, the scenario's turns and the channel. Change any of them and its replay fails until you record it again, rather than passing on answers to a question no longer asked.
+**A recording knows what it was recorded against**: your system prompt, your tools' names, descriptions and schemas, the scenario's turns, its page and the channel. Change any of them and its replay fails until you record it again, rather than passing on answers to a question no longer asked.
 
 The package ships an example: a fake dealer tool set, with scenarios for disclosure, price and no payments, an injected instruction, an SSN refused and not stored, a request for a person, a booking that runs only after its readback is confirmed, and a take-over and hand-back, on web chat, SMS and voice.
 
@@ -72,3 +101,9 @@ The package ships an example: a fake dealer tool set, with scenarios for disclos
 <!-- schema: agent-evals.json#/$defs/AgentEvalExpectation -->
 
 <!-- schema: agent-evals.json#/$defs/AgentEvalStubCase -->
+
+<!-- schema: agent-evals.json#/$defs/AgentEvalPage -->
+
+<!-- schema: agent-evals.json#/$defs/AgentEvalPageAction -->
+
+<!-- schema: agent-evals.json#/$defs/AgentEvalPageControl -->

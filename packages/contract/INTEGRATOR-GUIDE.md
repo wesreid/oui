@@ -1074,6 +1074,10 @@ A person on the product's staff can take a live conversation from the agent, ans
 | `refusal` | the reply declines (`true`: the usual phrasing; or a matcher) |
 | `doesNotStore` | the matchers appear nowhere the turn stored: its text, its tool arguments, its tool results |
 | `held` | the turn ran no model call, because a person held the conversation |
+| `calls` | each tool (`tool`), or each of the page's actions run through `ui_act` (`action`, by its id or its index name), was called exactly `times`, or `min` to `max` times (none given: at least once), counting only calls whose arguments or input hold `args` |
+| `usage` | the turn's model calls stayed within each bound: `modelCalls`, `firstCallInputTokens`, `callInputTokens` (every call), `inputTokens` and `outputTokens` (all of them), and `cachedShare` (the share of its input read from the prompt cache, 0 to 1), as the provider reported them |
+| `choices` | the turn offered choice buttons (`present_options`) with an option matching each of `options`, a question matching each of `question`, and a `count` of options within its bound (`false`: it offered none) |
+| `page` | the page is `at` that path after the turn (with a query string, those parameters too), each of `ran` ran on it with input holding `input`, and none of `notRan` did (`*`: nothing) |
 
 ```yaml
 version: 1
@@ -1093,7 +1097,32 @@ scenarios:
           mustNotSay: [{ pattern: "per month|/mo|APR", flags: i }]
 ```
 
-**Every tool is stubbed.** A stub is data in the suite or the scenario (`when`, a subset of the call's arguments; `result`), first match wins, the scenario's first; or a function in the configuration. A call to a tool with no stub fails the scenario: an eval never reaches your backend.
+**Every tool is stubbed.** A stub is data in the suite or the scenario (`when`, a subset of the call's arguments; `result`), first match wins, the scenario's first; or a function in the configuration. A call to a tool with no stub fails the scenario: an eval never reaches your backend. The SDK's own interaction tools (`present_options`, `confirm_action`, `request_user_decision`) reach no backend, so with no stub they run as they are, and the choices they offer are read from the turn.
+
+**The person's page.** A suite, or a scenario in its place (`page: false` for none), declares the page its turns are sent from (`AgentEvalPage`). The harness runs it on a real oui-spec surface runtime in index form, sends every turn from wherever the page is, with its snapshot and its address (`oui`, `currentPath`, and `uiKnowledge` when the configuration gives your knowledge), and answers the agent's `ui_act`, `ui_describe` and `ui_read` from it, as the person's tab would. Its surfaces are either declared in the suite (`surfaces`: each one's `routes`, its observations as `state`, and its actions, each with the `result` it answers, the `state` it leaves and the address it goes to, by `cases` on its input), or are your own: give the configuration your generated manifest (`page: { manifest, knowledge }`) and name your controls by binding id (`controls`: each one's value, rows and what it does; `allControls` mounts the rest of a surface's, empty). They are registered with a real binding registry and connected with `connectBindings`, as your tab does, so the agent is offered exactly what your build declares. Going to a page (`app.navigate`) mounts what is at the new address; the next turn is sent from there.
+
+```yaml
+page:
+  at: /dashboard
+  controls:
+    service-lane.view: { value: open }
+    service-lane.declined.advisor: {}
+scenarios:
+  - id: declined-work-opens-the-lane
+    title: Opens the service lane once, on its declined work, and pastes nothing
+    turns:
+      - user: Show me the declined work
+        expect:
+          page: { at: /dashboard/service-lane, ran: [{ action: service-lane.view, input: { value: declined } }] }
+          calls: [{ action: app.navigate, times: 1 }, { tool: listRepairOrders, times: 0 }]
+          usage: { firstCallInputTokens: { max: 20000 }, callInputTokens: { max: 40000 } }
+```
+
+**Your conversation store.** By default the harness keeps the whole conversation. To run later turns on what your worker really reads (a window that cuts old tool results, a summary, a step context), give the configuration `history`: your store as `EvalHistory` (`append`, `getHistory`, `persistMessages`), or `createMemoryHistory({ window })` with your window over the whole conversation.
+
+**Your agent's settings.** `agent` returns what your worker runs with, `modelProviderOptions`, `forcedToolChoice` and `uiActions` (its waits and how much of the page the model reads; the channel is the page's) included.
+
+**The judge.** A rubric's verdict is asked for as structured output, which the provider gives its own way (a JSON schema, a forced tool, or instructions for a model that refuses one); an answer that is still no verdict is read as text, then asked for again (`judgeOptions: { retries, maxOutputTokens }`). A judge that never gives one is reported apart: the case is `unjudged`, not failed (`JUDGE` in the report, an `error` in JUnit, exit 3 when nothing failed).
 
 **Channels.** Your configuration names them, and what each changes: `approvals` (the card, `ui`, or a conversation channel, `chat`, `sms`, `voice`, `phone`, where the readback is sent and the next message confirms it), `input` (what each customer message carries as `context.input`, so a voice channel marks it spoken), and `context`. The turn carries its channel, and the worker tells the model about approvals in that channel's terms. Every scenario runs on every channel of its suite unless it names fewer, so a change that breaks SMS and not web chat fails.
 
@@ -1122,9 +1151,9 @@ export default defineEvals({
 });
 ```
 
-**Run it.** `agent-evals` (in CI: replays the recordings), `agent-evals --record` (runs the live model and writes them), `agent-evals --live` (runs it and writes nothing). `--channel` and `--scenario` narrow a run; `--json` and `--junit` write reports. It exits 1 when any case fails, listing each failed assertion with its turn, channel and the reply. In a test runner, `evalCases(config)` gives one case per scenario and channel, each throwing with every failure.
+**Run it.** `agent-evals` (in CI: replays the recordings), `agent-evals --record` (runs the live model and writes them), `agent-evals --live` (runs it and writes nothing). `--channel` and `--scenario` narrow a run; `--json` and `--junit` write reports. It exits 1 when any case fails, listing each failed assertion with its turn, channel and the reply, and 3 when none failed but a rubric could not be judged. In a test runner, `evalCases(config)` gives one case per scenario and channel, each throwing with every failure.
 
-**A recording knows what it was recorded against**: your system prompt, your tools' names, descriptions and schemas, the scenario's turns and the channel. Change any of them and its replay fails until you record it again, rather than passing on answers to a question no longer asked.
+**A recording knows what it was recorded against**: your system prompt, your tools' names, descriptions and schemas, the scenario's turns, its page and the channel. Change any of them and its replay fails until you record it again, rather than passing on answers to a question no longer asked.
 
 The package ships an example: a fake dealer tool set, with scenarios for disclosure, price and no payments, an injected instruction, an SSN refused and not stored, a request for a person, a booking that runs only after its readback is confirmed, and a take-over and hand-back, on web chat, SMS and voice.
 
@@ -1138,6 +1167,7 @@ The package ships an example: a fake dealer tool set, with scenarios for disclos
 > | `channels` | AgentEvalChannelList |  | The channels every scenario runs on, as the eval configuration names them (`web_chat`, `sms`, `voice`). |
 > | `context` | object |  | What every turn of every scenario carries as its context, before the channel's and the scenario's own. |
 > | `stubs` | AgentEvalStubs |  | What each tool returns, for every scenario; a scenario's own stubs come first. |
+> | `page` | AgentEvalPage |  | The person's page, scripted, for every scenario: what it offers at each address and what its actions do. |
 > | `scenarios` | AgentEvalScenario[] | yes |  |
 
 > **Schema:** [`agent-evals.json#/$defs/AgentEvalExpectation`](schemas/agent-evals.json) · `https://schemas.closurestudio.ai/oui/v1/agent-evals.json#/$defs/AgentEvalExpectation` · TypeScript: `AgentEvalExpectation` from `@ouispec/contract`
@@ -1152,6 +1182,10 @@ The package ships an example: a fake dealer tool set, with scenarios for disclos
 > | `refusal` | true \| AgentEvalTextMatcher |  | The reply declines: `true` for the usual phrasing of a refusal (can't, cannot, unable, not able, won't, not allowed), or a matcher for the agent's own words. |
 > | `doesNotStore` | AgentEvalTextMatcher[] |  | None of these appears in anything the turn stored: its text, its tool calls' arguments, its tool results. |
 > | `held` | boolean |  | `true`: the turn ran no model call, because a person held the conversation. |
+> | `calls` | AgentEvalCallCount[] |  | How many times each tool, or each of the page's actions, was called in the turn. |
+> | `usage` | AgentEvalUsage |  | What the turn's model calls used, as the provider reported it. |
+> | `choices` | false \| AgentEvalChoicesExpectation |  | The turn offered the person choice buttons (`present_options`) that match; `false`: it offered none. |
+> | `page` | AgentEvalPageExpectation |  | What the page did in the turn, read from the page itself. |
 
 > **Schema:** [`agent-evals.json#/$defs/AgentEvalStubCase`](schemas/agent-evals.json) · `https://schemas.closurestudio.ai/oui/v1/agent-evals.json#/$defs/AgentEvalStubCase` · TypeScript: `AgentEvalStubCase` from `@ouispec/contract`
 >
@@ -1159,3 +1193,43 @@ The package ships an example: a fake dealer tool set, with scenarios for disclos
 > |---|---|---|---|
 > | `when` | object |  |  |
 > | `result` | { success: boolean, data?: any, error?: string } | yes |  |
+
+> **Schema:** [`agent-evals.json#/$defs/AgentEvalPage`](schemas/agent-evals.json) · `https://schemas.closurestudio.ai/oui/v1/agent-evals.json#/$defs/AgentEvalPage` · TypeScript: `AgentEvalPage` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `at` | string | yes | The address the first turn is sent from. |
+> | `routes` | string[] |  | The addresses going to a page accepts, as route patterns (`/leads/:id`), when the manifest declares no navigation surface of its own. |
+> | `navigation` | boolean |  | Whether the page offers going to a page by its address (`app.navigate`), as a generated app does: the manifest's navigation surface, or one made from `routes`, run by the bindings as the product's tab runs it. |
+> | `surfaces` | AgentEvalPageSurface[] |  | Surfaces declared here, each mounted while the page is at one of its routes. |
+> | `controls` | map of AgentEvalPageControl |  | The product's own controls, by binding id in the configuration's manifest: each is mounted while the page is on its surface, with what it shows and what it does. |
+> | `allControls` | boolean |  | Also mount every other control the manifest declares on a surface that is mounted, with no value, as an empty form shows them. |
+
+> **Schema:** [`agent-evals.json#/$defs/AgentEvalPageAction`](schemas/agent-evals.json) · `https://schemas.closurestudio.ai/oui/v1/agent-evals.json#/$defs/AgentEvalPageAction` · TypeScript: `AgentEvalPageAction` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `id` | string | yes | As the page's index names it, and `ui_act` takes it. |
+> | `title` | string |  |  |
+> | `description` | string | yes |  |
+> | `effect` | "view" \| "selection" \| "navigate" \| "open" \| "edit" \| "file" \| … |  | What it changes (oui-spec's effect kinds). |
+> | `confirm` | boolean |  | It asks the person to approve it first. |
+> | `input` | object |  | What it takes, as a JSON Schema. |
+> | `result` | { success: boolean, data?: any, error?: string } |  | What it answers. |
+> | `state` | object |  | Its surface's observations once it has run, by observation id: each given replaces the one before. |
+> | `navigate` | string |  | The address the page goes to once it has run. |
+> | `cases` | { when?: object, result?: { success: boolean, data?: any, error?: string }, state?: object, navigate?: string }[] |  | What it does for a call whose input holds `when`, the first that matches; a call none matches gets the defaults beside them. |
+
+> **Schema:** [`agent-evals.json#/$defs/AgentEvalPageControl`](schemas/agent-evals.json) · `https://schemas.closurestudio.ai/oui/v1/agent-evals.json#/$defs/AgentEvalPageControl` · TypeScript: `AgentEvalPageControl` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `value` | any |  | What it shows when the page opens. |
+> | `title` | string |  | What it is called on screen. |
+> | `valueSchema` | object |  | Its live value schema (its options, its range), within the manifest's. |
+> | `disabled` | boolean |  | It cannot be used: it is not offered. |
+> | `rows` | { key: string, title: string, description?: string, value?: any }[] |  | For a list's control: one per row shown. |
+> | `routes` | string[] |  | Where it is mounted, when not wherever its surface is. |
+> | `result` | { success: boolean, data?: any, error?: string } |  | What it answers. |
+> | `navigate` | string |  | The address the page goes to once it has run. |
+> | `cases` | { when?: object, result?: { success: boolean, data?: any, error?: string }, navigate?: string }[] |  | What it does for a call whose input holds `when`, the first that matches; a call none matches gets the defaults beside them. |

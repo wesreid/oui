@@ -1,5 +1,11 @@
 # @ouispec/agent-react
 
+## 0.21.0
+
+### Patch Changes
+
+- @ouispec/agent-core@0.21.0
+
 ## 0.20.1
 
 ### Patch Changes

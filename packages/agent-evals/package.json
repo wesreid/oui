@@ -1,6 +1,6 @@
 {
   "name": "@ouispec/agent-evals",
-  "version": "0.20.2",
+  "version": "0.21.0",
   "description": "Agent evals as data: scenarios a product writes, run against its real agent configuration (persona, tools, tool policy, turn policy) on every channel it serves, from recorded model responses in CI or against the live model, with a CLI that fails the build on any assertion that does not hold",
   "homepage": "https://github.com/wesreid/oui/tree/main/packages/agent-evals#readme",
   "bugs": {
@@ -40,8 +40,10 @@
   "dependencies": {
     "@ouispec/agent-core": "workspace:^",
     "@ouispec/agent-worker": "workspace:^",
+    "@ouispec/bindings": "workspace:^",
     "@ouispec/contract": "workspace:^",
     "ai": "^7.0.58",
+    "oui-spec": "workspace:^",
     "yaml": "^2.7.0"
   },
   "devDependencies": {

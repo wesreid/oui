@@ -4,7 +4,8 @@
  *
  * The fingerprint is a hash of everything that shapes what the model is
  * asked: the system prompt, the tools' names, descriptions and schemas, the
- * channel's settings, the scenario's inputs and the rubrics its judge reads.
+ * channel's settings, the scenario's inputs, its page, the agent's provider
+ * and UI settings, and the rubrics its judge reads.
  * A recording replayed against a changed configuration or scenario fails,
  * rather than passing on answers to a question no longer asked.
  */
@@ -61,10 +62,16 @@ export interface FingerprintInputs {
   channel: { name: string; settings: EvalChannel };
   suite: AgentEvalSuite;
   scenario: AgentEvalScenario;
+  /** The scenario's page, and the product's files it is built from: what the page's index and state the model reads come from. */
+  page?: unknown;
+  /** The agent's provider options, its forced-choice setting and its UI settings, when it has them. */
+  modelProviderOptions?: unknown;
+  forcedToolChoice?: boolean;
+  uiActions?: unknown;
 }
 
 export function fingerprint(inputs: FingerprintInputs): string {
-  const { systemPrompt, tools, channel, suite, scenario } = inputs;
+  const { systemPrompt, tools, channel, suite, scenario, page, modelProviderOptions, forcedToolChoice, uiActions } = inputs;
   const shaped = {
     systemPrompt,
     tools: [...tools]
@@ -83,6 +90,11 @@ export function fingerprint(inputs: FingerprintInputs): string {
     // A turn's inputs; its expectations change nothing the model is asked, except a rubric's text.
     turns: scenario.turns.map((turn) => ('user' in turn ? { user: turn.user } : 'approval' in turn ? { approval: turn.approval } : { staff: turn.staff })),
     rubrics: rubricsOf(scenario),
+    // Only when given, so a recording made before they could be is still current.
+    ...(page !== undefined ? { page } : {}),
+    ...(modelProviderOptions !== undefined ? { modelProviderOptions } : {}),
+    ...(forcedToolChoice !== undefined ? { forcedToolChoice } : {}),
+    ...(uiActions !== undefined ? { uiActions } : {}),
   };
   return createHash('sha256').update(canonicalJson(shaped)).digest('hex');
 }

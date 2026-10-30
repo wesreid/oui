@@ -4,8 +4,10 @@
  * configuration, and every expectation checked after its turn.
  *
  * What the harness replaces is only what reaches the outside: the model's
- * network (replayed, recorded or live), storage (one conversation in memory),
- * the realtime server (memory.ts) and each tool's execution (its stub).
+ * network (replayed, recorded or live), storage (one conversation in memory,
+ * or the product's own store), the realtime server (memory.ts), the person's
+ * page (page.ts, from the suite's fixture) and each tool's execution (its
+ * stub).
  */
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,24 +21,27 @@ import {
 import {
   createAgentTurnRunner,
   describeModel,
-  historyOf,
   hostSystemPrompt,
+  loadBuiltinTools,
+  UI_ACT_TOOL,
   withoutClientUI,
   type AgentTurnPayload,
   type RegisteredTool,
   type ToolExecutionResult,
-  type TurnHistoryMessage,
   type TurnMessage,
   type TurnOutcome,
 } from '@ouispec/agent-worker';
 import { recordingFetch, replayingFetch, type RecordedExchange } from '@ouispec/agent-worker/testing';
-import type { AgentEvalExpectation, AgentEvalScenario, AgentEvalSuite, AgentEvalTextMatcher } from '@ouispec/contract';
+import { toolName } from '@ouispec/bindings';
+import type { AgentEvalBound, AgentEvalExpectation, AgentEvalPage, AgentEvalScenario, AgentEvalSuite, AgentEvalTextMatcher } from '@ouispec/contract';
 import type { AgentEvalConfig, EvalAgentConfig, EvalChannel, EvalMode } from './config.js';
 import { CASSETTE_VERSION, cassettePath, fingerprint, readCassette, writeCassette } from './cassettes.js';
 import { checkSuite, readSuiteFile } from './suite.js';
 import { DEFAULT_REFUSAL, describeMatcher, holdsSubset, matchesText } from './matchers.js';
-import { judge } from './judge.js';
-import { NO_PAGE, createMemoryApprovalStore, createMemoryEmit, createMemoryStops } from './memory.js';
+import { judge, type JudgeOptions } from './judge.js';
+import { NO_PAGE, createMemoryApprovalStore, createMemoryEmit, createMemoryHistory, createMemoryStops } from './memory.js';
+import { createFixturePage, type EvalPage, type EvalPageRun } from './page.js';
+import { recordingCalls, turnUsage, type EvalModelCall, type EvalTurnUsage } from './usage.js';
 
 // ─── What a run reports ─────────────────────────────────────────────────────
 
@@ -44,9 +49,24 @@ import { NO_PAGE, createMemoryApprovalStore, createMemoryEmit, createMemoryStops
 export interface EvalFailure {
   /** The turn it is about (0-based, in the scenario's turns); -1 for the case as a whole. */
   turn: number;
-  /** `says`, `toolCalled`, …; `recording`, `stub`, `scenario` or `turn` for what stopped the case. */
+  /** `says`, `toolCalled`, …; `recording`, `stub`, `scenario`, `page` or `turn` for what stopped the case. */
   assertion: string;
   message: string;
+  /**
+   * `assertion`: the agent did not do what the scenario says. `judge`: a
+   * rubric could not be decided, because the judge gave no verdict; the reply
+   * was not judged, so this says nothing about the agent. `case`: the case
+   * could not run as written (no recording, a call no stub answers, a turn
+   * that failed).
+   */
+  kind: 'assertion' | 'judge' | 'case';
+}
+
+/** Choice buttons a turn offered (`present_options`). */
+export interface EvalChoices {
+  /** What is asked with them: what it says first, then the question. */
+  question: string;
+  options: Array<{ label: string; value?: string; description?: string }>;
 }
 
 /** What one of the agent's turns did, as the assertions read it. */
@@ -62,7 +82,14 @@ export interface EvalTurnRecord {
   approval: { tool: string; args: Record<string, unknown>; preview: ApprovalPreview } | null;
   /** True when the turn ran no model call because a person held the conversation. */
   held: boolean;
+  /** Requests that reached the model's network in the turn, retries included. */
   modelRequests: number;
+  /** What the turn's model calls used, as the provider reported it. */
+  usage: EvalTurnUsage;
+  /** The choice buttons it offered. */
+  choices: EvalChoices[];
+  /** Where the page was after the turn, and what ran on it during the turn; null with no page. */
+  page: { at: string; ran: EvalPageRun[] } | null;
   outcome: TurnOutcome['status'];
   stopReason?: string;
 }
@@ -73,7 +100,10 @@ export interface EvalCaseResult {
   title: string;
   channel: string;
   mode: EvalMode;
+  /** True only when every assertion held and every rubric was judged. */
   passed: boolean;
+  /** `failed`: an assertion did not hold, or the case could not run; `unjudged`: none failed, but a rubric could not be judged. */
+  status: 'passed' | 'failed' | 'unjudged';
   failures: EvalFailure[];
   turns: EvalTurnRecord[];
   /** The recording's file. */
@@ -87,6 +117,8 @@ export interface EvalReport {
   cases: EvalCaseResult[];
   passed: number;
   failed: number;
+  /** Cases where nothing failed but a rubric could not be judged. */
+  unjudged: number;
 }
 
 /** One scenario on one channel, ready to run. */
@@ -110,7 +142,8 @@ export class EvalCaseFailed extends Error {
   }
 }
 
-export const failureLine = (f: EvalFailure) => `${f.turn >= 0 ? `turn ${f.turn + 1}, ` : ''}${f.assertion}: ${f.message}`;
+export const failureLine = (f: EvalFailure) =>
+  `${f.turn >= 0 ? `turn ${f.turn + 1}, ` : ''}${f.kind === 'judge' ? 'not judged, ' : ''}${f.assertion}: ${f.message}`;
 
 export interface EvalRunOptions {
   /** Default `replay`. */
@@ -187,8 +220,8 @@ export async function runEvals(
     results.push(result);
     options.onCase?.(result);
   }
-  const passed = results.filter((r) => r.passed).length;
-  return { mode: options.mode ?? 'replay', cases: results, passed, failed: results.length - passed };
+  const count = (status: EvalCaseResult['status']) => results.filter((r) => r.status === status).length;
+  return { mode: options.mode ?? 'replay', cases: results, passed: count('passed'), failed: count('failed'), unjudged: count('unjudged') };
 }
 
 // ─── One case ───────────────────────────────────────────────────────────────
@@ -210,14 +243,35 @@ const AGENT_PARTS = [
   'retries',
   'beforeTurn',
   'filterEvent',
+  'modelProviderOptions',
+  'forcedToolChoice',
 ] as const satisfies ReadonlyArray<keyof EvalAgentConfig>;
 
 /** Only the parts a turn runs with: anything else a product's configuration carries (its storage, its realtime server) stays out. */
-function agentParts(config: EvalAgentConfig): Omit<EvalAgentConfig, 'tools' | 'approvals'> {
+function agentParts(config: EvalAgentConfig): Omit<EvalAgentConfig, 'tools' | 'approvals' | 'uiActions'> {
   const parts: Record<string, unknown> = {};
   for (const key of AGENT_PARTS) if (config[key] !== undefined) parts[key] = config[key];
-  return parts as Omit<EvalAgentConfig, 'tools' | 'approvals'>;
+  return parts as Omit<EvalAgentConfig, 'tools' | 'approvals' | 'uiActions'>;
 }
+
+/** The SDK's own interaction tools (`present_options`, `confirm_action`, …): they reach no backend, so with no stub they run as they are. */
+const INTERACTION_TOOLS = new Set(loadBuiltinTools().map((t) => t.name));
+
+/** The choice buttons among a turn's calls. */
+const choicesOf = (calls: ReadonlyArray<{ name: string; args: Record<string, unknown> }>): EvalChoices[] =>
+  calls
+    .filter((c) => c.name === 'present_options')
+    .map((c) => {
+      const { context, prompt, options } = c.args as { context?: unknown; prompt?: unknown; options?: unknown };
+      return {
+        question: [context, prompt].filter((part): part is string => typeof part === 'string' && part.trim() !== '').join('\n\n'),
+        options: (Array.isArray(options) ? options : []).map((o: Record<string, unknown>) => ({
+          label: String(o?.label ?? ''),
+          ...(typeof o?.value === 'string' ? { value: o.value } : {}),
+          ...(typeof o?.description === 'string' ? { description: o.description } : {}),
+        })),
+      };
+    });
 
 /** The text a stored turn's messages said to the customer, in order. */
 const replyOf = (messages: readonly TurnMessage[]) =>
@@ -241,22 +295,26 @@ export async function runEvalCase(
   const settings: EvalChannel = config.channels[channel] ?? {};
   const failures: EvalFailure[] = [];
   const turns: EvalTurnRecord[] = [];
-  const fail = (turn: number, assertion: string, message: string) => failures.push({ turn, assertion, message });
+  const fail = (turn: number, assertion: string, message: string, kind: EvalFailure['kind'] = 'case') => failures.push({ turn, assertion, message, kind });
   const path = cassettePath(target.cassettes, suite, scenario, channel);
   let modelRequests = 0;
-  const result = (): EvalCaseResult => ({
+  const result = (): EvalCaseResult => {
+    const status = failures.length === 0 ? 'passed' : failures.every((f) => f.kind === 'judge') ? 'unjudged' : 'failed';
+    return {
     suite: suite.name,
     scenario: scenario.id,
     title: scenario.title,
     channel,
     mode,
-    passed: failures.length === 0,
+    passed: status === 'passed',
+    status,
     failures,
     turns,
     cassette: path,
     modelRequests,
     durationMs: Date.now() - started,
-  });
+    };
+  };
 
   const customer = { userId: config.customer?.userId ?? 'eval-customer', accountId: config.customer?.accountId ?? 'eval-account' };
   const conversationId = `eval-${scenario.id}-${channel}`;
@@ -269,12 +327,19 @@ export async function runEvalCase(
   const agent = await config.agent({ channel, scenario, suite });
   const resolveTools = async (turnId: string): Promise<RegisteredTool[]> =>
     typeof agent.tools === 'function' ? await agent.tools({ ...customer, turnId }) : agent.tools;
+  // The person's page: the scenario's, else the suite's.
+  const pageFixture: AgentEvalPage | null = scenario.page === false ? null : (scenario.page ?? suite.page ?? null);
   const configured = fingerprint({
     systemPrompt: hostSystemPrompt(agent, { ...customer, context: withoutClientUI(context) }),
     tools: await resolveTools(`${conversationId}-0`),
     channel: { name: channel, settings },
     suite,
     scenario,
+    // What else shapes what the model is asked, when the scenario has it.
+    ...(pageFixture ? { page: { fixture: pageFixture, manifest: config.page?.manifest ?? null, knowledge: config.page?.knowledge ?? null } } : {}),
+    ...(agent.modelProviderOptions !== undefined ? { modelProviderOptions: agent.modelProviderOptions } : {}),
+    ...(agent.forcedToolChoice !== undefined ? { forcedToolChoice: agent.forcedToolChoice } : {}),
+    ...(agent.uiActions !== undefined ? { uiActions: agent.uiActions } : {}),
   });
 
   // The model's network: replayed, recorded or live, every request counted.
@@ -304,7 +369,10 @@ export async function runEvalCase(
     modelRequests += 1;
     return network(input, init);
   };
-  const model = config.model({ fetch: counted, mode, purpose: 'agent' });
+  const providerModel = config.model({ fetch: counted, mode, purpose: 'agent' });
+  // Every call of the agent's model, as the provider reported what it used: never the judge's.
+  const modelCalls: EvalModelCall[] = [];
+  const model = recordingCalls(providerModel, (call) => modelCalls.push(call));
   const judgeModel = (config.judge ?? config.model)({ fetch: counted, mode, purpose: 'judge' });
 
   // Each tool runs only as its stub says: an eval never reaches a real backend.
@@ -321,17 +389,28 @@ export async function runEvalCase(
     async execute(args, call) {
       const answer = await stubbed(tool, args, call);
       if (answer) return answer;
+      if (INTERACTION_TOOLS.has(tool.name)) return tool.execute(args, call);
       fail(currentTurn, 'stub', `the agent called ${tool.name} with ${JSON.stringify(args)}, and no stub answers that call`);
       return { success: false, error: `[agent-evals] ${tool.name} has no stub for this call; nothing was run` };
     },
   });
 
-  // The realtime server and the product's store, in memory.
+  // The person's page, as the fixture declares it.
+  let page: EvalPage | null = null;
+  if (pageFixture) {
+    try {
+      page = createFixturePage(pageFixture, config.page);
+    } catch (err) {
+      fail(-1, 'page', err instanceof Error ? err.message : String(err));
+      return result();
+    }
+  }
+
+  // The realtime server in memory, and the product's store (its own, or the whole conversation in memory).
   const emit = createMemoryEmit();
   const approvals = createMemoryApprovalStore();
   const stops = createMemoryStops();
-  const history: TurnHistoryMessage[] = [];
-  let snapshot: TurnHistoryMessage[] = [];
+  const history = await (config.history?.({ channel, scenario, suite }) ?? createMemoryHistory());
   let stored: Array<{ messages: TurnMessage[]; stopped?: TurnStoppedMarker }> = [];
   const runner = createAgentTurnRunner<null>({
     ...agentParts(agent),
@@ -339,7 +418,8 @@ export async function runEvalCase(
     model,
     ...(config.promptCacheBreakpoint ? { promptCacheBreakpoint: config.promptCacheBreakpoint } : {}),
     realtime: { url: NOWHERE, apiKey: 'agent-evals', emit },
-    uiActions: { channel: NO_PAGE },
+    // The page answers; with none, nothing does, at once (a turn whose context carries a snapshot is told the page is not responding).
+    uiActions: { ...agent.uiActions, ...(page ? { channel: page.channel } : { channel: NO_PAGE, resultTimeoutMs: 0 }) },
     approvals: {
       store: approvals,
       ...(agent.approvals?.preview ? { preview: agent.approvals.preview } : {}),
@@ -347,10 +427,10 @@ export async function runEvalCase(
     },
     stops: { client: stops },
     getDb: async () => null,
-    getHistory: async () => snapshot,
-    persistMessages: async ({ messages, stopped }) => {
-      stored.push({ messages, ...(stopped ? { stopped } : {}) });
-      history.push(...historyOf(messages));
+    getHistory: (id, _db, turn) => history.getHistory(id, turn),
+    persistMessages: async ({ db: _db, ...turn }) => {
+      stored.push({ messages: turn.messages, ...(turn.stopped ? { stopped: turn.stopped } : {}) });
+      return history.persistMessages(turn);
     },
     logger: QUIET,
   });
@@ -358,21 +438,26 @@ export async function runEvalCase(
   const runTurn = async (index: number, kind: 'user' | 'approval', payload: Pick<AgentTurnPayload, 'content' | 'approval'>) => {
     currentTurn = index;
     const turnId = `${conversationId}-${index}`;
-    snapshot = [...history];
-    if (kind === 'user') history.push({ role: 'user', content: payload.content });
+    // The product's API stores the customer's message before it runs the turn.
+    if (kind === 'user') await history.append(conversationId, { role: 'user', content: payload.content });
     stored = [];
     const before = modelRequests;
+    const callsBefore = modelCalls.length;
+    const ranBefore = page?.ran.length ?? 0;
+    // The turn is sent from where the page is, with what it offers now, as the person's tab sends it.
+    const pageContext = page ? await page.context() : {};
     const outcome = await runner.run({
       turnId,
       conversationId,
       ...customer,
       socketRoom: `eval:turn:${turnId}`,
       content: payload.content,
-      context: kind === 'user' ? context : sharedContext,
+      context: { ...(kind === 'user' ? context : sharedContext), ...pageContext },
       channel: approvalChannel,
       ...(payload.approval ? { approval: payload.approval } : {}),
     });
     const messages = stored.flatMap((s) => s.messages);
+    const toolCalls = messages.flatMap((m) => (m.toolCalls ?? []).map((c) => ({ name: c.name, args: c.arguments })));
     const asked = emit.events.find((e) => e.event === AGENT_SOCKET_EVENTS.APPROVAL_REQUIRED && e.data.turnId === turnId);
     const pending = asked ? approvals.asked.find((a) => a.approvalId === asked.data.approvalId) : undefined;
     const stopReason = outcome.status === 'stopped' ? outcome.stopReason : undefined;
@@ -381,10 +466,13 @@ export async function runEvalCase(
       kind,
       customer: payload.content,
       reply: replyOf(messages),
-      toolCalls: messages.flatMap((m) => (m.toolCalls ?? []).map((c) => ({ name: c.name, args: c.arguments }))),
+      toolCalls,
       approval: pending ? { tool: pending.tool, args: pending.args, preview: pending.preview } : null,
       held: stopReason === 'taken_over' && modelRequests === before,
       modelRequests: modelRequests - before,
+      usage: turnUsage(modelCalls.slice(callsBefore)),
+      choices: choicesOf(toolCalls),
+      page: page ? { at: page.location(), ran: page.ran.slice(ranBefore) } : null,
       outcome: outcome.status,
       ...(stopReason ? { stopReason } : {}),
     };
@@ -402,12 +490,12 @@ export async function runEvalCase(
           const { displayName, role, userId } = action.takeOver;
           held = { userId: userId ?? `staff-${displayName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, displayName, ...(role ? { role } : {}) };
           stops.hold(conversationId, held);
-          history.push({ role: 'staff', speaker: held, content: null, takeover: 'taken_over' });
+          await history.append(conversationId, { role: 'staff', speaker: held, content: null, takeover: 'taken_over' });
         } else if ('say' in action) {
-          history.push({ role: 'staff', speaker: held!, content: action.say });
+          await history.append(conversationId, { role: 'staff', speaker: held!, content: action.say });
         } else {
           stops.release(conversationId);
-          history.push({ role: 'staff', speaker: held!, content: null, takeover: 'handed_back' });
+          await history.append(conversationId, { role: 'staff', speaker: held!, content: null, takeover: 'handed_back' });
           held = null;
         }
         continue;
@@ -426,6 +514,8 @@ export async function runEvalCase(
           fail(index, 'scenario', `the approval of ${waiting.tool} could not be decided: ${decided.reason}`);
           break;
         }
+        // The approval store hands the person's tab its grant, so the page runs the approved request.
+        if (page && decided.decision === 'approve') page.grant({ approvalId: decided.approvalId, argsHash: decided.argsHash, expiresAt: decided.expiresAt });
         ran = await runTurn(index, 'approval', {
           content: '',
           approval:
@@ -435,10 +525,14 @@ export async function runEvalCase(
         });
       }
       const expectation = mergeExpectations(turn.expect, turn.expectOn?.[channel]);
-      for (const failure of await check(expectation, ran.record, ran.stored, judgeModel)) fail(index, failure.assertion, failure.message);
+      for (const failure of await check(expectation, ran.record, ran.stored, judgeModel, { judge: config.judgeOptions })) {
+        fail(index, failure.assertion, failure.message, failure.kind ?? 'assertion');
+      }
     }
   } catch (err) {
     fail(currentTurn, 'turn', `the run stopped: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    page?.close();
   }
 
   // Replayed, the run asks exactly what was recorded: fewer requests is a run that went another way.
@@ -451,7 +545,7 @@ export async function runEvalCase(
       suite: suite.name,
       scenario: scenario.id,
       channel,
-      model: describeModel(model),
+      model: describeModel(providerModel),
       recordedAt: new Date().toISOString(),
       fingerprint: configured,
       exchanges,
@@ -466,7 +560,7 @@ export async function runEvalCase(
 export function mergeExpectations(general?: AgentEvalExpectation, channel?: AgentEvalExpectation): AgentEvalExpectation {
   if (!general) return channel ?? {};
   if (!channel) return general;
-  const lists = ['says', 'mustNotSay', 'toolCalled', 'toolNotCalled', 'doesNotStore'] as const;
+  const lists = ['says', 'mustNotSay', 'toolCalled', 'toolNotCalled', 'doesNotStore', 'calls'] as const;
   const merged: Record<string, unknown> = { ...general, ...channel };
   for (const key of lists) {
     const joined = [...(general[key] ?? []), ...(channel[key] ?? [])];
@@ -477,21 +571,47 @@ export function mergeExpectations(general?: AgentEvalExpectation, channel?: Agen
 
 type Judge = Parameters<typeof judge>[0];
 
+/** One way a turn broke its expectation; `kind: 'judge'` when a rubric could not be judged at all. */
+export interface CheckFailure {
+  assertion: string;
+  message: string;
+  kind?: 'assertion' | 'judge';
+}
+
 /** Whether a matcher matches `text`; a rubric is put to the judge. */
 async function matches(
   matcher: AgentEvalTextMatcher,
   text: string,
   record: EvalTurnRecord,
   judgeModel: Judge,
+  options: JudgeOptions | undefined,
 ): Promise<{ matched: boolean; why?: string } | { error: string }> {
   if (typeof matcher === 'object' && 'rubric' in matcher) {
-    const verdict = await judge(judgeModel, matcher.rubric, record.customer, text);
+    const verdict = await judge(judgeModel, matcher.rubric, record.customer, text, options);
     return 'error' in verdict ? verdict : { matched: verdict.pass, why: verdict.reason };
   }
   return { matched: matchesText(matcher, text) };
 }
 
 const quoted = (text: string) => JSON.stringify(text.length > 400 ? `${text.slice(0, 400)}…` : text);
+const pct = (share: number) => `${Math.round(share * 1000) / 10}%`;
+
+/** A page action named either way: by its id (`service-lane.view`) or by its name in the index (`service_lane_view`). */
+const sameAction = (a: string, b: string) => a === b || toolName(a) === toolName(b);
+
+/** How a bound reads in a report: "1", "at least 2", "at most 40,000", "2 to 4". */
+function describeBound(bound: { min?: number; max?: number }, format: (n: number) => string = (n) => n.toLocaleString('en-US')): string {
+  if (bound.min !== undefined && bound.max !== undefined) return bound.min === bound.max ? format(bound.min) : `${format(bound.min)} to ${format(bound.max)}`;
+  return bound.min !== undefined ? `at least ${format(bound.min)}` : `at most ${format(bound.max!)}`;
+}
+const within = (value: number, bound: { min?: number; max?: number }) =>
+  (bound.min === undefined || value >= bound.min) && (bound.max === undefined || value <= bound.max);
+
+/** Where an address points: its path, and its query's parameters. */
+function addressOf(address: string): { path: string; query: Record<string, string> } {
+  const url = new URL(address, 'http://page.invalid');
+  return { path: url.pathname.replace(/\/+$/, '') || '/', query: Object.fromEntries(url.searchParams) };
+}
 
 /** Every way a turn breaks its expectation. */
 export async function check(
@@ -499,14 +619,15 @@ export async function check(
   record: EvalTurnRecord,
   stored: string,
   judgeModel: Judge,
-): Promise<Array<{ assertion: string; message: string }>> {
-  const out: Array<{ assertion: string; message: string }> = [];
+  options: { judge?: JudgeOptions } = {},
+): Promise<CheckFailure[]> {
+  const out: CheckFailure[] = [];
   const reply = record.reply;
 
   const textAssertion = async (assertion: string, matcher: AgentEvalTextMatcher, text: string, want: boolean, what: string) => {
-    const got = await matches(matcher, text, record, judgeModel);
+    const got = await matches(matcher, text, record, judgeModel, options.judge);
     if ('error' in got) {
-      out.push({ assertion, message: `${describeMatcher(matcher)} could not be judged: ${got.error}` });
+      out.push({ assertion, message: `${describeMatcher(matcher)} could not be judged: ${got.error}`, kind: 'judge' });
     } else if (got.matched !== want) {
       out.push({
         assertion,
@@ -523,7 +644,9 @@ export async function check(
   for (const matcher of expect.doesNotStore ?? []) await textAssertion('doesNotStore', matcher, stored, false, 'what the turn stored');
 
   const calls = record.toolCalls;
-  const callsText = calls.length ? calls.map((c) => `${c.name} ${JSON.stringify(c.args)}`).join('; ') : 'no tool';
+  const describeCall = (c: { name: string; args: Record<string, unknown> }) =>
+    c.name === UI_ACT_TOOL && typeof c.args.action === 'string' ? `${UI_ACT_TOOL} ${c.args.action} ${JSON.stringify(c.args.input ?? {})}` : `${c.name} ${JSON.stringify(c.args)}`;
+  const callsText = calls.length ? calls.map(describeCall).join('; ') : 'no tool';
   for (const wanted of expect.toolCalled ?? []) {
     const hit = calls.some((c) => c.name === wanted.name && (wanted.args === undefined || holdsSubset(c.args, wanted.args)));
     if (!hit) {
@@ -536,6 +659,30 @@ export async function check(
   for (const name of expect.toolNotCalled ?? []) {
     const hit = name === '*' ? calls.length > 0 : calls.some((c) => c.name === name);
     if (hit) out.push({ assertion: 'toolNotCalled', message: `${name === '*' ? 'a tool' : name} was called: ${callsText}` });
+  }
+
+  for (const counted of expect.calls ?? []) {
+    const n = calls.filter((c) =>
+      'tool' in counted
+        ? c.name === counted.tool && (counted.args === undefined || holdsSubset(c.args, counted.args))
+        : c.name === UI_ACT_TOOL &&
+          typeof c.args.action === 'string' &&
+          sameAction(c.args.action, counted.action) &&
+          (counted.args === undefined || holdsSubset(c.args.input ?? {}, counted.args)),
+    ).length;
+    const bound: AgentEvalBound =
+      counted.times !== undefined
+        ? { min: counted.times, max: counted.times }
+        : counted.min === undefined && counted.max === undefined
+          ? { min: 1 }
+          : { ...(counted.min !== undefined ? { min: counted.min } : {}), ...(counted.max !== undefined ? { max: counted.max } : {}) };
+    if (!within(n, bound)) {
+      const what = 'tool' in counted ? counted.tool : `the page's action ${counted.action}`;
+      out.push({
+        assertion: 'calls',
+        message: `${what}${counted.args ? ` with ${JSON.stringify(counted.args)}` : ''} was called ${n} time${n === 1 ? '' : 's'}, not ${describeBound(bound)}; the agent called ${callsText}`,
+      });
+    }
   }
 
   if (expect.approvalRequested === false) {
@@ -562,6 +709,89 @@ export async function check(
         ? `the turn ran (${record.modelRequests} model request${record.modelRequests === 1 ? '' : 's'}, ${record.stopReason ?? record.outcome}): it should not have, while a person held the conversation`
         : 'the turn did not run: a person held the conversation',
     });
+  }
+
+  if (expect.usage) {
+    const u = record.usage;
+    const bounds: Array<[string, number, AgentEvalBound | undefined, string]> = [
+      ['modelCalls', u.calls.length, expect.usage.modelCalls, 'model calls'],
+      ['firstCallInputTokens', u.firstCallInputTokens, expect.usage.firstCallInputTokens, 'input tokens in its first model call'],
+      ['inputTokens', u.inputTokens, expect.usage.inputTokens, 'input tokens in all its model calls'],
+      ['outputTokens', u.outputTokens, expect.usage.outputTokens, 'output tokens'],
+    ];
+    for (const [name, value, bound, what] of bounds) {
+      if (bound && !within(value, bound)) out.push({ assertion: `usage.${name}`, message: `the turn used ${value.toLocaleString('en-US')} ${what}, not ${describeBound(bound)}` });
+    }
+    const perCall = expect.usage.callInputTokens;
+    if (perCall) {
+      const outside = u.calls.map((c, i) => [i + 1, c.inputTokens] as const).filter(([, n]) => !within(n, perCall));
+      if (outside.length > 0) {
+        out.push({
+          assertion: 'usage.callInputTokens',
+          message: `${outside.map(([i, n]) => `call ${i} used ${n.toLocaleString('en-US')}`).join(', ')} input tokens, not ${describeBound(perCall)} each`,
+        });
+      }
+    }
+    const share = expect.usage.cachedShare;
+    if (share && !within(u.cachedShare, share)) {
+      out.push({
+        assertion: 'usage.cachedShare',
+        message: `${pct(u.cachedShare)} of its input (${u.cacheReadTokens.toLocaleString('en-US')} of ${u.inputTokens.toLocaleString('en-US')} tokens) was read from the prompt cache, not ${describeBound(share, pct)}`,
+      });
+    }
+  }
+
+  if (expect.choices === false) {
+    if (record.choices.length > 0) {
+      out.push({ assertion: 'choices', message: `the turn offered choices: ${record.choices.flatMap((c) => c.options.map((o) => JSON.stringify(o.label))).join(', ')}` });
+    }
+  } else if (expect.choices) {
+    const wanted = expect.choices;
+    const options = record.choices.flatMap((c) => c.options);
+    if (record.choices.length === 0) {
+      out.push({ assertion: 'choices', message: `the turn offered no choices; the agent called ${callsText}` });
+    } else {
+      const optionText = (o: (typeof options)[number]) => (o.description ? `${o.label}: ${o.description}` : o.label);
+      const listed = options.map((o) => `- ${optionText(o)}`).join('\n');
+      for (const matcher of wanted.options ?? []) {
+        if (typeof matcher === 'object' && 'rubric' in matcher) {
+          // A judge reads the options as the person sees them.
+          await textAssertion('choices', matcher, listed, true, 'the choices offered');
+        } else if (!options.some((o) => matchesText(matcher, optionText(o)))) {
+          out.push({ assertion: 'choices', message: `no choice offered matches ${describeMatcher(matcher)}: ${options.map((o) => JSON.stringify(o.label)).join(', ')}` });
+        }
+      }
+      const question = record.choices.map((c) => c.question).join('\n\n');
+      for (const matcher of wanted.question ?? []) await textAssertion('choices', matcher, question, true, 'the question asked with the choices');
+      if (wanted.count && !within(options.length, wanted.count)) {
+        out.push({ assertion: 'choices', message: `${options.length} choice${options.length === 1 ? ' was' : 's were'} offered, not ${describeBound(wanted.count)}` });
+      }
+    }
+  }
+
+  if (expect.page) {
+    const wanted = expect.page;
+    const page = record.page;
+    if (!page) {
+      out.push({ assertion: 'page', message: 'the scenario has no page: give the suite or the scenario one (`page`)' });
+    } else {
+      const ranText = page.ran.length ? page.ran.map((r) => `${r.action} ${JSON.stringify(r.input)}`).join('; ') : 'nothing';
+      if (wanted.at !== undefined) {
+        const want = addressOf(wanted.at);
+        const got = addressOf(page.at);
+        if (got.path !== want.path || !Object.entries(want.query).every(([k, v]) => got.query[k] === v)) {
+          out.push({ assertion: 'page.at', message: `the page is at ${page.at}, not ${wanted.at}` });
+        }
+      }
+      for (const run of wanted.ran ?? []) {
+        const hit = page.ran.some((r) => (sameAction(r.action, run.action) || sameAction(r.id, run.action)) && (run.input === undefined || holdsSubset(r.input, run.input)));
+        if (!hit) out.push({ assertion: 'page.ran', message: `${run.action}${run.input ? ` with ${JSON.stringify(run.input)}` : ''} did not run on the page; it ran ${ranText}` });
+      }
+      for (const name of wanted.notRan ?? []) {
+        const hit = name === '*' ? page.ran.length > 0 : page.ran.some((r) => sameAction(r.action, name) || sameAction(r.id, name));
+        if (hit) out.push({ assertion: 'page.notRan', message: `${name === '*' ? 'an action' : name} ran on the page: ${ranText}` });
+      }
+    }
   }
   return out;
 }

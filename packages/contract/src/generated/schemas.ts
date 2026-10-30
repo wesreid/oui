@@ -4268,6 +4268,10 @@ export const CONTRACT_SCHEMAS = {
         "description": "What each tool returns, for every scenario; a scenario's own stubs come first.",
         "$ref": "#/$defs/AgentEvalStubs"
       },
+      "page": {
+        "description": "The person's page, scripted, for every scenario: what it offers at each address and what its actions do. Each turn is sent from it, and the agent's page actions are answered by it. A scenario's own `page` replaces it.",
+        "$ref": "#/$defs/AgentEvalPage"
+      },
       "scenarios": {
         "type": "array",
         "items": {
@@ -4323,6 +4327,17 @@ export const CONTRACT_SCHEMAS = {
           "stubs": {
             "description": "What each tool returns in this scenario, before the suite's stubs.",
             "$ref": "#/$defs/AgentEvalStubs"
+          },
+          "page": {
+            "description": "The page this scenario's turns are sent from, in place of the suite's; `false`: no page.",
+            "oneOf": [
+              {
+                "const": false
+              },
+              {
+                "$ref": "#/$defs/AgentEvalPage"
+              }
+            ]
           },
           "turns": {
             "type": "array",
@@ -4611,6 +4626,32 @@ export const CONTRACT_SCHEMAS = {
           "held": {
             "description": "`true`: the turn ran no model call, because a person held the conversation.",
             "type": "boolean"
+          },
+          "calls": {
+            "description": "How many times each tool, or each of the page's actions, was called in the turn.",
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AgentEvalCallCount"
+            }
+          },
+          "usage": {
+            "description": "What the turn's model calls used, as the provider reported it.",
+            "$ref": "#/$defs/AgentEvalUsage"
+          },
+          "choices": {
+            "description": "The turn offered the person choice buttons (`present_options`) that match; `false`: it offered none.",
+            "oneOf": [
+              {
+                "const": false
+              },
+              {
+                "$ref": "#/$defs/AgentEvalChoicesExpectation"
+              }
+            ]
+          },
+          "page": {
+            "description": "What the page did in the turn, read from the page itself.",
+            "$ref": "#/$defs/AgentEvalPageExpectation"
           }
         },
         "additionalProperties": false
@@ -4662,6 +4703,526 @@ export const CONTRACT_SCHEMAS = {
           },
           "minItems": 1
         }
+      },
+      "AgentEvalPage": {
+        "description": "The person's page, scripted. The harness runs it on a real oui-spec surface runtime in index form, sends each turn from where it is (its address and its snapshot, as the person's tab sends them), and answers the agent's page actions (`ui_act`, `ui_describe`, `ui_read`) from it. Its surfaces are declared here, or are the product's own: the controls of its generated manifest, given to the configuration (`page.manifest`), mounted as its tab mounts them.",
+        "type": "object",
+        "properties": {
+          "at": {
+            "description": "The address the first turn is sent from. Each later turn is sent from wherever the page is by then.",
+            "type": "string",
+            "pattern": "^/"
+          },
+          "routes": {
+            "description": "The addresses going to a page accepts, as route patterns (`/leads/:id`), when the manifest declares no navigation surface of its own. Default: every surface's routes, the manifest's pages, and `at`.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^/"
+            },
+            "uniqueItems": true
+          },
+          "navigation": {
+            "description": "Whether the page offers going to a page by its address (`app.navigate`), as a generated app does: the manifest's navigation surface, or one made from `routes`, run by the bindings as the product's tab runs it. Default: true.",
+            "type": "boolean"
+          },
+          "surfaces": {
+            "description": "Surfaces declared here, each mounted while the page is at one of its routes.",
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AgentEvalPageSurface"
+            }
+          },
+          "controls": {
+            "description": "The product's own controls, by binding id in the configuration's manifest: each is mounted while the page is on its surface, with what it shows and what it does.",
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/$defs/AgentEvalPageControl"
+            }
+          },
+          "allControls": {
+            "description": "Also mount every other control the manifest declares on a surface that is mounted, with no value, as an empty form shows them. A list's per-row controls are not: no row is rendered. Default: false.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "at"
+        ],
+        "additionalProperties": false
+      },
+      "AgentEvalPageSurface": {
+        "description": "A surface of the page: its actions, and what it reports.",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "routes": {
+            "description": "Where it is mounted, as route patterns. Absent: on every page, as a shell is.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^/"
+            },
+            "uniqueItems": true
+          },
+          "state": {
+            "description": "What it reports when the page opens, by observation id.",
+            "type": "object",
+            "additionalProperties": true
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AgentEvalPageAction"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "actions"
+        ],
+        "additionalProperties": false
+      },
+      "AgentEvalPageAction": {
+        "description": "An action of a declared surface, and what it does when it runs.",
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "As the page's index names it, and `ui_act` takes it.",
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "effect": {
+            "description": "What it changes (oui-spec's effect kinds).",
+            "enum": [
+              "view",
+              "selection",
+              "navigate",
+              "open",
+              "edit",
+              "file",
+              "mutate",
+              "job",
+              "transaction"
+            ]
+          },
+          "confirm": {
+            "description": "It asks the person to approve it first.",
+            "type": "boolean"
+          },
+          "input": {
+            "description": "What it takes, as a JSON Schema. Default: nothing.",
+            "type": "object"
+          },
+          "result": {
+            "description": "What it answers. Default: it succeeds, returning nothing.",
+            "type": "object",
+            "properties": {
+              "success": {
+                "type": "boolean"
+              },
+              "data": {},
+              "error": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "success"
+            ],
+            "additionalProperties": false
+          },
+          "state": {
+            "description": "Its surface's observations once it has run, by observation id: each given replaces the one before.",
+            "type": "object",
+            "additionalProperties": true
+          },
+          "navigate": {
+            "description": "The address the page goes to once it has run.",
+            "type": "string",
+            "pattern": "^/"
+          },
+          "cases": {
+            "description": "What it does for a call whose input holds `when`, the first that matches; a call none matches gets the defaults beside them.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "when": {
+                  "description": "A subset of its input; absent: any call.",
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "result": {
+                  "description": "What it answers. Default: it succeeds, returning nothing.",
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {},
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ],
+                  "additionalProperties": false
+                },
+                "state": {
+                  "description": "Its surface's observations once it has run, by observation id: each given replaces the one before.",
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "navigate": {
+                  "description": "The address the page goes to once it has run.",
+                  "type": "string",
+                  "pattern": "^/"
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "id",
+          "description"
+        ],
+        "additionalProperties": false
+      },
+      "AgentEvalPageControl": {
+        "description": "One of the product's controls, as the page shows it, and what it does when it runs (default: it takes the value it is given, and succeeds).",
+        "type": "object",
+        "properties": {
+          "value": {
+            "description": "What it shows when the page opens. A run sets it to the value it was given."
+          },
+          "title": {
+            "description": "What it is called on screen. Default: the manifest's title.",
+            "type": "string",
+            "minLength": 1
+          },
+          "valueSchema": {
+            "description": "Its live value schema (its options, its range), within the manifest's.",
+            "type": "object"
+          },
+          "disabled": {
+            "description": "It cannot be used: it is not offered.",
+            "type": "boolean"
+          },
+          "rows": {
+            "description": "For a list's control: one per row shown.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": {
+                  "type": "string"
+                },
+                "value": {}
+              },
+              "required": [
+                "key",
+                "title"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "routes": {
+            "description": "Where it is mounted, when not wherever its surface is.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^/"
+            },
+            "uniqueItems": true
+          },
+          "result": {
+            "description": "What it answers. Default: it succeeds, returning nothing.",
+            "type": "object",
+            "properties": {
+              "success": {
+                "type": "boolean"
+              },
+              "data": {},
+              "error": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "success"
+            ],
+            "additionalProperties": false
+          },
+          "navigate": {
+            "description": "The address the page goes to once it has run.",
+            "type": "string",
+            "pattern": "^/"
+          },
+          "cases": {
+            "description": "What it does for a call whose input holds `when`, the first that matches; a call none matches gets the defaults beside them.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "when": {
+                  "description": "A subset of its input; absent: any call.",
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "result": {
+                  "description": "What it answers. Default: it succeeds, returning nothing.",
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {},
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ],
+                  "additionalProperties": false
+                },
+                "navigate": {
+                  "description": "The address the page goes to once it has run.",
+                  "type": "string",
+                  "pattern": "^/"
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentEvalBound": {
+        "description": "A number at least `min` and at most `max`.",
+        "type": "object",
+        "properties": {
+          "min": {
+            "type": "number",
+            "minimum": 0
+          },
+          "max": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "minProperties": 1,
+        "additionalProperties": false
+      },
+      "AgentEvalShareBound": {
+        "description": "A share, from 0 to 1, at least `min` and at most `max`.",
+        "type": "object",
+        "properties": {
+          "min": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "max": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "minProperties": 1,
+        "additionalProperties": false
+      },
+      "AgentEvalCallCount": {
+        "description": "The calls of one tool (`tool`), or of one of the page's actions run through `ui_act` (`action`, by its id or the name the page's index gives it), whose arguments (a tool's) or input (an action's) hold `args` as a subset, counted: exactly `times`, or at least `min` and at most `max`. With none of the three: at least once.",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "tool": {
+                "type": "string",
+                "minLength": 1
+              },
+              "args": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "times": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "min": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "max": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "tool"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "minLength": 1
+              },
+              "args": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "times": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "min": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "max": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "AgentEvalUsage": {
+        "description": "Bounds on what the turn's model calls used, as the provider reported it. Every bound given must hold.",
+        "type": "object",
+        "properties": {
+          "modelCalls": {
+            "description": "How many model calls the turn made.",
+            "$ref": "#/$defs/AgentEvalBound"
+          },
+          "firstCallInputTokens": {
+            "description": "The input tokens of the turn's first model call: what the turn costs before it has done anything.",
+            "$ref": "#/$defs/AgentEvalBound"
+          },
+          "callInputTokens": {
+            "description": "The input tokens of every one of the turn's model calls: `max` holds the largest, `min` the smallest.",
+            "$ref": "#/$defs/AgentEvalBound"
+          },
+          "inputTokens": {
+            "description": "The input tokens of all the turn's model calls together.",
+            "$ref": "#/$defs/AgentEvalBound"
+          },
+          "outputTokens": {
+            "description": "The output tokens of all the turn's model calls together.",
+            "$ref": "#/$defs/AgentEvalBound"
+          },
+          "cachedShare": {
+            "description": "The share of the turn's input tokens read from the prompt cache.",
+            "$ref": "#/$defs/AgentEvalShareBound"
+          }
+        },
+        "minProperties": 1,
+        "additionalProperties": false
+      },
+      "AgentEvalChoicesExpectation": {
+        "description": "The choice buttons the turn offered (`present_options`).",
+        "type": "object",
+        "properties": {
+          "options": {
+            "description": "Each matches one option offered: its label, or its label and description.",
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AgentEvalTextMatcher"
+            }
+          },
+          "question": {
+            "description": "Each matches what is asked with them: the question, and what it says before it.",
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AgentEvalTextMatcher"
+            }
+          },
+          "count": {
+            "description": "How many options were offered.",
+            "$ref": "#/$defs/AgentEvalBound"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentEvalPageExpectation": {
+        "description": "What the page did in the turn: where it is, and what ran on it.",
+        "type": "object",
+        "properties": {
+          "at": {
+            "description": "Where the page is after the turn: this path, and each query parameter given with the value given.",
+            "type": "string",
+            "pattern": "^/"
+          },
+          "ran": {
+            "description": "Each ran on the page in the turn (by its id or its index name), its input holding `input` as a subset.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "input": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              },
+              "required": [
+                "action"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "notRan": {
+            "description": "None of these ran on the page in the turn; `*`: nothing did.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "additionalProperties": false
       }
     }
   } as ContractSchemaDocument,
@@ -4807,6 +5368,16 @@ export const CONTRACT_TYPES = {
   AgentEvalExpectationsByChannel: 'agent-evals.json#/$defs/AgentEvalExpectationsByChannel',
   AgentEvalStubCase: 'agent-evals.json#/$defs/AgentEvalStubCase',
   AgentEvalStubs: 'agent-evals.json#/$defs/AgentEvalStubs',
+  AgentEvalPage: 'agent-evals.json#/$defs/AgentEvalPage',
+  AgentEvalPageSurface: 'agent-evals.json#/$defs/AgentEvalPageSurface',
+  AgentEvalPageAction: 'agent-evals.json#/$defs/AgentEvalPageAction',
+  AgentEvalPageControl: 'agent-evals.json#/$defs/AgentEvalPageControl',
+  AgentEvalBound: 'agent-evals.json#/$defs/AgentEvalBound',
+  AgentEvalShareBound: 'agent-evals.json#/$defs/AgentEvalShareBound',
+  AgentEvalCallCount: 'agent-evals.json#/$defs/AgentEvalCallCount',
+  AgentEvalUsage: 'agent-evals.json#/$defs/AgentEvalUsage',
+  AgentEvalChoicesExpectation: 'agent-evals.json#/$defs/AgentEvalChoicesExpectation',
+  AgentEvalPageExpectation: 'agent-evals.json#/$defs/AgentEvalPageExpectation',
 } as const;
 
 export type ContractTypeName = keyof typeof CONTRACT_TYPES;

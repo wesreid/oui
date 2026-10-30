@@ -10,14 +10,16 @@
  * it replays the recordings (CI: no credentials, no network); --record runs
  * the live model and writes them; --live runs it and writes nothing.
  *
- * Exits 0 when every case passed, 1 when any failed, 2 when it could not run.
+ * Exits 0 when every case passed, 1 when any failed, 2 when it could not run,
+ * and 3 when none failed but a rubric could not be judged (the judge gave no
+ * verdict, however often it was asked).
  */
 import { existsSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { AgentEvalConfig, EvalMode } from './config.js';
-import { formatReport, junitReport } from './report.js';
-import { failureLine, runEvals } from './run.js';
+import { caseLines, junitReport, summaryLine } from './report.js';
+import { runEvals } from './run.js';
 
 const USAGE =
   'usage: agent-evals [--config <file>] [--record | --live] [--channel <name>]... [--scenario <id>]... [--json <file>] [--junit <file>] [--verbose]';
@@ -140,8 +142,7 @@ async function main(): Promise<number> {
         ...(parsed.scenarios.length ? { scenarios: parsed.scenarios } : {}),
         onCase: (result) => {
           restore();
-          write(`${result.passed ? 'PASS' : 'FAIL'}  ${result.suite} › ${result.scenario} [${result.channel}]  ${result.title}  (${result.durationMs} ms)`);
-          for (const f of result.failures) write(`        ${failureLine(f)}`);
+          for (const line of caseLines(result)) write(line);
           if (!parsed.verbose) quietConsole();
         },
       });
@@ -149,10 +150,10 @@ async function main(): Promise<number> {
       restore();
     }
     write('');
-    write(formatReport(report).split('\n').at(-1)!);
+    write(summaryLine(report));
     if (parsed.json) writeFileSync(resolve(parsed.json), `${JSON.stringify(report, null, 2)}\n`);
     if (parsed.junit) writeFileSync(resolve(parsed.junit), junitReport(report));
-    return report.failed > 0 ? 1 : 0;
+    return report.failed > 0 ? 1 : report.unjudged > 0 ? 3 : 0;
   } catch (err) {
     process.stderr.write(`agent-evals: ${err instanceof Error ? err.message : String(err)}\n`);
     return 2;

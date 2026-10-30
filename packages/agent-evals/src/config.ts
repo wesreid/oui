@@ -6,6 +6,9 @@
 import type { ApprovalChannel, MessageInput } from '@ouispec/agent-core';
 import type { AgentEvalScenario, AgentEvalSuite } from '@ouispec/contract';
 import type { AgentRuntimeConfig, LanguageModel, ProviderOptions, ToolExecutionContext, ToolExecutionResult } from '@ouispec/agent-worker';
+import type { JudgeOptions } from './judge.js';
+import type { EvalHistory } from './memory.js';
+import type { EvalPageSource } from './page.js';
 
 /**
  * How a run reaches the model:
@@ -51,6 +54,8 @@ export type EvalAgentConfig = Pick<
   | 'retries'
   | 'beforeTurn'
   | 'filterEvent'
+  | 'modelProviderOptions'
+  | 'forcedToolChoice'
 > & {
   /**
    * The host's say before an approval is asked for, as its worker has it: its
@@ -58,6 +63,13 @@ export type EvalAgentConfig = Pick<
    * store is the harness's own.
    */
   approvals?: Pick<NonNullable<AgentRuntimeConfig<unknown>['approvals']>, 'preview' | 'validateBeforeApproval'>;
+  /**
+   * How the worker works the page, as its worker has it: how long it waits
+   * for an answer, and how much of the page's index, state and answers the
+   * model is given. The channel is the harness's: the scenario's page
+   * answers, or, with none, nothing does.
+   */
+  uiActions?: Omit<NonNullable<AgentRuntimeConfig<unknown>['uiActions']>, 'channel'>;
 };
 
 /** What the model factory is handed: the fetch every model request must go through, and why the model is wanted. */
@@ -100,6 +112,21 @@ export interface AgentEvalConfig {
   stubs?: Readonly<Record<string, EvalStubFunction>>;
   /** Who the customer is in every turn. Default `{ userId: 'eval-customer', accountId: 'eval-account' }`. */
   customer?: { userId?: string; accountId?: string };
+  /**
+   * The product's generated files a suite's page is built from: its manifest,
+   * for a page that mounts the product's own controls (`page.controls`), and
+   * its knowledge, which each turn carries for the page it is sent from.
+   */
+  page?: EvalPageSource;
+  /**
+   * The product's conversation store for a scenario on a channel: what its
+   * worker's `getHistory` answers (its window, its summary, its step context)
+   * and how its `persistMessages` stores a turn. Default: the whole
+   * conversation, kept in memory (`createMemoryHistory()`).
+   */
+  history?: (context: { channel: string; scenario: AgentEvalScenario; suite: AgentEvalSuite }) => EvalHistory | Promise<EvalHistory>;
+  /** How a rubric's verdict is asked for: how many times again when the judge gives none, and how much it may write. */
+  judgeOptions?: JudgeOptions;
 }
 
 /** The configuration, as written: `defineEvals` checks nothing at run time beyond what TypeScript does, and returns it. */

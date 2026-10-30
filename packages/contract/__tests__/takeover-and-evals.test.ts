@@ -93,6 +93,68 @@ describe('agent-evals.json', () => {
   });
 });
 
+describe('agent-evals.json: a page, and what a turn did beyond its words', () => {
+  const suite: AgentEvalSuite = {
+    version: 1,
+    name: 'deos',
+    page: {
+      at: '/dashboard',
+      routes: ['/dashboard', '/dashboard/:tab'],
+      surfaces: [
+        {
+          id: 'page:lane',
+          name: 'Service lane',
+          description: 'Repair orders',
+          routes: ['/dashboard/service-lane'],
+          state: { state: { view: 'open' } },
+          actions: [
+            {
+              id: 'lane_view',
+              description: 'Shows one view',
+              effect: 'view',
+              input: { type: 'object', properties: { value: { enum: ['open', 'declined'] } } },
+              cases: [{ when: { value: 'declined' }, result: { success: true, data: { rows: 4 } }, state: { state: { view: 'declined' } } }],
+            },
+          ],
+        },
+      ],
+      controls: { 'service-lane.view': { value: 'open', rows: [{ key: 'r1', title: 'RO 1' }], cases: [{ when: { value: 'x' }, navigate: '/dashboard' }] } },
+      allControls: true,
+    },
+    scenarios: [
+      {
+        id: 'navigates-once',
+        title: 'Navigates once',
+        page: false,
+        turns: [
+          {
+            user: 'Show me the declined work',
+            expect: {
+              calls: [{ action: 'app.navigate', times: 1 }, { tool: 'getHome', max: 0 }],
+              usage: { firstCallInputTokens: { max: 20000 }, callInputTokens: { max: 40000 }, cachedShare: { min: 0.6 } },
+              choices: { options: ['Stop viewing'], question: [{ rubric: 'asks whether to stop viewing' }], count: { min: 1 } },
+              page: { at: '/dashboard/service-lane?view=declined', ran: [{ action: 'service-lane.view', input: { value: 'declined' } }], notRan: ['*'] },
+            },
+          },
+          { user: 'Thanks', expect: { choices: false } },
+        ],
+      },
+    ],
+  };
+
+  it('accepts them', () => {
+    expect(contractProblems('agent-evals.json', suite)).toEqual([]);
+  });
+
+  it('refuses a count of a tool and an action at once, a share over 1, an empty bound and a page with no address', () => {
+    const turn = (expect: unknown) => ({ ...suite, scenarios: [{ ...suite.scenarios[0], turns: [{ user: 'x', expect }] }] });
+    expect(contractProblems('agent-evals.json', turn({ calls: [{ tool: 'a', action: 'b' }] })).length).toBeGreaterThan(0);
+    expect(contractProblems('agent-evals.json', turn({ usage: { cachedShare: { min: 1.5 } } })).length).toBeGreaterThan(0);
+    expect(contractProblems('agent-evals.json', turn({ usage: { inputTokens: {} } })).length).toBeGreaterThan(0);
+    expect(contractProblems('agent-evals.json', { ...suite, page: { routes: ['/'] } }).length).toBeGreaterThan(0);
+  });
+});
+
 describe('the integrator guide', () => {
   it('documents taking a conversation over and the evals, with their schemas', () => {
     const guide = readFileSync(join(__dirname, '..', 'INTEGRATOR-GUIDE.md'), 'utf8');

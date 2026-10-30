@@ -2,7 +2,8 @@
  * The realtime server, as one eval run needs it, in memory:
  * turn events kept for the assertions, approvals stored, decided and redeemed
  * as the realtime server's store does, and stops and conversation holds as its
- * stop record answers them. Nothing leaves the process.
+ * stop record answers them; and the conversation store a product's own
+ * replaces (`EvalHistory`). Nothing leaves the process.
  */
 import { randomUUID } from 'node:crypto';
 import type {
@@ -19,7 +20,18 @@ import type {
   StaffSpeaker,
   TurnStopRecord,
 } from '@ouispec/agent-core';
-import type { ApprovalStoreClient, RealtimeEmitAdapter, TurnStopClient, UIActionChannel } from '@ouispec/agent-worker';
+import {
+  historyOf,
+  type AgentRuntimeConfig,
+  type ApprovalStoreClient,
+  type HistoryRequest,
+  type RealtimeEmitAdapter,
+  type TurnHistory,
+  type TurnHistoryMessage,
+  type TurnMessage,
+  type TurnStopClient,
+  type UIActionChannel,
+} from '@ouispec/agent-worker';
 
 /** One event the worker sent a turn's room. */
 export interface EmittedEvent {
@@ -181,7 +193,12 @@ export function createMemoryStops(): MemoryStops {
   };
 }
 
-/** A conversation channel has no page: a UI action reaching it is refused, as a tab with nothing open refuses it. */
+/**
+ * A conversation channel has no page: a UI action reaching it is refused, as a
+ * tab with nothing open refuses it. The harness runs it with no wait for an
+ * answer, so a turn whose context carries a page snapshot and no fixture is
+ * told at once that the page is not responding.
+ */
 export const NO_PAGE: UIActionChannel = {
   async dispatch() {
     return { acknowledged: 0, accepted: 0 };
@@ -190,3 +207,53 @@ export const NO_PAGE: UIActionChannel = {
     return null;
   },
 };
+
+/**
+ * A conversation store, as a product's worker reads and writes it: what the
+ * harness hands the turn runner as `getHistory` and `persistMessages`, and
+ * where it puts what no turn writes (the customer's message, which a
+ * product's API stores before it runs the turn, and a person's on the staff).
+ *
+ * Give the product's own (its window that cuts old tool results, its summary,
+ * its step context) to run later turns on what its worker really reads.
+ */
+export interface EvalHistory {
+  /** A message no turn writes: the customer's, before their turn runs; a person's on the staff, as they act. */
+  append(conversationId: string, entry: TurnHistoryMessage): void | Promise<void>;
+  /** The worker's `getHistory`: what a turn reads. */
+  getHistory(conversationId: string, turn: HistoryRequest): Promise<TurnHistoryMessage[] | TurnHistory>;
+  /** The worker's `persistMessages`, with no database: how a turn's messages are stored. */
+  persistMessages(input: Omit<Parameters<AgentRuntimeConfig<unknown>['persistMessages']>[0], 'db'>): Promise<void | { stored: false }>;
+}
+
+export interface MemoryHistoryOptions {
+  /**
+   * What a turn reads of the whole conversation: the product's own window
+   * (the newest messages, old tool results cut, a summary in their place, a
+   * step context beside them). Default: all of it.
+   */
+  window?: (messages: readonly TurnHistoryMessage[], turn: HistoryRequest & { conversationId: string }) => TurnHistoryMessage[] | TurnHistory | Promise<TurnHistoryMessage[] | TurnHistory>;
+}
+
+/** The conversation, kept whole in memory; a turn reads it through `window` when one is given. */
+export function createMemoryHistory(options: MemoryHistoryOptions = {}): EvalHistory & { messages(conversationId: string): readonly TurnHistoryMessage[] } {
+  const conversations = new Map<string, TurnHistoryMessage[]>();
+  const of = (id: string) => {
+    let messages = conversations.get(id);
+    if (!messages) conversations.set(id, (messages = []));
+    return messages;
+  };
+  return {
+    messages: (conversationId) => of(conversationId),
+    append(conversationId, entry) {
+      of(conversationId).push(entry);
+    },
+    async getHistory(conversationId, turn) {
+      const messages = [...of(conversationId)];
+      return options.window ? await options.window(messages, { ...turn, conversationId }) : messages;
+    },
+    async persistMessages({ conversationId, messages }: { conversationId: string; messages: TurnMessage[] }) {
+      of(conversationId).push(...historyOf(messages));
+    },
+  };
+}

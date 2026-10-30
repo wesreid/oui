@@ -77,6 +77,36 @@ describe('a suite', () => {
     ]);
   });
 
+  it('holds a page, call counts and choices to what a schema cannot say', () => {
+    const suite: AgentEvalSuite = {
+      version: 1,
+      name: 'page',
+      page: {
+        at: '/home',
+        surfaces: [
+          { id: 'page:home', name: 'Home', description: 'Home', actions: [{ id: 'go', description: 'Go' }, { id: 'go', description: 'Go again' }] },
+          { id: 'page:home', name: 'Home', description: 'Again', actions: [] },
+        ],
+      },
+      scenarios: [
+        {
+          id: 'counts',
+          title: 'Counts that cannot hold',
+          turns: [{ user: 'hi', expect: { calls: [{ tool: 'lookup', times: 1, max: 2 }, { action: 'app.navigate', min: 3, max: 1 }], choices: { options: [{ pattern: '(' }] } } }],
+        },
+        { id: 'no-page', title: 'No page', page: false, turns: [{ user: 'hi', expectOn: { web_chat: { page: { at: '/' } } } }] },
+      ],
+    };
+    expect(problemsOf(suite)).toEqual([
+      '/page/surfaces/0/actions/1: "page:home" has two actions "go"',
+      '/page/surfaces/1: the id "page:home" is used twice',
+      '/scenarios/0 (counts)/turns/0/expect/calls/0: give `times`, or `min` and `max`, not both',
+      '/scenarios/0 (counts)/turns/0/expect/calls/1: `min` 3 is more than `max` 1',
+      expect.stringMatching(/^\/scenarios\/0 \(counts\)\/turns\/0\/expect: \/\(\/ is not a regular expression/),
+      '/scenarios/1 (no-page)/turns/0/expectOn/web_chat/page: the scenario has no page to hold to it (give the suite or the scenario a `page`)',
+    ]);
+  });
+
   it('names the rubrics a scenario’s judge reads, which its recording was made answering', () => {
     expect(
       rubricsOf({
@@ -118,5 +148,9 @@ describe('the matchers', () => {
   it('join a turn’s expectations with its channel’s', () => {
     expect(mergeExpectations({ says: ['a'], held: false }, { says: ['b'], mustNotSay: ['c'], held: true })).toEqual({ says: ['a', 'b'], mustNotSay: ['c'], held: true });
     expect(mergeExpectations(undefined, { says: ['b'] })).toEqual({ says: ['b'] });
+    expect(mergeExpectations({ calls: [{ tool: 'a', times: 1 }] }, { calls: [{ action: 'b' }], usage: { modelCalls: { max: 2 } } })).toEqual({
+      calls: [{ tool: 'a', times: 1 }, { action: 'b' }],
+      usage: { modelCalls: { max: 2 } },
+    });
   });
 });
