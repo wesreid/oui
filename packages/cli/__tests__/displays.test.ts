@@ -133,6 +133,7 @@ const FILES: Record<string, string> = {
     "      <Detail facts={{ id: 'home.detail', description: 'The open detail' }} />",
     '      <Detail />',
     '      <Section factsId="home.section" title="By signal" product="service" />',
+    '      <Section factsId="home.moves" title="By move" product="sales" />',
     "      <Panel layout=\"stat\" agent={{ id: 'home.held', description: 'Held for the replica' }} />",
     '      <Panel layout="stat" />',
     "      <ReportFacts agent={{ nonAgent: 'the person’s own notes' }} title=\"Notes\" facts={{}} />",
@@ -210,6 +211,9 @@ describe('what a page shows', () => {
       { id: 'home.hot.open', title: 'Hot', description: 'Opens a hot lead', labels: [] },
       // A composite's `facts` binding.
       { id: 'home.leads', title: 'Leads', description: 'The leads on the Home', labels: [] },
+      // The same component used twice by one parent: each use with its own props.
+      { id: 'home.moves', title: 'By move', description: 'By move of the Sales figures', labels: [] },
+      { id: 'home.moves.total', title: 'By move', description: 'The Sales total', labels: ['Change'] },
       // A binding built from the props a component is given, and a constant record read by one.
       { id: 'home.section', title: 'By signal', description: 'By signal of the Service figures', labels: [] },
       // A design-system display's binding built from props too.

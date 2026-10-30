@@ -180,6 +180,12 @@ interface WalkContext {
   depth: number;
   /** The element that rendered this component, in its parent. */
   element?: JsxOpening;
+  /**
+   * The elements that rendered it, from the page down: one component used
+   * twice by the same parent is read once per use, as its props (a display's
+   * id among them) can differ.
+   */
+  trail?: string;
 }
 
 const ITERATORS = new Set(['map', 'flatMap']);
@@ -355,7 +361,7 @@ export class PageAnalyzer {
     const sf = decl.getSourceFile();
     if (!this.source.isAppFile(sf)) return;
     out.components.add(decl);
-    const key = `${sf.fileName}:${decl.pos}:${ctx.element ? `${ctx.element.getSourceFile().fileName}@${ctx.element.pos}` : ''}:${ctx.reach.map(r => JSON.stringify({ ...r, owner: undefined, setters: undefined })).join('>')}:${ctx.itemized}`;
+    const key = `${sf.fileName}:${decl.pos}:${ctx.trail ?? ''}:${ctx.reach.map(r => JSON.stringify({ ...r, owner: undefined, setters: undefined })).join('>')}:${ctx.itemized}`;
     if (seen.has(key) || ctx.depth > 40) return;
     seen.add(key);
 
@@ -965,7 +971,8 @@ export class PageAnalyzer {
         props.set(attr.name.getText(), { expr: attr.initializer.expression, owner: decl, ctx });
       }
     }
-    this.walk(target, { reach, itemized, props, depth: ctx.depth + 1, element: el }, out, seen, false);
+    const trail = `${ctx.trail ?? ''}>${el.getSourceFile().fileName}@${el.pos}`;
+    this.walk(target, { reach, itemized, props, depth: ctx.depth + 1, element: el, trail }, out, seen, false);
   }
 
   /** The app's own component a tag names, through `lazy` and `React.lazy`; null for anything else. */
