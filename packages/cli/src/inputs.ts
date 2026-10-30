@@ -442,6 +442,20 @@ export interface RouteEntry {
   component: string;
   /** The declaration of the page component. */
   declaration: ts.Node | null;
+  /**
+   * What the routes render around the page, outermost first: each layout
+   * route's element above it, and each `routeWrappers` component its own
+   * element or a parent route's is wrapped in.
+   */
+  around?: readonly AroundEntry[];
+}
+
+/** An element the routes render around a page. */
+export interface AroundEntry {
+  component: string;
+  declaration: ts.Node | null;
+  /** A layout route's element (one with child routes), not a wrapper. */
+  layout: boolean;
 }
 
 /** A layout route's element: rendered around the pages under it, as the app's frame is. */
@@ -475,6 +489,8 @@ interface RouteNode {
   index: boolean;
   /** What it renders: a component, a redirect, or nothing (a route that only groups its children). */
   renders: { component: string; declaration: ts.Node | null } | 'redirect' | null;
+  /** The `routeWrappers` components its element is wrapped in, outermost first. */
+  wrappers: { component: string; declaration: ts.Node | null }[];
   children: RouteNode[];
 }
 
@@ -511,16 +527,19 @@ export function loadRoutes(source: Source, config: GeneratorConfig): AppRoutes {
 
   const pages = new Map<string, RouteEntry>();
   const layouts = new Map<string, LayoutEntry>();
-  /** The pages' paths under a node, found while walking it. */
-  const walk = (node: RouteNode, parent: string): string[] => {
+  /** The pages' paths under a node, found while walking it; `outer` is what the routes above render around it. */
+  const walk = (node: RouteNode, parent: string, outer: readonly AroundEntry[]): string[] => {
     if (node.path === UNKNOWN) {
       reader.problem(node.site, 'A route’s path must be readable at build time: a literal or a constant');
       return [];
     }
     const full = node.index || node.path === undefined ? parent : joinPath(parent, node.path);
     if (node.path === '*') return [];
+    const around = [...outer, ...node.wrappers.map(w => ({ ...w, layout: false }))];
     if (node.children.length) {
-      const under = node.children.flatMap(child => walk(child, full));
+      const layout =
+        node.renders && node.renders !== 'redirect' ? [{ ...node.renders, layout: true }] : [];
+      const under = node.children.flatMap(child => walk(child, full, [...around, ...layout]));
       if (node.renders && node.renders !== 'redirect' && node.renders.declaration) {
         const own = node.path !== undefined && !node.children.some(c => c.index) ? [full] : [];
         const entry = layouts.get(node.renders.component) ?? {
@@ -534,10 +553,10 @@ export function loadRoutes(source: Source, config: GeneratorConfig): AppRoutes {
       return under;
     }
     if (!node.renders || node.renders === 'redirect' || pages.has(full)) return [];
-    pages.set(full, { path: full, ...node.renders });
+    pages.set(full, { path: full, ...node.renders, around });
     return [full];
   };
-  for (const root of roots) walk(root, '');
+  for (const root of roots) walk(root, '', []);
 
   return {
     pages: [...pages.values()].sort((a, b) => a.path.localeCompare(b.path)),
@@ -616,6 +635,7 @@ class RouteReader {
         asExpression(jsxAttribute(el, 'Component')),
         asExpression(jsxAttribute(el, 'lazy')),
       ),
+      wrappers: this.wrappersOf(asExpression(jsxAttribute(el, 'element'))),
       children,
     };
   }
@@ -656,8 +676,28 @@ class RouteReader {
         objectProperty(obj, 'Component'),
         objectProperty(obj, 'lazy'),
       ),
+      wrappers: this.wrappersOf(objectProperty(obj, 'element')),
       children: children ? this.fromArray(children) : [],
     };
+  }
+
+  /** The `routeWrappers` components a route's element is wrapped in, outermost first. */
+  private wrappersOf(element: ts.Expression | undefined): RouteNode['wrappers'] {
+    const out: RouteNode['wrappers'] = [];
+    if (!element) return out;
+    // Down through wrappers only: what the page itself renders is not around it.
+    const visit = (n: ts.Node) => {
+      const opening = ts.isJsxElement(n) ? n.openingElement : ts.isJsxSelfClosingElement(n) ? n : null;
+      if (opening) {
+        if (!this.wrappers.has(opening.tagName.getText())) return;
+        out.push({ component: opening.tagName.getText(), declaration: componentDeclaration(this.source, opening.tagName) });
+        if (ts.isJsxElement(n)) n.children.forEach(visit);
+        return;
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(unwrap(element));
+    return out;
   }
 
   private path(expr: ts.Expression | undefined): string | typeof UNKNOWN {

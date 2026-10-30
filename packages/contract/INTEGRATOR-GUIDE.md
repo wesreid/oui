@@ -491,11 +491,24 @@ The generator reads every setting from `oui.config.json` at the app's root; path
   "apiSpec": "@acme/api-client/openapi.json",
   "appCatalogs": [{ "module": "src/strategy/catalog.ts", "export": "strategyCanvasCatalog", "hosts": ["StrategyCanvas"] }],
   "unbound": [],
+  "outside": [
+    { "component": "SignInPage", "reason": "before sign-in" },
+    { "route": "/share/:token", "reason": "a public share link, opened signed out" }
+  ],
   "out": "src/agent/generated"
 }
 ```
 
 `apiSpec` names the OpenAPI 3 document inside the installed API client package, never a sibling checkout, so the generator reads exactly the spec of the client version the app installs. Every `mutate` effect names one of its `operationId`s.
+
+`outside` names the pages the assistant is never on: pages before sign-in, and public pages a link opens. Each names its page by component or by route, with the reason. An outside page has no surface, its controls are not enforced, the assistant is not offered it as a page to go to, and the knowledge says the assistant is not there. A page is outside only when nothing around it or in it is the assistant's, so the list cannot hide a page of the app:
+
+- no `shell` entry frames any of its routes;
+- every element its routes render around it, a layout route's or a `routeWrappers` component's at any level, holds nothing someone can use (no control, bound or not, no display, no room) and no person-only component, which is how the assistant's own UI is declared;
+- the page does not render the app's frame itself;
+- the page has no binding, display or room of its own, on no page the assistant is on. One a component shares with pages the assistant is on is that component's, offered there.
+
+A page in the app's frame fails the first three, and a page that binds anything only for itself fails the last. `unbound` is for pages the assistant is on that are not bound yet; a page is never in both lists.
 
 `mappings` lists the app's tier 2 mappings; each emits a bound module into `<out>/bound/` (see [Tier 2](#tier-2-a-design-system-you-do-not-own)).
 
@@ -514,6 +527,7 @@ The generator reads every setting from `oui.config.json` at the app's root; path
 > | `mappings` | string[] |  | Tier 2 mappings (`tier2-mapping.json`), one per third-party design system the app does not own, by path. |
 > | `apiSpec` | string \| null | yes | The API's OpenAPI 3 document, by module path, as the installed API client ships it (`@traidr/api-client/openapi.json`) — never a sibling checkout path, so the generator reads exactly the spec of the client version the app installs; or a path inside the app. |
 > | `unbound` | string[] |  | Page components whose interactive controls are not all bound yet. |
+> | `outside` | OutsideEntry[] |  | Pages the assistant is never on: pages before sign-in, and public pages a link opens (a share link, a confirmation link). |
 > | `appCatalogs` | AppCatalogEntry[] |  | Room catalogs the app itself declares (tier 3, a page's own editor), each loaded through the app's own Vite config so its modules resolve as the app build resolves them: the app needs `vite` among its own dependencies. |
 > | `shell` | ShellEntry[] |  | The app's frame: components mounted around the pages rather than by a route (a sidebar, a top bar, a phone tab bar, a toast host). |
 
@@ -535,6 +549,7 @@ Commit both files, and run `--check` in CI on every change. The build fails, nam
 | `apiSpec` cannot be read, or a `mutate` names an unknown `operationId` |
 | A room catalog breaks `room-catalog-data.json`, or a recipe names an entry the room does not have |
 | A page listed in `unbound` is fully bound (the list may only get shorter) |
+| A page listed in `outside` has the assistant around it or in it: a `shell` entry frames one of its routes, an element its routes render around it holds something someone can use or a person-only component, the page renders the frame itself, or it has a binding, display or room on no page the assistant is on |
 | A binding's value is built by a call, so it cannot be read without running the app |
 
 The two outputs are part of the contract too: the runtime offers the intersection of the manifest and what is mounted, and each turn carries the knowledge for the page the person is on.

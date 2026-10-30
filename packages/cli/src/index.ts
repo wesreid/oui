@@ -12,6 +12,7 @@ export {
   type ConfigInjection,
   type GeneratorConfig,
   type OuiConfigFile,
+  type OutsideEntry,
   type ShellEntry,
 } from './config.js';
 export { generate, writeOrCheck, MANIFEST_FILE, KNOWLEDGE_FILE, type GenerateResult, type Tier2Use } from './generate.js';

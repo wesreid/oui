@@ -31,6 +31,7 @@ import {
   personOnlyLookup,
 } from './inputs.js';
 import { generateKnowledge } from './knowledge.js';
+import { holdsAnything, resolveOutside } from './outside.js';
 import { loadSource } from './program.js';
 import { BOUND_DIR, boundModuleSource, boundTableSource, checkMappingTypes, loadMappings } from './tier2.js';
 
@@ -59,7 +60,15 @@ export interface GenerateResult {
   files: { path: string; content: string }[];
   /** Files in `<out>/bound/` no mapping emits any more: stale, and deleted on write. */
   obsolete: string[];
-  stats: { pages: number; actions: number; rooms: number; unboundPages: number; boundModules: number };
+  stats: {
+    pages: number;
+    actions: number;
+    rooms: number;
+    unboundPages: number;
+    boundModules: number;
+    /** Pages the assistant is never on (`outside`). */
+    outsidePages: number;
+  };
 }
 
 export async function generate(config: GeneratorConfig): Promise<GenerateResult> {
@@ -120,19 +129,18 @@ export async function generate(config: GeneratorConfig): Promise<GenerateResult>
       frame: true,
     });
   };
-  for (const shell of loadShell(source, config)) frame(shell.component, shell.routes, shell.declaration);
+  const shell = loadShell(source, config);
+  for (const s of shell) frame(s.component, s.routes, s.declaration);
   // A layout route's element frames the pages under it, when it has anything of its own.
   for (const layout of routes.layouts) {
     if (!source.isAppFile(layout.declaration.getSourceFile())) continue;
-    const analysis = analyze(layout.declaration);
-    const empty =
-      !analysis.controls.length &&
-      !analysis.displays.length &&
-      !analysis.unbound.length &&
-      !analysis.errors.length &&
-      !analysis.rooms.size;
-    if (!empty) frame(layout.component, layout.routes, layout.declaration);
+    if (holdsAnything(analyze(layout.declaration))) frame(layout.component, layout.routes, layout.declaration);
   }
+
+  // Pages the assistant is never on: no surface, nothing enforced, and only where nothing of the assistant's is.
+  const outside = resolveOutside(config.outside, pages, shell, analyze, source, new Set(config.unbound));
+  const outsideNames = new Set(outside.outside.map(o => o.component));
+  const outsideAnalyses = new Set([...pages.values()].filter(p => outsideNames.has(p.component)).map(p => p.analysis));
 
   // Every catalog must be what the contract says a room catalog is (`room-catalog-data.json`).
   const catalogFindings = catalogs.flatMap(c =>
@@ -140,7 +148,7 @@ export async function generate(config: GeneratorConfig): Promise<GenerateResult>
   );
   const unknownUnbound = config.unbound.filter(name => !pages.has(name));
   const assembled = assemble(
-    [...pages.values()],
+    [...pages.values()].filter(p => !outsideNames.has(p.component)),
     nav,
     api,
     routes.pages,
@@ -155,6 +163,9 @@ export async function generate(config: GeneratorConfig): Promise<GenerateResult>
     ...api.errors,
     ...routes.errors,
     ...assembled.errors,
+    ...outside.errors,
+    // What is wrong wherever it is written is wrong on an outside page too.
+    ...[...outsideAnalyses].flatMap(a => a?.errors ?? []),
     ...unknownUnbound.map(name => ({
       file: 'oui.config.json',
       line: 0,
@@ -169,6 +180,7 @@ export async function generate(config: GeneratorConfig): Promise<GenerateResult>
     catalogs.map(c => c.catalog),
     nav,
     api.operations,
+    outside.outside,
   );
   const buildId = createHash('sha256')
     .update(stableStringify({ surfaces: assembled.surfaces, knowledge: knowledgeBody }, 0))
@@ -187,7 +199,10 @@ export async function generate(config: GeneratorConfig): Promise<GenerateResult>
 
   // Every use of a mapped control, once each however many pages render it.
   const found = new Map<string, Tier2Found>();
-  for (const analysis of analyses.values()) for (const use of analysis.tier2Uses) found.set(`${use.file}:${use.line}:${use.tag}`, use);
+  for (const analysis of analyses.values()) {
+    if (outsideAnalyses.has(analysis)) continue;
+    for (const use of analysis.tier2Uses) found.set(`${use.file}:${use.line}:${use.tag}`, use);
+  }
   const uses = [...found.values()].sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
   const asUse = (u: Tier2Found): Tier2Use => ({ component: u.component, file: u.file, line: u.line, props: u.props });
   const uncontrolled = uses.filter(u => u.uncontrolled);
@@ -218,7 +233,8 @@ export async function generate(config: GeneratorConfig): Promise<GenerateResult>
   return {
     manifest,
     knowledge,
-    errors: errors.sort(
+    // Once each: a component on an outside page and on another reports what is wrong in it once.
+    errors: [...new Map(errors.map(e => [`${e.file}:${e.line}:${e.message}`, e])).values()].sort(
       (a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.message.localeCompare(b.message),
     ),
     warnings,
@@ -231,6 +247,7 @@ export async function generate(config: GeneratorConfig): Promise<GenerateResult>
       rooms: assembled.surfaces.filter(s => s.kind === 'room').length,
       unboundPages: config.unbound.length,
       boundModules: mappings.mappings.length,
+      outsidePages: outside.outside.length,
     },
   };
 }

@@ -25,6 +25,10 @@ Required, and explicit: nothing an app depends on has a default, so a misconfigu
   "apiSpec": "@acme/api-client/openapi.json",
   "appCatalogs": [{ "module": "src/studio/catalog.ts", "export": "canvasCatalog", "hosts": ["Canvas"] }],
   "unbound": [],
+  "outside": [
+    { "component": "SignInPage", "reason": "before sign-in" },
+    { "route": "/share/:token", "reason": "a public share link, opened signed out" }
+  ],
   "out": "src/agent/generated"
 }
 ```
@@ -42,8 +46,31 @@ Required, and explicit: nothing an app depends on has a default, so a misconfigu
 | `mappings` | no | Tier 2 mappings of third-party design systems the app does not own (below). |
 | `appCatalogs` | no | Room catalogs the app declares itself. Needs Vite (below). |
 | `unbound` | no | Pages whose controls are not all bound yet. It may only shrink. |
+| `outside` | no | Pages the assistant is never on, each by `component` or `route`, with its `reason` (below). |
 
 `apiClient` was replaced by `apiSpec`.
+
+## Pages outside the assistant
+
+Pages before sign-in, and public pages a link opens (a share link, a confirmation link), have no assistant. `outside` names each, by its page component or by a route it is on, with the reason:
+
+```json
+"outside": [
+  { "component": "SignInPage", "reason": "before sign-in" },
+  { "route": "/share/:token", "reason": "a public share link, opened signed out" }
+]
+```
+
+An outside page has no surface, its controls are not enforced, it is not among the pages `app_navigate` lists, and the knowledge's overview tells the assistant it is not on those routes. A page on several routes is outside on all of them: named by route, each of its routes is named. A page is in `unbound` (the assistant is on it, but it is not bound yet) or in `outside`, never both.
+
+The list cannot hide a page of the app. A page is outside only when nothing around it or in it is the assistant's, and the build fails, naming the reason, when:
+
+- a `shell` entry frames one of its routes;
+- an element its routes render around it, a layout route's or a `routeWrappers` component's at any level, holds something someone can use (a control, bound or not, a display, a room) or a person-only component, which is how the assistant's own UI is declared. A wrapper that is not the app's own (`Suspense`) renders only what it is given; a layout route's element must be the app's own;
+- the page renders the app's frame (a `shell` entry, or a layout route that is a frame) itself;
+- the page has a binding, display or room of its own, on no page the assistant is on. One a component shares with pages the assistant is on (a video player on a public watch page and in the app) is that component's, and is offered on those pages.
+
+So a page under the app's frame, or one that binds anything only for itself, is never outside.
 
 ## Design systems
 
@@ -87,6 +114,7 @@ The app imports mapped controls from the bound module. Each use is read as a tie
 - A room recipe naming an entry the room does not have.
 - On an enforced page, a mapped control imported straight from its package: the error names the bound import.
 - A mapping that does not match its schema, names a package the app cannot resolve, maps a package also in `designSystem` (or one of its subpaths, or a package one of whose subpaths `designSystem` lists), maps a package another mapping maps, uses a kind no design system registers, or does not fit the package's types (an export it does not have, a prop its component does not take).
+- A page in `outside` that the assistant may be on (above), or one that is also in `unbound`, or an entry naming no page.
 - A stale bound module or control table, or a file in `<out>/bound/` no mapping emits (`--check`; writing removes it).
 
 ## Person-only components
@@ -101,7 +129,7 @@ On one of these components, the generator fails the build for:
 - an `agent` prop, even `{ nonAgent }`;
 - a spread of props, which could carry a binding the build cannot see.
 
-What such a component renders is never bound, so its callbacks need no `data-non-agent`. `@ouispec/agent-react` declares `ApprovalCard` this way.
+What such a component renders is never bound, so its callbacks need no `data-non-agent`. `@ouispec/agent-react` declares `ApprovalCard` this way. A package listed in `designSystem` declares its own the same way (a sign-in screen, the assistant's panel): a person-only export needs no control table entry, and one that is in both is an error, as the package must say which it is.
 
 ## The contract's vocabulary
 

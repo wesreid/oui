@@ -1,5 +1,20 @@
 # @ouispec/agent-react
 
+## 0.20.1
+
+### Patch Changes
+
+- **Pages the assistant is never on.** `oui.config.json` takes `outside`: pages before sign-in and public pages a link opens, each named by `component` or by `route`, with its `reason` (`OutsideEntry`). An outside page has no surface, its controls are not enforced, `app_navigate` does not list it, and the knowledge's overview says the assistant is not on its routes. Until now such a page could only sit in `unbound`, which is meant to shrink to nothing.
+
+  The list cannot hide a page of the app. A page is outside only when no `shell` entry frames its routes; every element its routes render around it (a layout route's, or a `routeWrappers` component's, at any level) holds nothing someone can use and no person-only component, which is how the assistant's own UI is declared; it does not render the app's frame itself; and it has no binding, display or room of its own, on no page the assistant is on. A page is never in both `outside` and `unbound`. An app without `outside` builds as before.
+
+  **A design system's person-only components are the person's own.** `oui.personOnly` in a package listed in `designSystem` is now read, as it already was for any other package: a sign-in screen or the assistant's panel needs no control table entry, its callbacks need no `data-non-agent`, and an `agent` binding or a spread on one fails the build. An export in both the control table and `oui.personOnly` is an error. A page whose only unbound controls were such components is now fully bound, so the build asks to take it out of `unbound`: this is why the release is a minor.
+
+  A route's page is read through the components it renders, as before; the tests now hold a route element that picks between two lazy pages, each rendering through a wrapper of its own children.
+
+  The agent SDK is released again only to depend on this contract.
+  - @ouispec/agent-core@0.20.1
+
 ## 0.19.0
 
 ### Minor Changes

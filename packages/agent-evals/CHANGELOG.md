@@ -1,5 +1,14 @@
 # @ouispec/agent-evals
 
+## 0.20.1
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/contract@0.7.0
+  - @ouispec/agent-core@0.20.1
+  - @ouispec/agent-worker@0.20.1
+
 ## 0.20.0
 
 ### Patch Changes
