@@ -12,6 +12,7 @@
 import {
   isKeyframeable,
   NAVIGATE_ACTION_ID,
+  pageQuerySchema,
   PROBLEMS_OBSERVATION_ID,
   ROOM_RUN_COMMAND_ID,
   ROOM_SET_PROPERTIES_ID,
@@ -81,7 +82,9 @@ export function generateKnowledge(
       routes: page.routes,
       summary: {
         title: page.title,
-        content: `${page.title} (${page.routes.join(', ')})${page.nav ? `, in the sidebar under ${page.nav}` : ''}: ${firstSentence(page.description)}`,
+        content: `${page.title} (${page.routes.join(', ')})${page.nav ? `, in the sidebar under ${page.nav}` : ''}: ${firstSentence(page.description)}${
+          page.query ? ` Its address takes ${Object.keys(page.query).map(n => `?${n}`).join(', ')}.` : ''
+        }`,
       },
       detail: {
         title: `${page.title} (${page.routes.join(', ')})`,
@@ -139,7 +142,9 @@ function overviewEntry(pages: readonly PageMeta[], nav: readonly NavEntry[], out
   const unlisted = pages.filter(p => !nav.some(n => p.routes.includes(n.route))).length;
   lines.push(
     `${unlisted} more pages are reached from these or by address; the page you are on is described in full below, and moving to another page gives you its tools.`,
-    `Go to any page by its address with [${toolName(NAVIGATE_ACTION_ID)}]; its path lists every page.`,
+    pages.some(p => p.query)
+      ? `Go to any page by its address with [${toolName(NAVIGATE_ACTION_ID)}]; its path lists every page. A page whose address takes a query (its ?parameters are listed beside it) opens already filtered with its query, in one call.`
+      : `Go to any page by its address with [${toolName(NAVIGATE_ACTION_ID)}]; its path lists every page.`,
   );
   if (outside.length) {
     lines.push(
@@ -167,6 +172,12 @@ function detail(
         ? `Where: the sidebar, ${page.nav}.`
         : `Where: reached by address (${page.routes.join(', ')}) or from another page.`,
   );
+  if (page.query) {
+    lines.push(`Its address takes (open it filtered with [${toolName(NAVIGATE_ACTION_ID)}], query):`);
+    for (const [name, schema] of Object.entries(pageQuerySchema(page.query).properties ?? {})) {
+      lines.push(`- ${name}: ${queryValueSummary(schema)} — ${schema.description ?? ''}`.trimEnd());
+    }
+  }
 
   if (controls.length) {
     lines.push('', 'What you can do here (tool in brackets):');
@@ -288,6 +299,18 @@ function params(input: JsonSchema): string {
   const props = Object.entries(input.properties ?? {});
   if (!props.length) return '';
   return ` Takes ${props.map(([k, v]) => `${k}: ${valueSummary(v)}`).join('; ')}.`;
+}
+
+/** A query parameter in a few words: `lane|declined, default lane`, `integer ≥1`, `list of no_show|unconfirmed`. */
+function queryValueSummary(s: JsonSchema): string {
+  const one = (x: JsonSchema): string =>
+    x.enum
+      ? x.enum.map(String).join('|')
+      : x.format === 'date'
+        ? 'date YYYY-MM-DD'
+        : `${x.type ?? 'value'}${x.minimum !== undefined ? ` ≥${x.minimum}` : ''}${x.maximum !== undefined ? ` ≤${x.maximum}` : ''}${x['x-unit'] ? ` ${x['x-unit']}` : ''}`;
+  const text = s.type === 'array' && s.items ? `list of ${one(s.items)}` : one(s);
+  return s.default !== undefined ? `${text}, default ${String(s.default)}` : text;
 }
 
 function valueSummary(s: JsonSchema): string {

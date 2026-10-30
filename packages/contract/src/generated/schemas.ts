@@ -11,7 +11,7 @@ export const CONTRACT_SCHEMAS = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://schemas.closurestudio.ai/oui/v1/json-schema.json",
     "title": "JsonSchema",
-    "description": "The subset of JSON Schema (draft 2020-12) every capability declares its input and values in. It is what assistant tool inputs are written in, so a declared or derived schema is used as is. `x-unit` names the unit a number is in: `px`, `%`, `°`; `x-space` names the frame it is measured in; `x-rows` and `x-ref` say which lists hold addressable rows and which inputs address them.",
+    "description": "The subset of JSON Schema (draft 2020-12) every capability declares its input and values in. It is what assistant tool inputs are written in, so a declared or derived schema is used as is. `x-unit` names the unit a number is in: `px`, `%`, `°`; `x-space` names the frame it is measured in; `x-rows` and `x-ref` say which lists hold addressable rows and which inputs address them; `x-routes` says which pages a navigation query belongs to.",
     "type": "object",
     "properties": {
       "type": {
@@ -151,6 +151,15 @@ export const CONTRACT_SCHEMAS = {
       },
       "x-ref": {
         "description": "On a string (or the items of an array of strings) in an action's input: the value addresses a row of one of the surface's `x-rows` lists, each named `<observation id>/<list property>`, or `<observation id>` when the observation itself is the list. The row's id, or its exact title when one row has it.",
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        },
+        "minItems": 1
+      },
+      "x-routes": {
+        "description": "On one alternative of the generated `app.navigate` action's `query`: the routes whose page takes that query (`/dashboard/service-lane`). The page declares it (`page-query.json`); the navigation runtime checks a call's query against the alternative of the route it goes to.",
         "type": "array",
         "items": {
           "type": "string",
@@ -576,6 +585,212 @@ export const CONTRACT_SCHEMAS = {
           },
           {
             "$ref": "#/$defs/NonAgentBinding"
+          }
+        ]
+      }
+    }
+  } as ContractSchemaDocument,
+  'page-query.json': {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://schemas.closurestudio.ai/oui/v1/page-query.json",
+    "title": "PageQuery",
+    "description": "The query parameters a page reads from its address (`?view=declined&period=this_month`), each by name, declared once with `defineQuery` and read with `readQuery` (`@ouispec/bindings`). The generator reads the declaration where the page, a component it renders or an app hook they call reads it, and the generated `app.navigate` takes it, so the assistant opens the page already filtered to a question, in one call. A page that declares none takes its address as before.\n\n**Every value is a build-time constant**, as a binding's are: a literal, a `const` it can follow (an imported option list too), a property of a constant object, or a template literal or `+` over those.",
+    "type": "object",
+    "propertyNames": {
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,63}$"
+    },
+    "additionalProperties": {
+      "$ref": "#/$defs/QueryParam"
+    },
+    "minProperties": 1,
+    "$defs": {
+      "QueryParam": {
+        "description": "One query parameter: free text, a number, an on/off flag, a day, or one of a list of values.",
+        "oneOf": [
+          {
+            "$ref": "#/$defs/QueryText"
+          },
+          {
+            "$ref": "#/$defs/QueryNumber"
+          },
+          {
+            "$ref": "#/$defs/QueryFlag"
+          },
+          {
+            "$ref": "#/$defs/QueryDate"
+          },
+          {
+            "$ref": "#/$defs/QueryChoice"
+          }
+        ]
+      },
+      "QueryText": {
+        "description": "Free text: a name as the page shows it, a search.",
+        "type": "object",
+        "properties": {
+          "type": {
+            "const": "string"
+          },
+          "description": {
+            "description": "What the value picks, for someone who cannot see the screen: what to pass and where it comes from.",
+            "type": "string",
+            "minLength": 1
+          },
+          "default": {
+            "description": "What the page shows when the address leaves it out.",
+            "type": "string"
+          },
+          "maxLength": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "multiple": {
+            "description": "It takes several values, written comma-separated in the address (`?tags=a,b`). A value cannot hold a comma.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "type",
+          "description"
+        ],
+        "additionalProperties": false
+      },
+      "QueryNumber": {
+        "description": "A number: a page of a list (`integer`, from 1), a minimum score.",
+        "type": "object",
+        "properties": {
+          "type": {
+            "enum": [
+              "integer",
+              "number"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": {
+            "type": "number"
+          },
+          "minimum": {
+            "type": "number"
+          },
+          "maximum": {
+            "type": "number"
+          },
+          "unit": {
+            "description": "The unit the number is in (`%`, `days`, `$`), as `x-unit` names it.",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "type",
+          "description"
+        ],
+        "additionalProperties": false
+      },
+      "QueryFlag": {
+        "description": "On or off: `1` in the address is on, `0` or nothing is off (unless its default is on).",
+        "type": "object",
+        "properties": {
+          "type": {
+            "const": "boolean"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "type",
+          "description"
+        ],
+        "additionalProperties": false
+      },
+      "QueryDate": {
+        "description": "A day, `YYYY-MM-DD`.",
+        "type": "object",
+        "properties": {
+          "type": {
+            "const": "date"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": {
+            "description": "`YYYY-MM-DD`.",
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "required": [
+          "type",
+          "description"
+        ],
+        "additionalProperties": false
+      },
+      "QueryChoice": {
+        "description": "One of a list of values (a view, a period, a status): the list a select or tabs already show, by value and label.",
+        "type": "object",
+        "properties": {
+          "values": {
+            "description": "Every value the page takes, each a string or `{ value, label, description }`: the same option list its control renders.",
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/QueryValue"
+            },
+            "minItems": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": {
+            "description": "One of `values`: what the page shows when the address leaves it out.",
+            "type": "string"
+          },
+          "multiple": {
+            "description": "It takes several of the values, comma-separated in the address (`?signals=a,b`).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "values",
+          "description"
+        ],
+        "additionalProperties": false
+      },
+      "QueryValue": {
+        "description": "One value of a choice: the value, or the value with what a person calls it and what it means.",
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1
+          },
+          {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string",
+                "minLength": 1
+              },
+              "label": {
+                "description": "What a person calls it (`Declined work`).",
+                "type": "string"
+              },
+              "description": {
+                "description": "What it means, when its label does not say.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "value"
+            ]
           }
         ]
       }
@@ -4473,6 +4688,14 @@ export const CONTRACT_TYPES = {
   AgentItem: 'agent-binding.json#/$defs/AgentItem',
   NonAgentBinding: 'agent-binding.json#/$defs/NonAgentBinding',
   AgentProp: 'agent-binding.json#/$defs/AgentProp',
+  PageQuery: 'page-query.json',
+  QueryParam: 'page-query.json#/$defs/QueryParam',
+  QueryText: 'page-query.json#/$defs/QueryText',
+  QueryNumber: 'page-query.json#/$defs/QueryNumber',
+  QueryFlag: 'page-query.json#/$defs/QueryFlag',
+  QueryDate: 'page-query.json#/$defs/QueryDate',
+  QueryChoice: 'page-query.json#/$defs/QueryChoice',
+  QueryValue: 'page-query.json#/$defs/QueryValue',
   ControlKindRegistration: 'control-kind-registration.json',
   ControlKind: 'control-kind-registration.json#/$defs/ControlKind',
   RegisteredControlKind: 'control-kind-registration.json#/$defs/RegisteredControlKind',
