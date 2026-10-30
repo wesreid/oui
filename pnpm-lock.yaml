@@ -78,12 +78,18 @@ importers:
       '@ouispec/agent-worker':
         specifier: workspace:^
         version: link:../agent-worker
+      '@ouispec/bindings':
+        specifier: workspace:^
+        version: link:../bindings
       '@ouispec/contract':
         specifier: workspace:^
         version: link:../contract
       ai:
         specifier: ^7.0.58
         version: 7.0.127(zod@4.6.7)
+      oui-spec:
+        specifier: workspace:^
+        version: link:../oui-spec
       yaml:
         specifier: ^2.7.0
         version: 2.9.1

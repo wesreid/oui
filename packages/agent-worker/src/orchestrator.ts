@@ -2342,16 +2342,23 @@ export async function runAgentTurn(
   }
 }
 
+/** The result a call is given when the store holds none for it: it is not known to have run. */
+export const MISSING_RESULT = JSON.stringify({
+  success: false,
+  outcome: 'unknown',
+  error: 'No result of this call was stored, so whether it ran is not known.',
+});
+
 /**
  * Convert our TurnHistoryMessage[] to AI SDK CoreMessage[].
  * The AI SDK handles each provider's message format internally.
  *
- * DEFENSIVE: If an assistant message has tool_calls but a matching tool result
- * is missing from history, we synthesize a placeholder result. This prevents
- * AI_MissingToolResultsError crashes when persistence has gaps (e.g., stopWhen
- * triggered before a tool result was persisted).
+ * DEFENSIVE: every call is followed by its result, wherever the store put it,
+ * and a call with no result stored is given `MISSING_RESULT`. This prevents
+ * AI_MissingToolResultsError crashes when persistence has gaps (stopWhen
+ * triggered before a tool result was persisted) or put a result out of place.
  */
-function convertHistoryToCoreMessages(
+export function convertHistoryToCoreMessages(
   history: TurnHistoryMessage[],
   currentContent: string,
   /** The history's copy of the turn's own message, whose files the turn gives with their lines. */
@@ -2371,6 +2378,8 @@ function convertHistoryToCoreMessages(
   // the first stands: straight after the call.
   const firstResultAt = new Map<string, number>();
   const lastResult = new Map<string, string>();
+  /** The calls whose result has been put after them. */
+  const resultsGiven = new Set<string>();
   history.forEach((msg, idx) => {
     if (msg.role !== 'tool' || !msg.tool_call_id) return;
     if (!firstResultAt.has(msg.tool_call_id)) firstResultAt.set(msg.tool_call_id, idx);
@@ -2459,66 +2468,58 @@ function convertHistoryToCoreMessages(
         }
         messages.push({ role: 'assistant' as const, content: parts });
 
-        // DEFENSIVE: synthesize missing tool results for any tool_calls
-        // that don't have a matching tool result in history.
+        // Each call's result follows its call, wherever the store has it: a
+        // result stored before its call (a history written by an older worker
+        // that paired results by position) is sent where the model's SDK
+        // looks for it, and a call with no result stored is given one that
+        // says so, never left open (`MissingToolResultsError`).
         if (msg.tool_calls?.length) {
           for (const tc of msg.tool_calls) {
-            if (!answeredToolCallIds.has(tc.id)) {
-              const toolName = tc.function?.name ?? (tc as unknown as { name?: string }).name ?? 'unknown';
-              log('info', 'agent:llm', 'SYNTHESIZING tool result (missing from history)', {
-                toolCallId: tc.id,
-                toolName,
-                answeredIds: Array.from(answeredToolCallIds),
-              });
+            if (resultsGiven.has(tc.id)) continue;
+            resultsGiven.add(tc.id);
+            const stored = firstResultAt.get(tc.id);
+            if (stored !== undefined) {
+              // Tool result output must use discriminated format: { type: 'text', value: string }
               messages.push({
                 role: 'tool' as const,
                 content: [{
                   type: 'tool-result' as const,
                   toolCallId: tc.id,
-                  toolName,
-                  output: { type: 'text' as const, value: JSON.stringify({ acknowledged: true }) },
+                  toolName: (history[stored] as { name?: string }).name ?? 'unknown',
+                  output: { type: 'text' as const, value: lastResult.get(tc.id) || 'acknowledged' },
                 }],
               });
-              // Mark as answered so we don't double-synthesize
-              answeredToolCallIds.add(tc.id);
+              continue;
             }
+            const toolName = tc.function?.name ?? (tc as unknown as { name?: string }).name ?? 'unknown';
+            log('info', 'agent:llm', 'SYNTHESIZING tool result (missing from history)', {
+              toolCallId: tc.id,
+              toolName,
+              answeredIds: Array.from(answeredToolCallIds),
+            });
+            messages.push({
+              role: 'tool' as const,
+              content: [{
+                type: 'tool-result' as const,
+                toolCallId: tc.id,
+                toolName,
+                output: { type: 'text' as const, value: MISSING_RESULT },
+              }],
+            });
           }
         }
       }
     } else if (msg.role === 'tool') {
-      // Skip tool results that are corrupted or orphaned:
-      // 1. Empty tool_call_id (persistence bug: toolCallId was undefined)
-      // 2. tool_call_id that doesn't match ANY known tool call in the conversation
-      //    (persistence bug: fallback ID 'tool_${timestamp}' instead of real ID)
-      // The defensive synthesis above creates proper results for the real tool calls.
+      // A result is sent with its call (above). One whose call is not in the
+      // conversation is skipped: an empty tool_call_id, or one no call has
+      // (persistence bugs: an undefined id, a fallback 'tool_${timestamp}').
       if (!msg.tool_call_id || !knownToolCallIds.has(msg.tool_call_id)) {
         log('info', 'agent:llm', 'SKIPPING orphaned tool result', {
           tool_call_id: msg.tool_call_id,
           name: msg.name,
           inKnown: msg.tool_call_id ? knownToolCallIds.has(msg.tool_call_id) : false,
         });
-        continue;
       }
-
-      log('info', 'agent:llm', 'KEEPING valid tool result', {
-        tool_call_id: msg.tool_call_id,
-        name: msg.name,
-      });
-
-      // A later result of the same call was put where the first stood.
-      if (firstResultAt.get(msg.tool_call_id) !== idx) continue;
-
-      // Tool result output must use discriminated format: { type: 'text', value: string }
-      const outputValue = lastResult.get(msg.tool_call_id) || 'acknowledged';
-      messages.push({
-        role: 'tool' as const,
-        content: [{
-          type: 'tool-result' as const,
-          toolCallId: msg.tool_call_id,
-          toolName: msg.name ?? 'unknown',
-          output: { type: 'text' as const, value: outputValue },
-        }],
-      });
     }
   }
 
@@ -2565,14 +2566,33 @@ function convertHistoryToCoreMessages(
 interface ConvertableStep {
   text: string;
   toolCalls: ReadonlyArray<{ toolCallId: string; toolName: string; args?: Record<string, unknown>; input?: unknown }>;
+  /** The step's parts, where a call that never ran has its `tool-error` (a tool the model invented, input that would not parse). */
+  content?: ReadonlyArray<{ type: string; toolCallId?: string; error?: unknown }>;
 }
 
-function convertResponseToTurnMessages(
+/** What is stored for a call no tool ran: the error the model was given in the turn, or that nothing ran. */
+function noResultOf(step: ConvertableStep, toolCallId: string): string {
+  const failed = step.content?.find((part) => part.type === 'tool-error' && part.toolCallId === toolCallId);
+  const error = failed?.error instanceof Error ? failed.error.message : failed?.error !== undefined ? String(failed.error) : null;
+  return JSON.stringify({ success: false, notRun: true, error: error ?? 'Nothing ran for this call, and it has no result.' });
+}
+
+/**
+ * Every call of a step is stored with its own result, found by its id, right
+ * after the step's message: a call no tool ran (the model named a tool it was
+ * not given, or one of the page's actions as if it were a tool) has none of
+ * the worker's, and is stored with the error the model was given for it.
+ * Paired by position, as they were, one call without a result moved every
+ * later result a call early, and the next turn's history put a result before
+ * its call, which the model's SDK refuses (`MissingToolResultsError`).
+ */
+export function convertResponseToTurnMessages(
   result: { steps: ReadonlyArray<ConvertableStep> },
   executedToolResults: Array<{ toolCallId: string; toolName: string; result: string }>,
 ): TurnMessage[] {
   const turnMessages: TurnMessage[] = [];
-  let resultIdx = 0;
+  const resultOf = new Map<string, { toolName: string; result: string }>();
+  for (const tracked of executedToolResults) if (!resultOf.has(tracked.toolCallId)) resultOf.set(tracked.toolCallId, tracked);
 
   for (const step of result.steps) {
     // Assistant message with text and/or tool calls
@@ -2590,15 +2610,15 @@ function convertResponseToTurnMessages(
       }
       turnMessages.push(msg);
 
-      // Add tool results for the tool calls in this step
-      for (let i = 0; i < step.toolCalls.length && resultIdx < executedToolResults.length; i++) {
-        const tracked = executedToolResults[resultIdx++];
+      // Each call's result, in the order of the calls.
+      for (const call of step.toolCalls) {
+        const tracked = resultOf.get(call.toolCallId);
         turnMessages.push({
           role: 'tool',
           // Stored as the model is sent it, so the history sends it the same way every turn.
-          content: answerWithoutState(tracked.result),
-          toolCallId: tracked.toolCallId,
-          name: tracked.toolName,
+          content: tracked ? answerWithoutState(tracked.result) : noResultOf(step, call.toolCallId),
+          toolCallId: call.toolCallId,
+          name: tracked?.toolName ?? call.toolName,
         });
       }
     }

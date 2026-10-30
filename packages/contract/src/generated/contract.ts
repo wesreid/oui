@@ -1998,6 +1998,12 @@ export interface AgentEvalSuite {
   context?: Readonly<Record<string, unknown>>;
   /** What each tool returns, for every scenario; a scenario's own stubs come first. */
   stubs?: AgentEvalStubs;
+  /**
+   * The person's page, scripted, for every scenario: what it offers at each address and what
+   * its actions do. Each turn is sent from it, and the agent's page actions are answered by it.
+   * A scenario's own `page` replaces it.
+   */
+  page?: AgentEvalPage;
   scenarios: readonly AgentEvalScenario[];
 }
 
@@ -2017,6 +2023,10 @@ export interface AgentEvalScenario {
   context?: Readonly<Record<string, unknown>>;
   /** What each tool returns in this scenario, before the suite's stubs. */
   stubs?: AgentEvalStubs;
+  /**
+   * The page this scenario's turns are sent from, in place of the suite's; `false`: no page.
+   */
+  page?: false | AgentEvalPage;
   turns: readonly AgentEvalTurn[];
 }
 
@@ -2121,6 +2131,17 @@ export interface AgentEvalExpectation {
   doesNotStore?: readonly AgentEvalTextMatcher[];
   /** `true`: the turn ran no model call, because a person held the conversation. */
   held?: boolean;
+  /** How many times each tool, or each of the page's actions, was called in the turn. */
+  calls?: readonly AgentEvalCallCount[];
+  /** What the turn's model calls used, as the provider reported it. */
+  usage?: AgentEvalUsage;
+  /**
+   * The turn offered the person choice buttons (`present_options`) that match; `false`: it
+   * offered none.
+   */
+  choices?: false | AgentEvalChoicesExpectation;
+  /** What the page did in the turn, read from the page itself. */
+  page?: AgentEvalPageExpectation;
 }
 
 /** What must also hold on one channel, by its name. */
@@ -2145,3 +2166,237 @@ export interface AgentEvalStubCase {
  * backend.
  */
 export type AgentEvalStubs = Readonly<Record<string, readonly AgentEvalStubCase[]>>;
+
+/**
+ * The person's page, scripted. The harness runs it on a real oui-spec surface runtime in index
+ * form, sends each turn from where it is (its address and its snapshot, as the person's tab
+ * sends them), and answers the agent's page actions (`ui_act`, `ui_describe`, `ui_read`) from
+ * it. Its surfaces are declared here, or are the product's own: the controls of its generated
+ * manifest, given to the configuration (`page.manifest`), mounted as its tab mounts them.
+ */
+export interface AgentEvalPage {
+  /**
+   * The address the first turn is sent from. Each later turn is sent from wherever the page is
+   * by then.
+   */
+  at: string;
+  /**
+   * The addresses going to a page accepts, as route patterns (`/leads/:id`), when the manifest
+   * declares no navigation surface of its own. Default: every surface's routes, the manifest's
+   * pages, and `at`.
+   */
+  routes?: readonly string[];
+  /**
+   * Whether the page offers going to a page by its address (`app.navigate`), as a generated app
+   * does: the manifest's navigation surface, or one made from `routes`, run by the bindings as
+   * the product's tab runs it. Default: true.
+   */
+  navigation?: boolean;
+  /** Surfaces declared here, each mounted while the page is at one of its routes. */
+  surfaces?: readonly AgentEvalPageSurface[];
+  /**
+   * The product's own controls, by binding id in the configuration's manifest: each is mounted
+   * while the page is on its surface, with what it shows and what it does.
+   */
+  controls?: Readonly<Record<string, AgentEvalPageControl>>;
+  /**
+   * Also mount every other control the manifest declares on a surface that is mounted, with no
+   * value, as an empty form shows them. A list's per-row controls are not: no row is rendered.
+   * Default: false.
+   */
+  allControls?: boolean;
+}
+
+/** A surface of the page: its actions, and what it reports. */
+export interface AgentEvalPageSurface {
+  id: string;
+  name: string;
+  description: string;
+  /** Where it is mounted, as route patterns. Absent: on every page, as a shell is. */
+  routes?: readonly string[];
+  /** What it reports when the page opens, by observation id. */
+  state?: Readonly<Record<string, unknown>>;
+  actions: readonly AgentEvalPageAction[];
+}
+
+/** An action of a declared surface, and what it does when it runs. */
+export interface AgentEvalPageAction {
+  /** As the page's index names it, and `ui_act` takes it. */
+  id: string;
+  title?: string;
+  description: string;
+  /** What it changes (oui-spec's effect kinds). */
+  effect?: 'view' | 'selection' | 'navigate' | 'open' | 'edit' | 'file' | 'mutate' | 'job' | 'transaction';
+  /** It asks the person to approve it first. */
+  confirm?: boolean;
+  /** What it takes, as a JSON Schema. Default: nothing. */
+  input?: Record<string, unknown>;
+  /** What it answers. Default: it succeeds, returning nothing. */
+  result?: {
+    success: boolean;
+    data?: unknown;
+    error?: string;
+  };
+  /**
+   * Its surface's observations once it has run, by observation id: each given replaces the one
+   * before.
+   */
+  state?: Readonly<Record<string, unknown>>;
+  /** The address the page goes to once it has run. */
+  navigate?: string;
+  /**
+   * What it does for a call whose input holds `when`, the first that matches; a call none
+   * matches gets the defaults beside them.
+   */
+  cases?: readonly {
+    /** A subset of its input; absent: any call. */
+    when?: Readonly<Record<string, unknown>>;
+    /** What it answers. Default: it succeeds, returning nothing. */
+    result?: {
+      success: boolean;
+      data?: unknown;
+      error?: string;
+    };
+    /**
+     * Its surface's observations once it has run, by observation id: each given replaces the
+     * one before.
+     */
+    state?: Readonly<Record<string, unknown>>;
+    /** The address the page goes to once it has run. */
+    navigate?: string;
+  }[];
+}
+
+/**
+ * One of the product's controls, as the page shows it, and what it does when it runs (default:
+ * it takes the value it is given, and succeeds).
+ */
+export interface AgentEvalPageControl {
+  /** What it shows when the page opens. A run sets it to the value it was given. */
+  value?: unknown;
+  /** What it is called on screen. Default: the manifest's title. */
+  title?: string;
+  /** Its live value schema (its options, its range), within the manifest's. */
+  valueSchema?: Record<string, unknown>;
+  /** It cannot be used: it is not offered. */
+  disabled?: boolean;
+  /** For a list's control: one per row shown. */
+  rows?: readonly {
+    key: string;
+    title: string;
+    description?: string;
+    value?: unknown;
+  }[];
+  /** Where it is mounted, when not wherever its surface is. */
+  routes?: readonly string[];
+  /** What it answers. Default: it succeeds, returning nothing. */
+  result?: {
+    success: boolean;
+    data?: unknown;
+    error?: string;
+  };
+  /** The address the page goes to once it has run. */
+  navigate?: string;
+  /**
+   * What it does for a call whose input holds `when`, the first that matches; a call none
+   * matches gets the defaults beside them.
+   */
+  cases?: readonly {
+    /** A subset of its input; absent: any call. */
+    when?: Readonly<Record<string, unknown>>;
+    /** What it answers. Default: it succeeds, returning nothing. */
+    result?: {
+      success: boolean;
+      data?: unknown;
+      error?: string;
+    };
+    /** The address the page goes to once it has run. */
+    navigate?: string;
+  }[];
+}
+
+/** A number at least `min` and at most `max`. */
+export interface AgentEvalBound {
+  min?: number;
+  max?: number;
+}
+
+/** A share, from 0 to 1, at least `min` and at most `max`. */
+export interface AgentEvalShareBound {
+  min?: number;
+  max?: number;
+}
+
+/**
+ * The calls of one tool (`tool`), or of one of the page's actions run through `ui_act`
+ * (`action`, by its id or the name the page's index gives it), whose arguments (a tool's) or
+ * input (an action's) hold `args` as a subset, counted: exactly `times`, or at least `min` and
+ * at most `max`. With none of the three: at least once.
+ */
+export type AgentEvalCallCount = {
+  tool: string;
+  args?: Readonly<Record<string, unknown>>;
+  times?: number;
+  min?: number;
+  max?: number;
+} | {
+  action: string;
+  args?: Readonly<Record<string, unknown>>;
+  times?: number;
+  min?: number;
+  max?: number;
+};
+
+/**
+ * Bounds on what the turn's model calls used, as the provider reported it. Every bound given
+ * must hold.
+ */
+export interface AgentEvalUsage {
+  /** How many model calls the turn made. */
+  modelCalls?: AgentEvalBound;
+  /**
+   * The input tokens of the turn's first model call: what the turn costs before it has done
+   * anything.
+   */
+  firstCallInputTokens?: AgentEvalBound;
+  /**
+   * The input tokens of every one of the turn's model calls: `max` holds the largest, `min` the
+   * smallest.
+   */
+  callInputTokens?: AgentEvalBound;
+  /** The input tokens of all the turn's model calls together. */
+  inputTokens?: AgentEvalBound;
+  /** The output tokens of all the turn's model calls together. */
+  outputTokens?: AgentEvalBound;
+  /** The share of the turn's input tokens read from the prompt cache. */
+  cachedShare?: AgentEvalShareBound;
+}
+
+/** The choice buttons the turn offered (`present_options`). */
+export interface AgentEvalChoicesExpectation {
+  /** Each matches one option offered: its label, or its label and description. */
+  options?: readonly AgentEvalTextMatcher[];
+  /** Each matches what is asked with them: the question, and what it says before it. */
+  question?: readonly AgentEvalTextMatcher[];
+  /** How many options were offered. */
+  count?: AgentEvalBound;
+}
+
+/** What the page did in the turn: where it is, and what ran on it. */
+export interface AgentEvalPageExpectation {
+  /**
+   * Where the page is after the turn: this path, and each query parameter given with the value
+   * given.
+   */
+  at?: string;
+  /**
+   * Each ran on the page in the turn (by its id or its index name), its input holding `input`
+   * as a subset.
+   */
+  ran?: readonly {
+    action: string;
+    input?: Readonly<Record<string, unknown>>;
+  }[];
+  /** None of these ran on the page in the turn; `*`: nothing did. */
+  notRan?: readonly string[];
+}

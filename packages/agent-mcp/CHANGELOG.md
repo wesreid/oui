@@ -1,5 +1,14 @@
 # @ouispec/agent-mcp
 
+## 0.21.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/agent-worker@0.21.0
+  - @ouispec/agent-core@0.21.0
+  - @ouispec/bindings@0.9.0
+
 ## 0.20.2
 
 ### Patch Changes

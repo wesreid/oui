@@ -1,5 +1,11 @@
 # @ouispec/tier2-fixtures
 
+## 0.0.21
+
+### Patch Changes
+
+- @ouispec/bindings@0.9.0
+
 ## 0.0.20
 
 ### Patch Changes

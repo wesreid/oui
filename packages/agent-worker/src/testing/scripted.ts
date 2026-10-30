@@ -11,6 +11,21 @@ import type { RecordedExchange } from './cassette.js';
 export interface ScriptedReply {
   text?: string;
   toolCalls?: Array<{ id: string; name: string; args: Record<string, unknown> }>;
+  /** What the response says it used. Default: 500 input tokens, none read from the prompt cache, and 20 output. */
+  usage?: { inputTokens?: number; cachedInputTokens?: number; outputTokens?: number };
+}
+
+/** A reply's usage, as Chat Completions reports it. */
+function usageOf(reply: ScriptedReply) {
+  const prompt = reply.usage?.inputTokens ?? 500;
+  const completion = reply.usage?.outputTokens ?? 20;
+  const cached = reply.usage?.cachedInputTokens;
+  return {
+    prompt_tokens: prompt,
+    completion_tokens: completion,
+    total_tokens: prompt + completion,
+    ...(cached !== undefined ? { prompt_tokens_details: { cached_tokens: cached } } : {}),
+  };
 }
 
 /** A Chat Completions request, as the provider sent it. */
@@ -52,7 +67,7 @@ export function scriptedReplyExchange(reply: ScriptedReply): RecordedExchange {
     );
   }
   chunks.push(chatCompletionsChunk([{ index: 0, delta: {}, finish_reason: reply.toolCalls?.length ? 'tool_calls' : 'stop' }]));
-  chunks.push(chatCompletionsChunk([], { usage: { prompt_tokens: 500, completion_tokens: 20, total_tokens: 520 } }));
+  chunks.push(chatCompletionsChunk([], { usage: usageOf(reply) }));
   return chatCompletionsStream(chunks);
 }
 
@@ -71,7 +86,7 @@ export function scriptedCompletionExchange(reply: ScriptedReply): RecordedExchan
         finish_reason: toolCalls?.length ? 'tool_calls' : 'stop',
       },
     ],
-    usage: { prompt_tokens: 500, completion_tokens: 20, total_tokens: 520 },
+    usage: usageOf(reply),
   };
   return { path: '/v1/chat/completions', status: 200, contentType: 'application/json', bodyBase64: Buffer.from(JSON.stringify(body)).toString('base64') };
 }

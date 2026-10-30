@@ -3,14 +3,16 @@
  * contract's `agent-evals.json`, then to what a schema cannot say: unique
  * scenario ids, channels the configuration serves, regular expressions that
  * compile, an approval answered only after a turn could have asked for one,
- * and staff who take a conversation before they write in it.
+ * staff who take a conversation before they write in it, a page for every
+ * turn held to one, call counts that can hold, and a page's surfaces and
+ * actions named once each.
  *
  * Every problem is reported at once, each with where it is.
  */
 import { readFileSync } from 'node:fs';
 import { extname } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import type { AgentEvalExpectation, AgentEvalSuite, AgentEvalTextMatcher } from '@ouispec/contract';
+import type { AgentEvalExpectation, AgentEvalPage, AgentEvalSuite, AgentEvalTextMatcher } from '@ouispec/contract';
 import { contractProblems } from '@ouispec/contract/validate';
 
 /** A suite that cannot be run, with every reason. */
@@ -38,8 +40,25 @@ const matchersOf = (expect: AgentEvalExpectation | undefined): AgentEvalTextMatc
   const out: AgentEvalTextMatcher[] = [...(expect.says ?? []), ...(expect.mustNotSay ?? []), ...(expect.doesNotStore ?? [])];
   if (expect.refusal && expect.refusal !== true) out.push(expect.refusal);
   if (expect.approvalRequested && expect.approvalRequested.readback) out.push(expect.approvalRequested.readback);
+  if (expect.choices) out.push(...(expect.choices.options ?? []), ...(expect.choices.question ?? []));
   return out;
 };
+
+/** What cannot be told from a page's schema: two surfaces with one id, two actions of a surface with one id. */
+function pageProblems(page: AgentEvalPage, at: string): string[] {
+  const problems: string[] = [];
+  const surfaces = new Set<string>();
+  for (const [i, surface] of (page.surfaces ?? []).entries()) {
+    if (surfaces.has(surface.id)) problems.push(`${at}/surfaces/${i}: the id "${surface.id}" is used twice`);
+    surfaces.add(surface.id);
+    const actions = new Set<string>();
+    for (const [j, action] of surface.actions.entries()) {
+      if (actions.has(action.id)) problems.push(`${at}/surfaces/${i}/actions/${j}: "${surface.id}" has two actions "${action.id}"`);
+      actions.add(action.id);
+    }
+  }
+  return problems;
+}
 
 /** Every expectation of a turn, the general one and each channel's. */
 function expectationsOf(turn: AgentEvalSuite['scenarios'][number]['turns'][number]): Array<[string, AgentEvalExpectation]> {
@@ -67,6 +86,7 @@ export function checkSuite(value: unknown, source: string, channels: readonly st
   };
   unknownChannels('/channels', suite.channels);
   const suiteChannels = new Set(suite.channels ?? channels);
+  if (suite.page) problems.push(...pageProblems(suite.page, '/page'));
 
   const ids = new Set<string>();
   suite.scenarios.forEach((scenario, s) => {
@@ -78,12 +98,24 @@ export function checkSuite(value: unknown, source: string, channels: readonly st
       if (known.has(name) && !suiteChannels.has(name)) problems.push(`${at}/channels: "${name}" is not one of the suite's channels`);
     }
 
+    if (scenario.page) problems.push(...pageProblems(scenario.page, `${at}/page`));
+    const hasPage = scenario.page === false ? false : !!(scenario.page ?? suite.page);
+
     let held = false;
     let agentTurns = 0;
     scenario.turns.forEach((turn, t) => {
       const here = `${at}/turns/${t}`;
       for (const [where, expectation] of expectationsOf(turn)) {
         if (where.startsWith('expectOn/')) unknownChannels(`${here}/${where}`, [where.slice('expectOn/'.length)]);
+        if (expectation.page && !hasPage) problems.push(`${here}/${where}/page: the scenario has no page to hold to it (give the suite or the scenario a \`page\`)`);
+        for (const [c, counted] of (expectation.calls ?? []).entries()) {
+          if (counted.times !== undefined && (counted.min !== undefined || counted.max !== undefined)) {
+            problems.push(`${here}/${where}/calls/${c}: give \`times\`, or \`min\` and \`max\`, not both`);
+          }
+          if (counted.min !== undefined && counted.max !== undefined && counted.min > counted.max) {
+            problems.push(`${here}/${where}/calls/${c}: \`min\` ${counted.min} is more than \`max\` ${counted.max}`);
+          }
+        }
         for (const matcher of matchersOf(expectation)) {
           if (typeof matcher === 'object' && 'pattern' in matcher) {
             try {
