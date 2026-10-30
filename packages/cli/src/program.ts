@@ -90,6 +90,13 @@ export function resolveSymbol(checker: ts.TypeChecker, node: ts.Node): ts.Symbol
   return symbol;
 }
 
+/**
+ * What a name stands for in the component being read, when the build knows:
+ * a prop, as the element that rendered the component passed it, with the
+ * scope of the component that element is in.
+ */
+export type Scope = (id: ts.Identifier) => { expr: ts.Expression; scope?: Scope } | undefined;
+
 /** The initializer of the constant an identifier names, if it is one. */
 export function constInitializer(checker: ts.TypeChecker, id: ts.Identifier): ts.Expression | undefined {
   const symbol = resolveSymbol(checker, id);
@@ -111,13 +118,19 @@ const ARITHMETIC = new Map<ts.SyntaxKind, (a: number, b: number) => number>([
 /**
  * The value an expression has without running anything: literals, arrays and
  * objects of them, constants (imported ones too), properties of constant
- * objects, arithmetic on known numbers, and strings built only from those — a template literal or a `+`
+ * objects (by name or by a known key), arithmetic on known numbers, and strings built only from those — a template literal or a `+`
  * whose every part is itself known. Anything else, a call above all, is
  * `UNKNOWN` (inside objects and arrays too, so a partly-known value keeps what
  * is known). A text written once as a constant can so be a binding's
- * description without being copied into it.
+ * description without being copied into it. With a `scope`, a prop of the
+ * component being read is what its element passed.
  */
-export function evaluate(checker: ts.TypeChecker, expr: ts.Expression | undefined, depth = 0): Evaluated {
+export function evaluate(
+  checker: ts.TypeChecker,
+  expr: ts.Expression | undefined,
+  depth = 0,
+  scope?: Scope,
+): Evaluated {
   // Deep enough for a text built from constants built from constants.
   if (!expr || depth > 16) return UNKNOWN;
   const e = unwrap(expr);
@@ -128,18 +141,18 @@ export function evaluate(checker: ts.TypeChecker, expr: ts.Expression | undefine
   if (e.kind === ts.SyntaxKind.NullKeyword) return null;
   if (ts.isIdentifier(e) && e.text === 'undefined') return undefined;
   if (ts.isPrefixUnaryExpression(e) && e.operator === ts.SyntaxKind.MinusToken) {
-    const v = evaluate(checker, e.operand, depth + 1);
+    const v = evaluate(checker, e.operand, depth + 1, scope);
     return typeof v === 'number' ? -v : UNKNOWN;
   }
   if (ts.isArrayLiteralExpression(e)) {
     const out: unknown[] = [];
     for (const el of e.elements) {
       if (ts.isSpreadElement(el)) {
-        const spread = evaluate(checker, el.expression, depth + 1);
+        const spread = evaluate(checker, el.expression, depth + 1, scope);
         if (Array.isArray(spread)) out.push(...spread);
         else return UNKNOWN;
       } else {
-        out.push(evaluate(checker, el, depth + 1));
+        out.push(evaluate(checker, el, depth + 1, scope));
       }
     }
     return out;
@@ -149,31 +162,43 @@ export function evaluate(checker: ts.TypeChecker, expr: ts.Expression | undefine
     for (const prop of e.properties) {
       if (ts.isPropertyAssignment(prop)) {
         const name = propertyName(prop.name);
-        if (name !== null) out[name] = evaluate(checker, prop.initializer, depth + 1);
+        if (name !== null) out[name] = evaluate(checker, prop.initializer, depth + 1, scope);
       } else if (ts.isShorthandPropertyAssignment(prop)) {
-        out[prop.name.text] = evaluate(checker, prop.name, depth + 1);
+        out[prop.name.text] = evaluate(checker, prop.name, depth + 1, scope);
       } else if (ts.isSpreadAssignment(prop)) {
-        const spread = evaluate(checker, prop.expression, depth + 1);
+        const spread = evaluate(checker, prop.expression, depth + 1, scope);
         if (spread && typeof spread === 'object') Object.assign(out, spread);
       }
     }
     return out;
   }
   if (ts.isIdentifier(e)) {
+    // A prop of the component being read: what the element that rendered it passed, read where it is written.
+    const passed = scope?.(e);
+    if (passed) return evaluate(checker, passed.expr, depth + 1, passed.scope);
     const init = constInitializer(checker, e);
-    return init ? evaluate(checker, init, depth + 1) : literalType(checker, e);
+    return init ? evaluate(checker, init, depth + 1, scope) : literalType(checker, e);
   }
   if (ts.isPropertyAccessExpression(e)) {
-    const base = evaluate(checker, e.expression, depth + 1);
+    const base = evaluate(checker, e.expression, depth + 1, scope);
     if (base && typeof base === 'object' && e.name.text in base) {
       return (base as Record<string, unknown>)[e.name.text];
     }
     return literalType(checker, e);
   }
+  // A constant record read by a known key: `PRODUCT_META[product]`.
+  if (ts.isElementAccessExpression(e)) {
+    const base = evaluate(checker, e.expression, depth + 1, scope);
+    const key = evaluate(checker, e.argumentExpression, depth + 1, scope);
+    if (base && typeof base === 'object' && (typeof key === 'string' || typeof key === 'number') && key in base) {
+      return (base as Record<string, unknown>)[key];
+    }
+    return UNKNOWN;
+  }
   if (ts.isTemplateExpression(e)) {
     let text = e.head.text;
     for (const span of e.templateSpans) {
-      const part = evaluate(checker, span.expression, depth + 1);
+      const part = evaluate(checker, span.expression, depth + 1, scope);
       if (!isTextPart(part)) return UNKNOWN;
       text += String(part) + span.literal.text;
     }
@@ -181,15 +206,15 @@ export function evaluate(checker: ts.TypeChecker, expr: ts.Expression | undefine
   }
   // A number built from constants: `30 * 60_000`, `HOUR - MINUTE`.
   if (ts.isBinaryExpression(e) && ARITHMETIC.has(e.operatorToken.kind)) {
-    const left = evaluate(checker, e.left, depth + 1);
-    const right = evaluate(checker, e.right, depth + 1);
+    const left = evaluate(checker, e.left, depth + 1, scope);
+    const right = evaluate(checker, e.right, depth + 1, scope);
     if (typeof left !== 'number' || typeof right !== 'number') return UNKNOWN;
     const value = ARITHMETIC.get(e.operatorToken.kind)!(left, right);
     return Number.isFinite(value) ? value : UNKNOWN;
   }
   if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.PlusToken) {
-    const left = evaluate(checker, e.left, depth + 1);
-    const right = evaluate(checker, e.right, depth + 1);
+    const left = evaluate(checker, e.left, depth + 1, scope);
+    const right = evaluate(checker, e.right, depth + 1, scope);
     if (typeof left === 'number' && typeof right === 'number') return left + right;
     if (isTextPart(left) && isTextPart(right) && (typeof left === 'string' || typeof right === 'string')) {
       return String(left) + String(right);

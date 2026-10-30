@@ -586,14 +586,35 @@ export interface ControlDescriptor {
    */
   defaults?: SchemaProps;
   /**
-   * It shows facts rather than taking input (a clip's parameters): a binding on it names what
-   * it shows, and the page reports its facts by label. Its facts are the array prop
-   * `itemsProp`, each labelled by `labelKey`. Not a control, so a use without a binding is not
-   * unbound.
+   * It reports what it shows (`useAgentFacts`): its facts by label, under a binding the page
+   * declares, which the manifest records as one of the page's `displays`. One that only shows
+   * facts (a clip's parameters, a stat) has no `kind`, `slots` or `entries`: it is not a
+   * control, so a use without a binding is not unbound. A control or a composite that also
+   * reports what it shows (a card bound to open, a list) keeps its `kind`, `slots` or `entries`
+   * beside it. It reports under its own `agent`; a composite, under its `agent`'s `slot`
+   * binding when the page gives one, else under the first of its `parts` the page bound (as
+   * that row, when the composite has an `item`).
    */
   display?: {
-    itemsProp: string;
-    labelKey: string;
+    /** An array prop that holds its facts, each labelled by `labelKey`. */
+    itemsProp?: string;
+    /** The key of each entry of `itemsProp` that holds its label. */
+    labelKey?: string;
+    /**
+     * Labels of facts it reports that the page does not write (a stat's `Change`), which the
+     * manifest records with the display.
+     */
+    labels?: readonly string[];
+    /**
+     * A composite's: the key of its `agent` that names what it shows apart from its controls
+     * (`facts`), as `{ id, description }`.
+     */
+    slot?: string;
+    /**
+     * A composite's: the slots whose binding it reports under, in order, when the page gives no
+     * `slot` binding.
+     */
+    parts?: readonly string[];
   };
   /** Props that give a default title, in order. `children` means the element's text. */
   titleProps: readonly string[];

@@ -23,6 +23,8 @@ The generator reads every setting from `oui.config.json` at the app's root; path
 }
 ```
 
+`shell` names the app's frame where no route renders it (a layout route's element is one without being named), each part on the routes it is given (`routes`, default every page). A frame, and a component the pages share, says where it is in its description: on every page, or on every page under one path (`/dashboard`) when it is on all of them and on more than three, else the routes themselves. The manifest's `routes` list them all either way.
+
 `apiSpec` names the OpenAPI 3 document inside the installed API client package, never a sibling checkout, so the generator reads exactly the spec of the client version the app installs. Every `mutate` effect names one of its `operationId`s.
 
 `outside` names the pages the assistant is never on: pages before sign-in, and public pages a link opens. Each names its page by component or by route, with the reason. An outside page has no surface, its controls are not enforced, the assistant is not offered it as a page to go to, and the knowledge says the assistant is not there. A page is outside only when nothing around it or in it is the assistant's, so the list cannot hide a page of the app:

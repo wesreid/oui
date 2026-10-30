@@ -89,10 +89,12 @@ export interface OrderCardProps {
   onOpen?: () => unknown;
   onCancel?: () => unknown;
   menuItems?: readonly { label: string; onClick: () => unknown; agent?: AgentProp }[];
-  agent?: AgentSlots<'open' | 'cancel'>;
+  /** `facts` names what it shows apart from its buttons; without it, it reports under `open`. */
+  agent?: AgentSlots<'open' | 'cancel' | 'facts'>;
 }
 
 export function OrderCard({ title, onOpen, onCancel, menuItems = [], agent }: OrderCardProps) {
+  useAgentFacts(slotBinding(agent, agent?.facts ? 'facts' : 'open'), title, { Status: 'Open' });
   useAgentBindings([
     { agent: slotBinding(agent, 'open'), kind: 'button', title: `Open ${title}`, run: () => onOpen?.() as Result },
     { agent: slotBinding(agent, 'cancel'), kind: 'button', title: `Cancel ${title}`, run: () => onCancel?.() as Result },

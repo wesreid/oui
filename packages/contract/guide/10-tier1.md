@@ -80,7 +80,9 @@ A page then declares what each use means, with values the generator can read wit
 
 <!-- schema: control-table.json#/$defs/ControlDescriptor -->
 
-A composite with several callbacks names each in `slots`; an array prop whose entries carry their own `agent` (menu items, toolbar items) is `entries`; a dialog or tab set that shows a panel is a `container`; a control that only shows facts is a `display`.
+A composite with several callbacks names each in `slots`; an array prop whose entries carry their own `agent` (menu items, toolbar items) is `entries`; a dialog or tab set that shows a panel is a `container`; a component that reports what it shows (`useAgentFacts`) is a `display`.
+
+**Displays.** Everything that reports facts is declared, so the manifest records every display a page shows. A component that only shows facts (a stat, a description list) is a `display` and nothing else: a use without a binding is not unbound. A control or composite that also reports what it shows keeps its `kind`, `slots` or `entries` beside `display`: a card bound to open reports under the same binding, as the same row; a composite reports under its `slot` binding (`agent={{ facts: { id, description } }}`) when the page gives one, else under the first of its `parts` the page bound. A display that reports for the displays inside it (a scope a dashboard's tiles report as rows of) is a `display` too. The app's own `useAgentFacts` calls need no declaration: the generator reads each where the page reaches it, in a component or an app hook, and follows its binding through the props that pass it down to where it is written. A display's id may be its control's (the rows it acts on) or its own shown from several places, described the same way everywhere.
 
 <!-- schema: control-table.json#/$defs/SlotDescriptor -->
 

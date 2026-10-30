@@ -128,13 +128,30 @@ export function assemble(
     }
   }
 
-  // Binding ids are unique across the build, displays' too.
+  // Binding ids of controls are unique across the build.
   const byId = new Map<string, string[]>();
   for (const [site, { control }] of sites)
     byId.set(control.binding.id, [...(byId.get(control.binding.id) ?? []), site]);
-  const displaySites = new Map<string, string>();
-  for (const page of pages) for (const d of page.analysis?.displays ?? []) displaySites.set(d.site, d.binding.id);
-  for (const [site, id] of displaySites) byId.set(id, [...(byId.get(id) ?? []), site]);
+  // A display may share an id: with the control whose rows it describes (a
+  // card bound to open reports what it shows under that binding), or with
+  // itself shown from several places (a notice in two branches). Every
+  // declaration of the id then says the same thing.
+  const described = new Map<string, { description: string; site: string }>();
+  for (const [site, { control }] of sites)
+    if (!described.has(control.binding.id)) described.set(control.binding.id, { description: control.binding.description, site });
+  for (const page of pages) {
+    for (const d of page.analysis?.displays ?? []) {
+      const before = described.get(d.binding.id);
+      if (!before) described.set(d.binding.id, { description: d.binding.description, site: d.site });
+      else if (before.description !== d.binding.description) {
+        errors.push({
+          file: d.declaredIn,
+          line: d.line,
+          message: `Binding id "${d.binding.id}" is described differently at ${before.site} and ${d.site}: a display shares an id only with the control or display it is, in the same words`,
+        });
+      }
+    }
+  }
   for (const [id, where] of byId) {
     if (where.length > 1) {
       const [file, line] = where[0].split(':');
@@ -146,6 +163,7 @@ export function assemble(
     }
   }
 
+  const allPaths = allRoutes.map(r => r.path);
   const routesOf = (component: string) =>
     pages.find(p => p.component === component)?.routes.map(r => r.path) ?? [];
   const pageTitle = (page: PageInput) => {
@@ -289,7 +307,7 @@ export function assemble(
     const kind = page.frame ? 'shell' : 'page';
     const id = `${kind}:${page.component}`;
     const found = controlSurfaces.get(id);
-    const description = pageDescription(page, pageTitle(page));
+    const description = pageDescription(page, pageTitle(page), allPaths);
     const observations: ManifestObservation[] = [
       { id: 'state', description: stateDescription(found?.actions ?? []), schema: PAGE_STATE_SCHEMA },
       { id: PROBLEMS_OBSERVATION_ID, description: PROBLEMS_SCHEMA.description!, schema: PROBLEMS_SCHEMA },
@@ -357,7 +375,7 @@ export function assemble(
       id,
       kind: 'shared',
       title: s.title,
-      description: `${s.title}, on ${[...s.routes].sort().join(', ')}.`,
+      description: `${s.title}, on ${everyPage([...s.routes], allPaths) ?? [...s.routes].sort().join(', ')}.`,
       routes: [...s.routes].sort(),
       actions: sortActions(s.actions),
       observations: [{ id: 'state', description: stateDescription(s.actions), schema: PAGE_STATE_SCHEMA }],
@@ -604,12 +622,38 @@ function stateDescription(actions: readonly ManifestAction[]): string {
   return parts.join(' ');
 }
 
-function pageDescription(page: PageInput, title: string): string {
+/** The fewest routes listed before a surface on every page under one path is said to be there instead. */
+const LISTED_ROUTES = 3;
+
+/**
+ * Where a frame or a shared component is, when that is on every page: of the
+ * app ("every page"), or under one path ("every page under /dashboard"), as
+ * long as it is on more than `LISTED_ROUTES` pages. Null when its routes are
+ * better listed. A surface on every page says so: listing a hundred routes
+ * only says the same at length, in every turn's index of what is on the page.
+ */
+export function everyPage(routes: readonly string[], allRoutes: readonly string[]): string | null {
+  const on = new Set(routes);
+  if (on.has('*')) return 'every page';
+  const pages = [...new Set(allRoutes)].filter(r => r !== '*');
+  if (on.size <= LISTED_ROUTES) return null;
+  if (pages.length && pages.every(r => on.has(r))) return 'every page';
+  // The path every route is under, segment by segment.
+  const split = [...on].map(r => r.split('/').filter(Boolean));
+  const common: string[] = [];
+  for (let i = 0; split.every(segments => i < segments.length && segments[i] === split[0][i]); i++) common.push(split[0][i]);
+  if (!common.length) return null;
+  const prefix = `/${common.join('/')}`;
+  const under = pages.filter(r => r === prefix || r.startsWith(`${prefix}/`));
+  return under.every(r => on.has(r)) ? `every page under ${prefix}` : null;
+}
+
+function pageDescription(page: PageInput, title: string, allRoutes: readonly string[]): string {
   const subtitles = page.analysis?.header.subtitles ?? [];
   if (subtitles.length) return subtitles.join(' ');
   if (page.frame) {
     const where = page.routes.map(r => r.path);
-    return `${title}: the app's frame, around ${where.includes('*') ? 'every page' : `the pages at ${where.join(', ')}`}. Its controls are there whatever page is open.`;
+    return `${title}: the app's frame, around ${everyPage(where, allRoutes) ?? `the pages at ${where.join(', ')}`}. Its controls are there whatever page is open.`;
   }
   return `The ${title} page (${page.routes.map(r => r.path).join(', ')}).`;
 }

@@ -62,7 +62,7 @@ interface Part {
 
 function partsOf(descriptor: ControlDescriptor): Part[] {
   const parts: Part[] = [];
-  if (descriptor.kind && !descriptor.display) parts.push({ name: 'self', kind: descriptor.kind, callbacks: descriptor.callbacks });
+  if (descriptor.kind) parts.push({ name: 'self', kind: descriptor.kind, callbacks: descriptor.callbacks });
   for (const [slot, d] of Object.entries(descriptor.slots ?? {})) {
     parts.push({ name: slot, kind: d.kind, callbacks: d.callback ? [d.callback] : [] });
   }
@@ -158,7 +158,9 @@ async function checkEntry(spec: DesignSystemSpec, name: string, descriptor: Cont
     out.check('registers-declared-kind', name, 'has no example, so the kit cannot mount it: add one to `examples`');
     return;
   }
-  const slots = Object.keys(descriptor.slots ?? {});
+  // A composite's display slot (`facts`) is bound by the example as its slots are.
+  const display = descriptor.display;
+  const slots = [...new Set([...Object.keys(descriptor.slots ?? {}), ...(display?.slot ? [display.slot] : [])])];
 
   // Mount every state once, and find what each part registered.
   const mountAll = async (plan: unknown) => {
@@ -179,8 +181,10 @@ async function checkEntry(spec: DesignSystemSpec, name: string, descriptor: Cont
     return;
   }
   try {
-    if (descriptor.display) {
-      const id = kitBindingId(name, 'self');
+    if (display) {
+      // Under its own binding; a composite's, under its display slot, else its first part.
+      const part = display.slot ?? display.parts?.[0] ?? 'self';
+      const id = kitBindingId(name, part);
       const shown = first.mounted.some(m => m.registry.facts().some(f => f.id === id));
       out.check('registers-declared-kind', name, shown ? null : `is a display, and did not report its facts under its binding (${id})`);
     }
