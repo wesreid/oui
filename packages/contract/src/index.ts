@@ -10,6 +10,7 @@
  * | `control-kind-registration.json` | A control kind a design system adds |
  * | `tier2-mapping.json` | A tier 2 mapping of a third-party design system |
  * | `agent-binding.json` | The `agent` prop a control carries |
+ * | `page-query.json` | The query parameters a page reads from its address |
  * | `action-effect.json` | What an action does, and how a job settles |
  * | `room-catalog-data.json` | A tier 3 room catalog |
  * | `oui-manifest.json` | The generated manifest |

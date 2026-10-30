@@ -1,5 +1,5 @@
 {
-  "buildId": "9b3b88285d072106",
+  "buildId": "d685d9ae76740c1f",
   "surfaces": [
     {
       "actions": [
@@ -492,8 +492,15 @@
           "input": {
             "additionalProperties": false,
             "properties": {
+              "params": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Each :parameter of the route by name, when path is written as the route: {\"id\": \"v_1\"} for /voices/:id. Encoded for you.",
+                "type": "object"
+              },
               "path": {
-                "description": "The page’s address, with an id in place of each :parameter. The pages: /screener (Screener).",
+                "description": "The page’s address, with an id in place of each :parameter (or the route as listed, with params). The pages: /screener (Screener).",
                 "type": "string"
               }
             },

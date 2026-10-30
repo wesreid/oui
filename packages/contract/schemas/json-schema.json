@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.closurestudio.ai/oui/v1/json-schema.json",
   "title": "JsonSchema",
-  "description": "The subset of JSON Schema (draft 2020-12) every capability declares its input and values in. It is what assistant tool inputs are written in, so a declared or derived schema is used as is. `x-unit` names the unit a number is in: `px`, `%`, `°`; `x-space` names the frame it is measured in; `x-rows` and `x-ref` say which lists hold addressable rows and which inputs address them.",
+  "description": "The subset of JSON Schema (draft 2020-12) every capability declares its input and values in. It is what assistant tool inputs are written in, so a declared or derived schema is used as is. `x-unit` names the unit a number is in: `px`, `%`, `°`; `x-space` names the frame it is measured in; `x-rows` and `x-ref` say which lists hold addressable rows and which inputs address them; `x-routes` says which pages a navigation query belongs to.",
   "type": "object",
   "properties": {
     "type": {
@@ -142,6 +142,15 @@
     },
     "x-ref": {
       "description": "On a string (or the items of an array of strings) in an action's input: the value addresses a row of one of the surface's `x-rows` lists, each named `<observation id>/<list property>`, or `<observation id>` when the observation itself is the list. The row's id, or its exact title when one row has it.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1
+    },
+    "x-routes": {
+      "description": "On one alternative of the generated `app.navigate` action's `query`: the routes whose page takes that query (`/dashboard/service-lane`). The page declares it (`page-query.json`); the navigation runtime checks a call's query against the alternative of the route it goes to.",
       "type": "array",
       "items": {
         "type": "string",

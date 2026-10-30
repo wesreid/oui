@@ -72,6 +72,22 @@ The list cannot hide a page of the app. A page is outside only when nothing arou
 
 So a page under the app's frame, or one that binds anything only for itself, is never outside.
 
+## A page's query
+
+A list page that keeps its filters in its address declares the query it reads, once, with `defineQuery` from `@ouispec/bindings`, and reads it with `readQuery` (and writes it with `writeQuery`):
+
+```ts
+export const LANE_QUERY = defineQuery({
+  view: { values: LANE_VIEWS, default: 'lane', description: 'The open lane, or closed repair orders with declined work' },
+  advisor: { type: 'string', description: 'A service advisor, by name as the lane shows it' },
+});
+const query = readQuery(LANE_QUERY, searchParams);
+```
+
+The generator finds each `readQuery(<declaration>, …)` in the page, in a component it renders, or in an app hook they call (the hook may take the declaration as an argument), follows the declaration to its `defineQuery({ … })` constant, and reads it as it reads a binding: every value a build-time constant, an imported option list included. The generated `app.navigate` then takes `query`, one alternative per such page with its routes in `x-routes`, `path` names the page's parameters (`/dashboard/service-lane (Service lane; ?view, ?advisor)`), and the page's knowledge lists them, so the assistant opens the page filtered in one call. `app.navigate` also takes `params`, which fills a route's `:parameters` when `path` is written as the route. A build where no page declares a query is generated as before, with `params` added. The contract's integrator guide ("Going to a page, already filtered") has the declaration's schema and what the runtime checks.
+
+The build fails for a declaration it cannot read (`readQuery` given something other than a `defineQuery` constant, or a value built by a call), one that does not match `page-query.json`, a default the page would never read back (not one of its values, out of its range, on a `multiple`), and a parameter two declarations on one page give different meanings.
+
 ## Design systems
 
 Each package in `designSystem` must resolve from the app and name its control table in its `package.json`:
@@ -115,6 +131,7 @@ The app imports mapped controls from the bound module. Each use is read as a tie
 - On an enforced page, a mapped control imported straight from its package: the error names the bound import.
 - A mapping that does not match its schema, names a package the app cannot resolve, maps a package also in `designSystem` (or one of its subpaths, or a package one of whose subpaths `designSystem` lists), maps a package another mapping maps, uses a kind no design system registers, or does not fit the package's types (an export it does not have, a prop its component does not take).
 - A page in `outside` that the assistant may be on (above), or one that is also in `unbound`, or an entry naming no page.
+- A page's query the build cannot read, or one that breaks `page-query.json` or declares a parameter twice differently (above).
 - A stale bound module or control table, or a file in `<out>/bound/` no mapping emits (`--check`; writing removes it).
 
 ## Person-only components

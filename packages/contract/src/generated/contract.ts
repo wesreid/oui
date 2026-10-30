@@ -22,7 +22,7 @@ export const CONTRACT_SCHEMA_BASE = 'https://schemas.closurestudio.ai/oui/v1/';
  * It is what assistant tool inputs are written in, so a declared or derived schema is used as
  * is. `x-unit` names the unit a number is in: `px`, `%`, `°`; `x-space` names the frame it is
  * measured in; `x-rows` and `x-ref` say which lists hold addressable rows and which inputs
- * address them.
+ * address them; `x-routes` says which pages a navigation query belongs to.
  */
 export interface JsonSchema {
   type?: JsonSchemaType | readonly JsonSchemaType[];
@@ -76,6 +76,12 @@ export interface JsonSchema {
    * its exact title when one row has it.
    */
   'x-ref'?: readonly string[];
+  /**
+   * On one alternative of the generated `app.navigate` action's `query`: the routes whose page
+   * takes that query (`/dashboard/service-lane`). The page declares it (`page-query.json`); the
+   * navigation runtime checks a call's query against the alternative of the route it goes to.
+   */
+  'x-routes'?: readonly string[];
   /**
    * How many allowed values a shortened `enum` leaves out. Only in the page state, where a
    * row's options are summarised; a tool's input schema always lists every value.
@@ -282,6 +288,100 @@ export interface NonAgentBinding {
 
 /** The `agent` prop of a single-purpose control. */
 export type AgentProp = AgentBinding | NonAgentBinding;
+
+// ─── The query a page reads from its address ───────────────────────────────────
+// https://schemas.closurestudio.ai/oui/v1/page-query.json
+
+/**
+ * The query parameters a page reads from its address (`?view=declined&period=this_month`), each
+ * by name, declared once with `defineQuery` and read with `readQuery` (`@ouispec/bindings`).
+ * The generator reads the declaration where the page, a component it renders or an app hook
+ * they call reads it, and the generated `app.navigate` takes it, so the assistant opens the
+ * page already filtered to a question, in one call. A page that declares none takes its address
+ * as before.
+ *
+ * **Every value is a build-time constant**, as a binding's are: a literal, a `const` it can
+ * follow (an imported option list too), a property of a constant object, or a template literal
+ * or `+` over those.
+ */
+export type PageQuery = Readonly<Record<string, QueryParam>>;
+
+/**
+ * One query parameter: free text, a number, an on/off flag, a day, or one of a list of values.
+ */
+export type QueryParam = QueryText | QueryNumber | QueryFlag | QueryDate | QueryChoice;
+
+/** Free text: a name as the page shows it, a search. */
+export interface QueryText {
+  type: 'string';
+  /**
+   * What the value picks, for someone who cannot see the screen: what to pass and where it
+   * comes from.
+   */
+  description: string;
+  /** What the page shows when the address leaves it out. */
+  default?: string;
+  maxLength?: number;
+  /**
+   * It takes several values, written comma-separated in the address (`?tags=a,b`). A value
+   * cannot hold a comma.
+   */
+  multiple?: boolean;
+}
+
+/** A number: a page of a list (`integer`, from 1), a minimum score. */
+export interface QueryNumber {
+  type: 'integer' | 'number';
+  description: string;
+  default?: number;
+  minimum?: number;
+  maximum?: number;
+  /** The unit the number is in (`%`, `days`, `$`), as `x-unit` names it. */
+  unit?: string;
+}
+
+/** On or off: `1` in the address is on, `0` or nothing is off (unless its default is on). */
+export interface QueryFlag {
+  type: 'boolean';
+  description: string;
+  default?: boolean;
+}
+
+/** A day, `YYYY-MM-DD`. */
+export interface QueryDate {
+  type: 'date';
+  description: string;
+  /** `YYYY-MM-DD`. */
+  default?: string;
+}
+
+/**
+ * One of a list of values (a view, a period, a status): the list a select or tabs already show,
+ * by value and label.
+ */
+export interface QueryChoice {
+  /**
+   * Every value the page takes, each a string or `{ value, label, description }`: the same
+   * option list its control renders.
+   */
+  values: readonly QueryValue[];
+  description: string;
+  /** One of `values`: what the page shows when the address leaves it out. */
+  default?: string;
+  /** It takes several of the values, comma-separated in the address (`?signals=a,b`). */
+  multiple?: boolean;
+}
+
+/**
+ * One value of a choice: the value, or the value with what a person calls it and what it means.
+ */
+export type QueryValue = string | {
+  value: string;
+  /** What a person calls it (`Declined work`). */
+  label?: string;
+  /** What it means, when its label does not say. */
+  description?: string;
+};
 
 // ─── Control kinds, and the props their schemas come from ──────────────────────
 // https://schemas.closurestudio.ai/oui/v1/control-kind-registration.json

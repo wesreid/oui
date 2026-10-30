@@ -70,6 +70,7 @@ import {
 import { DEFAULT_INDEX_CHARS, indexText, pageFingerprint, type HeldDefinitions, type PageSurface } from './ui/page-index.js';
 import { describeSchema } from './ui/outline.js';
 import { createUISequence, type UISlot } from './ui/ui-sequence.js';
+import { actionCallAsUiAct } from './ui/action-as-tool.js';
 import { createTurnLedger } from './turn-ledger.js';
 import { DEFAULT_PAGE_STATE_CHARS, observationSchemas, observationsText } from './ui/observations.js';
 import { approvalConfirmedBy, approvalRequirement, approvalToolNote, VOICE_APPROVAL_CHANNELS, type ApprovalRequirement } from './approvals/requirement.js';
@@ -1765,6 +1766,13 @@ export async function runAgentTurn(
       // The host's, the same for every call (a thinking setting that changes invalidates the cache).
       ...(config.modelProviderOptions ? { providerOptions: config.modelProviderOptions } : {}),
       onChunk: ({ chunk }) => reasoningRelay.onPart(chunk),
+      // An action of the page called as a tool of its own is the `ui_act` call it
+      // means, run once (ui/action-as-tool.ts): never refused, then called again.
+      repairToolCall: async ({ toolCall, tools }) => {
+        const repaired = actionCallAsUiAct(toolCall, tools, (name) => currentUI()?.actions.has(name) ?? false, UI_ACT_TOOL);
+        if (repaired) log('info', 'agent:tool', 'An action called as a tool runs through ui_act', { turnId, action: toolCall.toolName });
+        return repaired;
+      },
       stopWhen: [
         isStepCount(maxRounds - allSteps.length),
         ...USER_INPUT_TOOLS.map((name) => hasToolCall(name)),

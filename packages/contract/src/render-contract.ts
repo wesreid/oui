@@ -33,6 +33,7 @@ export const CONTRACT_FILES: readonly ContractFile[] = [
   { file: 'json-schema.json', heading: 'JSON Schema, as capabilities declare their inputs and values' },
   { file: 'action-effect.json', heading: 'What an action does, and how a job settles' },
   { file: 'agent-binding.json', heading: 'The binding a control carries' },
+  { file: 'page-query.json', heading: 'The query a page reads from its address' },
   { file: 'control-kind-registration.json', heading: 'Control kinds, and the props their schemas come from' },
   { file: 'control-table.json', root: 'ControlTableFile', heading: 'A design system’s control table' },
   { file: 'tier2-mapping.json', heading: 'A tier 2 mapping' },

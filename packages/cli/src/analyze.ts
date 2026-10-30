@@ -122,8 +122,25 @@ export interface Tier2Found {
   spread: boolean;
 }
 
+/**
+ * A query the page reads from its address: `readQuery(<declaration>, …)` in
+ * the page, a component it renders or an app hook they call, with the
+ * declaration (`defineQuery({ … })`) as the build reads it.
+ */
+export interface FoundQuery {
+  /** The declaration's constant (`LANE_QUERY`), or `readQuery` for one written in the call. */
+  name: string;
+  /** Where the declaration is written. */
+  file: string;
+  line: number;
+  /** Its value as the build reads it: a `PageQuery` when every value is a build-time constant. */
+  declaration: unknown;
+}
+
 export interface PageAnalysis {
   controls: FoundControl[];
+  /** The queries the page reads from its address, each declaration once. */
+  queries: FoundQuery[];
   rooms: Set<LoadedCatalog>;
   dialogs: DialogStep[];
   /** The page's own PageHeader: its title and every description it can show. */
@@ -218,6 +235,7 @@ export class PageAnalyzer {
   analyze(pageDecl: ts.Node): PageAnalysis {
     const result: PageAnalysis = {
       controls: [],
+      queries: [],
       rooms: new Set(),
       dialogs: [],
       header: { title: null, subtitles: [] },
@@ -333,8 +351,9 @@ export class PageAnalyzer {
   }
 
   /**
-   * `useRoomRegistration(catalog, …)` in a body, or in an app hook it calls
-   * (`useVectorBoardSurface()`), followed hook by hook.
+   * `useRoomRegistration(catalog, …)` and `readQuery(declaration, …)` in a
+   * body, or in an app hook it calls (`useVectorBoardSurface()`,
+   * `useLaneQuery()`), followed hook by hook.
    */
   private findRegistrations(
     node: ts.Node,
@@ -353,6 +372,8 @@ export class PageAnalyzer {
         if (callee.getText() === 'useRoomRegistration' && n.arguments[0]) {
           const catalog = this.catalogFor(passed(n.arguments[0]));
           if (catalog) out.rooms.add(catalog);
+        } else if (this.isBindingsExport(callee, 'readQuery')) {
+          this.recordQuery(n, n.arguments[0] ? passed(n.arguments[0]) : undefined, out);
         } else if (ts.isIdentifier(callee) && /^use[A-Z]/.test(callee.text)) {
           const symbol = resolveSymbol(this.source.checker, callee);
           const decl = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
@@ -390,6 +411,84 @@ export class PageAnalyzer {
     if (!decl || !symbol) return undefined;
     const file = decl.getSourceFile().fileName;
     return this.catalogs.find(c => c.appModule?.file === file && c.appModule.export === symbol.name);
+  }
+
+  /**
+   * Whether a callee is `@ouispec/bindings`'s export of this name: imported
+   * from the package (renamed or through a namespace import), or re-exported
+   * by the app's own module and resolved to the package's declaration.
+   */
+  private isBindingsExport(callee: ts.Expression, name: string): boolean {
+    const BINDINGS = '@ouispec/bindings';
+    const e = unwrap(callee);
+    const id = ts.isPropertyAccessExpression(e) ? e.expression : e;
+    if (!ts.isIdentifier(id)) return false;
+    const decl = this.source.checker.getSymbolAtLocation(id)?.declarations?.[0];
+    if (decl) {
+      let n: ts.Node | undefined = decl;
+      while (n && !ts.isImportDeclaration(n)) n = n.parent;
+      if (n && ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier) && n.moduleSpecifier.text === BINDINGS) {
+        if (ts.isNamespaceImport(decl)) return ts.isPropertyAccessExpression(e) && e.name.text === name;
+        return ts.isImportSpecifier(decl) && !ts.isPropertyAccessExpression(e) && (decl.propertyName ?? decl.name).text === name;
+      }
+    }
+    const target = resolveSymbol(this.source.checker, ts.isPropertyAccessExpression(e) ? e.name : id);
+    const declared = target?.valueDeclaration ?? target?.declarations?.[0];
+    return (
+      !!declared &&
+      target!.name === name &&
+      /[\\/]@ouispec[\\/]bindings[\\/]/.test(declared.getSourceFile().fileName)
+    );
+  }
+
+  /**
+   * A `readQuery(declaration, …)` call: its declaration, followed to the
+   * `defineQuery({ … })` constant it names, read as the build reads a
+   * binding. Each declaration once, however many components read it.
+   */
+  private recordQuery(call: ts.CallExpression, arg: ts.Expression | undefined, out: PageAnalysis): void {
+    const at = (node: ts.Node) => {
+      const sf = node.getSourceFile();
+      return { file: this.source.rel(sf), line: sf.getLineAndCharacterOfPosition(node.getStart()).line + 1 };
+    };
+    let expr = arg ? unwrap(arg) : undefined;
+    let name = 'readQuery';
+    let where: ts.Node = call;
+    if (expr && ts.isIdentifier(expr)) {
+      const symbol = resolveSymbol(this.source.checker, expr);
+      const decl = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+      if (decl && ts.isVariableDeclaration(decl) && decl.initializer && decl.parent.flags & ts.NodeFlags.Const) {
+        name = expr.text;
+        where = decl;
+        expr = unwrap(decl.initializer);
+      } else {
+        out.errors.push({
+          ...at(call),
+          message: `readQuery(${expr.text}, …): its declaration must be a constant the build can read, \`const ${expr.text} = defineQuery({ … })\``,
+        });
+        return;
+      }
+    }
+    if (expr && ts.isCallExpression(expr) && this.isBindingsExport(expr.expression, 'defineQuery')) expr = expr.arguments[0];
+    if (!expr || !ts.isObjectLiteralExpression(unwrap(expr))) {
+      out.errors.push({
+        ...at(call),
+        message: `readQuery(…): its declaration must be \`defineQuery({ … })\`, written as an object the build can read`,
+      });
+      return;
+    }
+    const place = at(where);
+    if (out.queries.some(q => q.file === place.file && q.line === place.line && q.name === name)) return;
+    const declaration = evaluate(this.source.checker, expr);
+    const unknown = unknownPaths(declaration);
+    if (unknown.length) {
+      out.errors.push({
+        ...place,
+        message: `The query ${name} has values the build cannot read without running the app (${unknown.join(', ')}): each must be a literal, a constant or an option list it can follow`,
+      });
+      return;
+    }
+    out.queries.push({ name, ...place, declaration });
   }
 
   /**
@@ -1721,4 +1820,13 @@ function repeats(node: ts.Node, scope: ts.Node): boolean {
       return true;
   }
   return false;
+}
+
+/** Where a value read from source holds something only running the app would know: `view.values[2].label`. */
+function unknownPaths(value: unknown, path = ''): string[] {
+  if (value === UNKNOWN) return [path || '(the whole declaration)'];
+  if (Array.isArray(value)) return value.flatMap((v, i) => unknownPaths(v, `${path}[${i}]`));
+  if (value && typeof value === 'object')
+    return Object.entries(value).flatMap(([k, v]) => unknownPaths(v, path ? `${path}.${k}` : k));
+  return [];
 }

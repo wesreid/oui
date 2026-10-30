@@ -21,7 +21,6 @@ import { deriveInputSchema, ITEM_PROPERTY, itemSchema, MAX_DESCRIBED_OPTIONS } f
 import { effectKind, type ActionEffectKind } from './effect.js';
 import { isNarrowing, validateValue, type JsonSchema } from './json-schema.js';
 import {
-  isRoutePath,
   LOCATION_OBSERVATION_ID,
   NAVIGATION_SURFACE_ID,
   type ManifestAction,
@@ -31,6 +30,7 @@ import {
 import type { BindingRegistry, ControlRegistration, RoomRegistration } from './registry.js';
 import type { JobOutcome } from '@ouispec/contract';
 import { addressesRows, observationLookup, resolveInputRefs } from './readers.js';
+import { navigationQueries, navigationTarget, sameAddress } from './query.js';
 import { PROBLEMS_OBSERVATION_ID, type RoomResult } from './room.js';
 
 /** The id of a page or shared surface's observation of what it shows. */
@@ -626,28 +626,33 @@ function roomAction(
 }
 
 /**
- * Going to a page: the path must be one of the build's routes, with an id in
- * place of each `:param`, so an invented address is refused rather than
- * landing on the router's fallback.
+ * Going to a page: the address is built from the path, the route's
+ * `:parameters` and the query, each part encoded, and must be one of the
+ * build's routes inside the app, so an invented or outside address is refused
+ * rather than landing on the router's fallback. A query the page declares is
+ * checked against its declaration (`navigationTarget`). Going where the person
+ * already is changes nothing, and says so, so a repeated call never navigates
+ * twice.
  */
 function navigateAction(
   action: ManifestAction,
   routes: readonly string[],
   navigation: AppNavigation,
 ): ActionDefinition<null> {
+  const queries = navigationQueries(action.input);
   return {
     id: action.name,
     description: action.description,
     input: action.input as never,
     ...declared(action),
     handler: async params => {
-      const path = typeof params.path === 'string' ? params.path.trim() : '';
-      if (!path.startsWith('/')) return fail('INVALID_PATH', 'A page’s address starts with /');
-      if (!isRoutePath(routes, path)) {
-        return fail('UNKNOWN_ROUTE', `${path} is not a page of this app: the pages are ${routes.join(', ')}`);
+      const target = navigationTarget(params, routes, queries);
+      if (!target.ok) return fail(target.code, target.message);
+      if (sameAddress(navigation.location(), target.address)) {
+        return { success: true, data: { navigatedTo: target.address, alreadyThere: true } };
       }
-      navigation.navigate(path);
-      return { success: true, data: { navigatedTo: path } };
+      navigation.navigate(target.address);
+      return { success: true, data: { navigatedTo: target.address } };
     },
   };
 }
