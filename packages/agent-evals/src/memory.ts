@@ -6,6 +6,7 @@
  * replaces (`EvalHistory`). Nothing leaves the process.
  */
 import { randomUUID } from 'node:crypto';
+import type { AgentEvalScenario, AgentEvalSuite } from '@ouispec/contract';
 import type {
   ApprovalChannel,
   ApprovalDecideResult,
@@ -220,10 +221,49 @@ export const NO_PAGE: UIActionChannel = {
 export interface EvalHistory {
   /** A message no turn writes: the customer's, before their turn runs; a person's on the staff, as they act. */
   append(conversationId: string, entry: TurnHistoryMessage): void | Promise<void>;
-  /** The worker's `getHistory`: what a turn reads. */
-  getHistory(conversationId: string, turn: HistoryRequest): Promise<TurnHistoryMessage[] | TurnHistory>;
+  /**
+   * The worker's `getHistory`: what a turn reads. Beside the worker's own
+   * request, the harness gives the turn it reads for (`turn`: its scenario,
+   * its channel, the customer, and the context it is sent with, the page's
+   * included), which a product's worker reads from the turn's payload: where
+   * the turn is sent from, whose view it is in.
+   */
+  getHistory(conversationId: string, request: EvalHistoryRequest): Promise<TurnHistoryMessage[] | TurnHistory>;
   /** The worker's `persistMessages`, with no database: how a turn's messages are stored. */
   persistMessages(input: Omit<Parameters<AgentRuntimeConfig<unknown>['persistMessages']>[0], 'db'>): Promise<void | { stored: false }>;
+}
+
+/** The turn a history is read for, as the harness runs it: what a product's worker has from the turn's payload. */
+export interface EvalHistoryTurn {
+  conversationId: string;
+  turnId: string;
+  /** Its place among the scenario's turns, from 0. */
+  index: number;
+  /** A customer's message, or the continuation after their answer to an approval. */
+  kind: 'user' | 'approval';
+  suite: AgentEvalSuite;
+  scenario: AgentEvalScenario;
+  /** The channel it runs on, as the configuration names it. */
+  channel: string;
+  /** Who sent it. */
+  user: { userId: string; accountId: string };
+  /**
+   * The context it is sent with, as the worker is given it: the suite's, the
+   * channel's and the scenario's (whatever names the view it is in), and the
+   * page's (`currentPath`, `oui`, `uiKnowledge`).
+   */
+  context: Readonly<Record<string, unknown>>;
+  /** Where the page is when it is sent, with any query string; null with no page. */
+  at: string | null;
+}
+
+/**
+ * What `EvalHistory.getHistory` is given: the worker's request, and the turn
+ * it reads for. The harness always gives `turn`; a store's own tests may call
+ * it with the worker's request alone.
+ */
+export interface EvalHistoryRequest extends HistoryRequest {
+  turn?: EvalHistoryTurn;
 }
 
 export interface MemoryHistoryOptions {
@@ -232,7 +272,7 @@ export interface MemoryHistoryOptions {
    * (the newest messages, old tool results cut, a summary in their place, a
    * step context beside them). Default: all of it.
    */
-  window?: (messages: readonly TurnHistoryMessage[], turn: HistoryRequest & { conversationId: string }) => TurnHistoryMessage[] | TurnHistory | Promise<TurnHistoryMessage[] | TurnHistory>;
+  window?: (messages: readonly TurnHistoryMessage[], turn: EvalHistoryRequest & { conversationId: string }) => TurnHistoryMessage[] | TurnHistory | Promise<TurnHistoryMessage[] | TurnHistory>;
 }
 
 /** The conversation, kept whole in memory; a turn reads it through `window` when one is given. */

@@ -155,6 +155,50 @@ describe('agent-evals.json: a page, and what a turn did beyond its words', () =>
   });
 });
 
+describe('agent-evals.json: what a page shows, and a control that follows the address', () => {
+  const page = {
+    at: '/dashboard/service-lane?view=declined',
+    controls: { 'service-lane.view': { query: 'view', value: 'lane' } },
+    shown: [
+      { id: 'home.gross', facts: { Gross: '$182k', Deals: 41, Live: true } },
+      { id: 'lane.ro-card', title: 'RO 7002', facts: { Declined: '$640' }, item: { key: 'ro-7002', title: 'RO 7002' }, routes: ['/dashboard/service-lane'], query: { view: 'declined' } },
+    ],
+    problems: [{ source: 'home.gross', problems: [{ kind: 'load-failed', message: 'The gross could not be loaded.' }], routes: ['/dashboard'] }],
+    surfaces: [
+      {
+        id: 'page:lane',
+        name: 'Lane',
+        description: 'Repair orders',
+        shown: [{ id: 'lane.summary', title: 'Lane', facts: { Open: 60 } }],
+        problems: [{ problems: [{ kind: 'stale', message: 'Read 20 minutes ago.' }] }],
+        actions: [],
+      },
+    ],
+  };
+  const suiteWith = (p: unknown) => ({ version: 1, name: 'shown', page: p, scenarios: [{ id: 'a', title: 'a', turns: [{ user: 'hi' }] }] });
+
+  it('accepts them, in the runtime’s shape', () => {
+    expect(contractProblems('agent-evals.json', suiteWith(page))).toEqual([]);
+  });
+
+  it('refuses a fact that is not text, a number or a flag, a row with no title, a problem with no message, and an empty query name', () => {
+    expect(contractProblems('agent-evals.json', suiteWith({ ...page, shown: [{ id: 'x', facts: { a: { nested: 1 } } }] })).length).toBeGreaterThan(0);
+    expect(contractProblems('agent-evals.json', suiteWith({ ...page, shown: [{ id: 'x', facts: {}, item: { key: 'k' } }] })).length).toBeGreaterThan(0);
+    expect(contractProblems('agent-evals.json', suiteWith({ ...page, problems: [{ problems: [{ kind: 'x' }] }] })).length).toBeGreaterThan(0);
+    expect(contractProblems('agent-evals.json', suiteWith({ ...page, controls: { a: { query: '' } } })).length).toBeGreaterThan(0);
+  });
+});
+
+describe('oui-manifest.json: the displays a page shows', () => {
+  it('records each by binding id, and a manifest without them is still one', () => {
+    const surface = { id: 'page:Home', kind: 'page', title: 'Home', description: 'The Home', routes: ['/'], actions: [], observations: [] };
+    const manifest = (s: unknown) => ({ version: 1, buildId: 'b', surfaces: [s] });
+    expect(contractProblems('oui-manifest.json', manifest(surface))).toEqual([]);
+    expect(contractProblems('oui-manifest.json', manifest({ ...surface, displays: [{ id: 'home.gross', title: 'Gross', description: 'Gross to date', labels: ['Gross'] }] }))).toEqual([]);
+    expect(contractProblems('oui-manifest.json', manifest({ ...surface, displays: [{ id: 'home.gross' }] })).length).toBeGreaterThan(0);
+  });
+});
+
 describe('the integrator guide', () => {
   it('documents taking a conversation over and the evals, with their schemas', () => {
     const guide = readFileSync(join(__dirname, '..', 'INTEGRATOR-GUIDE.md'), 'utf8');

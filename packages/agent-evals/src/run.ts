@@ -39,7 +39,7 @@ import { CASSETTE_VERSION, cassettePath, fingerprint, readCassette, writeCassett
 import { checkSuite, readSuiteFile } from './suite.js';
 import { DEFAULT_REFUSAL, describeMatcher, holdsSubset, matchesText } from './matchers.js';
 import { judge, type JudgeOptions } from './judge.js';
-import { NO_PAGE, createMemoryApprovalStore, createMemoryEmit, createMemoryHistory, createMemoryStops } from './memory.js';
+import { NO_PAGE, createMemoryApprovalStore, createMemoryEmit, createMemoryHistory, createMemoryStops, type EvalHistoryTurn } from './memory.js';
 import { createFixturePage, type EvalPage, type EvalPageRun } from './page.js';
 import { recordingCalls, turnUsage, type EvalModelCall, type EvalTurnUsage } from './usage.js';
 
@@ -412,6 +412,7 @@ export async function runEvalCase(
   const stops = createMemoryStops();
   const history = await (config.history?.({ channel, scenario, suite }) ?? createMemoryHistory());
   let stored: Array<{ messages: TurnMessage[]; stopped?: TurnStoppedMarker }> = [];
+  let readingFor: EvalHistoryTurn | null = null;
   const runner = createAgentTurnRunner<null>({
     ...agentParts(agent),
     tools: async ({ turnId }) => (await resolveTools(turnId)).map(wrap),
@@ -427,7 +428,8 @@ export async function runEvalCase(
     },
     stops: { client: stops },
     getDb: async () => null,
-    getHistory: (id, _db, turn) => history.getHistory(id, turn),
+    // The turn it reads for, as a product's worker has it from the turn's payload.
+    getHistory: (id, _db, request) => history.getHistory(id, { ...request, ...(readingFor ? { turn: readingFor } : {}) }),
     persistMessages: async ({ db: _db, ...turn }) => {
       stored.push({ messages: turn.messages, ...(turn.stopped ? { stopped: turn.stopped } : {}) });
       return history.persistMessages(turn);
@@ -446,13 +448,15 @@ export async function runEvalCase(
     const ranBefore = page?.ran.length ?? 0;
     // The turn is sent from where the page is, with what it offers now, as the person's tab sends it.
     const pageContext = page ? await page.context() : {};
+    const sent = { ...(kind === 'user' ? context : sharedContext), ...pageContext };
+    readingFor = { conversationId, turnId, index, kind, suite, scenario, channel, user: { ...customer }, context: sent, at: page?.location() ?? null };
     const outcome = await runner.run({
       turnId,
       conversationId,
       ...customer,
       socketRoom: `eval:turn:${turnId}`,
       content: payload.content,
-      context: { ...(kind === 'user' ? context : sharedContext), ...pageContext },
+      context: sent,
       channel: approvalChannel,
       ...(payload.approval ? { approval: payload.approval } : {}),
     });

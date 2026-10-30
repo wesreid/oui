@@ -40,24 +40,36 @@ scenarios:
 
 **The person's page.** A suite, or a scenario in its place (`page: false` for none), declares the page its turns are sent from (`AgentEvalPage`). The harness runs it on a real oui-spec surface runtime in index form, sends every turn from wherever the page is, with its snapshot and its address (`oui`, `currentPath`, and `uiKnowledge` when the configuration gives your knowledge), and answers the agent's `ui_act`, `ui_describe` and `ui_read` from it, as the person's tab would. Its surfaces are either declared in the suite (`surfaces`: each one's `routes`, its observations as `state`, and its actions, each with the `result` it answers, the `state` it leaves and the address it goes to, by `cases` on its input), or are your own: give the configuration your generated manifest (`page: { manifest, knowledge }`) and name your controls by binding id (`controls`: each one's value, rows and what it does; `allControls` mounts the rest of a surface's, empty). They are registered with a real binding registry and connected with `connectBindings`, as your tab does, so the agent is offered exactly what your build declares. Going to a page (`app.navigate`) mounts what is at the new address; the next turn is sent from there.
 
+**What the page shows.** A page's numbers and a list's cards are not controls: your displays report them with `useAgentFacts`, and the page state carries them under `shown`. The fixture declares them in the same shape (`shown`: each display's `id`, `title`, `facts` by label and, for a card of a list, its row as `item`), and they are registered with the binding registry as your displays register them, so the page state reports them exactly as your tab does: by display, a long list kept as an index of its rows (`x-rows`), the rest read with `ui_read` at the display's own offset. A display is named by its binding id, which your manifest records on the page that shows it (`displays`, from 0.10): an id it does not record fails the page, a title left out is the manifest's, and an entry with no `routes` is shown where its page is. As in your tab, the page reports them while its surface is mounted, that is while one of its controls is (`controls`, or `allControls`). The problems your page areas show (`useAgentProblems`) are declared the same way (`problems`: each area's `source` and its `problems`), and reported with the page, or with the navigation surface when no page is open to report them. Either is shown only on its `routes` and while the address holds its `query` (read with the page's declared query, its defaults included), so the declined tab's cards are on the page only at `?view=declined`. A surface declared in the suite takes `shown` and `problems` too, as its `state` and `problems` observations.
+
+**Filters in the address.** A control bound to a query parameter (`query`: the name the page's `defineQuery` declares) shows the address's value, read as the page's `readQuery` reads it (its default when the address leaves it out, else the control's `value`). It follows the address when `app.navigate` goes to the page with another query, and a run writes the value it is given to the address, as the page's `writeQuery` does, so what is shown at that query follows too. The declarations are your manifest's, as the generator records them in `app.navigate`'s `query`; a parameter no page declares fails the page.
+
 ```yaml
 page:
   at: /dashboard
   controls:
-    service-lane.view: { value: open }
+    service-lane.view: { query: view }
     service-lane.declined.advisor: {}
+  shown:
+    - { id: home.gross, facts: { Gross: $182k, Deals: 41 } }
+    - id: lane.ro-card
+      title: RO 7002
+      facts: { Customer: Dana Reyes, Declined: $640 }
+      item: { key: ro-7002, title: RO 7002 · Dana Reyes }
+      query: { view: declined }
 scenarios:
   - id: declined-work-opens-the-lane
     title: Opens the service lane once, on its declined work, and pastes nothing
     turns:
       - user: Show me the declined work
         expect:
-          page: { at: /dashboard/service-lane, ran: [{ action: service-lane.view, input: { value: declined } }] }
+          page: { at: /dashboard/service-lane?view=declined, notRan: [service-lane.view] }
           calls: [{ action: app.navigate, times: 1 }, { tool: listRepairOrders, times: 0 }]
+          says: [RO 7002]
           usage: { firstCallInputTokens: { max: 20000 }, callInputTokens: { max: 40000 } }
 ```
 
-**Your conversation store.** By default the harness keeps the whole conversation. To run later turns on what your worker really reads (a window that cuts old tool results, a summary, a step context), give the configuration `history`: your store as `EvalHistory` (`append`, `getHistory`, `persistMessages`), or `createMemoryHistory({ window })` with your window over the whole conversation.
+**Your conversation store.** By default the harness keeps the whole conversation. To run later turns on what your worker really reads (a window that cuts old tool results, a summary, a step context), give the configuration `history`: your store as `EvalHistory` (`append`, `getHistory`, `persistMessages`), or `createMemoryHistory({ window })` with your window over the whole conversation. `getHistory` (and `window`) is given the worker's request and the turn it reads for (`request.turn`: its id and place, the suite, scenario and channel, the customer as `user`, the context it is sent with, which names its view and carries the page's, and where the page is, `at`), which your worker reads from the turn's payload: a step context written from the page the turn is sent from needs no `beforeTurn` to note it.
 
 **Your agent's settings.** `agent` returns what your worker runs with, `modelProviderOptions`, `forcedToolChoice` and `uiActions` (its waits and how much of the page the model reads; the channel is the page's) included.
 
@@ -107,3 +119,7 @@ The package ships an example: a fake dealer tool set, with scenarios for disclos
 <!-- schema: agent-evals.json#/$defs/AgentEvalPageAction -->
 
 <!-- schema: agent-evals.json#/$defs/AgentEvalPageControl -->
+
+<!-- schema: agent-evals.json#/$defs/AgentEvalShown -->
+
+<!-- schema: agent-evals.json#/$defs/AgentEvalProblems -->

@@ -20,6 +20,7 @@ export type {
   KnowledgeRecipe,
   ManifestAction,
   ManifestActionSource,
+  ManifestDisplay,
   ManifestObservation,
   ManifestSurface,
   ManifestSurfaceKind,

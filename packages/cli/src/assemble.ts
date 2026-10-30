@@ -10,13 +10,9 @@ import {
   controlVerb,
   deriveInputSchema,
   effectProblem,
-  LOCATION_OBSERVATION_ID,
+  generatedNavigationSurface,
   MAX_TOOL_NAME_LENGTH,
-  NAVIGATE_ACTION_ID,
-  NAVIGATION_QUERY_ROUTES,
-  NAVIGATION_SURFACE_ID,
   pageQueryProblems,
-  pageQuerySchema,
   PROBLEMS_OBSERVATION_ID,
   PROBLEMS_SCHEMA,
   problemsSchema,
@@ -298,6 +294,17 @@ export function assemble(
       { id: 'state', description: stateDescription(found?.actions ?? []), schema: PAGE_STATE_SCHEMA },
       { id: PROBLEMS_OBSERVATION_ID, description: PROBLEMS_SCHEMA.description!, schema: PROBLEMS_SCHEMA },
     ];
+    const shown = (page.analysis?.displays ?? [])
+      .map(d => ({
+        id: d.binding.id,
+        title: d.title || humanizeId(d.binding.id),
+        description: d.binding.description,
+        labels: d.labels,
+        reach: d.reach.map(cleanStep),
+      }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    // Each display once, by binding id: what its state's `shown` can hold.
+    const displays = [...new Map(shown.map(({ reach: _reach, ...d }) => [d.id, d])).values()];
     surfaces.push({
       id,
       kind,
@@ -306,6 +313,7 @@ export function assemble(
       routes: page.routes.map(r => r.path),
       actions: sortActions(found?.actions ?? []),
       observations,
+      ...(displays.length ? { displays } : {}),
     });
     const navEntry = page.routes.map(r => navFor(r.path)).find(Boolean);
     (page.frame ? frames : metas).push({
@@ -316,15 +324,7 @@ export function assemble(
       description,
       nav: navEntry ? [navEntry.group, navEntry.label].filter(Boolean).join(' › ') : null,
       rooms: [...(page.analysis?.rooms ?? [])].map(r => `room:${r.catalog.room}`).sort(),
-      shown: (page.analysis?.displays ?? [])
-        .map(d => ({
-          id: d.binding.id,
-          title: d.title || humanizeId(d.binding.id),
-          description: d.binding.description,
-          labels: d.labels,
-          reach: d.reach.map(cleanStep),
-        }))
-        .sort((a, b) => a.id.localeCompare(b.id)),
+      shown,
       ...(pageQueries.has(page.component) ? { query: pageQueries.get(page.component)! } : {}),
       shared: [...controlSurfaces.entries()]
         .filter(
@@ -380,7 +380,7 @@ export function assemble(
 
   // Going to a page by its address, from the routes themselves.
   surfaces.push(
-    navigationSurface(
+    generatedNavigationSurface(
       pages
         .filter(p => !p.frame)
         .flatMap(p => p.routes.map(r => ({ path: r.path, title: pageTitle(p), query: pageQueries.get(p.component) })))
@@ -422,102 +422,6 @@ export function assemble(
   }
 
   return { surfaces, pages: metas, frames, errors: uniqueErrors };
-}
-
-/**
- * The surface that goes to any page by its address: one action whose path
- * lists every route with its page's title, and the page the person is on.
- * Generated from the routes, so a page added is a page the PA can go to.
- *
- * A page that declares the query it reads (`readQuery`) is opened filtered:
- * the action takes `query`, one alternative per such page with the routes it
- * is on (`x-routes`) and a property per parameter, and `path` names the
- * parameters beside the page. `params` fills a route's `:parameters`. A build
- * where no page declares a query has the action as it always was, plus
- * `params`.
- */
-function navigationSurface(routes: readonly { path: string; title: string; query?: PageQuery }[]): ManifestSurface {
-  const listed = routes
-    .map(r => `${r.path} (${r.title}${r.query ? `; ${Object.keys(r.query).map(n => `?${n}`).join(', ')}` : ''})`)
-    .join(', ');
-  // One alternative per page, with every route it is on.
-  const byQuery = new Map<PageQuery, { routes: string[]; title: string }>();
-  for (const r of routes) {
-    if (!r.query) continue;
-    const entry = byQuery.get(r.query) ?? { routes: [], title: r.title };
-    entry.routes.push(r.path);
-    byQuery.set(r.query, entry);
-  }
-  // Each alternative leaves `additionalProperties` open: a query is checked
-  // against its route's alternative when it runs (`navigationTarget`), which
-  // names the page's parameters, rather than against every page's at once.
-  const queries: JsonSchema[] = [...byQuery.entries()].map(([query, { routes: on, title }]) => ({
-    type: 'object',
-    description: `${title}: what its address takes.`,
-    properties: pageQuerySchema(query).properties,
-    [NAVIGATION_QUERY_ROUTES]: on,
-  }));
-  return {
-    id: NAVIGATION_SURFACE_ID,
-    kind: 'navigation',
-    title: 'Pages',
-    description: 'Every page of the app, by its address, and the page the person is on.',
-    routes: routes.map(r => r.path),
-    actions: [
-      {
-        name: toolName(NAVIGATE_ACTION_ID),
-        id: NAVIGATE_ACTION_ID,
-        source: 'navigation',
-        title: 'Go to a page',
-        description: queries.length
-          ? 'Go to a page of the app, as following a link to it does, already filtered when its address takes a query. The page’s own tools are offered once it is open.'
-          : 'Go to a page of the app, as following a link to it does. The page’s own tools are offered once it is open.',
-        input: {
-          type: 'object',
-          properties: {
-            path: {
-              type: 'string',
-              description: `The page’s address, with an id in place of each :parameter (or the route as listed, with params). ${
-                queries.length ? 'A page whose address takes a query names its parameters (?name). ' : ''
-              }The pages: ${listed}.`,
-            },
-            params: {
-              type: 'object',
-              description:
-                'Each :parameter of the route by name, when path is written as the route: {"id": "v_1"} for /voices/:id. Encoded for you.',
-              additionalProperties: { type: 'string' },
-            },
-            ...(queries.length
-              ? {
-                  query: {
-                    type: 'object',
-                    description:
-                      'The page’s filters, by name, as its address takes them: {"view": "declined"} opens ?view=declined. Only the page’s own: each alternative is one page’s, for the routes in its x-routes.',
-                    anyOf: queries,
-                  },
-                }
-              : {}),
-          },
-          required: ['path'],
-          additionalProperties: false,
-        },
-        reach: [],
-      },
-    ],
-    observations: [
-      {
-        id: LOCATION_OBSERVATION_ID,
-        description: 'The address of the page the person is on.',
-        schema: { type: 'object', properties: { path: { type: 'string' } } },
-      },
-      {
-        id: PROBLEMS_OBSERVATION_ID,
-        description:
-          'What stops the page at this address from opening for the person: access it needs that they do not have, a load that failed. Reported here when the page itself is not open to report it; empty otherwise.',
-        schema: PROBLEMS_SCHEMA,
-      },
-    ],
-  };
 }
 
 function controlAction(
