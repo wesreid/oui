@@ -25,6 +25,7 @@ import {
   roomListProblems,
   roomMeasureProblems,
   routeMatcher,
+  SHOWN_ROWS,
   toolInputProblems,
   toolName,
   type ActionEffect,
@@ -100,7 +101,9 @@ const PAGE_STATE_SCHEMA: JsonSchema = {
     shown: {
       type: 'array',
       description:
-        'What the page shows that is not a control, by display: its binding id, heading and facts, each as text by its label',
+        'What the page shows that is not a control, by display: its binding id, heading and facts, each as text by its label; facts that describe one row of a list (a card each) carry the row as item, and a long list of them keeps an index of its rows',
+      items: { type: 'object' },
+      'x-rows': { ...SHOWN_ROWS, index: [...SHOWN_ROWS.index] },
     },
   },
 };

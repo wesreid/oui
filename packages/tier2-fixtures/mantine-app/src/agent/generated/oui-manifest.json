@@ -1,5 +1,5 @@
 {
-  "buildId": "d685d9ae76740c1f",
+  "buildId": "e7b930afd50c6a2c",
   "surfaces": [
     {
       "actions": [
@@ -413,8 +413,18 @@
                 "type": "object"
               },
               "shown": {
-                "description": "What the page shows that is not a control, by display: its binding id, heading and facts, each as text by its label",
-                "type": "array"
+                "description": "What the page shows that is not a control, by display: its binding id, heading and facts, each as text by its label; facts that describe one row of a list (a card each) carry the row as item, and a long list of them keeps an index of its rows",
+                "items": {
+                  "type": "object"
+                },
+                "type": "array",
+                "x-rows": {
+                  "index": [
+                    "id"
+                  ],
+                  "ref": "item.key",
+                  "title": "item.title"
+                }
               },
               "unavailable": {
                 "description": "Controls that cannot be used right now",

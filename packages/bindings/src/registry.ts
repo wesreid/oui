@@ -81,6 +81,27 @@ export interface ShownFacts {
   item?: AgentItem;
 }
 
+/**
+ * How the rows of the page state's `shown` are addressed and indexed
+ * (`x-rows`): facts that describe one row of a list (a card each) are
+ * addressed by their row's key and called by its title, and an index row
+ * keeps the display it belongs to. A long list of them keeps an index of its
+ * rows when the page state is shortened, never a bare count.
+ */
+export const SHOWN_ROWS = { ref: 'item.key', title: 'item.title', index: ['id'] } as const;
+
+/**
+ * Facts in the order the page state reports them: every display's together,
+ * displays in the order they first appeared, rows in theirs. A display's rows
+ * are then one run of the list, so the rows left out of a shortened page state
+ * are read with one `offset` and `limit`.
+ */
+export function factsByDisplay(facts: readonly ShownFacts[]): ShownFacts[] {
+  const byDisplay = new Map<string, ShownFacts[]>();
+  for (const fact of facts) byDisplay.set(fact.id, [...(byDisplay.get(fact.id) ?? []), fact]);
+  return [...byDisplay.values()].flat();
+}
+
 export interface FactsHandle {
   set(value: ShownFacts): void;
   unregister(): void;

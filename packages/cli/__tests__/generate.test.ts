@@ -84,6 +84,8 @@ describe('generate', () => {
     );
     const state = surface(surfaces, 'page:VoicesPage').observations.find(o => o.id === 'state')!;
     expect(state.schema.properties?.shown).toBeDefined();
+    // Its rows are addressable: a card's facts by the row they describe, indexed with their display.
+    expect(state.schema.properties?.shown?.['x-rows']).toEqual({ ref: 'item.key', title: 'item.title', index: ['id'] });
     // A display is not a control: it is neither a tool nor, unbound, a gap.
     expect(surface(surfaces, 'page:VoicesPage').actions.map(a => a.id)).not.toContain('voices.parameters');
     expect(result.errors.filter(e => e.message.includes('FactList'))).toEqual([]);

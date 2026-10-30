@@ -165,7 +165,8 @@ describe('the page state over budget, with a big list and an open detail panel',
   });
 
   it('leaves out the shells before cutting the page, and says so', () => {
-    const bounded = boundObservations(observations, 2_200, 'page:VoicesPage') as {
+    // The voice cards' marker carries the read that returns them (x-rows on shown), so the page alone is a little larger.
+    const bounded = boundObservations(observations, 2_350, 'page:VoicesPage') as {
       note: string;
       values?: Record<string, { state: PageState }>;
       preview?: string;
