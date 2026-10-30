@@ -43,7 +43,8 @@ export interface TurnPolicy {
    * Returns overrides for toolChoice and activeTools, or empty object for no constraint.
    */
   prepareStep(ctx: {
-    steps: Array<{ toolCalls?: Array<{ toolName: string }> }>;
+    /** The turn's steps so far: the tools each called, and the text each wrote. */
+    steps: Array<{ toolCalls?: Array<{ toolName: string }>; text?: string }>;
     turnClass: string;
     allToolNames: string[];
     /** The same tools with their kind and class, in the same order. */

@@ -371,6 +371,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
             maxTokens,
             temperature,
             ...(config.forcedToolChoice === false ? { forcedToolChoice: false } : {}),
+            ...(config.requireReplyBeforeChoice ? { requireReplyBeforeChoice: true } : {}),
             toolTimeoutMs,
             turnDeadlineMs,
             ...(config.handBackReserveMs !== undefined ? { handBackReserveMs: config.handBackReserveMs } : {}),

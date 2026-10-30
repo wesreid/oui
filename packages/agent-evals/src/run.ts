@@ -245,6 +245,7 @@ const AGENT_PARTS = [
   'filterEvent',
   'modelProviderOptions',
   'forcedToolChoice',
+  'requireReplyBeforeChoice',
 ] as const satisfies ReadonlyArray<keyof EvalAgentConfig>;
 
 /** Only the parts a turn runs with: anything else a product's configuration carries (its storage, its realtime server) stays out. */
@@ -272,6 +273,17 @@ const choicesOf = (calls: ReadonlyArray<{ name: string; args: Record<string, unk
         })),
       };
     });
+
+/** Whether a stored tool result says the call did not run: `success: false`. */
+const refusedResult = (content: string | null | undefined): boolean => {
+  if (!content) return false;
+  try {
+    const parsed = JSON.parse(content) as { success?: unknown };
+    return parsed?.success === false;
+  } catch {
+    return false;
+  }
+};
 
 /** The text a stored turn's messages said to the customer, in order. */
 const replyOf = (messages: readonly TurnMessage[]) =>
@@ -339,6 +351,7 @@ export async function runEvalCase(
     ...(pageFixture ? { page: { fixture: pageFixture, manifest: config.page?.manifest ?? null, knowledge: config.page?.knowledge ?? null } } : {}),
     ...(agent.modelProviderOptions !== undefined ? { modelProviderOptions: agent.modelProviderOptions } : {}),
     ...(agent.forcedToolChoice !== undefined ? { forcedToolChoice: agent.forcedToolChoice } : {}),
+    ...(agent.requireReplyBeforeChoice ? { requireReplyBeforeChoice: true } : {}),
     ...(agent.uiActions !== undefined ? { uiActions: agent.uiActions } : {}),
   });
 
@@ -462,6 +475,13 @@ export async function runEvalCase(
     });
     const messages = stored.flatMap((s) => s.messages);
     const toolCalls = messages.flatMap((m) => (m.toolCalls ?? []).map((c) => ({ name: c.name, args: c.arguments })));
+    // A choice the runtime sent back (refused, invalid, or held for a reply) was never shown.
+    const notShown = new Set(
+      messages.filter((m) => m.role === 'tool' && m.toolCallId && refusedResult(m.content)).map((m) => m.toolCallId as string),
+    );
+    const shownCalls = messages.flatMap((m) =>
+      (m.toolCalls ?? []).filter((c) => !notShown.has(c.id)).map((c) => ({ name: c.name, args: c.arguments })),
+    );
     const asked = emit.events.find((e) => e.event === AGENT_SOCKET_EVENTS.APPROVAL_REQUIRED && e.data.turnId === turnId);
     const pending = asked ? approvals.asked.find((a) => a.approvalId === asked.data.approvalId) : undefined;
     const stopReason = outcome.status === 'stopped' ? outcome.stopReason : undefined;
@@ -475,7 +495,7 @@ export async function runEvalCase(
       held: stopReason === 'taken_over' && modelRequests === before,
       modelRequests: modelRequests - before,
       usage: turnUsage(modelCalls.slice(callsBefore)),
-      choices: choicesOf(toolCalls),
+      choices: choicesOf(shownCalls),
       page: page ? { at: page.location(), ran: page.ran.slice(ranBefore) } : null,
       outcome: outcome.status,
       ...(stopReason ? { stopReason } : {}),

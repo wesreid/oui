@@ -67,11 +67,13 @@ export interface FingerprintInputs {
   /** The agent's provider options, its forced-choice setting and its UI settings, when it has them. */
   modelProviderOptions?: unknown;
   forcedToolChoice?: boolean;
+  /** Whether a choice waits for a reply: it can add a step to a turn. */
+  requireReplyBeforeChoice?: boolean;
   uiActions?: unknown;
 }
 
 export function fingerprint(inputs: FingerprintInputs): string {
-  const { systemPrompt, tools, channel, suite, scenario, page, modelProviderOptions, forcedToolChoice, uiActions } = inputs;
+  const { systemPrompt, tools, channel, suite, scenario, page, modelProviderOptions, forcedToolChoice, requireReplyBeforeChoice, uiActions } = inputs;
   const shaped = {
     systemPrompt,
     tools: [...tools]
@@ -94,6 +96,7 @@ export function fingerprint(inputs: FingerprintInputs): string {
     ...(page !== undefined ? { page } : {}),
     ...(modelProviderOptions !== undefined ? { modelProviderOptions } : {}),
     ...(forcedToolChoice !== undefined ? { forcedToolChoice } : {}),
+    ...(requireReplyBeforeChoice ? { requireReplyBeforeChoice } : {}),
     ...(uiActions !== undefined ? { uiActions } : {}),
   };
   return createHash('sha256').update(canonicalJson(shaped)).digest('hex');
