@@ -103,7 +103,20 @@ const FILES: Record<string, string> = {
     '/** A section whose id and words are the props it is given. */',
     "function Section({ factsId, title, product }: { factsId: string; title: string; product: 'sales' | 'service' }) {",
     '  const meta = PRODUCTS[product];',
-    '  return <ReportFacts agent={{ id: factsId, description: `${title} of the ${meta.title} figures` }} title={title} facts={{}} />;',
+    '  return (',
+    '    <div>',
+    '      <ReportFacts agent={{ id: factsId, description: `${title} of the ${meta.title} figures` }} title={title} facts={{}} />',
+    '      <Stat label={title} value={1} agent={{ id: `${factsId}.total`, description: `The ${meta.title} total` }} />',
+    '    </div>',
+    '  );',
+    '}',
+    '/** Props read in the body, as a layout of several does. */',
+    'function Panel(props: { layout: string; agent?: { id: string; description: string } }) {',
+    "  if (props.layout === 'stat') {",
+    '    const { agent } = props as { agent?: { id: string; description: string } };',
+    '    return <Stat label="Held" value={2} agent={agent} />;',
+    '  }',
+    '  return null;',
     '}',
     'function Detail({ facts }: { facts?: { id: string; description: string } }) {',
     '  return <ReportFacts agent={facts} title="Detail" facts={{ Name: "Ava" }} />;',
@@ -120,6 +133,8 @@ const FILES: Record<string, string> = {
     "      <Detail facts={{ id: 'home.detail', description: 'The open detail' }} />",
     '      <Detail />',
     '      <Section factsId="home.section" title="By signal" product="service" />',
+    "      <Panel layout=\"stat\" agent={{ id: 'home.held', description: 'Held for the replica' }} />",
+    '      <Panel layout="stat" />',
     "      <ReportFacts agent={{ nonAgent: 'the person’s own notes' }} title=\"Notes\" facts={{}} />",
     "      <Stat label=\"Sold\" value={4} agent={{ id: 'home.sold', description: 'Units sold this month' }} />",
     '      <Stat label="Unbound" value={1} />',
@@ -189,12 +204,16 @@ describe('what a page shows', () => {
       { id: 'home.detail', title: 'Detail', description: 'The open detail', labels: ['Name'] },
       // From an app hook the page calls.
       { id: 'home.greeting', title: 'Home', description: 'The greeting', labels: ['Greeting'] },
+      // A design-system display given its binding through props destructured in the body; a use given none reports nothing.
+      { id: 'home.held', title: 'Held', description: 'Held for the replica', labels: ['Change'] },
       // A composite with no `facts` binding reports under the first part the page bound.
       { id: 'home.hot.open', title: 'Hot', description: 'Opens a hot lead', labels: [] },
       // A composite's `facts` binding.
       { id: 'home.leads', title: 'Leads', description: 'The leads on the Home', labels: [] },
       // A binding built from the props a component is given, and a constant record read by one.
       { id: 'home.section', title: 'By signal', description: 'By signal of the Service figures', labels: [] },
+      // A design-system display's binding built from props too.
+      { id: 'home.section.total', title: 'By signal', description: 'The Service total', labels: ['Change'] },
       // A design-system display, with the labels it always reports.
       { id: 'home.sold', title: 'Sold', description: 'Units sold this month', labels: ['Change'] },
       // One per row of a list, titled by its row, so by its id; its labels read through the app's function that builds them.

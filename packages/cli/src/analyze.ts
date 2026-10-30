@@ -313,16 +313,38 @@ export class PageAnalyzer {
 
   /** The props a component destructures: local name → prop name. */
   private destructuredProps(decl: ts.Node): Map<string, string> {
+    return new Map([...this.propElements(decl)].map(([el, prop]) => [(el.name as ts.Identifier).text, prop]));
+  }
+
+  /**
+   * Where a component destructures its props, each name with the prop it is:
+   * in its parameter (`({ agent })`), or from it in its body
+   * (`const { tableAgent } = props as TableProps`).
+   */
+  private propElements(decl: ts.Node): Map<ts.BindingElement, string> {
     const fn = this.componentFunction(decl);
-    const out = new Map<string, string>();
+    const out = new Map<ts.BindingElement, string>();
     const param = fn?.parameters[0];
-    if (param && ts.isObjectBindingPattern(param.name)) {
-      for (const el of param.name.elements) {
-        if (ts.isIdentifier(el.name)) {
-          const prop = el.propertyName ? el.propertyName.getText() : el.name.text;
-          out.set(el.name.text, prop);
+    const take = (pattern: ts.ObjectBindingPattern) => {
+      for (const el of pattern.elements) {
+        if (ts.isIdentifier(el.name) && !el.dotDotDotToken) {
+          out.set(el, el.propertyName ? el.propertyName.getText() : el.name.text);
         }
       }
+    };
+    if (param && ts.isObjectBindingPattern(param.name)) take(param.name);
+    const body = this.body(decl);
+    if (param && ts.isIdentifier(param.name) && body) {
+      const props = param.name.text;
+      // Anywhere in its body (a branch for one layout's props), but not in a function of its own.
+      const visit = (n: ts.Node) => {
+        if (ts.isVariableDeclaration(n) && ts.isObjectBindingPattern(n.name) && n.initializer) {
+          const init = unwrap(n.initializer);
+          if (ts.isIdentifier(init) && init.text === props) take(n.name);
+        }
+        if (!ts.isFunctionLike(n)) ts.forEachChild(n, visit);
+      };
+      ts.forEachChild(body, visit);
     }
     return out;
   }
@@ -461,11 +483,9 @@ export class PageAnalyzer {
    */
   private scopeOf(owner: ts.Node, ctx: WalkContext): Scope {
     return id => {
-      const param = this.componentFunction(owner)?.parameters[0];
       const declared = this.source.checker.getSymbolAtLocation(id)?.valueDeclaration;
       // Only the component's own destructured prop, not a local of the same name.
-      if (!param || !declared || !ts.isBindingElement(declared) || declared.parent.parent !== param) return undefined;
-      const prop = this.destructuredProps(owner).get(id.text);
+      const prop = declared && ts.isBindingElement(declared) ? this.propElements(owner).get(declared) : undefined;
       const from = prop !== undefined ? ctx.props.get(prop) : undefined;
       return from ? { expr: from.expr, scope: this.scopeOf(from.owner, from.ctx) } : undefined;
     };
@@ -1290,7 +1310,7 @@ export class PageAnalyzer {
     expr: ts.Expression | undefined,
     owner: ts.Node,
     ctx: WalkContext,
-  ): { expr?: ts.Expression; missing?: JsxOpening } {
+  ): { expr?: ts.Expression; missing?: JsxOpening; scope?: Scope } {
     if (!expr) return {};
     const e = unwrap(expr);
     let prop: string | undefined;
@@ -1299,9 +1319,9 @@ export class PageAnalyzer {
       const param = this.componentFunction(owner)?.parameters[0];
       if (param && ts.isIdentifier(param.name) && param.name.text === e.expression.text) prop = e.name.text;
     }
-    if (prop === undefined) return { expr };
+    if (prop === undefined) return { expr, scope: this.scopeOf(owner, ctx) };
     const from = ctx.props.get(prop);
-    if (!from) return ctx.element ? { missing: ctx.element } : { expr };
+    if (!from) return ctx.element ? { missing: ctx.element } : { expr, scope: this.scopeOf(owner, ctx) };
     return this.forwardedAgent(from.expr, from.owner, from.ctx);
   }
 
@@ -1327,6 +1347,9 @@ export class PageAnalyzer {
     // A wrapper may forward its own `agent` prop to the control it renders:
     // the binding is then declared where the wrapper is used.
     const forwarded = this.forwardedAgent(asExpr(jsxAttribute(el, 'agent')), decl, ctx);
+    // One that only shows facts: given no binding where it is used, it reports nothing, and is no gap.
+    const onlyDisplay = !!descriptor.display && !descriptor.kind && !descriptor.slots && !descriptor.entries;
+    if (forwarded.missing && onlyDisplay) return;
     if (forwarded.missing) {
       const parent = forwarded.missing;
       const psf = parent.getSourceFile();
@@ -1341,7 +1364,10 @@ export class PageAnalyzer {
     // A binding forwarded through a wrapper is declared where the wrapper is used,
     // so each use is its own site, even when the uses sit in the wrapper's own file.
     const isForwarded = !!agentExpr && agentExpr !== asExpr(jsxAttribute(el, 'agent'));
-    const agent = agentExpr ? evaluate(this.source.checker, agentExpr) : undefined;
+    // A display's binding may be built from the props it is given (`id: \`replai-${product}.sequences\``).
+    const agent = agentExpr
+      ? evaluate(this.source.checker, agentExpr, 0, onlyDisplay ? forwarded.scope : undefined)
+      : undefined;
     if (agentExpr && (agent === UNKNOWN || typeof agent !== 'object' || agent === null)) {
       out.errors.push({
         ...at,
@@ -1376,8 +1402,8 @@ export class PageAnalyzer {
     // shows facts is not a control; a control or a composite that also reports
     // what it shows (a card bound to open, a list) goes on to its controls.
     if (descriptor.display) {
-      this.display(el, descriptor, agentObj, at, tag, siteOf, reach, out);
-      if (!descriptor.kind && !descriptor.slots && !descriptor.entries) return;
+      this.display(el, descriptor, agentObj, at, tag, siteOf, reach, out, this.scopeOf(decl, ctx));
+      if (onlyDisplay) return;
     }
 
     // The control itself.
@@ -1510,6 +1536,8 @@ export class PageAnalyzer {
     siteOf: (suffix?: string) => string,
     reach: (ReachStep | DialogStep)[],
     out: PageAnalysis,
+    /** The props of the component it is used in, for a heading it is given (`label={title}`). */
+    scope?: Scope,
   ): void {
     const display = descriptor.display!;
     if (!agentObj || 'nonAgent' in agentObj) return;
@@ -1547,7 +1575,7 @@ export class PageAnalyzer {
       // A part's facts are under the part's own binding: the same site.
       site: siteOf(part ? `:${part}` : ''),
       binding,
-      title: binding.title ?? this.title(el, descriptor),
+      title: binding.title ?? this.title(el, descriptor, scope),
       labels: [...new Set([...(display.labels ?? []), ...listed])],
       reach,
       declaredIn: at.file,
@@ -1658,7 +1686,7 @@ export class PageAnalyzer {
     };
   }
 
-  private title(el: JsxOpening, descriptor: ControlDescriptor): string {
+  private title(el: JsxOpening, descriptor: ControlDescriptor, scope?: Scope): string {
     for (const prop of descriptor.titleProps) {
       if (prop === 'children') {
         const parent = ts.isJsxOpeningElement(el) ? el.parent : null;
@@ -1666,7 +1694,7 @@ export class PageAnalyzer {
         if (text) return text;
         continue;
       }
-      const v = evaluate(this.source.checker, asExpr(jsxAttribute(el, prop)));
+      const v = evaluate(this.source.checker, asExpr(jsxAttribute(el, prop)), 0, scope);
       if (typeof v === 'string' && v.trim()) return v.trim();
     }
     return '';
