@@ -223,7 +223,7 @@
           "$ref": "room-catalog-data.json#/$defs/AgentCatalogManifestEntry"
         },
         "personOnly": {
-          "description": "Export name → why only the person may use it, such as the approval card. The generator refuses an `agent` binding on one.",
+          "description": "Export name → why only the person may use it, such as the approval card. The generator refuses an `agent` binding on one, in any package, a design system's included; a person-only export is in no control table.",
           "type": "object",
           "additionalProperties": {
             "type": "string",

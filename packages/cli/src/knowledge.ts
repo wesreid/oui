@@ -28,6 +28,7 @@ import {
 
 import { describeStep, type PageMeta } from './assemble.js';
 import type { ApiOperation, NavEntry } from './inputs.js';
+import type { OutsidePage } from './outside.js';
 import { resolveRecipe, roomToolName } from './recipes.js';
 
 const CREATE_VERB = /^(add|create|draw|new|place|insert|make)\b/i;
@@ -39,6 +40,8 @@ export function generateKnowledge(
   catalogs: readonly RoomCatalogData[],
   nav: readonly NavEntry[],
   api: ReadonlyMap<string, ApiOperation>,
+  /** Pages the assistant is never on: the overview says so. */
+  outside: readonly OutsidePage[] = [],
 ): { overview: KnowledgeEntry; pages: PageKnowledge[]; frames?: PageKnowledge[] } {
   const byId = new Map(surfaces.map(s => [s.id, s]));
   const byRoom = new Map(catalogs.map(c => [`room:${c.room}`, c]));
@@ -59,7 +62,7 @@ export function generateKnowledge(
     }
   }
 
-  const overview = overviewEntry(pages, nav);
+  const overview = overviewEntry(pages, nav, outside);
   const out: PageKnowledge[] = pages.map(page => {
     const own = byId.get(page.surface)!;
     const shared = page.shared.map(id => byId.get(id)!).filter(Boolean);
@@ -122,7 +125,7 @@ function routeRegex(pattern: string): RegExp {
   );
 }
 
-function overviewEntry(pages: readonly PageMeta[], nav: readonly NavEntry[]): KnowledgeEntry {
+function overviewEntry(pages: readonly PageMeta[], nav: readonly NavEntry[], outside: readonly OutsidePage[]): KnowledgeEntry {
   const lines: string[] = [];
   const groups = [...new Set(nav.map(n => n.group))];
   for (const group of groups) {
@@ -138,6 +141,15 @@ function overviewEntry(pages: readonly PageMeta[], nav: readonly NavEntry[]): Kn
     `${unlisted} more pages are reached from these or by address; the page you are on is described in full below, and moving to another page gives you its tools.`,
     `Go to any page by its address with [${toolName(NAVIGATE_ACTION_ID)}]; its path lists every page.`,
   );
+  if (outside.length) {
+    lines.push(
+      `You are not on these pages, so you cannot act on them or take the person to them: ${outside
+        .flatMap(o => o.routes.map(route => ({ route, reason: o.reason })))
+        .sort((a, b) => a.route.localeCompare(b.route))
+        .map(o => `${o.route} (${o.reason})`)
+        .join(', ')}.`,
+    );
+  }
   return { title: 'The app’s pages', content: lines.join('\n') };
 }
 

@@ -1007,7 +1007,7 @@ export const CONTRACT_SCHEMAS = {
             "$ref": "room-catalog-data.json#/$defs/AgentCatalogManifestEntry"
           },
           "personOnly": {
-            "description": "Export name → why only the person may use it, such as the approval card. The generator refuses an `agent` binding on one.",
+            "description": "Export name → why only the person may use it, such as the approval card. The generator refuses an `agent` binding on one, in any package, a design system's included; a person-only export is in no control table.",
             "type": "object",
             "additionalProperties": {
               "type": "string",
@@ -2244,7 +2244,7 @@ export const CONTRACT_SCHEMAS = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://schemas.closurestudio.ai/oui/v1/oui-config.json",
     "title": "OuiConfigFile",
-    "description": "`oui.config.json` at the app's root: where the app keeps its routes, navigation and output, which design systems and mappings its controls come from, where its API is described, and which of its pages are not yet bound. Paths are relative to the file. It is required and explicit: nothing an app depends on has a default, so a misconfigured app fails here, naming the setting, instead of generating an assistant that can do nothing. A setting the generator does not know is an error.",
+    "description": "`oui.config.json` at the app's root: where the app keeps its routes, navigation and output, which design systems and mappings its controls come from, where its API is described, which of its pages are not yet bound, and which the assistant is never on. Paths are relative to the file. It is required and explicit: nothing an app depends on has a default, so a misconfigured app fails here, naming the setting, instead of generating an assistant that can do nothing. A setting the generator does not know is an error.",
     "type": "object",
     "properties": {
       "$schema": {
@@ -2330,6 +2330,13 @@ export const CONTRACT_SCHEMAS = {
           "pattern": "\\S"
         }
       },
+      "outside": {
+        "description": "Pages the assistant is never on: pages before sign-in, and public pages a link opens (a share link, a confirmation link). Each names its page by component or by route, with the reason. An outside page has no surface, its controls are not enforced, it is not among the pages the assistant goes to, and the knowledge says the assistant is not there. It is outside only if nothing around it or in it is the assistant's: no `shell` entry frames any of its routes; every element its routes render around it (a layout route's, or a `routeWrappers` component's, at any level) holds nothing someone can use and no person-only component; the page does not render the frame itself; and the page has no binding, display or room of its own (one a component shares with pages the assistant is on is that component's). A page listed here may not also be in `unbound`. Default none.",
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/OutsideEntry"
+        }
+      },
       "appCatalogs": {
         "description": "Room catalogs the app itself declares (tier 3, a page's own editor), each loaded through the app's own Vite config so its modules resolve as the app build resolves them: the app needs `vite` among its own dependencies. Only their declarations are read. Default none.",
         "type": "array",
@@ -2354,6 +2361,55 @@ export const CONTRACT_SCHEMAS = {
     ],
     "additionalProperties": false,
     "$defs": {
+      "OutsideEntry": {
+        "description": "A page the assistant is never on: its page component, or one route it is on, and why. A page on several routes is outside on all of them: named by route, each of its routes is named.",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "component": {
+                "description": "The page component, as the routes name it.",
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "reason": {
+                "description": "Why the assistant is never there (\"before sign-in\", \"a public share link\").",
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "component",
+              "reason"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "route": {
+                "description": "A route pattern, exactly as the routes give it (`/watch/:clipId`).",
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "reason": {
+                "description": "Why the assistant is never there (\"before sign-in\", \"a public share link\").",
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "route",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
       "ShellEntry": {
         "description": "One part of the app's frame.",
         "type": "object",
@@ -4463,6 +4519,7 @@ export const CONTRACT_TYPES = {
   KnowledgeRecipe: 'generated-knowledge.json#/$defs/KnowledgeRecipe',
   PageKnowledge: 'generated-knowledge.json#/$defs/PageKnowledge',
   OuiConfigFile: 'oui-config.json',
+  OutsideEntry: 'oui-config.json#/$defs/OutsideEntry',
   ShellEntry: 'oui-config.json#/$defs/ShellEntry',
   AppCatalogEntry: 'oui-config.json#/$defs/AppCatalogEntry',
   ArgsHash: 'approvals.json#/$defs/ArgsHash',

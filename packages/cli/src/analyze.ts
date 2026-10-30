@@ -142,6 +142,10 @@ export interface PageAnalysis {
    * is checked against the actions there are.
    */
   nonAgent: Finding[];
+  /** Where a person-only component (`oui.personOnly`) is rendered, each naming it: the person's own UI, such as the assistant's. */
+  personOnly: Finding[];
+  /** Every one of the app's components the page renders, itself included. */
+  components: Set<ts.Node>;
 }
 
 interface PropSource {
@@ -222,6 +226,8 @@ export class PageAnalyzer {
       errors: [],
       tier2Uses: [],
       nonAgent: [],
+      personOnly: [],
+      components: new Set(),
     };
     this.nonAgentReasons = result.nonAgent;
     this.importsChecked = new Set();
@@ -306,6 +312,7 @@ export class PageAnalyzer {
     if (!body) return;
     const sf = decl.getSourceFile();
     if (!this.source.isAppFile(sf)) return;
+    out.components.add(decl);
     const key = `${sf.fileName}:${decl.pos}:${ctx.element ? `${ctx.element.getSourceFile().fileName}@${ctx.element.pos}` : ''}:${ctx.reach.map(r => JSON.stringify({ ...r, owner: undefined, setters: undefined })).join('>')}:${ctx.itemized}`;
     if (seen.has(key) || ctx.depth > 40) return;
     seen.add(key);
@@ -582,6 +589,13 @@ export class PageAnalyzer {
     const reach = [...ctx.reach, ...local.reach];
     const itemized = local.itemized ?? ctx.itemized;
 
+    // A person-only component, a design system's as much as any other package's.
+    const personOnly = pkg ? this.personOnly(pkg).get(this.importedName(el.tagName)) : undefined;
+    if (pkg && personOnly) {
+      this.personOnlyElement(el, tagText, pkg, personOnly, out);
+      return;
+    }
+
     if (pkg && this.designSystem.includes(pkg)) {
       const name = this.controlName(pkg, el.tagName);
       if (isPage && name === 'PageHeader' && out.header.title === null) {
@@ -601,12 +615,6 @@ export class PageAnalyzer {
 
     // A mapped control imported straight from its package: its import is reported (checkMappedImports).
     if (pkg && this.mappedByPackage.get(pkg)?.exports.has(this.importedName(el.tagName))) return;
-
-    const personOnly = pkg ? this.personOnly(pkg).get(this.importedName(el.tagName)) : undefined;
-    if (pkg && personOnly) {
-      this.personOnlyElement(el, tagText, pkg, personOnly, out);
-      return;
-    }
 
     const room =
       pkg && this.catalogs.find(c => c.package === pkg && c.hosts.includes(this.importedName(el.tagName)));
@@ -675,6 +683,13 @@ export class PageAnalyzer {
   private personOnlyElement(el: JsxOpening, tag: string, pkg: string, why: string, out: PageAnalysis): void {
     const sf = el.getSourceFile();
     const at = { file: this.source.rel(sf), line: sf.getLineAndCharacterOfPosition(el.getStart()).line + 1 };
+    out.personOnly.push({ ...at, message: `<${tag}> from ${pkg}` });
+    if (this.controls.has(`${pkg}#${this.importedName(el.tagName)}`)) {
+      out.errors.push({
+        ...at,
+        message: `<${tag}> is in ${pkg}'s control table and also person-only (oui.personOnly: ${why}): ${pkg} must say one or the other`,
+      });
+    }
     if (hasJsxAttribute(el, 'agent')) {
       out.errors.push({ ...at, message: `<${tag}> from ${pkg} is the person's own and takes no agent binding: ${why}` });
     }

@@ -1,7 +1,8 @@
 /**
  * The generator's configuration: where an app keeps its routes, navigation
  * and output, which design systems its controls come from, where its API is
- * described, and which of its pages are not yet bound.
+ * described, which of its pages are not yet bound, and which the assistant
+ * is never on.
  *
  * Read from `oui.config.json` at the app's root; paths are relative to it.
  * The file is required and explicit: nothing an app depends on has a default,
@@ -13,11 +14,17 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 import type { ControlTableFile, RoomCatalogData } from '@ouispec/bindings';
-import { CONTRACT_SCHEMAS, type AppCatalogEntry, type OuiConfigFile, type ShellEntry } from '@ouispec/contract';
+import {
+  CONTRACT_SCHEMAS,
+  type AppCatalogEntry,
+  type OuiConfigFile,
+  type OutsideEntry,
+  type ShellEntry,
+} from '@ouispec/contract';
 import { contractProblems } from '@ouispec/contract/validate';
 
 // `oui.config.json` as written is the contract's (`oui-config.json`), generated from its schema.
-export type { AppCatalogEntry, OuiConfigFile, ShellEntry };
+export type { AppCatalogEntry, OuiConfigFile, OutsideEntry, ShellEntry };
 
 /** Tables and catalogs given directly rather than read from packages: tests, and tools that already hold them. */
 export interface ConfigInjection {
@@ -40,6 +47,8 @@ export interface GeneratorConfig extends ConfigInjection {
   /** As written: a module path or a path relative to the root; resolved when the spec is read. */
   apiSpec: string | null;
   unbound: readonly string[];
+  /** Pages the assistant is never on, each by component or route, with why. */
+  outside: readonly OutsideEntry[];
   appCatalogs: readonly AppCatalogEntry[];
   shell: readonly ShellEntry[];
 }
@@ -124,6 +133,7 @@ export function resolveConfig(root: string, raw: unknown, inject: ConfigInjectio
   if ('apiSpec' in raw && raw.apiSpec !== null && (typeof raw.apiSpec !== 'string' || !raw.apiSpec.trim()))
     problems.push('"apiSpec" must be the module path of an OpenAPI document, or null');
   entries(raw, 'shell', ['module', 'export'], problems);
+  outsideEntries(raw, problems);
   entries(raw, 'appCatalogs', ['module', 'export'], problems);
 
   // The schema is the authority: whatever the checks above put in words, a
@@ -143,6 +153,7 @@ export function resolveConfig(root: string, raw: unknown, inject: ConfigInjectio
     mappings: (file.mappings ?? []).map(m => resolve(root, m)),
     apiSpec: file.apiSpec,
     unbound: [...(file.unbound ?? [])].sort(),
+    outside: [...(file.outside ?? [])],
     appCatalogs: [...(file.appCatalogs ?? [])],
     shell: (file.shell ?? []).map(s => ({ ...s, module: resolve(root, s.module) })),
   };
@@ -156,6 +167,27 @@ function entries(raw: Record<string, unknown>, key: string, required: readonly s
     Array.isArray(value) &&
     value.every(v => isRecord(v) && required.every(k => typeof v[k] === 'string' && (v[k] as string).trim()));
   if (!ok) problems.push(`"${key}" must be a list of { ${required.map(k => `"${k}"`).join(', ')}, … } entries`);
+}
+
+/** `outside`: each entry names its page by `component` or by `route`, never both, and says why. */
+function outsideEntries(raw: Record<string, unknown>, problems: string[]): void {
+  if (!('outside' in raw)) return;
+  const value = raw.outside;
+  const text = (v: unknown) => typeof v === 'string' && !!v.trim();
+  const ok =
+    Array.isArray(value) &&
+    value.every(
+      v =>
+        isRecord(v) &&
+        text(v.reason) &&
+        ('component' in v) !== ('route' in v) &&
+        text(v.component ?? v.route) &&
+        Object.keys(v).every(k => k === 'component' || k === 'route' || k === 'reason'),
+    );
+  if (!ok)
+    problems.push(
+      '"outside" must be a list of { "component", "reason" } or { "route", "reason" } entries: each names its page one way, and says why the assistant is never there',
+    );
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {

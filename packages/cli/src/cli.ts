@@ -32,9 +32,10 @@ async function main(argv: readonly string[]): Promise<number> {
   for (const e of result.errors) console.error(`${e.file}${e.line ? `:${e.line}` : ''}: ${e.message}`);
   for (const w of result.warnings) console.error(`${w.file}${w.line ? `:${w.line}` : ''}: warning: ${w.message}`);
   const stale = writeOrCheck(result, config, check);
-  const { pages, actions, rooms, unboundPages, boundModules } = result.stats;
+  const { pages, actions, rooms, unboundPages, boundModules, outsidePages } = result.stats;
   const summary =
     `${pages} pages, ${rooms} rooms, ${actions} actions; ${unboundPages} pages not yet bound; ` +
+    `${outsidePages ? `${outsidePages} pages outside the assistant; ` : ''}` +
     `${boundModules ? `${boundModules} bound modules; ` : ''}build ${result.manifest.buildId}`;
 
   if (result.errors.length) {
