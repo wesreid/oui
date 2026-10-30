@@ -88,7 +88,7 @@ const catalog: RoomCatalog<LedgerContext> = {
 };
 ```
 
-- **`x-rows`** on the list in the observation's schema says how a row is addressed (`ref`), what a person calls it (`title`), and what an index row keeps. A list too long for the page state is cut to index rows, never to a count; the selected rows, and the rows an action just changed, stay whole.
+- **`x-rows`** on the list in the observation's schema says how a row is addressed (`ref`), what a person calls it (`title`), and what an index row keeps, each a property of the row or a dotted path into it (`item.key`). A list too long for the page state is cut to index rows, never to a count; the selected rows, and the rows an action just changed, stay whole.
 - **`roomReaders`** makes the room's `inspect` (everything about the rows named) and `query` (a list's rows, narrowed by an indexed property or by name, a page at a time). Both only read.
 - **`x-ref`** on an input that takes a row (`{ type: 'string', ...refTo(POSITIONS) }`) names the list it addresses. The runtime then takes a row's exact name where its id is expected, when one row has it, and refuses an ambiguous one with the ids it could mean.
 - **`changed`** on an action's result reports the rows it changed, added or removed, each as `inspect` would return it now (`changedRows(lists, ctx, refs)`), so the assistant checks an edit against what the room holds, not against what it meant to do.

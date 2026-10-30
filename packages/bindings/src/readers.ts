@@ -53,13 +53,49 @@ export interface RoomList<Ctx> {
 const ok = (data: Record<string, unknown>): RoomResult => ({ ok: true, data });
 const fail = (code: string, message: string): RoomResult => ({ ok: false, code, message });
 
-const refOf = (list: Pick<RoomList<unknown>, 'rows'>, row: RoomRow) => String(row[list.rows.ref]);
-const titleOf = (list: Pick<RoomList<unknown>, 'rows'>, row: RoomRow) => String(row[list.rows.title] ?? '');
+const refOf = (list: Pick<RoomList<unknown>, 'rows'>, row: RoomRow) => String(rowValue(row, list.rows.ref));
+const titleOf = (list: Pick<RoomList<unknown>, 'rows'>, row: RoomRow) => String(rowValue(row, list.rows.title) ?? '');
 
-/** A row cut to its index: what addresses it, what it is called, and what tells rows apart. */
+/**
+ * A row's value at a property an `x-rows` names: the property itself (`id`),
+ * or a dotted path into the row (`item.key`). A row's own property whose name
+ * holds the dot wins, so a list that always named such a property reads as
+ * before.
+ */
+export function rowValue(row: unknown, path: string): unknown {
+  if (row === null || typeof row !== 'object') return undefined;
+  const record = row as Record<string, unknown>;
+  if (path in record || !path.includes('.')) return record[path];
+  let at: unknown = record;
+  for (const part of path.split('.')) {
+    if (at === null || typeof at !== 'object') return undefined;
+    at = (at as Record<string, unknown>)[part];
+  }
+  return at;
+}
+
+/**
+ * A row cut to its index: what addresses it, what it is called, and what tells
+ * rows apart, each where the row holds it (`item.key` stays under `item`).
+ */
 export function indexRow(rows: RowList, row: RoomRow): Record<string, unknown> {
-  const kept = [rows.ref, rows.title, ...(rows.index ?? [])];
-  return Object.fromEntries(kept.filter(key => row[key] !== undefined).map(key => [key, row[key]]));
+  const out: Record<string, unknown> = {};
+  for (const path of [rows.ref, rows.title, ...(rows.index ?? [])]) {
+    const value = rowValue(row, path);
+    if (value === undefined) continue;
+    if (path in row || !path.includes('.')) {
+      out[path] = value;
+      continue;
+    }
+    const parts = path.split('.');
+    let into = out;
+    for (const part of parts.slice(0, -1)) {
+      const next = into[part];
+      into = (into[part] = next !== null && typeof next === 'object' ? next : {}) as Record<string, unknown>;
+    }
+    into[parts[parts.length - 1]] = value;
+  }
+  return out;
 }
 
 /** The `x-ref` of an input that addresses rows of these lists. */
@@ -191,7 +227,7 @@ export function observationLookup(
         return Array.isArray(value)
           ? value
               .filter((row): row is RoomRow => row !== null && typeof row === 'object')
-              .map(row => ({ ref: String(row[rows.ref]), title: String(row[rows.title] ?? '') }))
+              .map(row => ({ ref: String(rowValue(row, rows.ref)), title: String(rowValue(row, rows.title) ?? '') }))
           : [];
       });
     }

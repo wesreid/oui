@@ -27,7 +27,7 @@ import {
   type ManifestSurface,
   type OuiManifest,
 } from './manifest.js';
-import type { BindingRegistry, ControlRegistration, RoomRegistration } from './registry.js';
+import { factsByDisplay, type BindingRegistry, type ControlRegistration, type RoomRegistration } from './registry.js';
 import type { JobOutcome } from '@ouispec/contract';
 import { addressesRows, observationLookup, resolveInputRefs } from './readers.js';
 import { navigationQueries, navigationTarget, sameAddress } from './query.js';
@@ -317,7 +317,7 @@ export function connectBindings({
       }
       const mine = controls.filter(c => byBinding.get(c.id)?.surface.id === surface.id);
       // What the page shows but is not a control: reported with the page, where the person reads it.
-      const facts = surface.kind === 'page' ? registry.facts() : [];
+      const facts = surface.kind === 'page' ? factsByDisplay(registry.facts()) : [];
       handle.pushObservation(PAGE_STATE_OBSERVATION_ID, {
         ...pageState(mine, runs.busy),
         ...(facts.length ? { shown: facts } : {}),

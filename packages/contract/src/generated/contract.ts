@@ -101,13 +101,18 @@ export interface JsonSchema {
 
 /** How the rows of a list are addressed and indexed. */
 export interface RowList {
-  /** The property of a row that actions address it by (`id`). */
+  /**
+   * The property of a row that actions address it by (`id`), or a dotted path to it
+   * (`item.key`).
+   */
   ref: string;
-  /** The property of a row a person calls it by (`name`). */
+  /**
+   * The property of a row a person calls it by (`name`), or a dotted path to it (`item.title`).
+   */
   title: string;
   /**
-   * The other properties an index row keeps: the few that tell rows apart (a layer's kind, the
-   * artboard it is on).
+   * The other properties an index row keeps, each a property or a dotted path: the few that
+   * tell rows apart (a layer's kind, the artboard it is on, the display a fact row belongs to).
    */
   index?: readonly string[];
   /**

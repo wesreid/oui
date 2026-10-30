@@ -412,7 +412,7 @@ const catalog: RoomCatalog<LedgerContext> = {
 };
 ```
 
-- **`x-rows`** on the list in the observation's schema says how a row is addressed (`ref`), what a person calls it (`title`), and what an index row keeps. A list too long for the page state is cut to index rows, never to a count; the selected rows, and the rows an action just changed, stay whole.
+- **`x-rows`** on the list in the observation's schema says how a row is addressed (`ref`), what a person calls it (`title`), and what an index row keeps, each a property of the row or a dotted path into it (`item.key`). A list too long for the page state is cut to index rows, never to a count; the selected rows, and the rows an action just changed, stay whole.
 - **`roomReaders`** makes the room's `inspect` (everything about the rows named) and `query` (a list's rows, narrowed by an indexed property or by name, a page at a time). Both only read.
 - **`x-ref`** on an input that takes a row (`{ type: 'string', ...refTo(POSITIONS) }`) names the list it addresses. The runtime then takes a row's exact name where its id is expected, when one row has it, and refuses an ambiguous one with the ids it could mean.
 - **`changed`** on an action's result reports the rows it changed, added or removed, each as `inspect` would return it now (`changedRows(lists, ctx, refs)`), so the assistant checks an edit against what the room holds, not against what it meant to do.
@@ -423,9 +423,9 @@ The generator refuses a catalog whose observation lists things with an `id` and 
 >
 > | Field | Type | Required | What it is |
 > |---|---|---|---|
-> | `ref` | string | yes | The property of a row that actions address it by (`id`). |
-> | `title` | string | yes | The property of a row a person calls it by (`name`). |
-> | `index` | string[] |  | The other properties an index row keeps: the few that tell rows apart (a layer's kind, the artboard it is on). |
+> | `ref` | string | yes | The property of a row that actions address it by (`id`), or a dotted path to it (`item.key`). |
+> | `title` | string | yes | The property of a row a person calls it by (`name`), or a dotted path to it (`item.title`). |
+> | `index` | string[] |  | The other properties an index row keeps, each a property or a dotted path: the few that tell rows apart (a layer's kind, the artboard it is on, the display a fact row belongs to). |
 > | `selection` | string |  | The property beside the list, in the same object, that holds the refs of the rows the person has selected. |
 
 > **Schema:** [`room-catalog-data.json#/$defs/RoomChangedRow`](schemas/room-catalog-data.json) · `https://schemas.closurestudio.ai/oui/v1/room-catalog-data.json#/$defs/RoomChangedRow` · TypeScript: `RoomChangedRow` from `@ouispec/contract`
@@ -638,6 +638,7 @@ A page's action definitions weigh what its whole catalogue weighs. On a studio p
 - **Only the newest answer carries the page's state to the model.** Every earlier answer of the turn keeps what its action did (its result, the rows it changed, what the page offers since) and says where the state is, so a turn of many actions costs about what one does, plus what each did.
 - **UI actions are not counted against a per-tool quota:** they run as the person, bounded by the turn's steps and deadline. What is refused is a loop: the same call with the same input, once it has changed nothing three times in a row. Undo five times is five undos.
 - **Every answer is fitted to a byte budget before it is sent** (480 KB by default, 256 KB for a snapshot). The action's own result is kept whole. Long lists in the page's state are cut first, and the answer says where, so the assistant can read the rest with `ui_read` or a room's `query`.
+- **What a page shows keeps an index too.** A page reports its displays' facts under `shown` in its state, and a display that describes one row of a list (a card each) carries the row as `item`. The page state declares `x-rows` on `shown` (`ref: item.key`, `title: item.title`, `index: [id]`), and the bindings report each display's rows together. Over budget, the page's own facts stay whole, and a long list of cards keeps its first rows whole and the rest as index rows (the display, the row's key and title), the rows an action just changed whole. When even the index does not fit, the list says how many rows are left out and the `ui_read` call (`path: /shown`, `offset`, `limit`) that returns exactly them, one display at a time.
 - **The assistant never changes a page it cannot see.** After an answer that arrived without the page's state, or no answer, the worker runs only reads until one succeeds. After two refused changes in a row, the assistant stops and tells the person what it could not confirm.
 
 Nothing here is written per feature: the index, the outlines and the fitting are computed from the declarations.

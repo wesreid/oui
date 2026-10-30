@@ -11,6 +11,8 @@
  */
 
 import type { OUIObservationSnapshot } from 'oui-spec/spec';
+import { AGENT_UI_TOOLS } from '@ouispec/agent-core';
+import { indexRow, rowValue, SHOWN_ROWS } from '@ouispec/bindings';
 
 /** The observation id a surface reports its page's problems under. */
 export const PROBLEMS_OBSERVATION_ID = 'problems';
@@ -170,13 +172,15 @@ const isPageRow = (row: unknown) =>
   typeof (row as { key?: unknown }).key === 'string' &&
   typeof (row as { title?: unknown }).title === 'string';
 
-/** A declared list's rows: addressed and called by the properties it names, chosen when selected or just changed. */
+/**
+ * A declared list's rows: addressed and called by the properties it names (a
+ * property, or a dotted path such as `item.key`), chosen when selected or just
+ * changed.
+ */
 function declaredShape(declaration: RowListDeclaration, chosenRefs: ReadonlySet<string>): RowShape {
-  const kept = [declaration.ref, declaration.title, ...(declaration.index ?? [])];
   return {
-    index: (row) => Object.fromEntries(kept.filter((key) => row[key] !== undefined).map((key) => [key, row[key]])),
-    chosen: (row) =>
-      row !== null && typeof row === 'object' && chosenRefs.has(String((row as Record<string, unknown>)[declaration.ref])),
+    index: (row) => indexRow(declaration, row),
+    chosen: (row) => row !== null && typeof row === 'object' && chosenRefs.has(String(rowValue(row, declaration.ref))),
     rest: 'read them with this surface’s query tool, or one with its inspect tool',
   };
 }
@@ -210,29 +214,80 @@ function shortenRows(rows: unknown[], step: ListStep, shape: RowShape | null): u
   return [...whole, ...indexed, `${count}, not listed to fit the page state; ${shape.rest}`];
 }
 
+/** Rows `ui_read` returns at most in one call. */
+const READ_ROWS_MAX = 200;
+
+/** Where a value is in the page state: the surface, the observation, and the JSON Pointer into it. */
+interface ValuePlace {
+  surface: string;
+  observation: string;
+  path: string;
+}
+
 /**
- * What the page shows (`shown`): facts that describe one row of a list (one per
- * card) are shortened like the list; the page's own facts, such as those of the
- * item open in a detail panel, are kept whole.
+ * What the page shows (`shown`), by display. The page's own facts (the item
+ * open in a detail panel) are kept whole. Facts that describe one row of a
+ * list (a card each) are shortened as a list is, one display at a time: the
+ * first rows and the chosen ones whole, the rest as index rows (the display,
+ * the row's key and title: `x-rows` on `shown`), and when even the index does
+ * not fit, how many are left out with the `ui_read` call that returns them.
+ * A display's rows are one run of `shown` (the bindings report them so), so
+ * that call is one `offset` and `limit`.
  */
-function shortenShown(shown: unknown[], step: ListStep): unknown[] {
-  const perList = new Map<string, unknown[]>();
+function shortenShown(shown: unknown[], ctx: FitContext, declared: RowListDeclaration | undefined): unknown[] {
+  const shape = declaredShape(declared ?? SHOWN_ROWS, ctx.changed);
   const own: unknown[] = [];
-  for (const entry of shown) {
-    const item = (entry as { item?: unknown; id?: unknown } | null)?.item;
+  const perDisplay = new Map<string, number[]>();
+  shown.forEach((entry, at) => {
+    const item = (entry as { item?: unknown } | null)?.item;
     if (item === undefined) own.push(entry);
     else {
       const id = String((entry as { id?: unknown }).id);
-      perList.set(id, [...(perList.get(id) ?? []), entry]);
+      perDisplay.set(id, [...(perDisplay.get(id) ?? []), at]);
     }
-  }
-  return [...own, ...[...perList.values()].flatMap((rows) => shortenRows(rows, { whole: step.whole, index: 0 }, null))];
+  });
+  return [...own, ...[...perDisplay.entries()].flatMap(([id, at]) => shortenDisplay(id, at, shown, ctx, shape))];
 }
 
-/** What fitting a value needs beside the step: its schema, and the rows an action just changed. */
+/** One display's rows of `shown`, by their places in it, fitted to the step. */
+function shortenDisplay(id: string, at: number[], shown: unknown[], ctx: FitContext, shape: RowShape): unknown[] {
+  const { step } = ctx;
+  if (at.length <= Math.max(step.whole, WHOLE_LIST_ROWS)) return at.map((i) => shown[i]);
+  const whole: unknown[] = [];
+  const rest: number[] = [];
+  at.forEach((i, n) => (n < step.whole || shape.chosen(shown[i]) ? whole.push(shown[i]) : rest.push(i)));
+  const indexed = rest.slice(0, step.index).map((i) => shape.index(shown[i] as Record<string, unknown>));
+  const left = rest.slice(indexed.length);
+  if (left.length === 0) return [...whole, ...indexed];
+  const count = whole.length + indexed.length > 0 ? `… and ${left.length} more rows of ${id}` : `${left.length} rows of ${id}`;
+  return [...whole, ...indexed, `${count}, not listed to fit the page state; ${readShownCall(ctx.place, left)}`];
+}
+
+/** How the rows of `shown` at these places are read: one `ui_read` from the first, as many as they span. */
+function readShownCall(place: ValuePlace | undefined, at: readonly number[]): string {
+  if (!place) return 'name a row by its title';
+  const first = at[0];
+  const span = at[at.length - 1] - first + 1;
+  const call = {
+    surface: place.surface,
+    observation: place.observation,
+    path: place.path,
+    offset: first,
+    limit: Math.min(span, READ_ROWS_MAX),
+  };
+  return (
+    `read them with ${AGENT_UI_TOOLS.read} ${JSON.stringify(call)}` +
+    (span > READ_ROWS_MAX ? `, then from where its answer says the next page begins (${span} rows from ${first})` : '') +
+    (span > at.length ? '; rows of other displays are among them' : '')
+  );
+}
+
+/** What fitting a value needs beside the step: its schema, the rows an action just changed, and where the value is. */
 interface FitContext {
   step: ListStep;
   changed: ReadonlySet<string>;
+  /** Where the value being fitted is, for the read that returns what is cut from it. */
+  place?: ValuePlace;
 }
 
 /** How a list's rows are indexed: as its schema declares, as a page list's rows are, or not at all. */
@@ -250,19 +305,24 @@ function compactValue(value: unknown, schema: SchemaNode | undefined, ctx: FitCo
   if (Array.isArray(value)) {
     const shape = shapeOf(value, schema, selected, ctx);
     // A row kept whole has its own lists fitted; a row cut to its index does not need them.
-    const given = new Set(value);
-    return shortenRows(value, ctx.step, shape).map((row) => (given.has(row) ? compactValue(row, schema?.items, ctx) : row));
+    const at = new Map(value.map((row, i) => [row, i]));
+    return shortenRows(value, ctx.step, shape).map((row) =>
+      at.has(row)
+        ? compactValue(row, schema?.items, ctx.place ? { ...ctx, place: { ...ctx.place, path: `${ctx.place.path}/${at.get(row)}` } } : ctx)
+        : row,
+    );
   }
   if (value !== null && typeof value === 'object') {
     const object = value as Record<string, unknown>;
     return Object.fromEntries(
       Object.entries(object).map(([key, v]) => {
         if (FIELD_KEYS.has(key)) return [key, v];
-        if (key === 'shown' && Array.isArray(v)) return [key, shortenShown(v, ctx.step)];
         const child = schema?.properties?.[key];
+        const inner = ctx.place ? { ...ctx, place: { ...ctx.place, path: `${ctx.place.path}/${pointerPart(key)}` } } : ctx;
+        if (key === 'shown' && Array.isArray(v)) return [key, shortenShown(v, inner, child?.['x-rows'])];
         const selection = child?.['x-rows']?.selection;
         const chosen = selection && Array.isArray(object[selection]) ? (object[selection] as unknown[]).map(String) : [];
-        return [key, compactValue(v, child, ctx, chosen)];
+        return [key, compactValue(v, child, inner, chosen)];
       }),
     );
   }
@@ -322,7 +382,11 @@ function fitted(
     Object.fromEntries(
       Object.entries((value ?? {}) as Record<string, unknown>).map(([observationId, v]) => [
         observationId,
-        compactValue(v, options.schemas?.[surfaceId]?.[observationId] as SchemaNode | undefined, { step, changed }),
+        compactValue(v, options.schemas?.[surfaceId]?.[observationId] as SchemaNode | undefined, {
+          step,
+          changed,
+          place: { surface: surfaceId, observation: observationId, path: '' },
+        }),
       ]),
     );
 
@@ -414,4 +478,9 @@ export function observationsText(observations: OUIObservationSnapshot, maxChars:
     ? ` (fitted from ${json.length} characters. ${fitSummary(fit, maxChars, [], false)})`
     : `… (truncated from ${json.length} characters)`;
   return `${head}${head ? 'Values: ' : ''}${rest.slice(0, maxChars)}${tail}`;
+}
+
+/** A property name as one part of a JSON Pointer (RFC 6901). */
+function pointerPart(key: string): string {
+  return key.replace(/~/g, '~0').replace(/\//g, '~1');
 }

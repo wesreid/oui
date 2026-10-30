@@ -202,17 +202,17 @@ export const CONTRACT_SCHEMAS = {
         "type": "object",
         "properties": {
           "ref": {
-            "description": "The property of a row that actions address it by (`id`).",
+            "description": "The property of a row that actions address it by (`id`), or a dotted path to it (`item.key`).",
             "type": "string",
             "minLength": 1
           },
           "title": {
-            "description": "The property of a row a person calls it by (`name`).",
+            "description": "The property of a row a person calls it by (`name`), or a dotted path to it (`item.title`).",
             "type": "string",
             "minLength": 1
           },
           "index": {
-            "description": "The other properties an index row keeps: the few that tell rows apart (a layer's kind, the artboard it is on).",
+            "description": "The other properties an index row keeps, each a property or a dotted path: the few that tell rows apart (a layer's kind, the artboard it is on, the display a fact row belongs to).",
             "type": "array",
             "items": {
               "type": "string"
