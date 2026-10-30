@@ -638,7 +638,7 @@ A page's action definitions weigh what its whole catalogue weighs. On a studio p
 - **Only the newest answer carries the page's state to the model.** Every earlier answer of the turn keeps what its action did (its result, the rows it changed, what the page offers since) and says where the state is, so a turn of many actions costs about what one does, plus what each did.
 - **UI actions are not counted against a per-tool quota:** they run as the person, bounded by the turn's steps and deadline. What is refused is a loop: the same call with the same input, once it has changed nothing three times in a row. Undo five times is five undos.
 - **Every answer is fitted to a byte budget before it is sent** (480 KB by default, 256 KB for a snapshot). The action's own result is kept whole. Long lists in the page's state are cut first, and the answer says where, so the assistant can read the rest with `ui_read` or a room's `query`.
-- **What a page shows keeps an index too.** A page reports its displays' facts under `shown` in its state, and a display that describes one row of a list (a card each) carries the row as `item`. The page state declares `x-rows` on `shown` (`ref: item.key`, `title: item.title`, `index: [id]`), and the bindings report each display's rows together. Over budget, the page's own facts stay whole, and a long list of cards keeps its first rows whole and the rest as index rows (the display, the row's key and title), the rows an action just changed whole. When even the index does not fit, the list says how many rows are left out and the `ui_read` call (`path: /shown`, `offset`, `limit`) that returns exactly them, one display at a time.
+- **What a page shows keeps an index too.** A page reports its displays' facts under `shown` in its state, and a display that describes one row of a list (a card each) carries the row as `item`. The page state declares `x-rows` on `shown` (`ref: item.key`, `title: item.title`, `index: [id]`), and the bindings report each display's rows together. The manifest records each display a page or shell shows (`displays`: its binding id, title, description and the labels the build can read), so a test can name it as the build does. Over budget, the page's own facts stay whole, and a long list of cards keeps its first rows whole and the rest as index rows (the display, the row's key and title), the rows an action just changed whole. When even the index does not fit, the list says how many rows are left out and the `ui_read` call (`path: /shown`, `offset`, `limit`) that returns exactly them, one display at a time.
 - **The assistant never changes a page it cannot see.** After an answer that arrived without the page's state, or no answer, the worker runs only reads until one succeeds. After two refused changes in a row, the assistant stops and tells the person what it could not confirm.
 
 Nothing here is written per feature: the index, the outlines and the fitting are computed from the declarations.
@@ -677,6 +677,7 @@ What the build then offers:
 - `params` fills a route's `:parameters` when `path` is written as its route (`{ "path": "/dashboard/inventory/:unitId", "params": { "unitId": "u 7" } }` goes to `/dashboard/inventory/u%207`).
 - The runtime builds the address from the path, `params` and `query`, encoding each part. It refuses a path that is not one of the build's routes, one that could leave the app (`//host`, a backslash, a scheme, `.` or `..` segments), a query parameter a declaring page does not take, and a value it does not accept, naming what the page takes. A query in `path` itself (`?view=declined`) is read the same way. A page that declares no query takes its address as before.
 - Going to the address the person is already on does nothing, and says so (`alreadyThere`).
+- A page known only by its manifest reads its address the same way: `pageQueryOf` reads a page's alternative of `query` back into the declaration `readQuery` and `writeQuery` take (its values, ranges and defaults; a choice's labels are not in it), so a test page shows the filters the address holds (an eval's `controls` bound by `query`). `generatedNavigationSurface` is the navigation surface the generator emits, for a page made without a manifest.
 
 > **Schema:** [`page-query.json`](schemas/page-query.json) · `https://schemas.closurestudio.ai/oui/v1/page-query.json` · TypeScript: `PageQuery` from `@ouispec/contract`
 
@@ -1101,24 +1102,36 @@ scenarios:
 
 **The person's page.** A suite, or a scenario in its place (`page: false` for none), declares the page its turns are sent from (`AgentEvalPage`). The harness runs it on a real oui-spec surface runtime in index form, sends every turn from wherever the page is, with its snapshot and its address (`oui`, `currentPath`, and `uiKnowledge` when the configuration gives your knowledge), and answers the agent's `ui_act`, `ui_describe` and `ui_read` from it, as the person's tab would. Its surfaces are either declared in the suite (`surfaces`: each one's `routes`, its observations as `state`, and its actions, each with the `result` it answers, the `state` it leaves and the address it goes to, by `cases` on its input), or are your own: give the configuration your generated manifest (`page: { manifest, knowledge }`) and name your controls by binding id (`controls`: each one's value, rows and what it does; `allControls` mounts the rest of a surface's, empty). They are registered with a real binding registry and connected with `connectBindings`, as your tab does, so the agent is offered exactly what your build declares. Going to a page (`app.navigate`) mounts what is at the new address; the next turn is sent from there.
 
+**What the page shows.** A page's numbers and a list's cards are not controls: your displays report them with `useAgentFacts`, and the page state carries them under `shown`. The fixture declares them in the same shape (`shown`: each display's `id`, `title`, `facts` by label and, for a card of a list, its row as `item`), and they are registered with the binding registry as your displays register them, so the page state reports them exactly as your tab does: by display, a long list kept as an index of its rows (`x-rows`), the rest read with `ui_read` at the display's own offset. A display is named by its binding id, which your manifest records on the page that shows it (`displays`, from 0.10): an id it does not record fails the page, a title left out is the manifest's, and an entry with no `routes` is shown where its page is. As in your tab, the page reports them while its surface is mounted, that is while one of its controls is (`controls`, or `allControls`). The problems your page areas show (`useAgentProblems`) are declared the same way (`problems`: each area's `source` and its `problems`), and reported with the page, or with the navigation surface when no page is open to report them. Either is shown only on its `routes` and while the address holds its `query` (read with the page's declared query, its defaults included), so the declined tab's cards are on the page only at `?view=declined`. A surface declared in the suite takes `shown` and `problems` too, as its `state` and `problems` observations.
+
+**Filters in the address.** A control bound to a query parameter (`query`: the name the page's `defineQuery` declares) shows the address's value, read as the page's `readQuery` reads it (its default when the address leaves it out, else the control's `value`). It follows the address when `app.navigate` goes to the page with another query, and a run writes the value it is given to the address, as the page's `writeQuery` does, so what is shown at that query follows too. The declarations are your manifest's, as the generator records them in `app.navigate`'s `query`; a parameter no page declares fails the page.
+
 ```yaml
 page:
   at: /dashboard
   controls:
-    service-lane.view: { value: open }
+    service-lane.view: { query: view }
     service-lane.declined.advisor: {}
+  shown:
+    - { id: home.gross, facts: { Gross: $182k, Deals: 41 } }
+    - id: lane.ro-card
+      title: RO 7002
+      facts: { Customer: Dana Reyes, Declined: $640 }
+      item: { key: ro-7002, title: RO 7002 · Dana Reyes }
+      query: { view: declined }
 scenarios:
   - id: declined-work-opens-the-lane
     title: Opens the service lane once, on its declined work, and pastes nothing
     turns:
       - user: Show me the declined work
         expect:
-          page: { at: /dashboard/service-lane, ran: [{ action: service-lane.view, input: { value: declined } }] }
+          page: { at: /dashboard/service-lane?view=declined, notRan: [service-lane.view] }
           calls: [{ action: app.navigate, times: 1 }, { tool: listRepairOrders, times: 0 }]
+          says: [RO 7002]
           usage: { firstCallInputTokens: { max: 20000 }, callInputTokens: { max: 40000 } }
 ```
 
-**Your conversation store.** By default the harness keeps the whole conversation. To run later turns on what your worker really reads (a window that cuts old tool results, a summary, a step context), give the configuration `history`: your store as `EvalHistory` (`append`, `getHistory`, `persistMessages`), or `createMemoryHistory({ window })` with your window over the whole conversation.
+**Your conversation store.** By default the harness keeps the whole conversation. To run later turns on what your worker really reads (a window that cuts old tool results, a summary, a step context), give the configuration `history`: your store as `EvalHistory` (`append`, `getHistory`, `persistMessages`), or `createMemoryHistory({ window })` with your window over the whole conversation. `getHistory` (and `window`) is given the worker's request and the turn it reads for (`request.turn`: its id and place, the suite, scenario and channel, the customer as `user`, the context it is sent with, which names its view and carries the page's, and where the page is, `at`), which your worker reads from the turn's payload: a step context written from the page the turn is sent from needs no `beforeTurn` to note it.
 
 **Your agent's settings.** `agent` returns what your worker runs with, `modelProviderOptions`, `forcedToolChoice` and `uiActions` (its waits and how much of the page the model reads; the channel is the page's) included.
 
@@ -1204,6 +1217,8 @@ The package ships an example: a fake dealer tool set, with scenarios for disclos
 > | `surfaces` | AgentEvalPageSurface[] |  | Surfaces declared here, each mounted while the page is at one of its routes. |
 > | `controls` | map of AgentEvalPageControl |  | The product's own controls, by binding id in the configuration's manifest: each is mounted while the page is on its surface, with what it shows and what it does. |
 > | `allControls` | boolean |  | Also mount every other control the manifest declares on a surface that is mounted, with no value, as an empty form shows them. |
+> | `shown` | AgentEvalShown[] |  | What the product's pages show that is not a control (`useAgentFacts`): each display's facts, one entry per card of a list, registered with the binding registry as the product's displays register them, so the page state reports them under `shown` (indexed by `x-rows`, read further with `ui_read`) exactly as the product's tab does. |
+> | `problems` | AgentEvalProblems[] |  | Problems the product's pages show (`useAgentProblems`), registered as the product's page areas register them, so the page reports them in its `problems` observation, or the navigation surface does when no page is open to report them. |
 
 > **Schema:** [`agent-evals.json#/$defs/AgentEvalPageAction`](schemas/agent-evals.json) · `https://schemas.closurestudio.ai/oui/v1/agent-evals.json#/$defs/AgentEvalPageAction` · TypeScript: `AgentEvalPageAction` from `@ouispec/contract`
 >
@@ -1225,6 +1240,7 @@ The package ships an example: a fake dealer tool set, with scenarios for disclos
 > | Field | Type | Required | What it is |
 > |---|---|---|---|
 > | `value` | any |  | What it shows when the page opens. |
+> | `query` | string |  | The query parameter of the page's address it shows, as a page that reads its filters with `readQuery` and writes them with `writeQuery` does: on a page whose declared query (the manifest's `app.navigate`) takes it, its value is the address's, read as the declaration reads it (its default when the address leaves it out; `value` when there is none), it follows the address whenever the page goes to another, and a run writes the value it is given to the address. |
 > | `title` | string |  | What it is called on screen. |
 > | `valueSchema` | object |  | Its live value schema (its options, its range), within the manifest's. |
 > | `disabled` | boolean |  | It cannot be used: it is not offered. |
@@ -1233,3 +1249,23 @@ The package ships an example: a fake dealer tool set, with scenarios for disclos
 > | `result` | { success: boolean, data?: any, error?: string } |  | What it answers. |
 > | `navigate` | string |  | The address the page goes to once it has run. |
 > | `cases` | { when?: object, result?: { success: boolean, data?: any, error?: string }, navigate?: string }[] |  | What it does for a call whose input holds `when`, the first that matches; a call none matches gets the defaults beside them. |
+
+> **Schema:** [`agent-evals.json#/$defs/AgentEvalShown`](schemas/agent-evals.json) · `https://schemas.closurestudio.ai/oui/v1/agent-evals.json#/$defs/AgentEvalShown` · TypeScript: `AgentEvalShown` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `id` | string | yes | The display's binding id. |
+> | `title` | string |  | Its heading, as the page shows it. |
+> | `facts` | map of string \| number \| boolean | yes | Each fact by its label. |
+> | `item` | AgentItem |  | The row of a list it describes, when it is one of many (a card each): how the page state's `x-rows` addresses and indexes it. |
+> | `routes` | AgentEvalShownRoutes |  |  |
+> | `query` | AgentEvalShownQuery |  |  |
+
+> **Schema:** [`agent-evals.json#/$defs/AgentEvalProblems`](schemas/agent-evals.json) · `https://schemas.closurestudio.ai/oui/v1/agent-evals.json#/$defs/AgentEvalProblems` · TypeScript: `AgentEvalProblems` from `@ouispec/contract`
+>
+> | Field | Type | Required | What it is |
+> |---|---|---|---|
+> | `source` | string |  | The binding id of the page area that shows them (`useAgentProblems(source, …)`). |
+> | `problems` | RoomProblem[] | yes |  |
+> | `routes` | AgentEvalShownRoutes |  |  |
+> | `query` | AgentEvalShownQuery |  |  |

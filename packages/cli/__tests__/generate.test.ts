@@ -86,6 +86,12 @@ describe('generate', () => {
     expect(state.schema.properties?.shown).toBeDefined();
     // Its rows are addressable: a card's facts by the row they describe, indexed with their display.
     expect(state.schema.properties?.shown?.['x-rows']).toEqual({ ref: 'item.key', title: 'item.title', index: ['id'] });
+    // The manifest records each display the page shows, once, so an eval's page can name it.
+    expect(surface(surfaces, 'page:VoicesPage').displays).toEqual([
+      { id: 'voices.parameters', title: 'Parameters', description: 'The library’s generation parameters', labels: ['Engine', 'Seed'] },
+    ]);
+    // A page that shows none records none.
+    expect(surface(surfaces, 'page:CreateVoicePage').displays).toBeUndefined();
     // A display is not a control: it is neither a tool nor, unbound, a gap.
     expect(surface(surfaces, 'page:VoicesPage').actions.map(a => a.id)).not.toContain('voices.parameters');
     expect(result.errors.filter(e => e.message.includes('FactList'))).toEqual([]);

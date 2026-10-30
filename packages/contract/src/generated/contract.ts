@@ -1094,6 +1094,18 @@ export interface ManifestObservation {
  */
 export type ManifestSurfaceKind = 'page' | 'room' | 'shared' | 'shell' | 'navigation';
 
+/** One display a page shows: what reports its facts under the page state's `shown`. */
+export interface ManifestDisplay {
+  /** Its binding id: the `id` of its entries in `shown`. */
+  id: string;
+  /** Its heading, as the build reads it. */
+  title: string;
+  /** What it shows, from its binding. */
+  description: string;
+  /** The labels of its facts the build can read. */
+  labels: readonly string[];
+}
+
 /** One surface: what it offers, where it can be mounted, and what it reports. */
 export interface ManifestSurface {
   /**
@@ -1108,6 +1120,12 @@ export interface ManifestSurface {
   routes: readonly string[];
   actions: readonly ManifestAction[];
   observations: readonly ManifestObservation[];
+  /**
+   * What a page or shell shows that is not a control (`useAgentFacts`): each display it
+   * renders, by binding id, whose facts its state reports under `shown`. Absent when it renders
+   * none, and in a manifest generated before 0.10.
+   */
+  displays?: readonly ManifestDisplay[];
 }
 
 // ─── The generated knowledge ───────────────────────────────────────────────────
@@ -2205,7 +2223,73 @@ export interface AgentEvalPage {
    * Default: false.
    */
   allControls?: boolean;
+  /**
+   * What the product's pages show that is not a control (`useAgentFacts`): each display's
+   * facts, one entry per card of a list, registered with the binding registry as the product's
+   * displays register them, so the page state reports them under `shown` (indexed by `x-rows`,
+   * read further with `ui_read`) exactly as the product's tab does. Each is shown while the
+   * page is on its `routes` and its address holds its `query`; with no `routes`, where the
+   * manifest records the display, else on every page.
+   */
+  shown?: readonly AgentEvalShown[];
+  /**
+   * Problems the product's pages show (`useAgentProblems`), registered as the product's page
+   * areas register them, so the page reports them in its `problems` observation, or the
+   * navigation surface does when no page is open to report them.
+   */
+  problems?: readonly AgentEvalProblems[];
 }
+
+/**
+ * One display's facts, in the shape the runtime reports them under the page state's `shown`,
+ * and where the page shows them.
+ */
+export interface AgentEvalShown {
+  /** The display's binding id. */
+  id: string;
+  /**
+   * Its heading, as the page shows it. Default: the title the manifest records for the display,
+   * else its id.
+   */
+  title?: string;
+  /**
+   * Each fact by its label. Reported as text, as `useAgentFacts` reports it: a number or flag
+   * is written out, and an empty one is left out.
+   */
+  facts: Readonly<Record<string, string | number | boolean>>;
+  /**
+   * The row of a list it describes, when it is one of many (a card each): how the page state's
+   * `x-rows` addresses and indexes it.
+   */
+  item?: AgentItem;
+  routes?: AgentEvalShownRoutes;
+  query?: AgentEvalShownQuery;
+}
+
+/**
+ * Problems one area of the page shows, in the shape the runtime reports them, and where the
+ * page shows them.
+ */
+export interface AgentEvalProblems {
+  /**
+   * The binding id of the page area that shows them (`useAgentProblems(source, …)`). Default:
+   * `page`.
+   */
+  source?: string;
+  problems: readonly RoomProblem[];
+  routes?: AgentEvalShownRoutes;
+  query?: AgentEvalShownQuery;
+}
+
+/** Where the page shows it, as route patterns. */
+export type AgentEvalShownRoutes = readonly string[];
+
+/**
+ * Shown only while the page's address holds these query parameters, each read as the page's
+ * declared query reads it (`readQuery`, its default for one the address leaves out), or as
+ * written when the page declares none. A list of several values is written comma-separated.
+ */
+export type AgentEvalShownQuery = Readonly<Record<string, string | number | boolean>>;
 
 /** A surface of the page: its actions, and what it reports. */
 export interface AgentEvalPageSurface {
@@ -2216,6 +2300,18 @@ export interface AgentEvalPageSurface {
   routes?: readonly string[];
   /** What it reports when the page opens, by observation id. */
   state?: Readonly<Record<string, unknown>>;
+  /**
+   * What it shows that is not an action, as a page's displays report it: its `state`
+   * observation's `shown`, declared with `x-rows` as a generated page's is, so a long list
+   * keeps an index of its rows and the rest is read with `ui_read`. A `shown` its `state` gives
+   * itself, or an action leaves, is reported instead.
+   */
+  shown?: readonly AgentEvalShown[];
+  /**
+   * The problems it shows: its `problems` observation, as a page's. One its `state` gives, or
+   * an action leaves, is reported instead.
+   */
+  problems?: readonly AgentEvalProblems[];
   actions: readonly AgentEvalPageAction[];
 }
 
@@ -2274,6 +2370,15 @@ export interface AgentEvalPageAction {
 export interface AgentEvalPageControl {
   /** What it shows when the page opens. A run sets it to the value it was given. */
   value?: unknown;
+  /**
+   * The query parameter of the page's address it shows, as a page that reads its filters with
+   * `readQuery` and writes them with `writeQuery` does: on a page whose declared query (the
+   * manifest's `app.navigate`) takes it, its value is the address's, read as the declaration
+   * reads it (its default when the address leaves it out; `value` when there is none), it
+   * follows the address whenever the page goes to another, and a run writes the value it is
+   * given to the address. Not for a list's control (`rows`).
+   */
+  query?: string;
   /** What it is called on screen. Default: the manifest's title. */
   title?: string;
   /** Its live value schema (its options, its range), within the manifest's. */

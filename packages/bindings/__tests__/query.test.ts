@@ -15,6 +15,7 @@ import {
   NAVIGATION_SURFACE_ID,
   navigationQueries,
   navigationTarget,
+  pageQueryOf,
   pageQueryProblems,
   pageQuerySchema,
   readQuery,
@@ -70,6 +71,26 @@ describe('readQuery and writeQuery', () => {
       signals: ['no_show'],
       from: undefined,
     });
+  });
+
+  it('reads an address the same way from the declaration a manifest records (pageQueryOf)', () => {
+    const recorded = pageQueryOf(pageQuerySchema(LANE_QUERY));
+    expect(Object.keys(recorded)).toEqual(Object.keys(LANE_QUERY));
+    expect(pageQueryProblems(recorded)).toEqual([]);
+    for (const address of [
+      '',
+      '?view=declined&advisor=Avery%20Ng&page=3&late=1&signals=no_show,unconfirmed&from=2026-10-01',
+      '?view=closed&page=0&late=maybe&signals=no_show,bogus&from=2026-02-30',
+      '?period=last_month&late=0',
+    ]) {
+      expect(readQuery(recorded, address)).toEqual(readQuery(LANE_QUERY, address));
+    }
+    expect(writeQuery(recorded, 'view=declined', { view: 'lane', late: true }).toString()).toBe(
+      writeQuery(LANE_QUERY, 'view=declined', { view: 'lane', late: true }).toString(),
+    );
+    // Its schema is the page's own, so the navigation action checks it the same way.
+    expect(pageQuerySchema(recorded).properties?.view).toMatchObject({ enum: ['lane', 'declined'], default: 'lane' });
+    expect(pageQueryOf({ type: 'object', properties: { odd: { type: 'object' } } })).toEqual({});
   });
 
   it('writes changes, keeps every other parameter, and leaves out defaults and empties', () => {

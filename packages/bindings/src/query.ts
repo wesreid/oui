@@ -270,6 +270,67 @@ export function pageQuerySchema(declaration: PageQuery): JsonSchema {
   };
 }
 
+/**
+ * The declaration a page's query schema was generated from (`pageQuerySchema`),
+ * read back: what `readQuery` and `writeQuery` take, for a page known only by
+ * its generated manifest (the alternative of `app.navigate`'s `query` its
+ * routes are in). It reads the address exactly as the page's own declaration
+ * does: the same values, ranges and defaults. A choice's labels are not in
+ * the schema, so its values come back bare. A property that is none of the
+ * forms a declaration generates is left out.
+ */
+export function pageQueryOf(schema: JsonSchema): PageQuery {
+  const out: Record<string, QueryParam> = {};
+  for (const [name, property] of Object.entries(schema.properties ?? {})) {
+    const param = queryParamOf(property);
+    if (param) out[name] = param;
+  }
+  return out as PageQuery;
+}
+
+function queryParamOf(schema: JsonSchema): QueryParam | null {
+  const description = schema.description?.trim() || 'A query parameter.';
+  const multiple = schema.type === 'array' && schema.items && !Array.isArray(schema.items);
+  const one = multiple ? (schema.items as JsonSchema) : schema;
+  const type = Array.isArray(one.type) ? one.type[0] : one.type;
+  if (Array.isArray(one.enum) && one.enum.length > 0 && one.enum.every(v => typeof v === 'string')) {
+    return {
+      values: [...(one.enum as readonly string[])],
+      description,
+      ...(multiple ? { multiple: true } : typeof one.default === 'string' ? { default: one.default } : {}),
+    };
+  }
+  switch (type) {
+    case 'integer':
+    case 'number':
+      if (multiple) return null;
+      return {
+        type,
+        description,
+        ...(typeof one.minimum === 'number' ? { minimum: one.minimum } : {}),
+        ...(typeof one.maximum === 'number' ? { maximum: one.maximum } : {}),
+        ...(typeof one['x-unit'] === 'string' ? { unit: one['x-unit'] } : {}),
+        ...(typeof one.default === 'number' ? { default: one.default } : {}),
+      };
+    case 'boolean':
+      if (multiple) return null;
+      return { type: 'boolean', description, ...(typeof one.default === 'boolean' ? { default: one.default } : {}) };
+    case 'string':
+      if (one.format === 'date') {
+        if (multiple) return null;
+        return { type: 'date', description, ...(typeof one.default === 'string' ? { default: one.default } : {}) };
+      }
+      return {
+        type: 'string',
+        description,
+        ...(typeof one.maxLength === 'number' ? { maxLength: one.maxLength } : {}),
+        ...(multiple ? { multiple: true } : typeof one.default === 'string' ? { default: one.default } : {}),
+      };
+    default:
+      return null;
+  }
+}
+
 // ─── Going to an address ─────────────────────────────────────────────────────
 
 /** A page's query in the navigation action's input: the routes it is on, and what it takes. */

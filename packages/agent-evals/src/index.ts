@@ -29,7 +29,7 @@ export type { JudgeFailure, JudgeOptions, Verdict } from './judge.js';
 export { cassettePath, fingerprint, readCassette, writeCassette, CASSETTE_VERSION } from './cassettes.js';
 export type { Cassette, FingerprintInputs } from './cassettes.js';
 export { createMemoryApprovalStore, createMemoryEmit, createMemoryHistory, createMemoryStops, NO_PAGE } from './memory.js';
-export type { EmittedEvent, EvalHistory, MemoryApprovalStore, MemoryHistoryOptions, MemoryStops } from './memory.js';
+export type { EmittedEvent, EvalHistory, EvalHistoryRequest, EvalHistoryTurn, MemoryApprovalStore, MemoryHistoryOptions, MemoryStops } from './memory.js';
 export { caseLines, formatReport, junitReport, statusWord, summaryLine } from './report.js';
 // The suite's shapes are the contract's (`agent-evals.json`).
 export type {
@@ -49,6 +49,10 @@ export type {
   AgentEvalPageSurface,
   AgentEvalPageAction,
   AgentEvalPageControl,
+  AgentEvalShown,
+  AgentEvalProblems,
+  AgentEvalShownQuery,
+  AgentEvalShownRoutes,
   AgentEvalPageExpectation,
   AgentEvalCallCount,
   AgentEvalUsage,

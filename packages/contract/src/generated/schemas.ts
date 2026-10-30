@@ -2261,6 +2261,39 @@ export const CONTRACT_SCHEMAS = {
           "navigation"
         ]
       },
+      "ManifestDisplay": {
+        "description": "One display a page shows: what reports its facts under the page state's `shown`.",
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "Its binding id: the `id` of its entries in `shown`.",
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "description": "Its heading, as the build reads it.",
+            "type": "string"
+          },
+          "description": {
+            "description": "What it shows, from its binding.",
+            "type": "string"
+          },
+          "labels": {
+            "description": "The labels of its facts the build can read.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "description",
+          "labels"
+        ],
+        "additionalProperties": false
+      },
       "ManifestSurface": {
         "description": "One surface: what it offers, where it can be mounted, and what it reports.",
         "type": "object",
@@ -2296,6 +2329,13 @@ export const CONTRACT_SCHEMAS = {
             "type": "array",
             "items": {
               "$ref": "#/$defs/ManifestObservation"
+            }
+          },
+          "displays": {
+            "description": "What a page or shell shows that is not a control (`useAgentFacts`): each display it renders, by binding id, whose facts its state reports under `shown`. Absent when it renders none, and in a manifest generated before 0.10.",
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/ManifestDisplay"
             }
           }
         },
@@ -4743,12 +4783,127 @@ export const CONTRACT_SCHEMAS = {
           "allControls": {
             "description": "Also mount every other control the manifest declares on a surface that is mounted, with no value, as an empty form shows them. A list's per-row controls are not: no row is rendered. Default: false.",
             "type": "boolean"
+          },
+          "shown": {
+            "description": "What the product's pages show that is not a control (`useAgentFacts`): each display's facts, one entry per card of a list, registered with the binding registry as the product's displays register them, so the page state reports them under `shown` (indexed by `x-rows`, read further with `ui_read`) exactly as the product's tab does. Each is shown while the page is on its `routes` and its address holds its `query`; with no `routes`, where the manifest records the display, else on every page.",
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AgentEvalShown"
+            }
+          },
+          "problems": {
+            "description": "Problems the product's pages show (`useAgentProblems`), registered as the product's page areas register them, so the page reports them in its `problems` observation, or the navigation surface does when no page is open to report them.",
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AgentEvalProblems"
+            }
           }
         },
         "required": [
           "at"
         ],
         "additionalProperties": false
+      },
+      "AgentEvalShown": {
+        "description": "One display's facts, in the shape the runtime reports them under the page state's `shown`, and where the page shows them.",
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "The display's binding id.",
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "description": "Its heading, as the page shows it. Default: the title the manifest records for the display, else its id.",
+            "type": "string",
+            "minLength": 1
+          },
+          "facts": {
+            "description": "Each fact by its label. Reported as text, as `useAgentFacts` reports it: a number or flag is written out, and an empty one is left out.",
+            "type": "object",
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            }
+          },
+          "item": {
+            "description": "The row of a list it describes, when it is one of many (a card each): how the page state's `x-rows` addresses and indexes it.",
+            "$ref": "agent-binding.json#/$defs/AgentItem"
+          },
+          "routes": {
+            "$ref": "#/$defs/AgentEvalShownRoutes"
+          },
+          "query": {
+            "$ref": "#/$defs/AgentEvalShownQuery"
+          }
+        },
+        "required": [
+          "id",
+          "facts"
+        ],
+        "additionalProperties": false
+      },
+      "AgentEvalProblems": {
+        "description": "Problems one area of the page shows, in the shape the runtime reports them, and where the page shows them.",
+        "type": "object",
+        "properties": {
+          "source": {
+            "description": "The binding id of the page area that shows them (`useAgentProblems(source, …)`). Default: `page`.",
+            "type": "string",
+            "minLength": 1
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "$ref": "room-catalog-data.json#/$defs/RoomProblem"
+            }
+          },
+          "routes": {
+            "$ref": "#/$defs/AgentEvalShownRoutes"
+          },
+          "query": {
+            "$ref": "#/$defs/AgentEvalShownQuery"
+          }
+        },
+        "required": [
+          "problems"
+        ],
+        "additionalProperties": false
+      },
+      "AgentEvalShownRoutes": {
+        "description": "Where the page shows it, as route patterns.",
+        "type": "array",
+        "items": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "uniqueItems": true
+      },
+      "AgentEvalShownQuery": {
+        "description": "Shown only while the page's address holds these query parameters, each read as the page's declared query reads it (`readQuery`, its default for one the address leaves out), or as written when the page declares none. A list of several values is written comma-separated.",
+        "type": "object",
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ]
+        }
       },
       "AgentEvalPageSurface": {
         "description": "A surface of the page: its actions, and what it reports.",
@@ -4779,6 +4934,20 @@ export const CONTRACT_SCHEMAS = {
             "description": "What it reports when the page opens, by observation id.",
             "type": "object",
             "additionalProperties": true
+          },
+          "shown": {
+            "description": "What it shows that is not an action, as a page's displays report it: its `state` observation's `shown`, declared with `x-rows` as a generated page's is, so a long list keeps an index of its rows and the rest is read with `ui_read`. A `shown` its `state` gives itself, or an action leaves, is reported instead.",
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AgentEvalShown"
+            }
+          },
+          "problems": {
+            "description": "The problems it shows: its `problems` observation, as a page's. One its `state` gives, or an action leaves, is reported instead.",
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AgentEvalProblems"
+            }
           },
           "actions": {
             "type": "array",
@@ -4917,6 +5086,11 @@ export const CONTRACT_SCHEMAS = {
         "properties": {
           "value": {
             "description": "What it shows when the page opens. A run sets it to the value it was given."
+          },
+          "query": {
+            "description": "The query parameter of the page's address it shows, as a page that reads its filters with `readQuery` and writes them with `writeQuery` does: on a page whose declared query (the manifest's `app.navigate`) takes it, its value is the address's, read as the declaration reads it (its default when the address leaves it out; `value` when there is none), it follows the address whenever the page goes to another, and a run writes the value it is given to the address. Not for a list's control (`rows`).",
+            "type": "string",
+            "minLength": 1
           },
           "title": {
             "description": "What it is called on screen. Default: the manifest's title.",
@@ -5297,6 +5471,7 @@ export const CONTRACT_TYPES = {
   ManifestAction: 'oui-manifest.json#/$defs/ManifestAction',
   ManifestObservation: 'oui-manifest.json#/$defs/ManifestObservation',
   ManifestSurfaceKind: 'oui-manifest.json#/$defs/ManifestSurfaceKind',
+  ManifestDisplay: 'oui-manifest.json#/$defs/ManifestDisplay',
   ManifestSurface: 'oui-manifest.json#/$defs/ManifestSurface',
   GeneratedKnowledge: 'generated-knowledge.json',
   KnowledgeEntry: 'generated-knowledge.json#/$defs/KnowledgeEntry',
@@ -5369,6 +5544,10 @@ export const CONTRACT_TYPES = {
   AgentEvalStubCase: 'agent-evals.json#/$defs/AgentEvalStubCase',
   AgentEvalStubs: 'agent-evals.json#/$defs/AgentEvalStubs',
   AgentEvalPage: 'agent-evals.json#/$defs/AgentEvalPage',
+  AgentEvalShown: 'agent-evals.json#/$defs/AgentEvalShown',
+  AgentEvalProblems: 'agent-evals.json#/$defs/AgentEvalProblems',
+  AgentEvalShownRoutes: 'agent-evals.json#/$defs/AgentEvalShownRoutes',
+  AgentEvalShownQuery: 'agent-evals.json#/$defs/AgentEvalShownQuery',
   AgentEvalPageSurface: 'agent-evals.json#/$defs/AgentEvalPageSurface',
   AgentEvalPageAction: 'agent-evals.json#/$defs/AgentEvalPageAction',
   AgentEvalPageControl: 'agent-evals.json#/$defs/AgentEvalPageControl',

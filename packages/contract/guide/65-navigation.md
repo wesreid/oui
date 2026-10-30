@@ -32,6 +32,7 @@ What the build then offers:
 - `params` fills a route's `:parameters` when `path` is written as its route (`{ "path": "/dashboard/inventory/:unitId", "params": { "unitId": "u 7" } }` goes to `/dashboard/inventory/u%207`).
 - The runtime builds the address from the path, `params` and `query`, encoding each part. It refuses a path that is not one of the build's routes, one that could leave the app (`//host`, a backslash, a scheme, `.` or `..` segments), a query parameter a declaring page does not take, and a value it does not accept, naming what the page takes. A query in `path` itself (`?view=declined`) is read the same way. A page that declares no query takes its address as before.
 - Going to the address the person is already on does nothing, and says so (`alreadyThere`).
+- A page known only by its manifest reads its address the same way: `pageQueryOf` reads a page's alternative of `query` back into the declaration `readQuery` and `writeQuery` take (its values, ranges and defaults; a choice's labels are not in it), so a test page shows the filters the address holds (an eval's `controls` bound by `query`). `generatedNavigationSurface` is the navigation surface the generator emits, for a page made without a manifest.
 
 <!-- schema: page-query.json -->
 

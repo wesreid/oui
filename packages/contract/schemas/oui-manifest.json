@@ -293,6 +293,39 @@
         "navigation"
       ]
     },
+    "ManifestDisplay": {
+      "description": "One display a page shows: what reports its facts under the page state's `shown`.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Its binding id: the `id` of its entries in `shown`.",
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "description": "Its heading, as the build reads it.",
+          "type": "string"
+        },
+        "description": {
+          "description": "What it shows, from its binding.",
+          "type": "string"
+        },
+        "labels": {
+          "description": "The labels of its facts the build can read.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "description",
+        "labels"
+      ],
+      "additionalProperties": false
+    },
     "ManifestSurface": {
       "description": "One surface: what it offers, where it can be mounted, and what it reports.",
       "type": "object",
@@ -328,6 +361,13 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/ManifestObservation"
+          }
+        },
+        "displays": {
+          "description": "What a page or shell shows that is not a control (`useAgentFacts`): each display it renders, by binding id, whose facts its state reports under `shown`. Absent when it renders none, and in a manifest generated before 0.10.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ManifestDisplay"
           }
         }
       },
