@@ -1,5 +1,11 @@
 # @ouispec/agent-realtime
 
+## 0.22.3
+
+### Patch Changes
+
+- Requires joi 17.13.9, which fixes GHSA-4528-x5fx-h6hg (a quadratic-time split in `string().email({ multiple: true })`).
+
 ## 0.22.1
 
 ### Patch Changes
