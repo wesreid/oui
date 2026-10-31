@@ -56,6 +56,7 @@ export type EvalAgentConfig = Pick<
   | 'filterEvent'
   | 'modelProviderOptions'
   | 'forcedToolChoice'
+  | 'requireReplyBeforeChoice'
 > & {
   /**
    * The host's say before an approval is asked for, as its worker has it: its

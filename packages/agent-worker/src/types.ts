@@ -71,6 +71,16 @@ export interface AgentWorkerConfig {
    * and told to call it, and no tool choice is sent.
    */
   forcedToolChoice?: boolean;
+  /**
+   * Whether a choice (`present_options`) waits for a reply. Default false.
+   * `true`: a choice offered before the turn has written a word is sent back
+   * to the model once, with \`REPLY_BEFORE_CHOICE_ERROR\` (write your reply,
+   * then offer the choice again), and the turn goes on: a choice that did not
+   * run ends no turn. A second choice with still no reply goes through, so a
+   * turn never ends with neither, and never loops. For a product whose panel
+   * shows the reply as the answer and the card as the question that follows it.
+   */
+  requireReplyBeforeChoice?: boolean;
   /** Optional turn policy for product-specific step control. */
   turnPolicy?: TurnPolicy;
   /**

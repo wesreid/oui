@@ -42,6 +42,12 @@ export interface ToolPolicyContext {
   effect: ToolEffect | undefined;
   /** Whether the tool declares it removes or replaces something the person made. */
   destructive: boolean;
+  /**
+   * What the turn has written to the person so far, every step's text up to
+   * this call, as the model's stream gave it. Empty when it has said nothing.
+   * Absent where the runtime does not report it.
+   */
+  replyText?: string;
 }
 
 /**

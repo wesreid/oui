@@ -18,7 +18,7 @@
  *   - ApiSurface binding for tool execution
  *   - Configurable TurnPolicy for product-specific step control
  */
-import { streamText, dynamicTool, jsonSchema, isStepCount, hasToolCall } from 'ai';
+import { streamText, dynamicTool, jsonSchema, isStepCount, wrapLanguageModel } from 'ai';
 import type { ModelMessage, AssistantModelMessage, ToolModelMessage, TextPart, ToolCallPart } from 'ai';
 import {
   AGENT_SOCKET_EVENTS,
@@ -123,6 +123,13 @@ const UI_ANSWER_MARGIN_MS = 45_000;
  * the model must not carry on as if the user had already answered.
  */
 export const USER_INPUT_TOOLS = ['present_options', 'confirm_action', 'request_user_decision'] as const;
+
+/** The choice built-in, which `requireReplyBeforeChoice` holds to a reply. */
+export const PRESENT_OPTIONS_TOOL = 'present_options';
+
+/** What the model is told when `requireReplyBeforeChoice` sends a choice back. */
+export const REPLY_BEFORE_CHOICE_ERROR =
+  'Not shown: you have not written a reply yet. Write it first, in words (a sentence or two on what you found or did), then offer this choice again.';
 
 /** What a step is held to: the host's policy, or the hand-back for time. */
 type StepPolicy = Awaited<ReturnType<TurnPolicy['prepareStep']>>;
@@ -376,6 +383,50 @@ export async function runAgentTurn(
   const recordedSteps: Array<RecordedStep & { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number }> = [];
   const recordedCalls = new Map<string, RecordedCall & { settled: Promise<void> }>();
   let streamedText = '';
+  /**
+   * What the model has written this turn, as its stream gives it, ahead of any
+   * tool call that follows it in the same step (`replyRecorder`): what a tool
+   * policy is told the turn has said (`ToolPolicyContext.replyText`), and what
+   * `requireReplyBeforeChoice` reads. `streamedText` is the room's copy, sent
+   * as it is coalesced, and can trail a tool call the model makes after it.
+   */
+  let replyText = '';
+  /** The calls of this turn that did not run: refused, invalid, or denied. A choice that did not run ends no turn. */
+  const callsNotRun = new Set<string>();
+  /** Whether `requireReplyBeforeChoice` has already sent a choice back this turn: it does so once. */
+  let choiceSentBackForReply = false;
+  /**
+   * The model, with what it writes recorded as its stream passes: a step's
+   * text reaches here before any tool call that follows it in the same step,
+   * so a call's policy sees every word written before it.
+   */
+  const recordReply = (part: { type: string; delta?: unknown; text?: unknown }) => {
+    if (part.type !== 'text-delta') return;
+    const piece = typeof part.delta === 'string' ? part.delta : typeof part.text === 'string' ? part.text : '';
+    replyText += piece;
+  };
+  const replyRecorder =
+    typeof config.model === 'string'
+      ? config.model
+      : wrapLanguageModel({
+          model: config.model,
+          middleware: {
+            wrapStream: async ({ doStream }) => {
+              const result = await doStream();
+              return {
+                ...result,
+                stream: result.stream.pipeThrough(
+                  new TransformStream({
+                    transform(part, controller) {
+                      recordReply(part as { type: string; delta?: unknown });
+                      controller.enqueue(part);
+                    },
+                  }),
+                ),
+              };
+            },
+          },
+        });
   /** Records a call as it arrives, and its result when it settles. */
   const tracked = (toolCallId: string, toolName: string, callInput: unknown, run: () => Promise<string>): Promise<string> => {
     const call = { toolCallId, toolName, input: callInput, text: null as string | null, settled: Promise.resolve() };
@@ -693,6 +744,22 @@ export async function runAgentTurn(
       toolInvocationCounts.set(t.name, currentCount + 1);
     }
 
+    // ── A reply before a choice ──
+    // With `requireReplyBeforeChoice`, a choice offered before the turn has
+    // written a word is sent back once: the model writes its reply, then offers
+    // the choice again. A second empty one goes through, so a turn never ends
+    // with neither a reply nor its choice, and never loops.
+    if (
+      config.requireReplyBeforeChoice &&
+      t.name === PRESENT_OPTIONS_TOOL &&
+      !replyText.trim() &&
+      !choiceSentBackForReply
+    ) {
+      choiceSentBackForReply = true;
+      log('info', 'agent:tool', 'A choice offered before any reply was sent back for one', { turnId });
+      return refused({ error: REPLY_BEFORE_CHOICE_ERROR, notRun: true, replyFirst: true }, args);
+    }
+
     // ── Policy enforcement ──
     // A deny always wins, over an approval too.
     const requirement = approvalRequirement(t);
@@ -709,6 +776,7 @@ export async function runAgentTurn(
         ...(t.toolClass ? { toolClass: t.toolClass } : {}),
         effect: requirement.effect,
         destructive: requirement.destructive,
+        replyText,
       });
 
       if (decision.action === 'deny') {
@@ -1038,7 +1106,8 @@ export async function runAgentTurn(
       const toolUseId = options?.toolCallId ?? `tool_${Date.now()}`;
       const uiSlot = isUI ? uiSequence.reserve() : undefined;
       return tracked(toolUseId, t.name, rawArgs, async () => {
-        const { text } = await executeCall(t, rawArgs, toolUseId, uiSlot).finally(() => uiSlot?.release());
+        const { text, ran } = await executeCall(t, rawArgs, toolUseId, uiSlot).finally(() => uiSlot?.release());
+        if (!ran) callsNotRun.add(toolUseId);
         executedToolResults.push({ toolCallId: toolUseId, toolName: t.name, result: text });
         return text;
       });
@@ -1370,12 +1439,15 @@ export async function runAgentTurn(
   let streamingStep = 0;
   /** Text that follows starts a new paragraph. */
   let paragraphPending = false;
+  /** Whether these calls asked the person something: a call to a user-input tool that ran. */
+  const askedTheUser = (toolCalls: ReadonlyArray<{ toolCallId: string; toolName: string }>) =>
+    toolCalls.some((tc) => (USER_INPUT_TOOLS as readonly string[]).includes(tc.toolName) && !callsNotRun.has(tc.toolCallId));
   /**
    * Whether the turn ends after a round that called these tools: the
    * conditions `stopWhen` holds the model to, beside the step count.
    */
-  const endsAfterRound = (toolNames: readonly string[]) =>
-    approvalHold !== null || handedBackForTime || toolNames.some((name) => (USER_INPUT_TOOLS as readonly string[]).includes(name));
+  const endsAfterRound = (toolCalls: ReadonlyArray<{ toolCallId: string; toolName: string }>) =>
+    approvalHold !== null || handedBackForTime || askedTheUser(toolCalls);
 
   // ─── Coalesce token deltas ─────────────────────────────────────────────────
   // Buffer for 50ms or 32 chars, whichever comes first, to avoid one HTTP POST
@@ -1756,7 +1828,7 @@ export async function runAgentTurn(
     });
 
     const result = streamText({
-      model: config.model,
+      model: replyRecorder,
       instructions,
       messages: withCachePoint(conversation),
       tools: aiTools,
@@ -1765,7 +1837,11 @@ export async function runAgentTurn(
       abortSignal: abortController.signal,
       // The host's, the same for every call (a thinking setting that changes invalidates the cache).
       ...(config.modelProviderOptions ? { providerOptions: config.modelProviderOptions } : {}),
-      onChunk: ({ chunk }) => reasoningRelay.onPart(chunk),
+      onChunk: ({ chunk }) => {
+        // A model named by its id is not wrapped: its text is recorded here instead.
+        if (typeof config.model === 'string') recordReply(chunk as { type: string; text?: unknown });
+        reasoningRelay.onPart(chunk);
+      },
       // An action of the page called as a tool of its own is the `ui_act` call it
       // means, run once (ui/action-as-tool.ts): never refused, then called again.
       repairToolCall: async ({ toolCall, tools }) => {
@@ -1775,7 +1851,11 @@ export async function runAgentTurn(
       },
       stopWhen: [
         isStepCount(maxRounds - allSteps.length),
-        ...USER_INPUT_TOOLS.map((name) => hasToolCall(name)),
+        // The person was asked (a choice, a confirmation, a decision): the turn ends
+        // with the question. A call to one that did not run (refused, invalid, sent
+        // back for a reply) asked nothing, and the step is handed back to the model.
+        (options?: { steps?: ReadonlyArray<{ toolCalls?: ReadonlyArray<{ toolCallId: string; toolName: string }> }> }) =>
+          askedTheUser(options?.steps?.at(-1)?.toolCalls ?? []),
         // A call is waiting for the user's approval: the turn ends here.
         () => approvalHold !== null,
         // The step that handed the turn back for time was its last.
@@ -1818,6 +1898,7 @@ export async function runAgentTurn(
                       ? (tc.input as { action: string }).action
                       : tc.toolName,
                 })),
+                text: typeof step.text === 'string' ? step.text : '',
               })),
               turnClass,
               allToolNames: [...Object.keys(aiTools), ...actionIds],
@@ -1912,7 +1993,7 @@ export async function runAgentTurn(
         // said and called nothing never is: it runs again, or the person is told (below).
         const cutOff = finishReason === 'length' && !text && !calledTools;
         const final =
-          !cutOff && (!calledTools || recordedSteps.length >= maxRounds || endsAfterRound((toolCalls ?? []).map((tc) => tc.toolName)));
+          !cutOff && (!calledTools || recordedSteps.length >= maxRounds || endsAfterRound(toolCalls ?? []));
         roundEnds.push({ at: stepTextReported, calledTools, final, paragraph: !!text && calledTools });
         // Sent now when the stream has already delivered the round's text; else when it has.
         await endReachedRounds();
@@ -2040,7 +2121,7 @@ export async function runAgentTurn(
     stopReason = 'time_limit';
   } else if (steps.length >= maxRounds) {
     stopReason = 'step_count';
-  } else if (steps.some((s: { toolCalls?: Array<{ toolName: string }> }) => s.toolCalls?.some(tc => (USER_INPUT_TOOLS as readonly string[]).includes(tc.toolName)))) {
+  } else if (steps.some((s: { toolCalls?: Array<{ toolCallId: string; toolName: string }> }) => askedTheUser(s.toolCalls ?? []))) {
     stopReason = 'present_options';
   }
   // deadline and token_budget are caught by the try/catch — they produce errors, not normal returns

@@ -547,6 +547,38 @@ describe('choice buttons', () => {
   });
 });
 
+describe('a choice held for a reply (requireReplyBeforeChoice)', () => {
+  const suite: AgentEvalSuite = {
+    version: 1,
+    name: 'reply first',
+    scenarios: [{ id: 'reply-first', title: 'Says what it found, then offers', turns: [{ user: 'Send the first video in my queue', expect: { choices: { count: { min: 1, max: 1 } }, says: ['viewing as Avery'] } }] }],
+  };
+  const offer = (id: string) => ({
+    id,
+    name: 'present_options',
+    args: { context: 'Nothing can be changed here.', prompt: 'Stop viewing?', options: [{ label: 'Stop viewing', value: 'stop' }] },
+  });
+  // First the bare card; told to write first, the reply and the card again.
+  const script = (request: ChatRequest): ScriptedReply | undefined =>
+    (lastTool(request) ?? '').includes('not written a reply')
+      ? { text: 'You are viewing as Avery, so nothing can be sent.', toolCalls: [offer('call_2')] }
+      : { toolCalls: [offer('call_1')] };
+
+  it('reaches the turn, and the card it sent back is not counted as offered', async () => {
+    const config = configFor(tempDir(), {
+      suites: [suite],
+      channels: { web_chat: {} },
+      agent: () => ({ ...agent(), tools: withChoices(), requireReplyBeforeChoice: true }),
+    });
+    const { result, requests } = await recordWith(script, () => runEvals(config, { mode: 'record' }));
+    const [c] = result.cases;
+    expect(requests.filter((r) => !isJudge(r))).toHaveLength(2);
+    expect(c.failures).toEqual([]);
+    expect(c.turns[0].reply).toContain('viewing as Avery');
+    expect(c.turns[0].choices).toHaveLength(1);
+  });
+});
+
 // ─── The judge ───────────────────────────────────────────────────────────────
 
 describe('a judge that answers no verdict', () => {

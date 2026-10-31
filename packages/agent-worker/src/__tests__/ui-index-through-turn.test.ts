@@ -489,7 +489,7 @@ describe('a turn policy speaks of the page’s actions', () => {
     expect(JSON.stringify((prepared as { messages?: unknown[] }).messages?.at(-1))).toContain('call ui_act with action \\"studio_layers_query\\"');
     expect(String(saw[0].error)).toContain('This step runs "studio_layers_query" and nothing else');
     expect(saw[1]).toMatchObject({ result: { total: 6 } });
-    expect(seen.steps[1]).toEqual([{ toolCalls: [{ toolName: 'studio_layers_query' }] }]);
+    expect(seen.steps[1]).toEqual([{ toolCalls: [{ toolName: 'studio_layers_query' }], text: expect.any(String) }]);
     expect(page.ran.map((r) => r.action)).toEqual(['studio_layers_query']);
   });
 });

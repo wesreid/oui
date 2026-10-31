@@ -130,7 +130,13 @@ describe('the rounds of a turn', () => {
     const { sequence, result } = await rounds([
       {
         text: 'Which colour?',
-        toolCalls: [{ id: 'call_opts', name: 'present_options', args: { options: [{ id: 'blue', label: 'Blue' }, { id: 'red', label: 'Red' }] } }],
+        toolCalls: [
+          {
+            id: 'call_opts',
+            name: 'present_options',
+            args: { context: 'Two colours fit.', prompt: 'Which colour?', options: [{ label: 'Blue', value: 'blue' }, { label: 'Red', value: 'red' }] },
+          },
+        ],
       },
     ]);
     expect(result.stopReason).toBe('present_options');

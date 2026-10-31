@@ -172,9 +172,15 @@ describe('UI tools from the client snapshot', () => {
     segmentImpls = [async () => [{ text: 'ok', toolCalls: [] }]];
     const { runAgentTurn } = await import('../orchestrator.js');
     await runAgentTurn(makeConfig(channel), makeInput([shell]));
-    expect(seenOpts[0].stopWhen).toEqual(
-      expect.arrayContaining(['hasToolCall(present_options)', 'hasToolCall(confirm_action)', 'hasToolCall(request_user_decision)']),
-    );
+    // One condition stops after a call that asked the person and ran; a call that did not run asks nothing.
+    const asks = (seenOpts[0].stopWhen as Array<unknown>).filter((c) => typeof c === 'function') as Array<
+      (o: { steps: Array<{ toolCalls: Array<{ toolCallId: string; toolName: string }> }> }) => boolean
+    >;
+    const lastCalled = (toolName: string) => ({ steps: [{ toolCalls: [{ toolCallId: `c_${toolName}`, toolName }] }] });
+    for (const name of ['present_options', 'confirm_action', 'request_user_decision']) {
+      expect(asks.some((stop) => stop(lastCalled(name)))).toBe(true);
+    }
+    expect(asks.some((stop) => stop(lastCalled('ui_act')))).toBe(false);
   });
 });
 

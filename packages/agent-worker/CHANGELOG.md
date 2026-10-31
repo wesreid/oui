@@ -1,5 +1,16 @@
 # @ouispec/agent-worker
 
+## 0.22.2
+
+### Patch Changes
+
+- **A choice is the question that follows a reply.**
+
+  - **A choice ends the turn only when it ran.** A call to a tool that asks the person (`present_options`, `confirm_action`, `request_user_decision`) used to end the turn whether it ran or not. One that was refused by policy, invalid, or sent back now asked nothing, and the step goes back to the model.
+  - **Policies are told what the turn has written.** `ToolPolicyContext.replyText` is every word the turn has written up to the call, as the model's stream gave it, including the words before the call in the same step. A turn policy's `prepareStep` gets each step's `text`.
+  - **`requireReplyBeforeChoice`** (opt-in, `AgentRuntimeConfig` and the orchestrator's config). A `present_options` call made before the turn has written a word is sent back once, with `REPLY_BEFORE_CHOICE_ERROR`: write the reply, then offer the choice again. A second empty choice goes through, so a turn never ends with neither a reply nor its choice, and never loops. Measured on DEOS (2026-10-30): a third of turns ended on a choice card with no reply, whatever the prompt said.
+  - **agent-evals.** `EvalAgentConfig` takes `requireReplyBeforeChoice`, and it is part of a recording's fingerprint. A turn's `choices` leave out a card the runtime sent back, since it was never shown.
+
 ## 0.22.1
 
 ### Patch Changes
