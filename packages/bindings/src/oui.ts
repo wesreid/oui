@@ -23,6 +23,7 @@ import { isNarrowing, validateValue, type JsonSchema } from './json-schema.js';
 import {
   LOCATION_OBSERVATION_ID,
   NAVIGATION_SURFACE_ID,
+  routeMatcher,
   type ManifestAction,
   type ManifestSurface,
   type OuiManifest,
@@ -137,6 +138,38 @@ export function connectBindings({
     }
   }
 
+  // What a page shows, by display id: the pages whose manifest entry records it (0.10 on).
+  const byDisplay = new Map<string, ManifestSurface[]>();
+  for (const surface of manifest.surfaces) {
+    if (surface.kind !== 'page') continue;
+    for (const display of surface.displays ?? []) byDisplay.set(display.id, [...(byDisplay.get(display.id) ?? []), surface]);
+  }
+  // Whether the last rebuild mounted a page for its controls, and which pages it mounted only for what they show.
+  let pageOfControls = false;
+  let showingKey = '';
+
+  /**
+   * The pages to mount only for what they show: when no page has a control
+   * mounted (a page of figures, a Home whose cards gave way to a
+   * conversation), the page whose manifest entry records a display that is
+   * reporting its facts. Where several pages record it (a component they
+   * share), the one at the address; with no address, only a display one page
+   * records. A page with a control mounted already carries every display.
+   */
+  const showingPages = (): ManifestSurface[] => {
+    if (pageOfControls || !byDisplay.size) return [];
+    const path = navigation?.location().split(/[?#]/)[0];
+    const pages = new Map<string, ManifestSurface>();
+    for (const shown of registry.facts()) {
+      const recorded = byDisplay.get(shown.id) ?? [];
+      const here =
+        path === undefined ? recorded : recorded.filter(s => s.routes.some(r => routeMatcher(r).test(path)));
+      if (here.length === 1 || (path !== undefined && here.length > 1)) for (const s of here) pages.set(s.id, s);
+    }
+    return [...pages.values()].sort((a, b) => a.id.localeCompare(b.id));
+  };
+  const keyOf = (pages: readonly ManifestSurface[]) => pages.map(s => s.id).join('\n');
+
   const reported = new Set<string>();
   const report = (defect: BindingDefect) => {
     const key = JSON.stringify(defect);
@@ -238,6 +271,14 @@ export function connectBindings({
     // A busy control that left the page is simply gone.
     for (const id of [...busyAfterPress.keys()]) if (!groups.has(id)) clearBusy(id);
 
+    // What a page shows reaches the assistant with the page's state, also
+    // while none of its controls is mounted: the page is mounted for its
+    // displays, with no actions of its own.
+    pageOfControls = [...wanted.values()].some(({ surface }) => surface.kind === 'page');
+    const showing = showingPages();
+    showingKey = keyOf(showing);
+    for (const surface of showing) want(surface);
+
     // Going to a page by its address: offered whenever the app gives its router.
     if (navigationSurface && navigation) {
       const entry = want(navigationSurface);
@@ -328,8 +369,11 @@ export function connectBindings({
     }
   };
 
-  const unsubscribe = registry.subscribe(change => (change === 'structure' ? rebuild() : pushObservations()));
-  const unsubscribeLocation = navigationSurface && navigation ? navigation.subscribe(() => pushObservations()) : null;
+  // A display that starts or stops reporting can mount or unmount the page it is on.
+  const unsubscribe = registry.subscribe(change =>
+    change === 'structure' || keyOf(showingPages()) !== showingKey ? rebuild() : pushObservations(),
+  );
+  const unsubscribeLocation = navigationSurface && navigation ? navigation.subscribe(() => (keyOf(showingPages()) !== showingKey ? rebuild() : pushObservations())) : null;
   rebuild();
 
   return () => {

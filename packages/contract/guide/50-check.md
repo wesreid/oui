@@ -18,6 +18,8 @@ Commit both files, and run `--check` in CI on every change. The build fails, nam
 | A page listed in `unbound` is fully bound (the list may only get shorter) |
 | A page listed in `outside` has the assistant around it or in it: a `shell` entry frames one of its routes, an element its routes render around it holds something someone can use or a person-only component, the page renders the frame itself, or it has a binding, display or room on no page the assistant is on |
 | A binding's value is built by a call, so it cannot be read without running the app |
+| A `useAgentFacts` binding, followed through the props that pass it down, cannot be read without running the app: the page would report facts its manifest does not record |
+| A display shares a binding id with a control or another display but describes it differently |
 
 The two outputs are part of the contract too: the runtime offers the intersection of the manifest and what is mounted, and each turn carries the knowledge for the page the person is on.
 

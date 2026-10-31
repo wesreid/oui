@@ -24,6 +24,7 @@ export const TABLE: ControlTableFile = {
     callbacks: [],
     slots: { open: { kind: 'button', callback: 'onOpen' }, cancel: { kind: 'button', callback: 'onCancel' } },
     entries: { prop: 'menuItems', kind: 'button', callback: 'onClick', titleKey: 'label' },
+    display: { slot: 'facts', parts: ['open'], labels: ['Status'] },
     titleProps: ['title'],
   },
   Facts: { callbacks: [], display: { itemsProp: 'facts', labelKey: 'label' }, titleProps: ['title'] },

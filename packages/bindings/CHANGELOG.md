@@ -1,5 +1,23 @@
 # @ouispec/bindings
 
+## 0.11.0
+
+### Minor Changes
+
+- Every display a page shows is in its manifest, and a frame on every page says so.
+
+  - **The generator records every `useAgentFacts` a page reaches.** The app's own calls, in a component (a `<ReportFacts agent={…} />` the page renders) or an app hook, are read where the page reaches them, and their binding is followed through the props that pass it down to where it is written, a binding built from those props (`id: factsId`, `PRODUCT_META[product].title`) included, and a design-system display's binding the same. Props a component destructures in its body (`const { tableAgent } = props as TableProps`) are followed as those it destructures in its parameter. A component one parent renders twice is read once per use, with each use's props. A binding the build cannot read fails `generate --check`, where it is written: the page would report facts its manifest does not record.
+  - **A control table declares every display, not only a description list.** `display` no longer needs `itemsProp` and `labelKey` (`labels` names the facts it always reports), and sits beside `kind`, `slots` or `entries`: a card bound to open reports under the same binding; a composite under its `slot` binding (`facts`) when the page gives one, else under the first of its `parts` the page bound. The conformance kit checks a composite display reports under that binding.
+  - **A display may share its id** with the control whose rows it describes, or with itself shown from several places, described the same way everywhere; one id described two ways fails.
+  - **A frame or a shared component on every page says so.** "around every page under /dashboard", not a list of every route in its description, which every turn's index carried. The manifest's `routes` are unchanged.
+  - **The bindings mount a page for what it shows.** With none of its controls mounted (a page of figures, a Home whose cards gave way to a conversation), a page whose manifest entry records a display that is reporting is mounted, with no actions, so its state carries `shown`; where several pages record it, the page at the address. Evals get the same.
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/contract@0.11.0
+  - @ouispec/agent-events@0.22.1
+
 ## 0.10.0
 
 ### Minor Changes

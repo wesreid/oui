@@ -37,11 +37,13 @@ import {
   jsxAttribute,
   jsxText,
   objectProperty,
+  propertyName,
   resolveSymbol,
   stringLiterals,
   UNKNOWN,
   unwrap,
   type JsxOpening,
+  type Scope,
   type Source,
 } from './program.js';
 import { listedPackage } from './specifier.js';
@@ -178,6 +180,12 @@ interface WalkContext {
   depth: number;
   /** The element that rendered this component, in its parent. */
   element?: JsxOpening;
+  /**
+   * The elements that rendered it, from the page down: one component used
+   * twice by the same parent is read once per use, as its props (a display's
+   * id among them) can differ.
+   */
+  trail?: string;
 }
 
 const ITERATORS = new Set(['map', 'flatMap']);
@@ -311,16 +319,38 @@ export class PageAnalyzer {
 
   /** The props a component destructures: local name → prop name. */
   private destructuredProps(decl: ts.Node): Map<string, string> {
+    return new Map([...this.propElements(decl)].map(([el, prop]) => [(el.name as ts.Identifier).text, prop]));
+  }
+
+  /**
+   * Where a component destructures its props, each name with the prop it is:
+   * in its parameter (`({ agent })`), or from it in its body
+   * (`const { tableAgent } = props as TableProps`).
+   */
+  private propElements(decl: ts.Node): Map<ts.BindingElement, string> {
     const fn = this.componentFunction(decl);
-    const out = new Map<string, string>();
+    const out = new Map<ts.BindingElement, string>();
     const param = fn?.parameters[0];
-    if (param && ts.isObjectBindingPattern(param.name)) {
-      for (const el of param.name.elements) {
-        if (ts.isIdentifier(el.name)) {
-          const prop = el.propertyName ? el.propertyName.getText() : el.name.text;
-          out.set(el.name.text, prop);
+    const take = (pattern: ts.ObjectBindingPattern) => {
+      for (const el of pattern.elements) {
+        if (ts.isIdentifier(el.name) && !el.dotDotDotToken) {
+          out.set(el, el.propertyName ? el.propertyName.getText() : el.name.text);
         }
       }
+    };
+    if (param && ts.isObjectBindingPattern(param.name)) take(param.name);
+    const body = this.body(decl);
+    if (param && ts.isIdentifier(param.name) && body) {
+      const props = param.name.text;
+      // Anywhere in its body (a branch for one layout's props), but not in a function of its own.
+      const visit = (n: ts.Node) => {
+        if (ts.isVariableDeclaration(n) && ts.isObjectBindingPattern(n.name) && n.initializer) {
+          const init = unwrap(n.initializer);
+          if (ts.isIdentifier(init) && init.text === props) take(n.name);
+        }
+        if (!ts.isFunctionLike(n)) ts.forEachChild(n, visit);
+      };
+      ts.forEachChild(body, visit);
     }
     return out;
   }
@@ -331,7 +361,7 @@ export class PageAnalyzer {
     const sf = decl.getSourceFile();
     if (!this.source.isAppFile(sf)) return;
     out.components.add(decl);
-    const key = `${sf.fileName}:${decl.pos}:${ctx.element ? `${ctx.element.getSourceFile().fileName}@${ctx.element.pos}` : ''}:${ctx.reach.map(r => JSON.stringify({ ...r, owner: undefined, setters: undefined })).join('>')}:${ctx.itemized}`;
+    const key = `${sf.fileName}:${decl.pos}:${ctx.trail ?? ''}:${ctx.reach.map(r => JSON.stringify({ ...r, owner: undefined, setters: undefined })).join('>')}:${ctx.itemized}`;
     if (seen.has(key) || ctx.depth > 40) return;
     seen.add(key);
 
@@ -341,6 +371,8 @@ export class PageAnalyzer {
 
     // Rooms this component registers, itself or through the app's own hooks.
     this.findRegistrations(body, out, new Set());
+    // What it reports it shows (`useAgentFacts`), itself or through the app's own hooks.
+    this.findFacts(body, decl, ctx, out, new Set());
 
     const visit = (n: ts.Node) => {
       if (ts.isJsxSelfClosingElement(n) || ts.isJsxOpeningElement(n))
@@ -399,6 +431,199 @@ export class PageAnalyzer {
     visit(node);
   }
 
+  /**
+   * `useAgentFacts(agent, title, facts)` in a component's body, or in an app
+   * hook it calls: a display the page shows. Its binding is followed through
+   * the hook's arguments and the component's props to where it is written (a
+   * page's `<ReportFacts agent={{ … }} … />`), and read as a control's is. A
+   * binding the build cannot read is an error: the page would report facts
+   * the manifest does not record.
+   */
+  private findFacts(
+    node: ts.Node,
+    decl: ts.Node,
+    ctx: WalkContext,
+    out: PageAnalysis,
+    seen: Set<string>,
+    args: ReadonlyMap<string, ts.Expression> = new Map(),
+  ): void {
+    const passed = (expr: ts.Expression): ts.Expression => {
+      const e = unwrap(expr);
+      return ts.isIdentifier(e) && args.has(e.text) ? args.get(e.text)! : expr;
+    };
+    const visit = (n: ts.Node) => {
+      if (ts.isCallExpression(n)) {
+        const callee = n.expression;
+        if (this.isBindingsExport(callee, 'useAgentFacts')) {
+          const [agent, title, facts] = n.arguments.map(passed);
+          this.recordFacts(agent, title, facts, decl, ctx, out);
+        } else if (ts.isIdentifier(callee) && /^use[A-Z]/.test(callee.text)) {
+          const symbol = resolveSymbol(this.source.checker, callee);
+          const hook = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+          if (hook && this.source.isAppFile(hook.getSourceFile())) {
+            const callArgs = n.arguments.map(passed);
+            const key = `${hook.getSourceFile().fileName}:${hook.pos}:${callArgs.map(a => a.getText()).join(',')}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              const body = this.body(hook);
+              const params = this.componentFunction(hook)?.parameters ?? [];
+              const inner = new Map<string, ts.Expression>();
+              params.forEach((param, i) => {
+                if (ts.isIdentifier(param.name) && callArgs[i]) inner.set(param.name.text, callArgs[i]);
+              });
+              if (body) this.findFacts(body, decl, ctx, out, seen, inner);
+            }
+          }
+        }
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(node);
+  }
+
+  /**
+   * The props of a component as the element that rendered it passed them,
+   * for reading a value built from them (a display's id from a prop, its
+   * description from a constant record by a prop): each read where it is
+   * written, in its own component's scope.
+   */
+  private scopeOf(owner: ts.Node, ctx: WalkContext): Scope {
+    return id => {
+      const declared = this.source.checker.getSymbolAtLocation(id)?.valueDeclaration;
+      // Only the component's own destructured prop, not a local of the same name.
+      const prop = declared && ts.isBindingElement(declared) ? this.propElements(owner).get(declared) : undefined;
+      const from = prop !== undefined ? ctx.props.get(prop) : undefined;
+      return from ? { expr: from.expr, scope: this.scopeOf(from.owner, from.ctx) } : undefined;
+    };
+  }
+
+  /** One `useAgentFacts` call: each binding it can report under, read where it is written. */
+  private recordFacts(
+    agentArg: ts.Expression | undefined,
+    titleArg: ts.Expression | undefined,
+    factsArg: ts.Expression | undefined,
+    decl: ts.Node,
+    ctx: WalkContext,
+    out: PageAnalysis,
+  ): void {
+    if (!agentArg) return;
+    // The title and the facts, where they are written.
+    const title = titleArg ? evaluate(this.source.checker, titleArg, 0, this.scopeOf(decl, ctx)) : UNKNOWN;
+    const labels = factsArg ? this.factLabels(this.throughProps(factsArg, decl, ctx).expr) : [];
+    for (const candidate of bindingCandidates(agentArg)) {
+      const forwarded = this.forwardedPropAgent(candidate, decl, ctx);
+      // Given no binding where it is used, it reports nothing.
+      if (!forwarded) continue;
+      const { expr, scope } = forwarded;
+      for (const branch of bindingCandidates(expr)) {
+        const value = evaluate(this.source.checker, branch, 0, scope);
+        if (value === undefined || value === null) continue;
+        // Where the binding is written: the call itself, or the element that passed it down.
+        const asf = branch.getSourceFile();
+        const at = { file: this.source.rel(asf), line: asf.getLineAndCharacterOfPosition(branch.getStart()).line + 1 };
+        if (value === UNKNOWN || typeof value !== 'object') {
+          out.errors.push({
+            ...at,
+            message: `useAgentFacts(…)'s binding must be readable at build time (\`${branch.getText().slice(0, 60)}\`): an object literal or a constant, so the manifest records the display`,
+          });
+          continue;
+        }
+        const agentObj = value as Record<string, unknown>;
+        if ('nonAgent' in agentObj) {
+          this.noteNonAgent(agentObj.nonAgent, branch);
+          continue;
+        }
+        const binding = this.binding(agentObj, at, 'useAgentFacts', out);
+        if (!binding) continue;
+        out.displays.push({
+          site: `${at.file}:${branch.pos}`,
+          binding,
+          title: binding.title ?? (typeof title === 'string' ? title : ''),
+          labels,
+          reach: ctx.reach,
+          declaredIn: at.file,
+          line: at.line,
+        });
+      }
+    }
+  }
+
+  /**
+   * A display's `agent`, followed through the props of the components that
+   * pass it down to where it is written, with the scope it is written in.
+   * Null when an element on the way passes none: it then reports nothing.
+   */
+  private forwardedPropAgent(
+    expr: ts.Expression,
+    owner: ts.Node,
+    ctx: WalkContext,
+  ): { expr: ts.Expression; scope: Scope } | null {
+    const e = unwrap(expr);
+    let prop: string | undefined;
+    if (ts.isIdentifier(e)) prop = this.destructuredProps(owner).get(e.text);
+    else if (ts.isPropertyAccessExpression(e) && ts.isIdentifier(e.expression)) {
+      const param = this.componentFunction(owner)?.parameters[0];
+      if (param && ts.isIdentifier(param.name) && param.name.text === e.expression.text) prop = e.name.text;
+    }
+    if (prop === undefined) return { expr, scope: this.scopeOf(owner, ctx) };
+    const from = ctx.props.get(prop);
+    if (!from) return ctx.element ? null : { expr, scope: this.scopeOf(owner, ctx) };
+    return this.forwardedPropAgent(from.expr, from.owner, from.ctx);
+  }
+
+  /**
+   * The labels of a display's facts the build can read: the keys of the
+   * object the page passes, through constants, conditionals, spreads and the
+   * app's own functions that return one (`topicFacts(topic)`).
+   */
+  private factLabels(expr: ts.Expression, depth = 0): string[] {
+    if (depth > 6) return [];
+    const e = unwrap(expr);
+    if (ts.isObjectLiteralExpression(e)) {
+      return [
+        ...new Set(
+          e.properties.flatMap(p => {
+            if (ts.isPropertyAssignment(p)) {
+              if (ts.isComputedPropertyName(p.name)) {
+                const key = evaluate(this.source.checker, p.name.expression);
+                return typeof key === 'string' ? [key] : [];
+              }
+              const name = propertyName(p.name);
+              return name !== null ? [name] : [];
+            }
+            if (ts.isShorthandPropertyAssignment(p)) return [p.name.text];
+            if (ts.isSpreadAssignment(p)) return this.factLabels(p.expression, depth + 1);
+            return [];
+          }),
+        ),
+      ];
+    }
+    if (ts.isConditionalExpression(e))
+      return [...new Set([...this.factLabels(e.whenTrue, depth + 1), ...this.factLabels(e.whenFalse, depth + 1)])];
+    if (ts.isIdentifier(e)) {
+      const symbol = resolveSymbol(this.source.checker, e);
+      const d = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+      return d && ts.isVariableDeclaration(d) && d.initializer ? this.factLabels(d.initializer, depth + 1) : [];
+    }
+    if (ts.isCallExpression(e)) {
+      const symbol = resolveSymbol(this.source.checker, e.expression);
+      const fn = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+      if (!fn || !this.source.isAppFile(fn.getSourceFile())) return [];
+      const body = this.body(fn);
+      if (!body) return [];
+      if (!ts.isBlock(body)) return this.factLabels(body as ts.Expression, depth + 1);
+      const returned: string[] = [];
+      const visit = (n: ts.Node) => {
+        if (ts.isReturnStatement(n) && n.expression) returned.push(...this.factLabels(n.expression, depth + 1));
+        // A nested function's returns are its own.
+        if (!ts.isFunctionLike(n)) ts.forEachChild(n, visit);
+      };
+      ts.forEachChild(body, visit);
+      return [...new Set(returned)];
+    }
+    return [];
+  }
+
   /** The catalog an expression names: a package's, by import, or the app's own, by module and export. */
   private catalogFor(expr: ts.Expression): LoadedCatalog | undefined {
     const pkg = this.importSource(expr);
@@ -415,7 +640,8 @@ export class PageAnalyzer {
 
   /**
    * Whether a callee is `@ouispec/bindings`'s export of this name: imported
-   * from the package (renamed or through a namespace import), or re-exported
+   * from the package or a subpath of it (`@ouispec/bindings/react`), renamed
+   * or through a namespace import, or re-exported
    * by the app's own module and resolved to the package's declaration.
    */
   private isBindingsExport(callee: ts.Expression, name: string): boolean {
@@ -427,7 +653,12 @@ export class PageAnalyzer {
     if (decl) {
       let n: ts.Node | undefined = decl;
       while (n && !ts.isImportDeclaration(n)) n = n.parent;
-      if (n && ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier) && n.moduleSpecifier.text === BINDINGS) {
+      if (
+        n &&
+        ts.isImportDeclaration(n) &&
+        ts.isStringLiteral(n.moduleSpecifier) &&
+        (n.moduleSpecifier.text === BINDINGS || n.moduleSpecifier.text.startsWith(`${BINDINGS}/`))
+      ) {
         if (ts.isNamespaceImport(decl)) return ts.isPropertyAccessExpression(e) && e.name.text === name;
         return ts.isImportSpecifier(decl) && !ts.isPropertyAccessExpression(e) && (decl.propertyName ?? decl.name).text === name;
       }
@@ -732,16 +963,16 @@ export class PageAnalyzer {
     if (appRoom) out.rooms.add(appRoom);
     const props = new Map<string, PropSource>();
     for (const attr of el.attributes.properties) {
-      if (
-        ts.isJsxAttribute(attr) &&
-        attr.initializer &&
-        ts.isJsxExpression(attr.initializer) &&
-        attr.initializer.expression
-      ) {
+      if (!ts.isJsxAttribute(attr) || !attr.initializer) continue;
+      // `title="Texts"` as much as `title={heading}`: a display's heading is often a literal.
+      if (ts.isStringLiteral(attr.initializer)) {
+        props.set(attr.name.getText(), { expr: attr.initializer, owner: decl, ctx });
+      } else if (ts.isJsxExpression(attr.initializer) && attr.initializer.expression) {
         props.set(attr.name.getText(), { expr: attr.initializer.expression, owner: decl, ctx });
       }
     }
-    this.walk(target, { reach, itemized, props, depth: ctx.depth + 1, element: el }, out, seen, false);
+    const trail = `${ctx.trail ?? ''}>${el.getSourceFile().fileName}@${el.pos}`;
+    this.walk(target, { reach, itemized, props, depth: ctx.depth + 1, element: el, trail }, out, seen, false);
   }
 
   /** The app's own component a tag names, through `lazy` and `React.lazy`; null for anything else. */
@@ -1086,7 +1317,7 @@ export class PageAnalyzer {
     expr: ts.Expression | undefined,
     owner: ts.Node,
     ctx: WalkContext,
-  ): { expr?: ts.Expression; missing?: JsxOpening } {
+  ): { expr?: ts.Expression; missing?: JsxOpening; scope?: Scope } {
     if (!expr) return {};
     const e = unwrap(expr);
     let prop: string | undefined;
@@ -1095,9 +1326,9 @@ export class PageAnalyzer {
       const param = this.componentFunction(owner)?.parameters[0];
       if (param && ts.isIdentifier(param.name) && param.name.text === e.expression.text) prop = e.name.text;
     }
-    if (prop === undefined) return { expr };
+    if (prop === undefined) return { expr, scope: this.scopeOf(owner, ctx) };
     const from = ctx.props.get(prop);
-    if (!from) return ctx.element ? { missing: ctx.element } : { expr };
+    if (!from) return ctx.element ? { missing: ctx.element } : { expr, scope: this.scopeOf(owner, ctx) };
     return this.forwardedAgent(from.expr, from.owner, from.ctx);
   }
 
@@ -1123,6 +1354,9 @@ export class PageAnalyzer {
     // A wrapper may forward its own `agent` prop to the control it renders:
     // the binding is then declared where the wrapper is used.
     const forwarded = this.forwardedAgent(asExpr(jsxAttribute(el, 'agent')), decl, ctx);
+    // One that only shows facts: given no binding where it is used, it reports nothing, and is no gap.
+    const onlyDisplay = !!descriptor.display && !descriptor.kind && !descriptor.slots && !descriptor.entries;
+    if (forwarded.missing && onlyDisplay) return;
     if (forwarded.missing) {
       const parent = forwarded.missing;
       const psf = parent.getSourceFile();
@@ -1137,7 +1371,10 @@ export class PageAnalyzer {
     // A binding forwarded through a wrapper is declared where the wrapper is used,
     // so each use is its own site, even when the uses sit in the wrapper's own file.
     const isForwarded = !!agentExpr && agentExpr !== asExpr(jsxAttribute(el, 'agent'));
-    const agent = agentExpr ? evaluate(this.source.checker, agentExpr) : undefined;
+    // A display's binding may be built from the props it is given (`id: \`replai-${product}.sequences\``).
+    const agent = agentExpr
+      ? evaluate(this.source.checker, agentExpr, 0, onlyDisplay ? forwarded.scope : undefined)
+      : undefined;
     if (agentExpr && (agent === UNKNOWN || typeof agent !== 'object' || agent === null)) {
       out.errors.push({
         ...at,
@@ -1168,33 +1405,12 @@ export class PageAnalyzer {
       if (own) reach = [...reach, own];
     }
 
-    // A display of facts: not a control; bound, it names what the page reports.
+    // What it shows: bound, it names what the page reports. One that only
+    // shows facts is not a control; a control or a composite that also reports
+    // what it shows (a card bound to open, a list) goes on to its controls.
     if (descriptor.display) {
-      if (agentObj && !('nonAgent' in agentObj)) {
-        const binding = this.binding(agentObj, at, tag, out);
-        if (binding) {
-          // Its facts' labels, read as a menu's entries are: literals, spreads, conditionals, a .map.
-          const labelKey = descriptor.display.labelKey;
-          const labels = [
-            ...new Set(
-              this.arrayOf(asExpr(jsxAttribute(el, descriptor.display.itemsProp)), []).flatMap(o => {
-                const label = evaluate(this.source.checker, objectProperty(o, labelKey));
-                return typeof label === 'string' ? [label] : [];
-              }),
-            ),
-          ];
-          out.displays.push({
-            site: siteOf(),
-            binding,
-            title: binding.title ?? this.title(el, descriptor),
-            labels,
-            reach,
-            declaredIn: at.file,
-            line: at.line,
-          });
-        }
-      }
-      return;
+      this.display(el, descriptor, agentObj, at, tag, siteOf, reach, out, this.scopeOf(decl, ctx));
+      if (onlyDisplay) return;
     }
 
     // The control itself.
@@ -1312,6 +1528,68 @@ export class PageAnalyzer {
     }
   }
 
+  /**
+   * A design-system display where a page uses it: the binding it reports
+   * what it shows under, its own `agent`, or a composite's `slot` binding,
+   * else the first of its `parts` the page bound; and its facts' labels, the
+   * ones it always reports and those of its `itemsProp`.
+   */
+  private display(
+    el: JsxOpening,
+    descriptor: ControlDescriptor,
+    agentObj: Record<string, unknown> | null,
+    at: { file: string; line: number },
+    tag: string,
+    siteOf: (suffix?: string) => string,
+    reach: (ReachStep | DialogStep)[],
+    out: PageAnalysis,
+    /** The props of the component it is used in, for a heading it is given (`label={title}`). */
+    scope?: Scope,
+  ): void {
+    const display = descriptor.display!;
+    if (!agentObj || 'nonAgent' in agentObj) return;
+    let value: Record<string, unknown> | null = agentObj;
+    let part: string | undefined;
+    if (display.slot !== undefined || display.parts?.length) {
+      value = null;
+      for (const key of [display.slot, ...(display.parts ?? [])]) {
+        if (key === undefined) continue;
+        const v = agentObj[key];
+        if (!v || typeof v !== 'object') continue;
+        // A `nonAgent` slot keeps what it shows out on purpose; a `nonAgent` part is passed over.
+        if ('nonAgent' in v) {
+          if (key === display.slot) return;
+          continue;
+        }
+        value = v as Record<string, unknown>;
+        part = key;
+        break;
+      }
+      if (!value) return;
+    }
+    const binding = this.binding(value, at, part ? `${tag} ${part}` : tag, out);
+    if (!binding) return;
+    // Its facts' labels, read as a menu's entries are: literals, spreads, conditionals, a .map.
+    const { itemsProp, labelKey } = display;
+    const listed =
+      itemsProp && labelKey
+        ? this.arrayOf(asExpr(jsxAttribute(el, itemsProp)), []).flatMap(o => {
+            const label = evaluate(this.source.checker, objectProperty(o, labelKey));
+            return typeof label === 'string' ? [label] : [];
+          })
+        : [];
+    out.displays.push({
+      // A part's facts are under the part's own binding: the same site.
+      site: siteOf(part ? `:${part}` : ''),
+      binding,
+      title: binding.title ?? this.title(el, descriptor, scope),
+      labels: [...new Set([...(display.labels ?? []), ...listed])],
+      reach,
+      declaredIn: at.file,
+      line: at.line,
+    });
+  }
+
   private entry(
     obj: ts.ObjectLiteralExpression,
     kind: AnyControlKind,
@@ -1415,7 +1693,7 @@ export class PageAnalyzer {
     };
   }
 
-  private title(el: JsxOpening, descriptor: ControlDescriptor): string {
+  private title(el: JsxOpening, descriptor: ControlDescriptor, scope?: Scope): string {
     for (const prop of descriptor.titleProps) {
       if (prop === 'children') {
         const parent = ts.isJsxOpeningElement(el) ? el.parent : null;
@@ -1423,7 +1701,7 @@ export class PageAnalyzer {
         if (text) return text;
         continue;
       }
-      const v = evaluate(this.source.checker, asExpr(jsxAttribute(el, prop)));
+      const v = evaluate(this.source.checker, asExpr(jsxAttribute(el, prop)), 0, scope);
       if (typeof v === 'string' && v.trim()) return v.trim();
     }
     return '';
@@ -1666,6 +1944,23 @@ export class PageAnalyzer {
 
 function asExpr(v: ts.Expression | true | undefined): ts.Expression | undefined {
   return v === true ? undefined : v;
+}
+
+/**
+ * The bindings an `agent` expression can be, each where it is written: both
+ * branches of a conditional, the right of `&&`, either side of `??` and `||`
+ * (`active ? agent : undefined`, `own ?? scope`).
+ */
+function bindingCandidates(expr: ts.Expression): ts.Expression[] {
+  const e = unwrap(expr);
+  if (ts.isConditionalExpression(e)) return [...bindingCandidates(e.whenTrue), ...bindingCandidates(e.whenFalse)];
+  if (ts.isBinaryExpression(e)) {
+    const op = e.operatorToken.kind;
+    if (op === ts.SyntaxKind.AmpersandAmpersandToken) return bindingCandidates(e.right);
+    if (op === ts.SyntaxKind.QuestionQuestionToken || op === ts.SyntaxKind.BarBarToken)
+      return [...bindingCandidates(e.left), ...bindingCandidates(e.right)];
+  }
+  return [e];
 }
 
 /** The object literals an expression can be: through conditionals and `&&`. */

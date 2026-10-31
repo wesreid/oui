@@ -71,7 +71,7 @@ describe('a design system, an app and a mapping written to the contract pass eve
     expect(report.violations, formatReport(report)).toEqual([]);
     // Every design-system rule ran, over every entry.
     expect(report.checked['matches-contract']).toBeGreaterThanOrEqual(2);
-    expect(report.checked['registers-declared-kind']).toBe(7); // Button, Choice, PriceRange, Facts, and OrderCard's open, cancel and entries
+    expect(report.checked['registers-declared-kind']).toBe(8); // Button, Choice, PriceRange, Facts, and OrderCard's open, cancel, entries and what it shows
     expect(report.checked['callbacks-accounted']).toBeGreaterThan(0);
     expect(report.checked['run-returns-result']).toBe(12); // six callback parts × a result and a job
   });

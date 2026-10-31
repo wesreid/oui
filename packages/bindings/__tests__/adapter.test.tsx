@@ -7,6 +7,7 @@ import {
   createBindingRegistry,
   deriveInputSchema,
   type AgentProp,
+  type ManifestSurface,
   type OuiManifest,
   type RoomCatalogData,
 } from '../src/index.js';
@@ -498,6 +499,101 @@ describe('what a page shows', () => {
     );
     await flush();
     expect(state().shown).toBeUndefined();
+  });
+
+  it('reports what a page shows while none of its controls is mounted, on the page the manifest records the display on', async () => {
+    const registry = createBindingRegistry();
+    const runtime = createSurfaceRuntime({ announce: false, settle: { quietMs: 5, timeoutMs: 200 } });
+    const page = (id: string, route: string, displays: string[]): ManifestSurface => ({
+      id,
+      kind: 'page',
+      title: id,
+      description: id,
+      routes: [route],
+      actions: [],
+      observations: [{ id: 'state', description: 'What the page shows', schema: { type: 'object' } }],
+      displays: displays.map(d => ({ id: d, title: d, description: d, labels: [] })),
+    });
+    let path = '/home';
+    const listeners = new Set<() => void>();
+    disconnect = connectBindings({
+      registry,
+      runtime,
+      manifest: {
+        version: 1,
+        buildId: 'test',
+        surfaces: [
+          ...manifest.surfaces,
+          page('page:Home', '/home', ['home.topics', 'shared.notice']),
+          page('page:Queue', '/queue', ['shared.notice']),
+          {
+            id: 'app:navigation',
+            kind: 'navigation',
+            title: 'Pages',
+            description: 'Every page',
+            routes: ['/home', '/queue', '/voices'],
+            actions: [],
+            observations: [],
+          },
+        ],
+      },
+      navigation: {
+        location: () => path,
+        navigate: () => undefined,
+        subscribe: listener => {
+          listeners.add(listener);
+          return () => {
+            listeners.delete(listener);
+          };
+        },
+      },
+    });
+    function Facts({ id, title }: { id: string; title: string }) {
+      useAgentFacts({ id, description: title }, title, { Count: 3 });
+      return null;
+    }
+    function App({ showing }: { showing: string[] }) {
+      return (
+        <>
+          {showing.map(id => (
+            <Facts key={id} id={id} title={id} />
+          ))}
+        </>
+      );
+    }
+    const view = render(
+      <AgentBindingProvider registry={registry}>
+        <App showing={['home.topics']} />
+      </AgentBindingProvider>,
+    );
+    await flush();
+    const mounted = () => Object.keys(runtime.snapshot().observations).filter(id => id.startsWith('page:')).sort();
+    const shown = (id: string) => (runtime.snapshot().observations[id]?.state as { shown?: unknown } | undefined)?.shown;
+    // No control of the Home is mounted: it is mounted for what it shows.
+    expect(mounted()).toEqual(['page:Home']);
+    expect(shown('page:Home')).toEqual([{ id: 'home.topics', title: 'home.topics', facts: { Count: '3' } }]);
+
+    // A display two pages record is the page's at the address.
+    view.rerender(
+      <AgentBindingProvider registry={registry}>
+        <App showing={['shared.notice']} />
+      </AgentBindingProvider>,
+    );
+    await flush();
+    expect(mounted()).toEqual(['page:Home']);
+    path = '/queue';
+    for (const listener of listeners) listener();
+    await flush();
+    expect(mounted()).toEqual(['page:Queue']);
+
+    // Nothing shown, nothing mounted for it.
+    view.rerender(
+      <AgentBindingProvider registry={registry}>
+        <App showing={[]} />
+      </AgentBindingProvider>,
+    );
+    await flush();
+    expect(mounted()).toEqual([]);
   });
 });
 
