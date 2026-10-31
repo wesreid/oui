@@ -560,7 +560,7 @@ describe('a choice held for a reply (requireReplyBeforeChoice)', () => {
   });
   // First the bare card; told to write first, the reply and the card again.
   const script = (request: ChatRequest): ScriptedReply | undefined =>
-    (lastTool(request) ?? '').includes('not written a reply')
+    (lastTool(request) ?? '').includes('you have written none')
       ? { text: 'You are viewing as Avery, so nothing can be sent.', toolCalls: [offer('call_2')] }
       : { toolCalls: [offer('call_1')] };
 

@@ -1,5 +1,16 @@
 # @ouispec/agent-evals
 
+## 0.22.4
+
+### Patch Changes
+
+- **A choice offered twice with no reply says its card's context as the reply** (`requireReplyBeforeChoice`). When a sent-back `present_options` comes back with still no reply, it goes through as before. What its card says first (`context`) is now said as the turn's reply instead, sent to the room and stored as the step's text, and the card shows its question alone. So the person and the history both get a reply, and the card doesn't repeat it. A card with an empty context goes through as it is.
+
+  The send-back (`REPLY_BEFORE_CHOICE_ERROR`) now says what the reply is: the plain text written outside any tool call, which the card and its context are not. Measured on DEOS (2026-10-31): sent back, the model offered the card again with its answer in `context` and no reply, in 2–3 turns per eval run.
+
+- Updated dependencies
+  - @ouispec/agent-worker@0.22.4
+
 ## 0.22.2
 
 ### Patch Changes

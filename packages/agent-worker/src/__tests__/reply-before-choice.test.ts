@@ -43,10 +43,11 @@ const choice = (id: string): ScriptedReply['toolCalls'] => [
 async function turn(replies: ScriptedReply[], extra: Partial<AgentWorkerConfig> = {}) {
   const m = respondingOpenAI((_request, i) => replies[i]);
   const stored: Array<{ role: string; content?: string | null; toolCallId?: string; toolCalls?: unknown }> = [];
+  const tokens: string[] = [];
   const result = await runAgentTurn(
     {
       tools: createToolRegistry([lookup, ...loadBuiltinTools().filter((t) => t.name === 'present_options')]),
-      emit: { emit: async () => {} },
+      emit: { emit: async (_room, event, data) => void (event === 'agent:token' && tokens.push(String((data as { text?: unknown }).text ?? ''))) },
       systemPrompt: 'You help on a dealer’s site.',
       model: m.model,
       beforeTurnComplete: async ({ newMessages }) => void stored.push(...(newMessages as typeof stored)),
@@ -54,7 +55,7 @@ async function turn(replies: ScriptedReply[], extra: Partial<AgentWorkerConfig> 
     },
     { turnId: 'turn-choice', conversationId: 'c1', userId: 'u1', accountId: 'a1', socketRoom: 'agent:turn:turn-choice', content: 'Any blue RAV4s?' },
   );
-  return { result, stored, requests: m.requests };
+  return { result, stored, requests: m.requests, said: () => tokens.join('') };
 }
 
 const toolResults = (stored: Array<{ role: string; content?: string | null }>) =>
@@ -138,13 +139,26 @@ describe('requireReplyBeforeChoice', () => {
     expect(requests).toHaveLength(2);
   });
 
-  it('lets a second empty choice through rather than ending with neither, and never loops', async () => {
-    const { result, stored, requests } = await turn([{ toolCalls: choice('call_1') }, { toolCalls: choice('call_2') }], {
+  it('says a second empty choice’s context as the reply, and shows the card with its question alone; it never loops', async () => {
+    const { result, stored, requests, said } = await turn([{ toolCalls: choice('call_1') }, { toolCalls: choice('call_2') }], {
       requireReplyBeforeChoice: true,
     });
     expect(requests).toHaveLength(2);
     expect(result.stopReason).toBe('present_options');
+    const [sentBack, shown] = toolResults(stored);
+    expect(sentBack).toMatchObject({ success: false, replyFirst: true });
+    // The card asks; what it said first is the turn's reply, sent and stored.
+    expect(shown).toMatchObject({ __present_options: true, prompt: 'Open one?' });
+    expect(said()).toBe('Two RAV4s are blue.');
+    expect(stored.filter((m) => m.role === 'assistant' && m.content).map((m) => m.content)).toEqual(['Two RAV4s are blue.']);
+  });
+
+  it('lets a second empty choice with no context through as it is', async () => {
+    const bare = [{ id: 'call_2', name: 'present_options', args: { context: '', prompt: 'Open one?', options: [{ label: 'The XLE', value: 'xle' }] } }];
+    const { result, stored, said } = await turn([{ toolCalls: choice('call_1') }, { toolCalls: bare }], { requireReplyBeforeChoice: true });
+    expect(result.stopReason).toBe('present_options');
     expect(toolResults(stored).map((r) => r.success ?? true)).toEqual([false, true]);
+    expect(said()).toBe('');
   });
 
   it('is off by default: a choice with no reply goes through', async () => {
