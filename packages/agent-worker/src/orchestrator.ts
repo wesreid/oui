@@ -129,7 +129,8 @@ export const PRESENT_OPTIONS_TOOL = 'present_options';
 
 /** What the model is told when `requireReplyBeforeChoice` sends a choice back. */
 export const REPLY_BEFORE_CHOICE_ERROR =
-  'Not shown: you have not written a reply yet. Write it first, in words (a sentence or two on what you found or did), then offer this choice again.';
+  'Not shown. Your reply is the plain text you write outside any tool call, and you have written none: the card, its context included, is not the reply. ' +
+  'Write one or two sentences now, as text (what you found or did), then call present_options again.';
 
 /** What a step is held to: the host's policy, or the hand-back for time. */
 type StepPolicy = Awaited<ReturnType<TurnPolicy['prepareStep']>>;
@@ -395,6 +396,8 @@ export async function runAgentTurn(
   const callsNotRun = new Set<string>();
   /** Whether `requireReplyBeforeChoice` has already sent a choice back this turn: it does so once. */
   let choiceSentBackForReply = false;
+  /** The reply a choice's card said, by call, when it was offered twice with none (`requireReplyBeforeChoice`). */
+  const repliesFromCards = new Map<string, string>();
   /**
    * The model, with what it writes recorded as its stream passes: a step's
    * text reaches here before any tool call that follows it in the same step,
@@ -759,6 +762,24 @@ export async function runAgentTurn(
       log('info', 'agent:tool', 'A choice offered before any reply was sent back for one', { turnId });
       return refused({ error: REPLY_BEFORE_CHOICE_ERROR, notRun: true, replyFirst: true }, args);
     }
+    // Offered again with still no reply: it goes through, and what its card
+    // says first (`context`) is said as the turn's reply instead of above the
+    // question, so the person and the history both have one. A card with no
+    // context goes through as it is.
+    let callArgs = args;
+    const promoted =
+      config.requireReplyBeforeChoice && t.name === PRESENT_OPTIONS_TOOL && !replyText.trim() && typeof args.context === 'string'
+        ? args.context.trim()
+        : '';
+    if (promoted) {
+      callArgs = Object.fromEntries(Object.entries(args).filter(([key]) => key !== 'context'));
+      replyText += promoted;
+      streamedText += promoted;
+      tokenBuffer += promoted;
+      stepTextReported += promoted.length;
+      repliesFromCards.set(toolUseId, promoted);
+      log('info', 'agent:tool', 'A choice offered again with no reply: its context is said as the reply', { turnId });
+    }
 
     // ── Policy enforcement ──
     // A deny always wins, over an approval too.
@@ -845,7 +866,7 @@ export async function runAgentTurn(
       turnId,
       toolUseId,
       name: t.name,
-      input: args,
+      input: callArgs,
       timestamp: startMs,
     });
 
@@ -854,7 +875,7 @@ export async function runAgentTurn(
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       result = await Promise.race([
-        t.execute(args, {
+        t.execute(callArgs, {
           ...toolCtx,
           toolCallId: toolUseId,
           ...(uiSlot ? { uiSlot } : {}),
@@ -2179,11 +2200,24 @@ export async function runAgentTurn(
     ...(fileArea ? { attachments: fileGuard.usage() } : {}),
   });
 
+  /** A step whose choice's card said the reply stores it as the step's text, as the person read it. */
+  function withRepliesFromCards<S extends { text?: string; toolCalls?: ReadonlyArray<{ toolCallId: string }> }>(all: S[]): S[] {
+    if (repliesFromCards.size === 0) return all;
+    return all.map((step) => {
+      const said = step.toolCalls?.map((tc) => repliesFromCards.get(tc.toolCallId)).find(Boolean);
+      // A step is the model SDK's object, read through getters: copy what is stored of it, not its own fields.
+      return said && !step.text?.trim() ? ({ text: said, toolCalls: step.toolCalls } as unknown as S) : step;
+    });
+  }
+
   // The turn's messages, in the host's format, for it to store.
   const newMessages = [
     ...expired.persisted,
     ...(continued?.persisted ?? []),
-    ...convertResponseToTurnMessages({ steps: outputLimited ? [...steps, { text: OUTPUT_LIMIT_REPLY, toolCalls: [] }] : steps }, executedToolResults),
+    ...convertResponseToTurnMessages(
+      { steps: withRepliesFromCards(outputLimited ? [...steps, { text: OUTPUT_LIMIT_REPLY, toolCalls: [] }] : steps) },
+      executedToolResults,
+    ),
   ];
 
   // On a conversation channel there is no card: the readback is what the customer is sent, verbatim, as the turn's
