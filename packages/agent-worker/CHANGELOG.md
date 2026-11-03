@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.23.1
+
+### Patch Changes
+
+- The root exports `DEFAULT_PAGE_STATE_CHARS`, `observationSchemas`, `observationsText`, `pageStateFit` and the `PageStateFit` type. 0.23.0's changelog said it did, and it did not.
+
 ## 0.23.0
 
 ### Minor Changes
