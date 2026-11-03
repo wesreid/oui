@@ -246,9 +246,9 @@ describe('what the model is given on a page of 427 actions', () => {
     const message = String((seenOpts[0] as unknown as { instructions: Array<{ content: string }> }).instructions[1].content) + tail;
     expect(message).toContain('<page_index>');
     expect(message).toContain('<page_state>');
-    expect(message).toContain('- studio_effect_add: Adds an effect to a layer. (takes one of 60 shapes by effect)');
-    expect(message).toContain('- studio_layer_add: Adds a layer on top of the stack. (takes name: string)');
-    expect(message).toContain('- studio_layers_query: Lists the layers, by name. (takes title_contains?: string; reads)');
+    expect(message).toContain('- studio_effect_add: Adds an effect to a layer. (one of 60 shapes by effect)');
+    expect(message).toContain('- studio_layer_add: Adds a layer on top of the stack. (name)');
+    expect(message).toContain('- studio_layers_query: Lists the layers, by name. (title_contains?; reads)');
     expect(message).toContain('- studio_action_423: ');
     expect(message).toContain('"layer-5"');
 

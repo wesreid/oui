@@ -17,9 +17,15 @@
  *    by what the person calls them, not by their ids.
  * 4. **A question about the bottom of the form**: what a graphic's template and
  *    layer are, in the words the form uses for them, with nothing changed.
+ * 5. **An option by its words**: "dip to white" is the value `dip-white`, and a
+ *    template's shape is part of an opaque value. What the model sends has to be
+ *    an option the action takes, first time.
  *
- * Each case prints its calls, describes, reads, rounds and tokens as
- * `LONG-FORM {...}`, so two runs can be compared on what the work cost.
+ * In every case that changes something, no input may be refused: what a line of
+ * the index leaves out, the model must find out before it acts, not by being
+ * told its guess was wrong. Each case prints its calls, describes, reads, refused
+ * inputs, rounds and tokens as `LONG-FORM {...}`, so two runs can be compared on
+ * what the work cost.
  *
  * Run: `pnpm --filter @ouispec/agent-worker eval:live long-form` with Bedrock
  * credentials (e.g. `AWS_PROFILE=<profile> AWS_REGION=us-east-1`).
@@ -42,6 +48,7 @@ function report(name: string, run: number, turn: LiveTurn, ran: unknown[]) {
       ran: ran.length,
       describes: count('ui_describe'),
       reads: count('ui_read'),
+      rejected: turn.rejected.length,
       calls: turn.calls.length,
       rounds: turn.rounds,
       promptTokens: turn.usage.promptTokens,
@@ -57,6 +64,7 @@ describe(`working a long form (${LIVE_MODEL_ID})`, () => {
       const turn = await liveTurn(page, 'Set the language of the last line, the one that says "That’s October", to French.', { path: '/board' });
       report('near-top', run, turn, page.ran);
       expect(page.ran).toEqual([{ action: 'board_line_language', params: { item: 'outro', value: 'fr' } }]);
+      expect(turn.rejected).toEqual([]);
     });
 
     it(`changes a row near the bottom (run ${run})`, async () => {
@@ -64,6 +72,7 @@ describe(`working a long form (${LIVE_MODEL_ID})`, () => {
       const turn = await liveTurn(page, 'Move the KPI card onto shot 4.', { path: '/board' });
       report('near-bottom', run, turn, page.ran);
       expect(page.ran).toEqual([{ action: 'board_graphic_shot', params: { item: 'kpi', value: 'wall' } }]);
+      expect(turn.rejected).toEqual([]);
     });
 
     it(`changes two rows in two lists (run ${run})`, async () => {
@@ -77,6 +86,21 @@ describe(`working a long form (${LIVE_MODEL_ID})`, () => {
         ]),
       );
       expect(page.ran).toHaveLength(2);
+      expect(turn.rejected).toEqual([]);
+    });
+
+    it(`picks an option by its words, first time (run ${run})`, async () => {
+      const page = await boardPage();
+      const turn = await liveTurn(page, 'Use a dip to white for shot 5, and put the end card on the KPI wall template in its 9:16 shape.', { path: '/board' });
+      report('by-words', run, turn, page.ran);
+      expect(page.ran).toEqual(
+        expect.arrayContaining([
+          { action: 'board_shot_transition', params: { item: 'chart', value: 'dip-white' } },
+          { action: 'board_graphic_template', params: { item: 'end-card', value: 'board-4::9:16' } },
+        ]),
+      );
+      expect(page.ran).toHaveLength(2);
+      expect(turn.rejected).toEqual([]);
     });
 
     it(`answers about the bottom of the form (run ${run})`, async () => {

@@ -130,8 +130,8 @@ describe('UI tools from the client snapshot', () => {
     const tools = seenOpts[0].tools;
     expect(Object.keys(tools).sort()).toEqual(['ui_act', 'ui_describe', 'ui_read']);
     const index = JSON.stringify(seenOpts[0].instructions);
-    expect(index).toContain('- navigate: Go to a page (takes path: string)');
-    expect(index).toContain('- projects_create: Create a project (takes nothing)');
+    expect(index).toContain('- navigate: Go to a page (path)');
+    expect(index).toContain('- projects_create: Create a project');
     // The host's `navigate` would be a second thing with the action's id: withheld.
     expect(errors.mock.calls.some((c) => String(c[0]).includes('Host tools collide with UI tools or action ids'))).toBe(true);
     errors.mockRestore();
@@ -566,7 +566,7 @@ describe('the index follows the page', () => {
     expect(seenOpts).toHaveLength(1);
     const nav = JSON.parse(modelSawNav);
     expect(nav.page.nowOffers).toContain('Projects (projects-library): projects');
-    expect(nav.page.nowOffers).toContain('- projects_create: Create a project (takes nothing)');
+    expect(nav.page.nowOffers).toContain('- projects_create: Create a project');
     expect(nav.page.noLongerOnScreen).toEqual(['Home']);
     expect(JSON.parse(modelSawCreate)).toMatchObject({ page: { surfaces: ['App Shell', 'Projects'] } });
     expect(dispatched.map((d) => d.request.actionId)).toEqual(['navigate', 'projects_create']);

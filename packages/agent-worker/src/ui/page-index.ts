@@ -122,17 +122,43 @@ export function pageFingerprint(page: readonly PageSurface[]): string {
 }
 
 /**
- * One action on a line, as the model reads the index: its id, what it does,
- * what it takes, and what calling it involves.
+ * An index entry's `input` without what the model does not use: a text is its
+ * name alone, and a list or object says only that it is one. An enum's first
+ * values and a number's range stay. Measured on a long form with a live model:
+ * names alone, or a long enum as a count, made it describe twice as often, and
+ * a turn cost more than the shorter index saved. The values it sees are what let
+ * it act without asking.
+ */
+export function shortInput(input: string): string {
+  if (input.startsWith('one of ') || !input.includes(': ')) return input;
+  return input
+    .split(', ')
+    .map((part) => {
+      const at = part.indexOf(': ');
+      if (at < 0) return part;
+      const name = part.slice(0, at);
+      const value = part.slice(at + 2);
+      if (value === 'string') return name;
+      if (value.startsWith('list of ')) return `${name}: list`;
+      if (value.startsWith('object')) return `${name}: object`;
+      return part;
+    })
+    .join(', ');
+}
+
+/**
+ * One action on a line, as the model reads the index: its id, what it does, and
+ * in brackets what it takes and what calling it involves. An index is hundreds
+ * of these. No brackets: it takes nothing.
  */
 export function indexLine(entry: OUIActionIndexEntry): string {
-  const marks = [
+  const notes = [
+    entry.input === 'none' ? '' : shortInput(entry.input),
     entry.effect === 'view' ? 'reads' : '',
     entry.effect === 'transaction' || entry.confirm ? 'needs approval' : '',
     entry.async ? `waits for its work${entry.estimatedDuration ? `, ${entry.estimatedDuration}` : ''}` : '',
   ].filter(Boolean);
-  const takes = entry.input === 'none' ? 'takes nothing' : `takes ${entry.input}`;
-  return `- ${entry.id}: ${entry.description} (${takes}${marks.length ? `; ${marks.join('; ')}` : ''})`;
+  return `- ${entry.id}: ${entry.description}${notes.length ? ` (${notes.join('; ')})` : ''}`;
 }
 
 /** The longest the page's index is in the model's context, in characters, before surfaces are listed by id only. */

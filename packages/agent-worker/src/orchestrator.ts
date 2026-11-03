@@ -1763,7 +1763,7 @@ export async function runAgentTurn(
           role: 'system' as const,
           content: [
             '<page_index>',
-            `The user's screen offers these surfaces and actions. Run an action with ${UI_ACT_TOOL}; ${UI_DESCRIBE_TOOL} says what one takes.`,
+            `The user's screen offers these surfaces and actions. In brackets after an action: what it takes ("?" marks an optional one, and a name alone takes text) and what calling it involves; no brackets means it takes nothing. Run an action with ${UI_ACT_TOOL}; ${UI_DESCRIBE_TOOL} says what one takes.`,
             indexText(client.page, config.ui?.maxIndexChars ?? DEFAULT_INDEX_CHARS),
             '</page_index>',
           ].join('\n'),

@@ -9,6 +9,7 @@ import {
   indexDiff,
   indexLine,
   indexText,
+  shortInput,
   pageActions,
   pageFingerprint,
   pageFromIndex,
@@ -63,16 +64,16 @@ describe('the index as the model reads it', () => {
 
   it('gives each action a line: its id, what it does, what it takes, and what running it involves', () => {
     expect(page[1].index.map(indexLine)).toEqual([
-      '- reports_export: Export a report (takes nothing; waits for its work, 30-60s)',
-      '- reports_send: Emails a saved report. (takes reportId: string, to: string; needs approval)',
-      '- reports_query: Finds reports by title. (takes title_contains?: string; reads)',
-      '- reports_delete: Deletes a report. (takes reportId: string; needs approval)',
+      '- reports_export: Export a report (waits for its work, 30-60s)',
+      '- reports_send: Emails a saved report. (reportId, to; needs approval)',
+      '- reports_query: Finds reports by title. (title_contains?; reads)',
+      '- reports_delete: Deletes a report. (reportId; needs approval)',
     ]);
   });
 
   it('lists every surface with its actions, and past its budget lists the furthest by id only, never dropping one', () => {
     const whole = indexText(page);
-    expect(whole).toContain('App Shell (app-shell): The frame around every page\n- navigate: Go to a page. (takes path: string)');
+    expect(whole).toContain('App Shell (app-shell): The frame around every page\n- navigate: Go to a page. (path)');
     expect(whole).toContain('Reports (reports): Saved reports\n- reports_export: ');
     const tight = indexText(page, 200);
     expect(tight).toContain('- 4 actions, listed by id only to save room; describe one to learn what it does: reports_export, reports_send, reports_query, reports_delete');
@@ -92,8 +93,8 @@ describe('the index as the model reads it', () => {
     };
     expect(indexDiff(page, pageFromSurfaces([shell, changed], new Map()))).toEqual({
       added: [
-        '- reports_send: Emails a saved report. (takes reportId: string, to: string, cc?: string; needs approval)',
-        '- reports_archive: Archives a report. (takes nothing)',
+        '- reports_send: Emails a saved report. (reportId, to, cc?; needs approval)',
+        '- reports_archive: Archives a report.',
       ],
       removed: ['reports_delete'],
     });
@@ -141,5 +142,22 @@ describe('an index over what the model is given', () => {
     const text = indexText(page, 100);
     for (const s of page) for (const entry of s.index) expect(text).toContain(entry.id);
     expect(text.indexOf('app:navigation')).toBeLessThan(text.indexOf('room:studio'));
+  });
+});
+
+describe('what an action takes, in a line of the index', () => {
+  it('keeps an enum’s first values and how many it has, and a number’s range', () => {
+    const input = 'preset: rotating-long-shadow|warp-wave-loop|shadow-grow|stroke-draw|…(64), kind: fill|stroke, width: number 0–100 px';
+    expect(shortInput(input)).toBe(input);
+  });
+
+  it('leaves a text as its name, and says a list or an object is one', () => {
+    expect(shortInput('value: string, item?: string, ids?: list of string, paint?: object(4), +3 more')).toBe('value, item?, ids?: list, paint?: object, +3 more');
+  });
+
+  it('leaves what has no properties to name as the entry gives it', () => {
+    expect(shortInput('one of 60 shapes by effect')).toBe('one of 60 shapes by effect');
+    expect(shortInput('number 0–100 px')).toBe('number 0–100 px');
+    expect(shortInput('a|b|c')).toBe('a|b|c');
   });
 });
