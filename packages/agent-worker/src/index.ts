@@ -107,6 +107,13 @@ export type { UIActionChannel, HttpUIActionChannelConfig } from './ui/channel.js
 export { createHttpUIActionChannel } from './ui/channel.js';
 export { readClientPage, withoutClientSnapshot, withoutClientUI, capabilityFingerprint, CLIENT_SNAPSHOT_KEY, type ClientPage } from './ui/snapshot.js';
 export {
+  DEFAULT_PAGE_STATE_CHARS,
+  observationSchemas,
+  observationsText,
+  pageStateFit,
+  type PageStateFit,
+} from './ui/observations.js';
+export {
   DEFAULT_INDEX_CHARS,
   indexDiff,
   indexLine,
