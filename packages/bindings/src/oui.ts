@@ -395,7 +395,11 @@ export interface PageStateRow {
   title: string;
   /** What the row is, when the page says (rows known only at run time). */
   description?: string;
-  /** The row's own value schema (its range, step or options), when it takes a value. */
+  /**
+   * The row's own value schema (its range, step or options), when the list's
+   * rows do not all take the same one. A list's rows that do are described once,
+   * by what their action takes (`ui_describe`).
+   */
   schema?: JsonSchema;
   /** Its current value. */
   value?: unknown;
@@ -421,22 +425,34 @@ export function summarisedSchema(schema: JsonSchema, value?: unknown): JsonSchem
  * What a page surface shows: each field's value, each list's rows, what cannot
  * be used right now, and what is busy with its last press (a Save button while
  * it saves: it worked, and it comes back when done). A row that takes a value
- * carries its own schema and value, so rows whose meanings are only known at
- * run time (a model's parameters) are readable without their definitions in the
- * build.
+ * carries its value, and its own schema when the list's rows differ, so rows
+ * whose meanings are only known at run time (a model's parameters) are readable
+ * without their definitions in the build. Rows that all take one schema leave it
+ * to their action's definition, which offers exactly that schema: on a form with
+ * a control per field per row, the same schema on row after row was three
+ * quarters of the page state, and grew with the square of the form.
  */
 export function pageState(controls: readonly ControlRegistration[], isBusy: (bindingId: string) => boolean = () => false) {
   const values: Record<string, unknown> = {};
   const lists: Record<string, PageStateRow[]> = {};
   const unavailable: string[] = [];
   const busy: string[] = [];
+  // Whether each list's rows differ in what they take, as an action decides what it offers (`controlAction`).
+  const rowSchemas = new Map<string, Set<string>>();
+  for (const c of controls) {
+    if (!c.item) continue;
+    const seen = rowSchemas.get(c.id) ?? new Set<string>();
+    seen.add(JSON.stringify(c.valueSchema));
+    rowSchemas.set(c.id, seen);
+  }
   for (const c of controls) {
     if (c.item) {
+      const ownSchema = c.valueSchema && rowSchemas.get(c.id)!.size > 1;
       (lists[c.id] ??= []).push({
         key: c.item.key,
         title: c.item.title,
         ...(c.item.description ? { description: c.item.description } : {}),
-        ...(c.valueSchema ? { schema: summarisedSchema(c.valueSchema, c.value) } : {}),
+        ...(ownSchema ? { schema: summarisedSchema(c.valueSchema!, c.value) } : {}),
         ...(c.value !== undefined ? { value: c.value } : {}),
       });
     } else if (c.value !== undefined) {

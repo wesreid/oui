@@ -74,8 +74,10 @@ export const DEFAULT_PAGE_STATE_CHARS = 12_000;
 export const MAX_LIST_ROWS = 20;
 
 /**
- * A list this short is never shortened: it is a field's choices (the engines a
- * voice can speak with, a document's types), not a collection to browse.
+ * A list this short is left whole until nothing else is left to shorten: it is
+ * a field's choices (the engines a voice can speak with, a document's types),
+ * not a collection to browse. A form of many such lists still fits, at the last
+ * steps of fitting, where they are shortened too (`ListStep.short`).
  */
 export const WHOLE_LIST_ROWS = 5;
 
@@ -89,6 +91,13 @@ export const WHOLE_LIST_ROWS = 5;
 interface ListStep {
   whole: number;
   index: number;
+  /**
+   * What happens to lists of `WHOLE_LIST_ROWS` rows or fewer, once a long list
+   * is already only a count: their rows lose their schemas, then become index
+   * rows, then a count. Before these, a form of short lists could not fit: it
+   * was left out of the page state whole, or cut off mid-value.
+   */
+  short?: 'no-schema' | 'index' | 'count';
 }
 
 const LIST_STEPS: readonly ListStep[] = [
@@ -100,6 +109,9 @@ const LIST_STEPS: readonly ListStep[] = [
   { whole: 0, index: 40 },
   { whole: 0, index: 12 },
   { whole: 0, index: 0 },
+  { whole: 0, index: 0, short: 'no-schema' },
+  { whole: 0, index: 0, short: 'index' },
+  { whole: 0, index: 0, short: 'count' },
 ];
 
 /**
@@ -115,7 +127,7 @@ const FIELD_KEYS = new Set(['values', 'unavailable', 'busy', 'schema']);
  * navigation) last. A long project list in the shell must never crowd out the
  * page the model is working on.
  */
-function surfaceRank(surfaceId: string, acting: string | undefined): number {
+export function surfaceRank(surfaceId: string, acting: string | undefined): number {
   if (acting !== undefined && surfaceId === acting) return 0;
   if (surfaceId.startsWith('page:') || surfaceId.startsWith('room:')) return 1;
   if (surfaceId.startsWith('shared:')) return 2;
@@ -195,7 +207,11 @@ const isChosenValue = PAGE_ROW.chosen;
  * there are.
  */
 function shortenRows(rows: unknown[], step: ListStep, shape: RowShape | null): unknown[] {
-  if (rows.length <= Math.max(step.whole, WHOLE_LIST_ROWS)) return rows;
+  if (rows.length <= Math.max(step.whole, WHOLE_LIST_ROWS)) {
+    if (!step.short || !shape) return rows;
+    if (step.short === 'no-schema') return rows.map(withoutRowSchema);
+    return shortRows(rows, step.short, shape);
+  }
   const chosen = shape?.chosen ?? isChosenValue;
   const whole: unknown[] = [];
   const rest: unknown[] = [];
@@ -212,6 +228,22 @@ function shortenRows(rows: unknown[], step: ListStep, shape: RowShape | null): u
   if (left === 0) return [...whole, ...indexed];
   const count = whole.length + indexed.length > 0 ? `… and ${left} more rows` : `${left} rows`;
   return [...whole, ...indexed, `${count}, not listed to fit the page state; ${shape.rest}`];
+}
+
+/** A row of a list as it is without its own schema, which its action's definition also says. */
+function withoutRowSchema(row: unknown): unknown {
+  if (row === null || typeof row !== 'object' || !('schema' in row)) return row;
+  const { schema: _schema, ...rest } = row as Record<string, unknown>;
+  return rest;
+}
+
+/** A short list at the last steps of fitting: the chosen rows whole, the rest as index rows or a count. */
+function shortRows(rows: unknown[], short: 'index' | 'count', shape: RowShape): unknown[] {
+  const whole = rows.filter((row) => shape.chosen(row)).map(withoutRowSchema);
+  const rest = rows.filter((row) => !shape.chosen(row));
+  if (rest.length === 0) return whole;
+  if (short === 'index') return [...whole, ...rest.map((row) => shape.index(row as Record<string, unknown>))];
+  return [...whole, `${rest.length}${whole.length ? ' more' : ''} rows`];
 }
 
 /** Rows `ui_read` returns at most in one call. */
@@ -371,13 +403,6 @@ function fitted(
   const actingPresent = acting !== undefined && acting in base;
   const changed = new Set(options.changed ?? []);
 
-  // Each step is (others' step, the acting surface's step): the acting one lags a step behind.
-  const steps: Array<[ListStep, ListStep]> = [];
-  LIST_STEPS.forEach((step, i) => {
-    if (actingPresent && i > 0) steps.push([step, LIST_STEPS[i - 1]]);
-    steps.push([step, step]);
-  });
-
   const fit = (surfaceId: string, value: unknown, step: ListStep) =>
     Object.fromEntries(
       Object.entries((value ?? {}) as Record<string, unknown>).map(([observationId, v]) => [
@@ -390,26 +415,54 @@ function fitted(
       ]),
     );
 
+  // Each step is (others' step, the acting surface's step): the acting one lags a step behind.
+  const stepsOf = (list: readonly ListStep[], before: ListStep | undefined): Array<[ListStep, ListStep]> =>
+    list.flatMap((step, i): Array<[ListStep, ListStep]> => {
+      const lag = i > 0 ? list[i - 1] : before;
+      return [...(actingPresent && lag ? [[step, lag] as [ListStep, ListStep]] : []), [step, step]];
+    });
+
   let values = base;
   let listStep: ListStep | undefined;
-  for (const [others, own] of steps) {
-    values = Object.fromEntries(Object.entries(base).map(([id, v]) => [id, fit(id, v, id === acting ? own : others)]));
+  let surfaces = base;
+  const tryStep = ([others, own]: [ListStep, ListStep]): boolean => {
+    values = Object.fromEntries(Object.entries(surfaces).map(([id, v]) => [id, fit(id, v, id === acting ? own : others)]));
     listStep = others;
-    if (size(values) <= maxChars) return { values, listStep, omitted: [], fits: true };
+    return size(values) <= maxChars;
+  };
+  const longSteps = LIST_STEPS.filter((step) => !step.short);
+  const shortSteps = LIST_STEPS.filter((step) => step.short);
+  for (const step of stepsOf(longSteps, undefined)) {
+    if (tryStep(step)) return { values, listStep, omitted: [], fits: true };
   }
 
   const omitted: string[] = [];
-  const droppable = Object.keys(values)
-    .filter((id) => id !== acting)
-    .sort((a, b) => surfaceRank(b, acting) - surfaceRank(a, acting) || size(values[b]) - size(values[a]));
-  for (const id of droppable) {
-    if (Object.keys(values).length <= 1) break;
-    values = Object.fromEntries(Object.entries(values).filter(([key]) => key !== id));
-    omitted.push(id);
-    if (size(values) <= maxChars) return { values, listStep, omitted, fits: true };
+  /** Leave out surfaces matching `which`, furthest from the page and largest first, until the rest fit. */
+  const leaveOut = (which: (id: string) => boolean): boolean => {
+    const droppable = Object.keys(values)
+      .filter((id) => id !== acting && which(id))
+      .sort((a, b) => surfaceRank(b, acting) - surfaceRank(a, acting) || size(values[b]) - size(values[a]));
+    for (const id of droppable) {
+      if (Object.keys(values).length <= 1) break;
+      values = Object.fromEntries(Object.entries(values).filter(([key]) => key !== id));
+      surfaces = Object.fromEntries(Object.entries(surfaces).filter(([key]) => key !== id));
+      omitted.push(id);
+      if (size(values) <= maxChars) return true;
+    }
+    return false;
+  };
+
+  // The chrome around the page goes before the page's own short lists are touched.
+  if (leaveOut((id) => surfaceRank(id, acting) > 1)) return { values, listStep, omitted, fits: true };
+  for (const step of stepsOf(shortSteps, longSteps.at(-1))) {
+    if (tryStep(step)) return { values, listStep, omitted, fits: true };
   }
+  if (leaveOut(() => true)) return { values, listStep, omitted, fits: true };
   return { values, listStep, omitted, fits: false };
 }
+
+/** How a list that is only a count is read. */
+const READ_A_LIST = `read a list's rows with ${AGENT_UI_TOOLS.read}: its surface, its observation, and where the list is (a page's: "/lists/<its id>")`;
 
 /** What fitting did, in words. */
 function fitSummary(fit: Fitted, maxChars: number, whole: string[], acted: boolean): string {
@@ -423,7 +476,11 @@ function fitSummary(fit: Fitted, maxChars: number, whole: string[], acted: boole
       ? `rows of lists longer than ${WHOLE_LIST_ROWS} are given as index rows (what each is addressed and called by)${
           Number.isFinite(step.index) ? `, the first ${step.index} of them` : ''
         }`
-      : `lists longer than ${WHOLE_LIST_ROWS} rows are given as a count, with how to read them`;
+      : step.short === 'count'
+      ? `lists are given as a count; ${READ_A_LIST}`
+      : step.short === 'index'
+      ? `lists longer than ${WHOLE_LIST_ROWS} rows are given as a count, shorter ones as index rows; ${READ_A_LIST}`
+      : `lists longer than ${WHOLE_LIST_ROWS} rows are given as a count; ${READ_A_LIST}`;
   const parts = [
     lists,
     'fields, the page’s own facts and chosen rows are kept whole',
@@ -463,6 +520,23 @@ export function boundObservations(
   };
 }
 
+/** How a page state fitted what the model is given: for a turn's log, and a product's own size checks. */
+export interface PageStateFit {
+  /** The page state's length whole, in characters of JSON. */
+  chars: number;
+  /** `whole`: it fits as it is. `fitted`: shortened by rule. `cut`: not even that fitted, and its text was cut off. */
+  outcome: 'whole' | 'fitted' | 'cut';
+  /** Surfaces left out to fit, least important first. */
+  omitted: string[];
+}
+
+export function pageStateFit(observations: OUIObservationSnapshot, maxChars: number, options: FitOptions = {}): PageStateFit {
+  const chars = JSON.stringify(observations).length;
+  if (chars <= maxChars) return { chars, outcome: 'whole', omitted: [] };
+  const fit = fitted(observations, maxChars, undefined, options);
+  return { chars, outcome: fit.fits ? 'fitted' : 'cut', omitted: fit.omitted };
+}
+
 /** The same, as the text of a `<page_state>` block. */
 export function observationsText(observations: OUIObservationSnapshot, maxChars: number, options: FitOptions = {}): string {
   const json = JSON.stringify(observations);
@@ -476,7 +550,7 @@ export function observationsText(observations: OUIObservationSnapshot, maxChars:
     (jobs ? `Jobs (in full): ${JSON.stringify(jobs)}\n` : '');
   const tail = fit.fits
     ? ` (fitted from ${json.length} characters. ${fitSummary(fit, maxChars, [], false)})`
-    : `… (truncated from ${json.length} characters)`;
+    : `… (truncated from ${json.length} characters; read what is cut with ${AGENT_UI_TOOLS.read})`;
   return `${head}${head ? 'Values: ' : ''}${rest.slice(0, maxChars)}${tail}`;
 }
 

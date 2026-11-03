@@ -44,7 +44,8 @@ import { createStepClock, timeHandBackNote } from './time-hand-back.js';
 import { createReasoningRelay } from './reasoning-relay.js';
 import { evaluateToolPolicySafe } from './authz/tool-policy.js';
 import { createToolInputValidator } from './tools/input-validation.js';
-import { readClientPage, withoutClientUI } from './ui/snapshot.js';
+import { jsonBytes } from 'oui-spec/spec';
+import { CLIENT_SNAPSHOT_KEY, readClientPage, withoutClientUI } from './ui/snapshot.js';
 import { KNOWLEDGE_TOOL, knowledgeTool, readClientKnowledge, withClientKnowledge } from './ui/knowledge.js';
 import { answerWithoutState, withStatesAtEnd } from './ui/page-state-at-end.js';
 import { stepMessages as forStep, STEP_NOTE_CLOSE, STEP_NOTE_OPEN } from './step-messages.js';
@@ -72,7 +73,7 @@ import { describeSchema } from './ui/outline.js';
 import { createUISequence, type UISlot } from './ui/ui-sequence.js';
 import { actionCallAsUiAct } from './ui/action-as-tool.js';
 import { createTurnLedger } from './turn-ledger.js';
-import { DEFAULT_PAGE_STATE_CHARS, observationSchemas, observationsText } from './ui/observations.js';
+import { DEFAULT_PAGE_STATE_CHARS, observationSchemas, observationsText, pageStateFit } from './ui/observations.js';
 import { approvalConfirmedBy, approvalRequirement, approvalToolNote, VOICE_APPROVAL_CHANNELS, type ApprovalRequirement } from './approvals/requirement.js';
 import { buildApprovalPreview, declaredTitle } from './approvals/preview.js';
 import { readHostPreview, readValidation, type ApprovalHookContext, type ApprovalValidation } from './approvals/hooks.js';
@@ -2194,6 +2195,12 @@ export async function runAgentTurn(
             indexChars: indexText(client.page, Infinity).length,
             pageStatesMoved,
             maxIndexChars: config.ui?.maxIndexChars ?? DEFAULT_INDEX_CHARS,
+            // What the page sent with the message, and how it fitted: the wire's budget, then the model's.
+            snapshotBytes: jsonBytes((input.context ?? {})[CLIENT_SNAPSHOT_KEY]),
+            snapshotCuts: client.fit?.observations?.length ?? 0,
+            pageState: pageStateFit(client.observations, config.ui?.maxObservationChars ?? DEFAULT_PAGE_STATE_CHARS, {
+              schemas: observationSchemas(client.page),
+            }),
           },
         }
       : {}),
