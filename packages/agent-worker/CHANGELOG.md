@@ -1,5 +1,27 @@
 # @ouispec/agent-worker
 
+## 0.23.0
+
+### Minor Changes
+
+- A long form's page state fits what the model reads, and an index carries only what is read.
+
+  - **`@ouispec/bindings`:** in the page state, a list's rows that all take one value schema leave it to their action's definition, which offers exactly that schema. A row keeps its own schema when the list's rows differ. On a form with a control per field per row, the same schema on row after row was three quarters of the page state.
+  - **`oui-spec` (§7.3.8):** an observation in index form is its id, and its schema reduced to what leads to an `x-rows` declaration (`observationIndexEntry`, `OUIObservationIndexEntry`). A surface in full form keeps the whole declaration.
+  - **`@ouispec/agent-worker`:**
+    - Page state over budget: a form of short lists now fits. After the frame around the page is left out, short lists lose their rows' schemas, then become index rows, then counts, and the summary says how to read a list. A page or room is left out, or text cut off, only after all of that.
+    - The index over budget: surfaces are listed by id in a fixed order, the frame first, then shared surfaces, then pages and rooms, the longest mounted first, so what the person opened last keeps its lines longest.
+    - `Turn usage` gives `ui.snapshotBytes`, `ui.snapshotCuts` and `ui.pageState` (`chars`, `outcome`, `omitted`).
+    - The root exports `DEFAULT_PAGE_STATE_CHARS`, `observationSchemas`, `observationsText` and `pageStateFit`, so a product can hold its pages to these limits in a test.
+
+### Patch Changes
+
+- Updated dependencies
+  - oui-spec@0.13.0
+  - @ouispec/bindings@0.12.0
+  - @ouispec/agent-core@0.23.0
+  - @ouispec/agent-events@0.23.0
+
 ## 0.22.4
 
 ### Patch Changes

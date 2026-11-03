@@ -11,6 +11,8 @@ import type {
   JSONSchema,
   OUIAction,
   OUIActionIndexEntry,
+  OUIObservation,
+  OUIObservationIndexEntry,
   OUISurface,
   OUISurfaceIndex,
 } from "./types.js";
@@ -279,6 +281,40 @@ export function indexEntry(action: OUIAction): OUIActionIndexEntry {
   };
 }
 
+/** A schema with only what leads to an `x-rows` declaration; null when it has none. */
+function rowDeclarations(schema: JSONSchema | undefined): JSONSchema | null {
+  if (!schema) return null;
+  const rows = schema["x-rows"];
+  const items = rowDeclarations(schema.items);
+  const properties = Object.entries(schema.properties ?? {}).flatMap(
+    ([name, property]): Array<[string, JSONSchema]> => {
+      const declared = rowDeclarations(property);
+      return declared ? [[name, declared]] : [];
+    },
+  );
+  if (rows === undefined && !items && properties.length === 0) return null;
+  return {
+    ...(rows !== undefined ? { "x-rows": rows } : {}),
+    ...(items ? { items } : {}),
+    ...(properties.length > 0
+      ? { properties: Object.fromEntries(properties) }
+      : {}),
+  };
+}
+
+/**
+ * An observation as an index carries it (§7.3.8): its id, and where its schema
+ * declares a list of rows, which is what an agent runtime reads to shorten that
+ * list by rule. The rest of the declaration travelled with every snapshot and
+ * nothing read it: a quarter of the index on a studio page.
+ */
+export function observationIndexEntry(
+  observation: OUIObservation,
+): OUIObservationIndexEntry {
+  const schema = rowDeclarations(observation.schema);
+  return { id: observation.id, ...(schema ? { schema } : {}) };
+}
+
 /** A surface in index form (§7.3.8). */
 export function surfaceIndex(surface: OUISurface): OUISurfaceIndex {
   return {
@@ -286,7 +322,9 @@ export function surfaceIndex(surface: OUISurface): OUISurfaceIndex {
     name: surface.name,
     description: surface.description,
     ...(surface.version !== undefined ? { version: surface.version } : {}),
-    ...(surface.observations ? { observations: surface.observations } : {}),
+    ...(surface.observations
+      ? { observations: surface.observations.map(observationIndexEntry) }
+      : {}),
     index: surface.actions.map(indexEntry),
   };
 }

@@ -46,8 +46,8 @@ describe('the page, from either form a client sends', () => {
     expect(held.size).toBe(5);
     const send = fromFull[1].index[1];
     expect(held.get(definitionKey('reports', send))).toBe(reports.actions[1]);
-    // The observation definitions travel whole: they say how to read the rows.
-    expect(fromIndex[1].observations).toEqual(reports.observations);
+    // An observation travels with what says how to shorten its rows.
+    expect(fromIndex[1].observations).toEqual([{ id: 'reports', schema: { 'x-rows': { ref: 'id', title: 'title' } } }]);
   });
 
   it('gives an action id to the first surface that offers it, and names the collision', () => {
@@ -98,5 +98,48 @@ describe('the index as the model reads it', () => {
       removed: ['reports_delete'],
     });
     expect(indexDiff(page, page)).toEqual({ added: [], removed: [] });
+  });
+});
+
+describe('an index over what the model is given', () => {
+  const surface = (id: string, actions: number): PageSurface => ({
+    id,
+    name: id,
+    description: id,
+    index: Array.from({ length: actions }, (_, i) => ({
+      id: `${id}_${i}`,
+      description: 'Does the one thing this control does on this surface of the page.',
+      input: 'value: string',
+      definitionHash: '00000000',
+    })),
+  });
+  const idsOnly = (text: string, id: string) => new RegExp(`${id} \\(${id}\\): ${id}\\n- \\d+ actions, listed by id only`).test(text);
+  // As a client lists them: the frame first, then what mounted, the studio docked last of all.
+  const page = [surface('app:navigation', 2), surface('shell:Frame', 20), surface('room:editor', 200), surface('page:Editor', 100), surface('room:studio', 200)];
+
+  it('leaves it whole when it fits', () => {
+    expect(indexText(page, 1_000_000)).not.toContain('listed by id only');
+  });
+
+  it('lists the frame by id before any page or room', () => {
+    const whole = indexText(page, Infinity).length;
+    const text = indexText(page, whole - 1);
+    expect(idsOnly(text, 'shell:Frame')).toBe(true);
+    expect(idsOnly(text, 'room:editor')).toBe(false);
+    expect(idsOnly(text, 'room:studio')).toBe(false);
+  });
+
+  it('keeps the lines of what mounted last, the studio docked on the page, longest', () => {
+    const studio = indexText([surface('room:studio', 200)], Infinity).length;
+    const text = indexText(page, studio + 6_500);
+    expect(idsOnly(text, 'room:editor')).toBe(true);
+    expect(idsOnly(text, 'page:Editor')).toBe(true);
+    expect(idsOnly(text, 'room:studio')).toBe(false);
+  });
+
+  it('keeps every action findable, whatever it lists by id', () => {
+    const text = indexText(page, 100);
+    for (const s of page) for (const entry of s.index) expect(text).toContain(entry.id);
+    expect(text.indexOf('app:navigation')).toBeLessThan(text.indexOf('room:studio'));
   });
 });

@@ -235,9 +235,19 @@ export interface OUISurfaceIndex {
   name: string;
   description: string;
   version?: string;
-  /** Observation definitions travel whole: they are small, and say how to read the values that follow. */
-  observations?: OUIObservation[];
+  /** What the surface reports, by id, with where its schema declares a list of rows (§7.3.8). */
+  observations?: OUIObservationIndexEntry[];
   index: OUIActionIndexEntry[];
+}
+
+/**
+ * An observation as an index carries it: its id, and its schema reduced to what
+ * leads to an `x-rows` declaration, which is what an agent runtime shortens a
+ * list of rows by.
+ */
+export interface OUIObservationIndexEntry {
+  id: string;
+  schema?: JSONSchema;
 }
 
 /**

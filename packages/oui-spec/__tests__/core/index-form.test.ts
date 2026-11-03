@@ -17,6 +17,7 @@ import {
   indexEntry,
   jsonBytes,
   summarizeInput,
+  observationIndexEntry,
   surfaceIndex,
   withoutTitleLeadIn,
   INDEX_DESCRIPTION_CHARS,
@@ -319,13 +320,7 @@ describe("a client sends its actions as an index", () => {
       ["editor", 306],
       ["vector", 121],
     ]);
-    expect(snap.index![0].observations).toEqual([
-      {
-        id: "layers",
-        description: "The layers of the document.",
-        schema: { type: "array" },
-      },
-    ]);
+    expect(snap.index![0].observations).toEqual([{ id: "layers" }]);
     expect(JSON.stringify(snap)).not.toContain('"properties"');
     expect(snap.surfacesHash).toBe(surfacesHash(snap.index!));
 
@@ -878,5 +873,68 @@ describe("the index of a surface", () => {
     expect(surfacesHash([surfaceIndex(manifest)])).toMatch(
       /^fnv1a64:[0-9a-f]{16}$/,
     );
+  });
+});
+
+describe("an observation in index form", () => {
+  const rows = { ref: "id", title: "name", index: ["id", "name"] };
+  const observation = {
+    id: "document",
+    description: "The whole document, with every layer and what each field means.",
+    schema: {
+      type: "object",
+      description: "A long account of the document.",
+      properties: {
+        name: { type: "string", description: "What it is called." },
+        layers: {
+          type: "array",
+          description: "Its layers.",
+          "x-rows": rows,
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              children: { type: "array", "x-rows": rows },
+            },
+          },
+        },
+      },
+    },
+  };
+  const surface = (observations: typeof observation[]) => ({
+    id: "room",
+    name: "Room",
+    description: "A room.",
+    observations,
+    actions: [],
+  });
+
+  it("keeps its id and what leads to a list of rows, and nothing else", () => {
+    expect(surfaceIndex(surface([observation])).observations).toEqual([
+      {
+        id: "document",
+        schema: {
+          properties: {
+            layers: {
+              "x-rows": rows,
+              items: { properties: { children: { "x-rows": rows } } },
+            },
+          },
+        },
+      },
+    ]);
+  });
+
+  it("is its id alone when it declares no rows", () => {
+    const plain = {
+      id: "theme",
+      description: "The theme.",
+      schema: { type: "string", enum: ["dark", "light"] },
+    };
+    expect(observationIndexEntry(plain)).toEqual({ id: "theme" });
+  });
+
+  it("stays whole in a full-form surface", () => {
+    expect(surface([observation]).observations[0]).toBe(observation);
   });
 });

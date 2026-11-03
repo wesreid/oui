@@ -7,14 +7,16 @@
  * definitions to describe actions from; from an index it fetches a definition
  * when one is needed.
  */
-import { surfaceIndex, type OUIAction, type OUIActionIndexEntry, type OUIObservation, type OUISurface, type OUISurfaceIndex } from 'oui-spec/spec';
+import { surfaceIndex, type OUIAction, type OUIActionIndexEntry, type OUIObservationIndexEntry, type OUISurface, type OUISurfaceIndex } from 'oui-spec/spec';
+
+import { surfaceRank } from './observations.js';
 
 /** One surface of the page: what it is, what it reports, and its actions in index. */
 export interface PageSurface {
   id: string;
   name: string;
   description: string;
-  observations?: OUIObservation[];
+  observations?: OUIObservationIndexEntry[];
   index: OUIActionIndexEntry[];
 }
 
@@ -133,14 +135,17 @@ export function indexLine(entry: OUIActionIndexEntry): string {
   return `- ${entry.id}: ${entry.description} (${takes}${marks.length ? `; ${marks.join('; ')}` : ''})`;
 }
 
-/** The longest the page's index is in the model's context, in characters, before surfaces are listed by name only. */
+/** The longest the page's index is in the model's context, in characters, before surfaces are listed by id only. */
 export const DEFAULT_INDEX_CHARS = 60_000;
 
 /**
  * The page's index as the model reads it: each surface, then its actions a
- * line each. Past `maxChars`, the surfaces furthest from the page (shared
- * chrome before rooms and pages, as `order` gives them) are listed by their
- * action ids only, and say so: every action stays findable.
+ * line each. Past `maxChars`, surfaces are listed by their action ids only, and
+ * say so, so every action stays findable: first the frame around every page,
+ * then what is shared between pages, then the pages and rooms, the longest
+ * mounted first. A client lists its surfaces as they mounted, so what the person
+ * opened last, a studio docked on the page they are working in, keeps its lines
+ * longest.
  */
 export function indexText(page: readonly PageSurface[], maxChars: number = DEFAULT_INDEX_CHARS): string {
   const full = page.map((s) => ({
@@ -148,15 +153,19 @@ export function indexText(page: readonly PageSurface[], maxChars: number = DEFAU
     text: [`${s.name} (${s.id}): ${s.description}`, ...s.index.map(indexLine)].join('\n'),
   }));
   let total = full.reduce((n, s) => n + s.text.length + 2, 0);
-  // Shorten from the end: a client lists the page's own surfaces first.
-  for (let i = full.length - 1; i >= 0 && total > maxChars; i--) {
-    const s = full[i].surface;
+  if (total <= maxChars) return full.map((s) => s.text).join('\n\n');
+  const shortestFirst = full
+    .map((entry, at) => ({ entry, at }))
+    .sort((a, b) => surfaceRank(b.entry.surface.id, undefined) - surfaceRank(a.entry.surface.id, undefined) || a.at - b.at);
+  for (const { entry } of shortestFirst) {
+    if (total <= maxChars) break;
+    const s = entry.surface;
     const short = [
       `${s.name} (${s.id}): ${s.description}`,
       `- ${s.index.length} actions, listed by id only to save room; describe one to learn what it does: ${s.index.map((a) => a.id).join(', ')}`,
     ].join('\n');
-    total += short.length - full[i].text.length;
-    full[i].text = short;
+    total += short.length - entry.text.length;
+    entry.text = short;
   }
   return full.map((s) => s.text).join('\n\n');
 }

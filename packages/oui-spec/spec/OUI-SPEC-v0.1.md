@@ -766,8 +766,13 @@ interface OUISurfaceIndex {
   id: string;
   name: string;
   description: string;
-  observations?: OUIObservation[]; // whole: they say how to read the values
+  observations?: OUIObservationIndexEntry[];
   index: OUIActionIndexEntry[];
+}
+
+interface OUIObservationIndexEntry {
+  id: string;
+  schema?: JSONSchema; // only what leads to an `x-rows` declaration, when there is one
 }
 
 interface OUIActionIndexEntry {
@@ -786,6 +791,10 @@ interface OUIActionIndexEntry {
 
 - An entry is derived from the action's definition by rule, so the same
   definition gives the same entry everywhere.
+- An observation is carried by its id, with `schema` reduced to `x-rows`, `items`
+  and `properties` where they lead to an `x-rows` declaration. An agent runtime
+  needs those to shorten a list of rows by rule (§7.3.9). A definition in full
+  form (`surfaces`) keeps the whole declaration.
 - `input` names the input's properties with their types, required ones first,
   optional ones marked `?`, the first six, then `+N more`. An action that takes
   nothing has `none`. A union has `one of N shapes`, and `by <property>` when

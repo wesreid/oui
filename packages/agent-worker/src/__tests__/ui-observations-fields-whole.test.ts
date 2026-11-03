@@ -184,3 +184,58 @@ describe('the page state over budget, with a big list and an open detail panel',
     expect(text).toContain('fitted from');
   });
 });
+
+describe('a form of short lists over budget', () => {
+  const row = (key: string, value: string) => ({
+    key,
+    title: `Row ${key}`,
+    schema: { type: 'string', description: 'x'.repeat(200), enum: ['a', 'b'] },
+    value,
+  });
+  // Forty lists of four rows: each short enough to be left whole, together far over budget.
+  const form = {
+    'page:FormPage': {
+      state: {
+        values: { 'form.name': 'October' },
+        lists: Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`form.list-${i}`, ['a', 'b', 'c', 'd'].map(k => row(k, 'a'))])),
+      },
+    },
+    'shell:StudioShell': { state: { values: { 'shell.theme': 'twilight' }, lists: {} } },
+  };
+  const pageOf = (bounded: unknown) =>
+    (bounded as { values: Record<string, { state: { values: Record<string, unknown>; lists: Record<string, unknown[]> } }> }).values['page:FormPage'].state;
+
+  it('takes the rows’ schemas off first, keeping every row’s value', () => {
+    const bounded = boundObservations(form, 12_000);
+    const page = pageOf(bounded);
+    expect(page.lists['form.list-39'][0]).toEqual({ key: 'a', title: 'Row a', value: 'a' });
+    expect(page.values).toEqual({ 'form.name': 'October' });
+  });
+
+  it('then makes them index rows, and then counts, saying how they are read, and never leaves the page out', () => {
+    const indexed = pageOf(boundObservations(form, 7_000));
+    expect(indexed.lists['form.list-0'][0]).toEqual({ key: 'a', title: 'Row a' });
+    const counted = boundObservations(form, 2_000) as { note: string };
+    expect(pageOf(counted).lists['form.list-0']).toEqual(['4 rows']);
+    expect(counted.note).toContain('ui_read');
+    expect(counted.note).toContain('/lists/');
+  });
+
+  it('leaves the shell out before it touches the page’s short lists', () => {
+    const smaller = { ...form, 'page:FormPage': { state: { values: {}, lists: { 'form.list': ['a', 'b', 'c', 'd'].map(k => row(k, 'a')) } } } };
+    const whole = JSON.stringify(smaller['page:FormPage']).length;
+    const bounded = boundObservations(smaller, whole + 30) as { note: string };
+    expect(pageOf(bounded).lists['form.list'][0]).toHaveProperty('schema');
+    expect(bounded.note).toContain('left out to fit: shell:StudioShell');
+  });
+
+  it('keeps a chosen row whole in a short list, as it does in a long one', () => {
+    const chosen = {
+      'page:FormPage': {
+        state: { values: {}, lists: Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`form.toggle-${i}`, [{ key: 'on', title: 'On', value: true }, ...['b', 'c', 'd'].map(k => row(k, 'a'))]])) },
+      },
+    };
+    const page = pageOf(boundObservations(chosen, 3_000));
+    expect(page.lists['form.toggle-0'][0]).toEqual({ key: 'on', title: 'On', value: true });
+  });
+});
