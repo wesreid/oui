@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.23.2
+
+### Patch Changes
+
+- A line of the page's index drops what the model does not use: the word "takes", "(takes nothing)", and the type of a text, list or object. An enum's first values and a number's range stay. Measured with a live model on a long form: names alone, or a long enum as a count, made it describe twice as often and a turn cost more than the shorter index saved; this form describes no more often and costs the same. A studio page's index is about 11% shorter.
+
 ## 0.23.1
 
 ### Patch Changes

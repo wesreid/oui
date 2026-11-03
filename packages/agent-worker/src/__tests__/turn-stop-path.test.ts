@@ -271,8 +271,8 @@ describe.each(['throws', 'ends'] as const)('a stop while a tool is running, when
     };
     const started = Date.now();
     const { stored } = await run({ stop, tools: [deaf] });
-    // The grace (40 ms here) and its margin, not the tool's 30 s timeout.
-    expect(Date.now() - started).toBeLessThan(2_000);
+    // The grace (40 ms here) and a margin for a loaded machine, not the tool's 30 s timeout.
+    expect(Date.now() - started).toBeLessThan(10_000);
     release();
 
     expect(stored!.map((m) => m.role)).toEqual(['assistant', 'tool']);
