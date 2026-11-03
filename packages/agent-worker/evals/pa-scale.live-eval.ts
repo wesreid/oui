@@ -18,8 +18,11 @@
  * 4. **Recover from a blind answer** — the first answer arrives without the
  *    page's state: the model reads the page before it changes anything else,
  *    and the document ends as asked, with nothing done twice.
- * 5. **Context** — the largest call of a turn on this page stays under 30,000
- *    tokens, where the definitions alone were about 154,000.
+ * 5. **Context** — on a page whose index is over the worker's limit, listed by
+ *    action id to fit, the largest call of a turn stays under 30,000 tokens,
+ *    where the definitions alone were about 154,000. On a page whose whole index
+ *    fits the limit, every line reaches the model, and the largest call stays
+ *    under 36,000.
  *
  * Run: `pnpm --filter @ouispec/agent-worker eval:live` with Bedrock
  * credentials (e.g. `AWS_PROFILE=<profile> AWS_REGION=us-east-1`).
@@ -27,7 +30,9 @@
  * `EVAL_TEMPERATURE=none` sends no temperature, for a model that takes none.
  */
 import { describe, expect, it } from 'vitest';
-import { jsonBytes, type JSONSchema } from 'oui-spec/spec';
+import { jsonBytes, type JSONSchema, type OUIIndexSnapshot } from 'oui-spec/spec';
+
+import { DEFAULT_INDEX_CHARS, indexText, pageFromIndex } from '../src/ui/page-index.js';
 
 import { LIVE_MODEL_ID, livePage, liveTurn, type LiveAction } from './support/live-page.js';
 
@@ -76,7 +81,11 @@ function effectSchema(): JSONSchema {
   };
 }
 
-function studio() {
+/** Actions besides the four that do the work: over the worker's index limit, and within it. */
+const OVER_THE_LIMIT = 440;
+const WITHIN_THE_LIMIT = 396;
+
+function studio(others = OVER_THE_LIMIT) {
   const layers: Layer[] = [
     { id: 'ly-7f3a', name: 'Title', effects: [] },
     { id: 'ly-91bc', name: 'Subtitle', effects: [] },
@@ -138,7 +147,7 @@ function studio() {
         return { success: true, data: { added: p.effect, to: layer.id } };
       },
     },
-    ...Array.from({ length: 396 }, (_, a): LiveAction => ({
+    ...Array.from({ length: others }, (_, a): LiveAction => ({
       id: `studio_set_property_${a}`,
       title: `Set property ${a}`,
       description: `Sets property ${a} of the selected layers. It is one undo step.`,
@@ -173,11 +182,19 @@ function report(scenario: string, run: number, detail: Record<string, unknown>) 
 /** A sentence that says it cannot be done. */
 const SAYS_CANNOT = /\b(can(?:no|')t|unable|not (?:able|possible|available|supported|offered|one of|among|in the)|(?:isn|aren|doesn|don)['’]?t|no (?:such|halftone)|does not (?:have|offer|include))\b/i;
 
-describe(`pa-scale on ${LIVE_MODEL_ID}: a page of 400 actions, worked from its index`, () => {
+describe(`pa-scale on ${LIVE_MODEL_ID}: a page of hundreds of actions, worked from its index`, () => {
   it('the page’s definitions would not fit a frame, and its index does', () => {
     const { page, definitionsBytes } = studio();
     expect(definitionsBytes).toBeGreaterThan(200 * 1024);
     expect(jsonBytes(page.snapshot())).toBeLessThan(128 * 1024);
+  });
+
+  it('holds one page over the index limit and one within it, so each limit below measures what it says', () => {
+    const indexOf = (others: number) => pageFromIndex((studio(others).page.snapshot() as OUIIndexSnapshot).index);
+    expect(indexText(indexOf(OVER_THE_LIMIT), Infinity).length).toBeGreaterThan(DEFAULT_INDEX_CHARS);
+    expect(indexText(indexOf(OVER_THE_LIMIT))).toContain('listed by id only');
+    expect(indexText(indexOf(WITHIN_THE_LIMIT), Infinity).length).toBeLessThanOrEqual(DEFAULT_INDEX_CHARS);
+    expect(indexText(indexOf(WITHIN_THE_LIMIT))).not.toContain('listed by id only');
   });
 
   for (let run = 1; run <= RUNS; run++) {
@@ -189,6 +206,24 @@ describe(`pa-scale on ${LIVE_MODEL_ID}: a page of 400 actions, worked from its i
       expect(page.ran.filter((r) => r.action !== 'studio_layers_query').map((r) => r.action)).toEqual(['studio_layer_rename']);
       // The largest call of the turn: tools, index, prompt and the page's state.
       expect(turn.usage.peakPromptTokens).toBeLessThan(30_000);
+    }, 180_000);
+
+    it(`finds one action in a whole index, every line of it read (run ${run})`, async () => {
+      const { page, layers } = studio(WITHIN_THE_LIMIT);
+      const turn = await liveTurn(page, 'Rename the layer called Subtitle to Tagline.');
+      report('find-in-whole-index', run, { names: layers.map((l) => l.name), calls: turn.calls, peakPromptTokens: turn.usage.peakPromptTokens });
+      expect(layers.map((l) => l.name)).toEqual(['Title', 'Tagline', 'Logo', 'Backdrop']);
+      expect(page.ran.filter((r) => r.action !== 'studio_layers_query').map((r) => r.action)).toEqual(['studio_layer_rename']);
+      expect(turn.usage.peakPromptTokens).toBeLessThan(36_000);
+    }, 180_000);
+
+    it(`opens one effect of sixty from a whole index (run ${run})`, async () => {
+      const { page, layers } = studio(WITHIN_THE_LIMIT);
+      const turn = await liveTurn(page, 'Add a glow to the Title layer, with a radius of 12.');
+      const title = layers.find((l) => l.name === 'Title')!;
+      report('open-from-whole-index', run, { effects: title.effects, calls: turn.calls, peakPromptTokens: turn.usage.peakPromptTokens });
+      expect(title.effects[0]).toMatchObject({ effect: 'glow', radius: 12 });
+      expect(turn.usage.peakPromptTokens).toBeLessThan(36_000);
     }, 180_000);
 
     it(`opens one effect of sixty by path and adds it with its own parameters (run ${run})`, async () => {

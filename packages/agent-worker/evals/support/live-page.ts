@@ -132,6 +132,8 @@ export interface LiveTurn {
   calls: string[];
   /** What it asked the user through `present_options`: the question, and each option's words. */
   asked: string;
+  /** What the worker refused before it reached the page, because its input was invalid: an option the action does not take, say. */
+  rejected: string[];
   /** Usage the worker reported for the turn. */
   usage: { peakPromptTokens: number; promptTokens: number };
   rounds: number;
@@ -192,7 +194,11 @@ export async function liveTurn(
       return [[input.context, input.prompt].filter(Boolean).join(' '), ...(input.options ?? []).map((o) => `${o.label ?? ''} ${o.description ?? ''}`)].join('\n');
     })
     .join('\n');
+  const rejected = result.newMessages
+    .filter((m) => m.role === 'tool' && typeof m.content === 'string' && /"invalidInput":\s*true|Invalid input for/.test(m.content))
+    .map((m) => String(m.content).slice(0, 240));
   return {
+    rejected,
     text: said.join('\n'),
     reply: said.at(-1) ?? '',
     calls,
