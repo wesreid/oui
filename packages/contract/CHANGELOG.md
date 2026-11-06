@@ -1,5 +1,19 @@
 # @ouispec/contract
 
+## 0.12.1
+
+### Patch Changes
+
+- The assistant can wait for work an action started: `ui_wait`, a fourth UI tool.
+
+  A UI action that starts work (a job, an export) waits for its outcome in the call for 20 s at most (`jobWaitMs`); work still going then is reported running, and nothing starts a turn when it ends. So an assistant whose request needed the outcome had no way to get it: on a studio page it started a one-minute image job, was told it was running, ended its turn asking the person to tell it when the job was done, and was never told.
+
+  `ui_wait` waits for such work, named by its `jobId` (as the call's answer gave it) or its `action`, or the work started last, until it ends, its own `timeoutMs` passes, or the turn must answer (`waitDeadline`), whichever is first. It answers as the action's call would have: its outcome, what the page offers now, and what it shows. Work still running then is reported running, never done; a stop ends the wait and says the work may still be running. The answer that reports work running says when to wait for it and that nothing reports its end after the turn. The time a step spends in `ui_wait` does not count as the step's length when the turn decides whether to hand back for time, since the wait bounds itself.
+
+  - `AGENT_UI_TOOLS.wait` (`ui_wait`), `UI_WAIT_TOOL`, and `buildUITools(...).wait`; `UIToolDependencies.running` shares the turn's running work across rebuilt tools (`RunningWork`, `RunningWorkLog`).
+  - A host tool named `ui_wait` is withheld, as one named after any UI tool is.
+  - `StepClock.waited(ms)`.
+
 ## 0.11.0
 
 ### Minor Changes

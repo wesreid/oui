@@ -634,12 +634,13 @@ A page's action definitions weigh what its whole catalogue weighs. On a studio p
 
 - **The snapshot and every answer carry an index of the page's actions.** Each entry has the action's id, title, the first sentence of its description, its effect, and one line saying what it takes ("none", "value: number 0–100 px", "one of 60 shapes by effect"). The line is derived from the action's input schema by rule.
 - **The assistant fetches a definition when it needs one.** The surface runtime answers `oui.describe` itself, with the action's live definition, including options the page loaded at run time.
-- **The assistant has three UI tools, whatever the page offers:**
+- **The assistant has four UI tools, whatever the page offers:**
   - `ui_act` runs one action by its id.
   - `ui_describe` says what actions take. A large input comes back as an outline, and one part of it is opened by path.
   - `ui_read` reads part of the page's state.
+  - `ui_wait` waits for work an action started (a job, an export) that was still running when the action's call answered. A call waits for its work's outcome only briefly (20 s by default, `jobWaitMs`), so a turn is never held by a job queued for minutes. Work still going then is reported running, never done, and nothing starts a turn when it ends. When the rest of the request needs the outcome (to check what was made, or to act on it), the assistant calls `ui_wait`: it waits until the work ends, its own `timeoutMs` passes, or the turn must answer, whichever is first, and answers as the action's call would have, with the outcome and the page after it. A stop ends the wait; the time spent in it does not count as a step's length when the turn decides whether to hand back.
 
-  When the client sends knowledge, a fourth: `ui_guide` reads what the prompt leaves out of it. The knowledge is bounded in the prompt (12,000 characters): small entries whole, a large one cut at a line with how much is left, and workflows by name; `ui_guide` reads the rest of an entry a page at a time, or one workflow with its steps.
+  When the client sends knowledge, a fifth: `ui_guide` reads what the prompt leaves out of it. The knowledge is bounded in the prompt (12,000 characters): small entries whole, a large one cut at a line with how much is left, and workflows by name; `ui_guide` reads the rest of an entry a page at a time, or one workflow with its steps.
 - **The page's index is in the page state the model reads,** with its own budget, so the assistant's context stays about the same size however many actions the app has.
 - **Only the newest answer carries the page's state to the model.** Every earlier answer of the turn keeps what its action did (its result, the rows it changed, what the page offers since) and says where the state is, so a turn of many actions costs about what one does, plus what each did.
 - **UI actions are not counted against a per-tool quota:** they run as the person, bounded by the turn's steps and deadline. What is refused is a loop: the same call with the same input, once it has changed nothing three times in a row. Undo five times is five undos.
