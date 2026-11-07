@@ -16,7 +16,8 @@ import type { ToolPolicy } from '../authz/tool-policy.js';
 import type { UIActionChannel } from '../ui/channel.js';
 import type { LanguageModel, ProviderOptions } from '../model.js';
 import type { ApprovalStoreClient } from '../approvals/client.js';
-import type { ApprovalChannel, ApprovalContinuation, AttachmentRef, TurnStoppedReason, TurnStoppedMarker } from '@ouispec/agent-core';
+import type { ApprovalChannel, ApprovalContinuation, AttachmentRef, ResumeContinuation, TurnStoppedReason, TurnStoppedMarker } from '@ouispec/agent-core';
+import type { ResumedTurn } from '../resume/resumed-calls.js';
 import type { AttachmentWorkerConfig } from '../attachments/store.js';
 import type { AttachmentUsage } from '../attachments/guard.js';
 import type { TurnStopClient } from '../stop/turn-stop.js';
@@ -49,6 +50,14 @@ export interface AgentTurnPayload {
    * token to redeem, or that they declined.
    */
   approval?: ApprovalContinuation;
+  /**
+   * On the turn a tab starts by itself when work the assistant started (a
+   * job, an export) finished after the turn that started it had ended: the
+   * requests whose outcome the assistant reports, each the id of a tool call
+   * already in the conversation. `content` is empty: store no message of the
+   * person's for it. Never with `approval`.
+   */
+  resume?: ResumeContinuation;
   /**
    * The turns of this conversation that this turn supersedes:
    * the host asked each to stop when this turn's message arrived. The host's
@@ -409,6 +418,8 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
     stopReason?: TurnStoppedReason;
     /** What the turn gave the model of its files: a host keeps `estimatedTokens` for the conversation's cap. */
     attachments?: AttachmentUsage;
+    /** Set on a turn resumed after work (the payload's `resume`): which requests it reported, could not read, and left out. */
+    resumed?: ResumedTurn;
     db: TDb;
   }) => Promise<void>;
 

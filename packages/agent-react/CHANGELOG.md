@@ -1,5 +1,26 @@
 # @ouispec/agent-react
 
+## 0.25.0
+
+### Minor Changes
+
+- The assistant reports work that outlived the turn that started it: a resumed turn.
+
+  A UI action that starts work (a job, an export) waits for its outcome in the call for 20 s at most; `ui_wait` (0.24.0) waits longer, within the turn. Work that ends after the turn reached the assistant only with the person's next message: the tab posted the job's final answer with nobody waiting for it. Now, when such work finishes after its turn has ended, the person's tab starts a turn by itself and the assistant reports the outcome in the same chat.
+
+  - **`oui-spec`:** `runtime.onSettled(listener)` is called once for each request first answered `interim: true`, when its final answer (done, failed, `TIMEOUT`, `SUPERSEDED`, or `SURFACE_NOT_MOUNTED` when its surface left the page) has been sent and acknowledged by the receiving side, so the agent runtime's result store holds it. The event is `OUISettledWork`: `{ requestId, turnId?, surfaceId, actionId, success, at }`. A request that was never interim is not told, nor a final answer refused even trimmed. A listener that throws is logged and does not stop the runtime or the other listeners. The spec says so in §7.3.3.
+  - **`@ouispec/agent-core`:** `ResumeContinuation` (`{ requestIds }`, 1 to `RESUME_MAX_REQUESTS` = 8 ids of at most `RESUME_REQUEST_ID_MAX_CHARS` = 200 characters) and `resumeRefusal`; `resume` on `AgentClientConfig.sendMessage`'s params beside `approval`; `settledWork?: SettledWorkSource` on the client config (`SettledWork` is oui-spec's `OUISettledWork`); `RESUME_MAX_IN_A_ROW` (3) and `RESUME_GATHER_MS` (1,500).
+  - **`@ouispec/agent-react`:** with `config.settledWork` (wire it to `runtime.onSettled`), the provider resumes for work of a turn of the open conversation that this tab ran and that ended by itself (answered, handed back for time, failed, or out of time). Never for a turn the person stopped, one their newer message superseded, one a person on the staff took over, or one that ended waiting for an approval; never while a turn runs or starts, a conversation loads, an approval card or a choice waits, or a person on the staff holds the conversation; a conversation switch or a new conversation forgets the turns before. Work ending within 1.5 s of the last goes in one turn, and at most 3 turns in a row are started this way before the person writes again. The turn goes through `sendMessage` like an approval's continuation: empty `content`, no message shown, the page's context as a message carries it, and `resume: { requestIds }`. Every decision is in the debug log. Nothing new on `useAgent()`.
+  - **`@ouispec/agent-worker`:** the turn payload takes `resume` (`payloadRefusal` refuses a malformed one, and `resume` with `approval`). The turn takes each request only when the conversation's history holds the tool call with its id and that call's latest result still says it is running, so a client never reads another conversation's results and an outcome is never reported twice. It reads each final answer from the realtime server and gives it to the model as that call's result, in `ui_wait`'s words (`laterAnswerFor`), in place of "still running", stored under the call's own id so later turns read the outcome; an approved call keeps its approval on it. In place of a message the model is told, in a `<resumed>` note, that nobody wrote, why the turn started (each work named by its declared title), and to tell the person briefly what came of it after checking the page, going on with their earlier request if it needed the outcome. A final answer that can no longer be read is said so, and nothing is stored for it. When nothing is left to report, the turn completes without calling the model. The answer that reports work running now says the assistant is brought back to report it when it finishes after the turn, while the person's window is open. The turn's logs, usage line, result and `recordTurnComplete` carry `resumed` (`ResumedTurn`).
+  - **`@ouispec/contract`:** the integrator guide says how a resumed turn works (`60-runtime.md`).
+
+  Platforms: pass `resume` from your `sendMessage` to the worker's turn payload unchanged, and store no user message for its empty content.
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/agent-core@0.25.0
+
 ## 0.24.0
 
 ### Patch Changes

@@ -14,6 +14,7 @@
 import type { AgentProtocolEvent } from '../protocol/index.js';
 import type { ViewAnnotationState } from './api-surface.js';
 import type { ApprovalContinuation, ApprovalGrant } from '../approvals/types.js';
+import type { ResumeContinuation, SettledWorkSource } from '../turns/resume.js';
 import type { TurnStoppedMarker } from '../turns/types.js';
 import type { AttachmentLimits, AttachmentRef } from '../attachments/types.js';
 import type { MessageInput } from '../message-input/index.js';
@@ -278,6 +279,15 @@ export interface AgentClientConfig {
      * the click is not a message.
      */
     approval?: ApprovalContinuation;
+    /**
+     * Set on the turn the provider starts by itself when work the assistant
+     * started finished after the turn that started it had ended
+     * (`settledWork`): the requests whose outcome the assistant reports. The
+     * platform passes it, unchanged, to the worker as the turn payload's
+     * `resume`. `content` is then empty: nobody wrote anything, so store no
+     * message of the person's for it.
+     */
+    resume?: ResumeContinuation;
   }) => Promise<{ turnId: string; socketRoom: string; roomToken?: string }>;
 
   /**
@@ -308,6 +318,25 @@ export interface AgentClientConfig {
    * assistant has no UI actions may leave it out.
    */
   grantApproval?: (grant: ApprovalGrant) => boolean | void;
+
+  /**
+   * The tab's OUI runtime telling when work an action started (a job, an
+   * export) has ended and the realtime server holds its outcome: wire it to
+   * `runtime.onSettled` in oui-spec, `{ subscribe: (listener) => runtime.onSettled(listener) }`.
+   *
+   * With it, when such work finishes after the turn that started it has
+   * ended, the provider starts a turn by itself so the assistant reports the
+   * outcome in the same chat: only for a turn of the open conversation that
+   * this tab ran, that ended by itself (a hand-back for time and a failure
+   * included), while no turn runs, no approval card or choice waits, and no
+   * person on the staff holds the conversation; never for a turn the person
+   * stopped or superseded with a newer message. Work that ends close together
+   * is reported in one turn, and at most `RESUME_MAX_IN_A_ROW` turns are
+   * started this way before the person writes again. The turn goes through
+   * `sendMessage` with empty `content` and `resume`. Without it, the outcome
+   * reaches the assistant with the person's next message.
+   */
+  settledWork?: SettledWorkSource;
 
   /**
    * Platform callback listing the user's conversations, most recent first.

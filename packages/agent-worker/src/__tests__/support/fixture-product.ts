@@ -8,7 +8,7 @@
 import { io as connectClient, type Socket } from 'socket.io-client';
 import { createWebSocketTransport } from 'oui-spec/transport';
 import { createSurfaceRuntime, defineSurface, type ActionHandlerResult, type MountedSurface } from 'oui-spec/core';
-import type { OUIAction, OUIActionRequest, OUISurface } from 'oui-spec/spec';
+import type { OUIAction, OUIActionRequest, OUISettledWork, OUISurface } from 'oui-spec/spec';
 import {
   APPROVAL_DECIDE_EVENT,
   APPROVAL_PUSH_EVENTS,
@@ -96,10 +96,32 @@ export const SAVED_REPORTS = [
   { id: 'q2', title: 'Q2 results' },
 ];
 
+/**
+ * Work that outlives a call: rendering a report is a job, which the page
+ * follows until it ends and then answers the request once more with its
+ * outcome. The test ends each job when it chooses (`FixtureTab.finishJob`).
+ */
+export const renderReportAction = {
+  id: 'renders_start',
+  title: 'Render a report',
+  description: 'Renders a saved report to a PDF. It takes about a minute.',
+  effect: 'write',
+  input: { type: 'object', properties: { reportId: { type: 'string', title: 'Report' } }, required: ['reportId'], additionalProperties: false },
+  async: true,
+  polling: { intervalMs: 20, maxDurationMs: 60_000 },
+} satisfies OUIAction;
+export const rendersSurface: OUISurface = {
+  id: 'renders',
+  name: 'Renders',
+  description: 'Reports rendered to PDF',
+  actions: [renderReportAction],
+};
+
 /** What each page offers once the tab is on it. */
 const PAGES: Record<string, OUISurface[]> = {
   '/inbox': [shellSurface, inboxSurface],
   '/reports': [shellSurface, reportsSurface],
+  '/renders': [shellSurface, rendersSurface],
 };
 
 /**
@@ -156,6 +178,12 @@ export interface FixtureTab {
   grantApproval(grant: ApprovalGrant): boolean;
   /** The UI actions this tab's page really ran, in order. */
   ran: Array<{ actionId: string; params: Record<string, unknown> }>;
+  /** End the job a `renders_start` request started (its id is `render-{requestId}`), with what it made. */
+  finishJob(jobId: string, made: Record<string, unknown>): void;
+  /** What the tab's OUI runtime told of work that ended (`runtime.onSettled`), in order. */
+  settled: OUISettledWork[];
+  /** Resolves when the runtime tells that this request's work ended (or has told). */
+  settledFor(requestId: string, timeoutMs?: number): Promise<OUISettledWork>;
   /** UI action requests the tab received. */
   dispatches: OUIActionRequest[];
   /** Every server event the tab received, in order. */
@@ -227,6 +255,17 @@ async function openTab(server: RealtimeServerInstance, session: string, firstTur
   //. The requests are also kept, as the wire carried them.
   const runtime = createSurfaceRuntime({ announce: false, settle: { quietMs: 10, timeoutMs: 1_000 } });
   const ran: FixtureTab['ran'] = [];
+  // Each job a render started, by its id: what it made once the test ends it.
+  const jobs = new Map<string, Record<string, unknown> | null>();
+  const settled: OUISettledWork[] = [];
+  const settledWaiters: Array<{ requestId: string; resolve: (work: OUISettledWork) => void }> = [];
+  runtime.onSettled((work) => {
+    settled.push(work);
+    for (const w of settledWaiters.filter((w) => w.requestId === work.requestId)) {
+      settledWaiters.splice(settledWaiters.indexOf(w), 1);
+      w.resolve(work);
+    }
+  });
   let mounted: MountedSurface[] = [];
   let shownPath = '';
   const show = (path: string) => {
@@ -234,7 +273,7 @@ async function openTab(server: RealtimeServerInstance, session: string, firstTur
     const surfaces = PAGES[path];
     if (!surfaces) throw new Error(`the fixture has no page ${path}`);
     for (const m of mounted) m.unmount();
-    mounted = surfaces.map((surface) => runtime.mount(withHandlers(surface, show, ran), () => ({})));
+    mounted = surfaces.map((surface) => runtime.mount(withHandlers(surface, show, ran, jobs), () => ({})));
     // A page reports what it shows, as a real one does.
     mounted.find((m) => m.surfaceId === reportsSurface.id)?.pushObservation('reports', SAVED_REPORTS);
     shownPath = path;
@@ -279,6 +318,25 @@ async function openTab(server: RealtimeServerInstance, session: string, firstTur
     pushed,
     grantApproval: (grant) => runtime.grantApproval(grant),
     ran,
+    finishJob(jobId, made) {
+      if (!jobs.has(jobId)) throw new Error(`the fixture tab started no job ${jobId}`);
+      jobs.set(jobId, made);
+    },
+    settled,
+    settledFor: (requestId, timeoutMs = 5_000) => {
+      const told = settled.find((w) => w.requestId === requestId);
+      if (told) return Promise.resolve(told);
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`the tab's runtime told of no settled work for ${requestId} within ${timeoutMs} ms`)), timeoutMs);
+        settledWaiters.push({
+          requestId,
+          resolve: (work) => {
+            clearTimeout(timer);
+            resolve(work);
+          },
+        });
+      });
+    },
     // As the approval card does: the decision on the user's own socket, and an
     // approval's grant handed to this tab's runtime.
     decide: (approvalId, decision) =>
@@ -303,9 +361,20 @@ async function openTab(server: RealtimeServerInstance, session: string, firstTur
   };
 }
 
-/** A page's surface with what its actions really do on this tab, each run recorded in `ran`. */
-function withHandlers(surface: OUISurface, show: (path: string) => void, ran: FixtureTab['ran']) {
+/** A page's surface with what its actions really do on this tab, each run recorded in `ran`; a render's job kept in `jobs`. */
+function withHandlers(
+  surface: OUISurface,
+  show: (path: string) => void,
+  ran: FixtureTab['ran'],
+  jobs: Map<string, Record<string, unknown> | null>,
+) {
+  let renders = 0;
   const handlers: Record<string, (params: Record<string, unknown>) => ActionHandlerResult> = {
+    renders_start: (params) => {
+      const jobId = `render-${++renders}-${String(params.reportId)}`;
+      jobs.set(jobId, null);
+      return { success: true, data: { status: 'started', jobId } };
+    },
     navigate: (params) => {
       const path = String(params.path ?? '');
       if (!PAGES[path]) return { success: false, error: { code: 'NOT_FOUND', message: `No page at ${path}` } };
@@ -319,6 +388,19 @@ function withHandlers(surface: OUISurface, show: (path: string) => void, ran: Fi
     ...surface,
     actions: surface.actions.map((action) => ({
       ...action,
+      // A job is followed until the test ends it: then the page answers the request with what it made.
+      ...(action.polling
+        ? {
+            polling: {
+              ...action.polling,
+              resolve: async (dispatched: unknown) => {
+                const jobId = (dispatched as { jobId: string }).jobId;
+                const made = jobs.get(jobId);
+                return made ? { done: true, data: { status: 'complete', jobId, ...made } } : { done: false, data: { status: 'rendering', jobId } };
+              },
+            },
+          }
+        : {}),
       handler: async (params: Record<string, unknown>) => {
         const run = handlers[action.id];
         if (!run) return { success: false, error: { code: 'NOT_FOUND', message: `No action ${action.id}` } };

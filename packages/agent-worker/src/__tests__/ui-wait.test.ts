@@ -123,7 +123,7 @@ describe("ui_wait", () => {
     expect(first.data).toMatchObject({ status: "running", result: { status: "started", jobId: jobIdOf("call-1") } });
     expect(String((first.data as { note: string }).note)).toMatch(/not done/);
     expect(String((first.data as { note: string }).note)).toMatch(/ui_wait/);
-    expect(String((first.data as { note: string }).note)).toMatch(/Nothing tells you when it ends after this turn/);
+    expect(String((first.data as { note: string }).note)).toMatch(/If it finishes after this turn, you are brought back to report it in this chat/);
 
     const waiting = wait({ jobId: jobIdOf("call-1") });
     let settled = false;

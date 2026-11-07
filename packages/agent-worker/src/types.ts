@@ -11,7 +11,8 @@ import type { UIActionChannel } from './ui/channel.js';
 import type { ApprovalStoreClient } from './approvals/client.js';
 import type { ApprovalHooks } from './approvals/hooks.js';
 import type { AgentTurnChannel } from './runtime/turn-info.js';
-import type { ApprovalContinuation } from '@ouispec/agent-core';
+import type { ApprovalContinuation, ResumeContinuation } from '@ouispec/agent-core';
+import type { ResumedTurn } from './resume/resumed-calls.js';
 
 /**
  * Configuration for the agent worker.
@@ -191,6 +192,14 @@ export interface AgentTurnInput {
    */
   approval?: ApprovalContinuation;
   /**
+   * Set on the turn a tab starts by itself when work the assistant started
+   * finished after the turn that started it had ended: the requests whose
+   * final answers the turn reads from the realtime server and gives the model
+   * as the later results of the calls that started the work. Never with
+   * `approval`.
+   */
+  resume?: ResumeContinuation;
+  /**
    * The turn's watch for a stop, when the caller opened it before this call:
    * the turn runner does, before it reads history, so a stop asked for while
    * the turn waited is heard first. Without it, one is opened from
@@ -326,6 +335,8 @@ export interface AgentTurnResult {
   stored?: false;
   /** What the turn gave the model of its files, when the host has a file area. */
   attachments?: AttachmentUsage;
+  /** Set on a turn resumed after work: which requests it reported, could not read, and left out. */
+  resumed?: ResumedTurn;
 }
 
 export interface TurnMessage {

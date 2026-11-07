@@ -286,6 +286,19 @@ here is its id. The agent is not held until a two-minute render finishes. The
 client polls or subscribes, publishes progress as observations, and sends the
 request's final result when the job ends.
 
+The application can hear that moment: `runtime.onSettled(listener)` is called
+once for each request that was answered "started", when its final answer (done,
+failed, timed out, or abandoned because its surface left the page) has been
+received by the agent runtime. The event names the request, the turn that sent
+it, the surface and action, and whether the work succeeded. An agent client
+uses it to have the agent report work that outlived the turn that started it.
+
+```ts
+const off = runtime.onSettled(({ requestId, turnId, actionId, success }) => {
+  // e.g. hand it to the agent client: config.settledWork = { subscribe: runtime.onSettled }
+});
+```
+
 ### Approvals
 
 Some actions can't be undone: an order placed, a payment made, a message sent, something published, or something the person made deleted. An action declares this with `effect: 'transaction'`, or with `confirm: true` for a destructive write. It then runs only on the user's approval of the exact request.

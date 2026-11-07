@@ -6,6 +6,7 @@ export type {
   OUIActivation,
   OUIActionRequest,
   OUIActionResult,
+  OUISettledWork,
   OUIObservationUpdate,
   OUIObservationSnapshot,
   OUISurfaceSnapshot,

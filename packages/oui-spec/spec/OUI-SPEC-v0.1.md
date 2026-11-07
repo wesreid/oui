@@ -658,6 +658,7 @@ When the agent invokes an action, the runtime sends an `action:request`:
 - If `success` is `true`, the `error` field MUST NOT be present
 - An async action's acknowledgment result MUST set `interim: true`; its final result MUST set `interim: false`
 - An async action whose work failed MUST send its final result as a failure (`success: false`, with `error`); it MAY keep the work's own report in `data`
+- A client runtime MAY tell the application when an async action's final result has been delivered and acknowledged (`OUISettledWork`; the reference runtime's `onSettled`), so the application can act on work that outlived the agent's turn: an agent client can start a turn in which the agent reports the outcome
 
 #### 7.3.4 The Client's State After an Action
 
