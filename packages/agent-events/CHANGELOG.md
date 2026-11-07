@@ -1,5 +1,11 @@
 # @ouispec/agent-events
 
+## 0.24.1
+
+### Patch Changes
+
+- Released again to depend on `@ouispec/contract` 0.12.1, whose integrator guide documents `ui_wait`. No change of their own.
+
 ## 0.23.0
 
 ### Patch Changes

@@ -7,7 +7,7 @@
  * for the model on every call. Here the tab
  * is a real oui-spec runtime in index form, with that many actions and a
  * 90 KB effect catalogue, and the turn runs through the orchestrator:
- * - the model gets three UI tools and the page's index, whatever the page offers;
+ * - the model gets four UI tools and the page's index, whatever the page offers;
  * - an action's definition is fetched from the page when it is used, and its
  *   input is checked against it;
  * - a large definition is described in outline, and opened by path;
@@ -229,7 +229,7 @@ const act = (action: string, input?: Record<string, unknown>) => ({ tool: 'ui_ac
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('what the model is given on a page of 427 actions', () => {
-  it('is three UI tools and an index, small enough for any model, where the definitions were 600 KB', async () => {
+  it('is four UI tools and an index, small enough for any model, where the definitions were 600 KB', async () => {
     const page = studio();
     let tail = '';
     model = async (opts) => {
@@ -241,7 +241,7 @@ describe('what the model is given on a page of 427 actions', () => {
     await runAgentTurn(config(page.channel), turn(page));
 
     const { tools } = seenOpts[0];
-    expect(Object.keys(tools).sort()).toEqual(['ui_act', 'ui_describe', 'ui_read']);
+    expect(Object.keys(tools).sort()).toEqual(['ui_act', 'ui_describe', 'ui_read', 'ui_wait']);
     // The index follows the system prompt; the page's values are read after the conversation.
     const message = String((seenOpts[0] as unknown as { instructions: Array<{ content: string }> }).instructions[1].content) + tail;
     expect(message).toContain('<page_index>');

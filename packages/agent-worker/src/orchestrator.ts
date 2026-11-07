@@ -67,6 +67,8 @@ import {
   UI_ACT_TOOL,
   UI_DESCRIBE_TOOL,
   UI_READ_TOOL,
+  UI_WAIT_TOOL,
+  type RunningWorkLog,
 } from './ui/ui-tools.js';
 import { DEFAULT_INDEX_CHARS, indexText, pageFingerprint, type HeldDefinitions, type PageSurface } from './ui/page-index.js';
 import { describeSchema } from './ui/outline.js';
@@ -118,6 +120,8 @@ const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
 const DEFAULT_UI_RESULT_TIMEOUT_MS = 20_000;
 /** Time left, before the turn's deadline, for the model to answer after waiting on a UI action's work. */
 const UI_ANSWER_MARGIN_MS = 45_000;
+/** The tools the model works the page with: a host tool of one of these names is withheld. */
+const UI_TOOL_NAMES: ReadonlySet<string> = new Set([UI_ACT_TOOL, UI_DESCRIBE_TOOL, UI_READ_TOOL, UI_WAIT_TOOL]);
 
 /**
  * Tools that hand the turn back to the user. The turn stops after any of them:
@@ -225,7 +229,9 @@ export async function runAgentTurn(
   const heldDefinitions: HeldDefinitions = client?.held ?? new Map();
   // Whether the page can be seen: nothing that changes it runs while it cannot.
   const sight = createPageSight();
-  const uiCounts = { describes: 0, reads: 0, acts: 0, guides: 0 };
+  const uiCounts = { describes: 0, reads: 0, acts: 0, guides: 0, waits: 0 };
+  // Work the turn's actions started that was still running when their calls answered: what ui_wait waits for.
+  const runningWork: RunningWorkLog = new Map();
   // Answers whose page state was moved to the end of what the model reads, summed over the turn's steps.
   let pageStatesMoved = 0;
 
@@ -566,14 +572,18 @@ export async function runAgentTurn(
     };
     // A UI tool waits for the client's answer, which has its own deadline, and
     // then for the outcome of work it started: for uiJobWaitMs at most, and
-    // never past uiWaitDeadline.
-    const timeoutMs = isUI
-      ? Math.max(
-          toolTimeoutMs,
-          uiResultTimeoutMs + 5_000,
-          Math.min(uiJobWaitMs, Math.max(0, uiWaitDeadline() - Date.now())) + uiResultTimeoutMs + 5_000,
-        )
-      : toolTimeoutMs;
+    // never past uiWaitDeadline. ui_wait waits for started work alone, up to
+    // uiWaitDeadline.
+    const timeoutMs =
+      t.name === UI_WAIT_TOOL
+        ? Math.max(toolTimeoutMs, Math.max(0, uiWaitDeadline() - Date.now()) + 5_000)
+        : isUI
+          ? Math.max(
+              toolTimeoutMs,
+              uiResultTimeoutMs + 5_000,
+              Math.min(uiJobWaitMs, Math.max(0, uiWaitDeadline() - Date.now())) + uiResultTimeoutMs + 5_000,
+            )
+          : toolTimeoutMs;
 
     // ── No changes while blind ──
     // After an answer that came without the page's state, or no answer, only
@@ -850,6 +860,7 @@ export async function runAgentTurn(
 
     if (t.name === UI_DESCRIBE_TOOL) uiCounts.describes++;
     else if (t.name === UI_READ_TOOL) uiCounts.reads++;
+    else if (t.name === UI_WAIT_TOOL) uiCounts.waits++;
     // It reads what the client sent, and touches no page.
     else if (t.name === KNOWLEDGE_TOOL) uiCounts.guides++;
     else if (isUI) uiCounts.acts++;
@@ -901,6 +912,8 @@ export async function runAgentTurn(
     }
 
     const durationMs = Date.now() - startMs;
+    // Waiting for started work, at the model's choice, is not a measure of the turn's steps (time-hand-back.ts).
+    if (t.name === UI_WAIT_TOOL) stepClock.waited(durationMs);
 
     // Normalize result — built-in tools (present_options, etc.) return the
     // raw payload directly, while schema and UI tools return { success, data, error }.
@@ -1155,6 +1168,7 @@ export async function runAgentTurn(
     actions: Map<string, RegisteredTool>;
     describe: RegisteredTool;
     read: RegisteredTool;
+    wait: RegisteredTool;
   };
   let builtUI: CurrentUI | null = null;
   function currentUI(): CurrentUI | null {
@@ -1171,6 +1185,7 @@ export async function runAgentTurn(
       currentPage: () => currentPage,
       sequence: uiSequence,
       held: heldDefinitions,
+      running: runningWork,
       sight,
       log: (level, message, data) => log(level, 'agent:ui', message, { turnId, ...data }),
       onResult: (_answer, page) => {
@@ -1197,6 +1212,7 @@ export async function runAgentTurn(
       actions: new Map(built.tools.map((t) => [t.name, t])),
       describe: built.describe,
       read: built.read,
+      wait: built.wait,
     };
     return builtUI;
   }
@@ -1208,7 +1224,7 @@ export async function runAgentTurn(
     const sdkOwned = new Set(fileTools.map((t) => t.name));
     if (!ui) return [...config.tools.tools.filter((t) => !sdkOwned.has(t.name)), ...fileTools];
     const taken = (name: string) =>
-      sdkOwned.has(name) || ui.actions.has(name) || name === UI_ACT_TOOL || name === UI_DESCRIBE_TOOL || name === UI_READ_TOOL;
+      sdkOwned.has(name) || ui.actions.has(name) || UI_TOOL_NAMES.has(name);
     const withheld = config.tools.tools.filter((t) => taken(t.name)).map((t) => t.name);
     if (withheld.length > 0) {
       log('error', 'agent:ui', 'Host tools collide with UI tools or action ids; the host tools are withheld this turn', {
@@ -1295,7 +1311,7 @@ export async function runAgentTurn(
 
   /** A tool the model is given, as a turn policy sees it: its name, kind and class. */
   function describeStepTool(name: string): StepTool {
-    if (name === UI_ACT_TOOL || name === UI_DESCRIBE_TOOL || name === UI_READ_TOOL) return { name, kind: 'ui' };
+    if (UI_TOOL_NAMES.has(name)) return { name, kind: 'ui' };
     // The SDK's own file tools take their names before the host's (hostTools).
     const registered = fileTools.find((t) => t.name === name) ?? config.tools.tools.find((t) => t.name === name);
     if (!registered) return { name, kind: 'builtin' };
@@ -1310,6 +1326,7 @@ export async function runAgentTurn(
       tools[UI_ACT_TOOL] = actAiTool();
       tools[UI_DESCRIBE_TOOL] = toAiTool(ui.describe);
       tools[UI_READ_TOOL] = toAiTool(ui.read);
+      tools[UI_WAIT_TOOL] = toAiTool(ui.wait);
     }
     // What the prompt leaves out of the client's knowledge, read when it is needed.
     if (knowledge && !tools[KNOWLEDGE_TOOL]) tools[KNOWLEDGE_TOOL] = toAiTool(knowledgeTool(knowledge));

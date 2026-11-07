@@ -67,7 +67,7 @@ describe.each(providers.map((make) => [make().name, make] as const))('on %s', (_
     expect(provider.requests).toHaveLength(2);
     const first = JSON.stringify(provider.requests[0]);
     const second = JSON.stringify(provider.requests[1]);
-    // The host's prompt, the three UI tools in the provider's format, and the page's index on the message.
+    // The host's prompt, the four UI tools in the provider's format, and the page's index on the message.
     expect(first).toContain('Desk, a reporting product');
     for (const tool of ['ui_act', 'ui_describe', 'ui_read']) expect(first).toContain(`"${tool}"`);
     expect(first).toContain('- navigate: ');

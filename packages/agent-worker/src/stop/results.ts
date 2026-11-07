@@ -53,6 +53,15 @@ export function stoppedBeforeAnswer(what: string): ToolExecutionResult {
   };
 }
 
+/** A wait for work an action started that the stop cut short: the work goes on; nothing was changed by the wait. */
+export function stoppedWhileWaiting(what: string): ToolExecutionResult {
+  return {
+    success: false,
+    error: `The turn was stopped while waiting for "${what}". The wait changed nothing; the work itself may still be running, and its outcome is not known here.`,
+    data: { stopped: true, notRun: true, status: 'unknown' },
+  };
+}
+
 /** The text of a result, as a stored tool message carries it. */
 export function resultText(result: ToolExecutionResult): string {
   return JSON.stringify({ success: false, error: result.error, ...(result.data as Record<string, unknown>) });

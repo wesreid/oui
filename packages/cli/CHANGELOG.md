@@ -1,5 +1,13 @@
 # @ouispec/cli
 
+## 0.12.2
+
+### Patch Changes
+
+- Released again to depend on `@ouispec/contract` 0.12.1, whose integrator guide documents `ui_wait`. No change of their own.
+- Updated dependencies
+  - @ouispec/bindings@0.12.2
+
 ## 0.12.0
 
 ### Patch Changes

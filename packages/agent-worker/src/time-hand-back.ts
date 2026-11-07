@@ -44,11 +44,19 @@ export interface StepTiming {
 export interface StepClock {
   /** Called as each step starts: how long the step before it took, and whether this one is the last. */
   stepStarting(now?: number): StepTiming;
+  /**
+   * Time the current step spent waiting, at the model's choice, for work an
+   * action started (`ui_wait`). It is not counted in the step's length: such a
+   * wait is no measure of the steps after it, and it bounds itself, ending
+   * where the model still has time to answer.
+   */
+  waited(ms: number): void;
 }
 
 /**
  * The turn's step clock. A step lasts from its start to the next step's start,
- * so the time its calls took (a UI action, a job it waited on) is part of it.
+ * so the time its calls took (a UI action, a job its call waited on) is part
+ * of it; the time it spent in `ui_wait` is not (`waited`).
  *
  * The reserve is never more than a quarter of the turn's time, so a short
  * deadline still leaves its first steps to work.
@@ -57,12 +65,17 @@ export function createStepClock(options: { deadlineAt: number; turnDeadlineMs: n
   const reserveMs = Math.max(0, Math.min(options.reserveMs ?? DEFAULT_HAND_BACK_RESERVE_MS, options.turnDeadlineMs / 4));
   let lastStartedAt: number | null = null;
   let longestStepMs = 0;
+  let waitedMs = 0;
   return {
     stepStarting(now = Date.now()) {
-      if (lastStartedAt !== null) longestStepMs = Math.max(longestStepMs, now - lastStartedAt);
+      if (lastStartedAt !== null) longestStepMs = Math.max(longestStepMs, now - lastStartedAt - waitedMs);
       lastStartedAt = now;
+      waitedMs = 0;
       const remainingMs = options.deadlineAt - now;
       return { remainingMs, longestStepMs, reserveMs, handBack: remainingMs < longestStepMs + reserveMs };
+    },
+    waited(ms) {
+      waitedMs += Math.max(0, ms);
     },
   };
 }

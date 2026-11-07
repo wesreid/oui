@@ -20,11 +20,12 @@ export const ALL_AGENT_SOCKET_EVENTS: AgentSocketEventName[] = Object.values(AGE
 
 /**
  * The tools an agent works a client's UI with: the model runs
- * one action of the page through `act`, and learns what actions take and
- * reads the page through the other two. A stored `act` call names the action
- * in its arguments (`{ action, input }`).
+ * one action of the page through `act`, learns what actions take through
+ * `describe`, reads the page through `read`, and waits for work an action
+ * started that was still running when its call answered through `wait`. A
+ * stored `act` call names the action in its arguments (`{ action, input }`).
  */
-export const AGENT_UI_TOOLS = { act: 'ui_act', describe: 'ui_describe', read: 'ui_read' } as const;
+export const AGENT_UI_TOOLS = { act: 'ui_act', describe: 'ui_describe', read: 'ui_read', wait: 'ui_wait' } as const;
 
 /**
  * A tool call as a person should see it: an `act` call is the action it ran,

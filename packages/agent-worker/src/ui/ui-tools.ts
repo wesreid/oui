@@ -9,12 +9,12 @@
  * needed (`oui.describe`), and what did not fit an answer is read from it
  * (`oui.read`).
  *
- * The model is not given one tool per action: it is given the index, and three
- * tools to work it with (`ui_act`, `ui_describe`, `ui_read`). The per-action
+ * The model is not given one tool per action: it is given the index, and four
+ * tools to work it with (`ui_act`, `ui_describe`, `ui_read`, `ui_wait`). The per-action
  * tools built here are what `ui_act` runs, so every check a tool call goes
  * through — input, quota, policy, approval — sees the action itself.
  */
-import { stoppedBeforeAnswer, stoppedNotRun, stoppedNotTaken, stoppedOutcomeUnknown } from '../stop/results.js';
+import { stoppedBeforeAnswer, stoppedNotRun, stoppedNotTaken, stoppedOutcomeUnknown, stoppedWhileWaiting } from '../stop/results.js';
 import { randomUUID } from 'node:crypto';
 import { AGENT_UI_TOOLS } from '@ouispec/agent-core';
 import {
@@ -55,6 +55,25 @@ export const UI_ACT_TOOL = AGENT_UI_TOOLS.act;
 export const UI_DESCRIBE_TOOL = AGENT_UI_TOOLS.describe;
 /** The tool that reads part of the page's state. */
 export const UI_READ_TOOL = AGENT_UI_TOOLS.read;
+/** The tool that waits for work an action started that was still running when its call answered. */
+export const UI_WAIT_TOOL = AGENT_UI_TOOLS.wait;
+
+/**
+ * Work an action of this turn started that was still running when its call
+ * answered: what `ui_wait` waits for. Kept by the call's request id, whose
+ * final answer the page sends once the work has ended.
+ */
+export interface RunningWork {
+  action: PageAction;
+  requestId: string;
+  /** The job's id, as the call's answer gave it, when it gave one. */
+  jobId?: string;
+  /** When the action was sent: its own limit runs from then. */
+  startedAt: number;
+}
+
+/** The turn's running work, by request id, in the order it started. */
+export type RunningWorkLog = Map<string, RunningWork>;
 
 /**
  * Whether the worker can see the page. It cannot after an
@@ -155,6 +174,12 @@ export interface UIToolDependencies {
   sequence?: UISequence;
   /** The definitions the turn already holds, added to as they are fetched. */
   held?: HeldDefinitions;
+  /**
+   * The work the turn's actions started that was still running when their
+   * calls answered, shared by every set of UI tools built during the turn, so
+   * `ui_wait` finds work started before the page last changed.
+   */
+  running?: RunningWorkLog;
   /** Whether the page can be seen, shared by the turn. */
   sight?: PageSight;
   /** Where each answer's size is reported. */
@@ -199,22 +224,25 @@ interface Shared {
   sequence: UISequence;
   held: HeldDefinitions;
   sight: PageSight;
+  running: RunningWorkLog;
 }
 
 /**
  * Build the UI tools for a page: one per action, which `ui_act` runs, and the
- * two the model calls itself to learn what actions take and to read the page.
- * The first surface to offer an action id keeps it.
+ * three the model calls itself to learn what actions take, to read the page,
+ * and to wait for work an action started. The first surface to offer an
+ * action id keeps it.
  */
 export function buildUITools(
   page: readonly PageSurface[],
   deps: UIToolDependencies,
-): { tools: RegisteredTool[]; collisions: UIToolCollision[]; describe: RegisteredTool; read: RegisteredTool } {
+): { tools: RegisteredTool[]; collisions: UIToolCollision[]; describe: RegisteredTool; read: RegisteredTool; wait: RegisteredTool } {
   const shared: Shared = {
     deps,
     sequence: deps.sequence ?? createUISequence(),
     held: deps.held ?? new Map(),
     sight: deps.sight ?? createPageSight(),
+    running: deps.running ?? new Map(),
   };
   const { actions, collisions } = pageActions(page);
   return {
@@ -222,6 +250,7 @@ export function buildUITools(
     collisions,
     describe: describeTool(shared),
     read: readTool(shared),
+    wait: waitTool(shared),
   };
 }
 
@@ -508,6 +537,107 @@ function readTool(shared: Shared): RegisteredTool {
   };
 }
 
+// ─── ui_wait ─────────────────────────────────────────────────────────────────
+
+/** The running work a wait names: by its job id, by its action, or the work started last; or why there is none. */
+function runningWorkOf(running: RunningWorkLog, input: Record<string, unknown>): RunningWork | string {
+  const jobId = typeof input.jobId === 'string' ? input.jobId : '';
+  const actionId = typeof input.action === 'string' ? input.action : '';
+  const all = [...running.values()];
+  const found = jobId
+    ? all.find((w) => w.jobId === jobId)
+    : actionId
+      ? all.filter((w) => w.action.entry.id === actionId).at(-1)
+      : all.at(-1);
+  if (found) return found;
+  const still = all.map((w) => (w.jobId ? `${w.action.entry.id} (job ${w.jobId})` : w.action.entry.id));
+  return (
+    (jobId || actionId
+      ? `Nothing this turn started is still running as ${jobId ? `job "${jobId}"` : `"${actionId}"`}. `
+      : 'Nothing this turn started is still running. ') +
+    (still.length
+      ? `What is: ${still.join(', ')}.`
+      : 'Work that ended in its own call was reported there; work started in an earlier turn is in the page state.')
+  );
+}
+
+/** When a wait for running work ends: its action's own limit, or when the turn must answer, whichever is first. */
+function waitEndsAt(work: RunningWork, deps: UIToolDependencies): { at: number; why: 'limit' | 'turn' } {
+  const limit = work.startedAt + (work.action.entry.maxDurationMs ?? Infinity);
+  // A host that sets no deadline is never held longer than its in-call wait.
+  const turn = deps.waitDeadline?.() ?? Date.now() + jobWaitOf(deps);
+  return limit < turn ? { at: limit, why: 'limit' } : { at: turn, why: 'turn' };
+}
+
+/**
+ * `ui_wait`: waits for work an action of this turn started that was still
+ * running when its call answered, and answers as that call would have once the
+ * work ended. The model chooses to wait when the rest of the request needs the
+ * outcome; the turn's own deadline bounds the wait, and a stop ends it.
+ */
+function waitTool(shared: Shared): RegisteredTool {
+  return {
+    name: UI_WAIT_TOOL,
+    kind: 'ui',
+    effect: 'view',
+    description:
+      'Waits for work an action started that was still running when its call answered (a job, an export), until it ends, ' +
+      'and answers as that action would have: its outcome, what the page offers now and what it shows. Use it when the ' +
+      'rest of the request needs the outcome: to check what was made, or to act on it. It waits until the work ends, ' +
+      'its own limit passes, or the turn must answer, whichever is first; work still running then is reported running, ' +
+      'never done. Name the work by `jobId`, as its answer gave it, or by `action`; with neither, the work started last.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        jobId: { type: 'string', description: 'The job’s id, as the answer that started it gave it.' },
+        action: { type: 'string', description: 'The action that started it, by id: its latest run still going.' },
+      },
+      additionalProperties: false,
+      sideEffects: false,
+    },
+    execute(input, ctx) {
+      const slot = ctx.uiSlot ?? shared.sequence.reserve();
+      return slot.run(async () => {
+        const found = runningWorkOf(shared.running, input);
+        if (typeof found === 'string') return { success: false, error: found };
+        const { action, requestId, jobId } = found;
+        const id = action.entry.id;
+        if (ctx.stop?.reason()) return stoppedWhileWaiting(id);
+        // What the model last saw of the page: an answer says what changed since.
+        const before = shared.sequence.latestSurfaces() ?? shared.deps.currentPage();
+        const ends = waitEndsAt(found, shared.deps);
+        const timeoutMs = ends.at - Date.now();
+        const final =
+          timeoutMs > 0
+            ? await shared.deps.channel.awaitResult(requestId, { userId: ctx.userId, timeoutMs, signal: ctx.abortSignal, final: true })
+            : null;
+        if (!final && ctx.stop?.reason()) return stoppedWhileWaiting(id);
+        // No answer in time, or a relay that only keeps first answers handing back the acknowledgment.
+        if (!final || final.interim) {
+          return {
+            success: true,
+            data: { action: id, ...(jobId ? { jobId } : {}), status: 'running', note: stillRunningAfterWaitNote(id, ends.why) },
+          };
+        }
+        shared.running.delete(requestId);
+        const outcome = withPage(final, shared);
+        shared.deps.onResult(outcome.result, outcome.page);
+        return answerFor(action, shared, outcome, before, { action: id, ...(jobId ? { jobId } : {}) });
+      });
+    },
+  };
+}
+
+function stillRunningAfterWaitNote(id: string, why: 'limit' | 'turn'): string {
+  return (
+    `"${id}" is still running, so it is not done: never say it is done. ` +
+    (why === 'turn'
+      ? 'The wait ended because the turn must answer now: tell the person it is still running and what is left. '
+      : 'It has passed its own limit, so the page stops following it: tell the person it did not finish in the time it is given. ') +
+    'Its status and result appear in the page state with the person’s next message.'
+  );
+}
+
 // ─── Running an action ───────────────────────────────────────────────────────
 
 async function runAction(
@@ -593,8 +723,28 @@ async function runAction(
   const final = first.result.success && first.result.interim ? await awaitOutcome(entry, deps, requestId, ctx) : null;
   const outcome = final && final !== 'running' ? withPage(final, shared) : null;
   if (outcome) deps.onResult(outcome.result, outcome.page);
-  const answer = outcome ?? first;
+  if (final !== 'running') return answerFor(action, shared, outcome ?? first, before);
+  // Still going: `ui_wait` can wait for it, by its job id or by its action.
+  const jobId = (first.result.data as { jobId?: unknown } | undefined)?.jobId;
+  shared.running.set(requestId, { action, requestId, startedAt: request.timestamp, ...(typeof jobId === 'string' && jobId ? { jobId } : {}) });
+  return answerFor(action, shared, first, before, { status: 'running', note: stillRunningNote(entry) });
+}
 
+/**
+ * The tool result for an action's answer: what the model reads of it (the
+ * outcome, what the page offers now where that changed, and what it shows),
+ * with a picture it carries lifted out as a picture. Whether the page can be
+ * seen follows from it.
+ */
+function answerFor(
+  action: PageAction,
+  shared: Shared,
+  answer: { result: OUIActionResult; page: PageSurface[] | undefined },
+  before: readonly PageSurface[],
+  extra: Record<string, unknown> = {},
+): ToolExecutionResult {
+  const { deps, sight } = shared;
+  const { surface, entry } = action;
   measure(deps, entry.id, answer.result);
   if (answer.result.delivery?.omitted.includes('observations')) {
     sight.lost(`the answer to "${entry.id}" came without the page's state (${answer.result.delivery.reason})`);
@@ -607,7 +757,7 @@ async function runAction(
   const shown: OUIActionResult = lifted.data === answer.result.data ? answer.result : { ...answer.result, data: lifted.data };
   const data = {
     ...forModel(shown, before, answer.page, deps.maxObservationChars ?? DEFAULT_PAGE_STATE_CHARS, surface.id, deps.maxAnswerDataChars ?? DEFAULT_ANSWER_DATA_CHARS),
-    ...(final === 'running' ? { status: 'running', note: stillRunningNote(entry) } : {}),
+    ...extra,
   };
   const image = lifted.image ? { image: lifted.image } : {};
   return answer.result.success
@@ -714,10 +864,18 @@ export function jobWaitOf(deps: Pick<UIToolDependencies, 'jobWaitMs'>): number {
   return typeof ms === 'number' && Number.isFinite(ms) && ms >= 0 ? ms : DEFAULT_JOB_WAIT_MS;
 }
 
+/**
+ * What the model is told of work still running when its call answered. Nothing
+ * starts a turn when the work ends: the model either waits for it now, or
+ * hands back saying it is still running, and its outcome reaches the
+ * conversation in the page state of the person's next message.
+ */
 function stillRunningNote(entry: OUIActionIndexEntry): string {
   return (
-    `"${entry.id}" started and has not finished yet, so it is not done: tell the person it is still running, ` +
-    'never that it is done. Its status and result appear in the page state when it finishes.'
+    `"${entry.id}" started and has not finished yet, so it is not done: never say it is done. ` +
+    `When the rest of the request needs its outcome (to check what it made, or to act on it), wait for it with ${UI_WAIT_TOOL}. ` +
+    'Otherwise tell the person it is still running. Nothing tells you when it ends after this turn: its status and ' +
+    'result appear in the page state with the person’s next message.'
   );
 }
 

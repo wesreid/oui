@@ -1,7 +1,7 @@
 /**
  * An action of the page called as if it were a tool.
  *
- * The model is given three UI tools, and runs a page's action by its id
+ * The model is given four UI tools, and runs a page's action by its id
  * through `ui_act`. It sometimes calls the action's id as a tool of its own
  * instead (`app_navigate` with `{ path }`): the provider refuses the unknown
  * tool, the model then calls `ui_act` with the same action, and the person

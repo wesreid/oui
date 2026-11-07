@@ -65,9 +65,9 @@ describe.each<HostAdapter>(['lambda', 'container'])('on the %s adapter', (adapte
     expect(t1.outcome.status).toBe('completed');
     expect(m1.requests).toHaveLength(1); // no round after the call: the turn ended
 
-    // The model is given three UI tools, never one per action, and the page's
+    // The model is given four UI tools, never one per action, and the page's
     // index says which actions need approval: the card is the confirmation.
-    expect(m1.requests[0].tools?.map((t) => t.function.name).sort()).toEqual(['ui_act', 'ui_describe', 'ui_read']);
+    expect(m1.requests[0].tools?.map((t) => t.function.name).sort()).toEqual(['ui_act', 'ui_describe', 'ui_read', 'ui_wait']);
     const offered = read(m1.requests).split('\n').find((line) => line.startsWith('- reports_send: ')) ?? '';
     expect(offered).toMatch(/needs approval/);
     expect(said(m1.requests)).not.toMatch(/Confirm with the user/);

@@ -111,7 +111,7 @@ beforeEach(() => {
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('UI tools from the client snapshot', () => {
-  it('gives the model three UI tools whatever the page offers, and the page wins an action id over a host tool', async () => {
+  it('gives the model four UI tools whatever the page offers, and the page wins an action id over a host tool', async () => {
     const hostNavigate: RegisteredTool = {
       name: 'navigate',
       description: 'host navigate',
@@ -126,9 +126,9 @@ describe('UI tools from the client snapshot', () => {
     await runAgentTurn(makeConfig(channel, [hostNavigate]), makeInput([shell, projects]));
 
     // The model's tools do not grow with the page: it gets the index after the
-    // system prompt, and three tools to work it with.
+    // system prompt, and four tools to work it with.
     const tools = seenOpts[0].tools;
-    expect(Object.keys(tools).sort()).toEqual(['ui_act', 'ui_describe', 'ui_read']);
+    expect(Object.keys(tools).sort()).toEqual(['ui_act', 'ui_describe', 'ui_read', 'ui_wait']);
     const index = JSON.stringify(seenOpts[0].instructions);
     expect(index).toContain('- navigate: Go to a page (path)');
     expect(index).toContain('- projects_create: Create a project');

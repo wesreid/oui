@@ -129,7 +129,8 @@ export {
 export { liftAnswerImage, ANSWER_IMAGE_MEDIA_TYPES, MAX_ANSWER_IMAGE_BASE64_CHARS, type AnswerImage } from './ui/answer-image.js';
 export { describeSchema, schemaAt, WHOLE_SCHEMA_CHARS, type SchemaView } from './ui/outline.js';
 export { readClientKnowledge, renderClientKnowledge, withClientKnowledge, CLIENT_KNOWLEDGE_KEY, type ClientKnowledge } from './ui/knowledge.js';
-export { BLIND_REFUSALS_BEFORE_STOP, buildUITools, createPageSight, fitNotes, UI_ACT_TOOL, UI_DESCRIBE_TOOL, UI_READ_TOOL } from './ui/ui-tools.js';
+export { BLIND_REFUSALS_BEFORE_STOP, buildUITools, createPageSight, fitNotes, UI_ACT_TOOL, UI_DESCRIBE_TOOL, UI_READ_TOOL, UI_WAIT_TOOL } from './ui/ui-tools.js';
+export type { RunningWork, RunningWorkLog } from './ui/ui-tools.js';
 export type { PageSight, UIToolDependencies, UIToolCollision } from './ui/ui-tools.js';
 export { createUISequence } from './ui/ui-sequence.js';
 export type { UISequence } from './ui/ui-sequence.js';
