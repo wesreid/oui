@@ -6,6 +6,7 @@ import type {
   ApprovalContinuation,
   ApprovalDecideResult,
   ApprovalDecision,
+  ResumeContinuation,
 } from '@ouispec/agent-core';
 import {
   AGENT_SOCKET_EVENTS,
@@ -22,7 +23,7 @@ import {
   readMessageInput,
 } from '@ouispec/agent-core';
 import type { ConversationHold, TakeoverChange } from '@ouispec/agent-core';
-import type { AttachmentRef, MessageInput, TurnStopPayload, TurnStoppedReason, TurnStopResult } from '@ouispec/agent-core';
+import type { AttachmentRef, MessageInput, TurnEndReason, TurnStopPayload, TurnStoppedReason, TurnStopResult } from '@ouispec/agent-core';
 import { useComposerAttachments, type TakeForSend } from './attachments.js';
 import type { AgentProtocolEvent } from '@ouispec/agent-core';
 import { ALL_AGENT_SOCKET_EVENTS, parseSocketEvent } from '@ouispec/agent-core';
@@ -57,6 +58,7 @@ import { readConversationSummaries, readConversationSummary } from './conversati
 import { SDK_PACKAGE, SDK_VERSION } from '../version.js';
 import { AgentInternalsContext, type AgentInternals } from './internals.js';
 import { conversationChangeMessage, staffAgentMessage } from './conversation-messages.js';
+import { createWorkResumer, type TabTurnEnd, type WorkResumer } from './resume-after-work.js';
 
 const AgentContext = createContext<AgentContextValue | null>(null);
 
@@ -108,6 +110,11 @@ function passesFilter(summary: AgentConversationSummary, filter: AgentConversati
   if (status === 'archived' && !summary.archivedAt) return false;
   if (filter.scopeId !== undefined && (summary.scope?.id ?? null) !== filter.scopeId) return false;
   return true;
+}
+
+/** How a turn's `done` says it ended, as the resume after work reads it. */
+function endOf(event: { endReason?: TurnEndReason; stopReason?: TurnStoppedReason }): TabTurnEnd {
+  return event.stopReason ? { kind: 'stopped', reason: event.stopReason } : { kind: 'ended', ...(event.endReason ? { reason: event.endReason } : {}) };
 }
 
 function reasonOf(err: unknown): string {
@@ -205,6 +212,8 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   const streamBufferRef = useRef<string>('');
   const roundPrefixRef = useRef<string>('');
   const configRef = useRef(config);
+  // Starts a turn by itself when work the assistant started ends after its turn (config.settledWork): made below.
+  const resumerRef = useRef<WorkResumer | null>(null);
   const debugEnabledRef = useRef(debugEnabled);
   configRef.current = config;
   debugEnabledRef.current = debugEnabled;
@@ -213,6 +222,8 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   const shortcutKey = config.shortcutKey ?? 'k';
 
   const setActiveConversation = useCallback((id: string | null) => {
+    // Work of the conversation being left resumes nothing (resume-after-work.ts).
+    if (id !== conversationIdRef.current) resumerRef.current?.conversationChanged();
     conversationIdRef.current = id;
     setConversationId(id);
     writeRemembered(sessionKeyOf(configRef.current), id);
@@ -512,6 +523,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
           // state, its id, its room or its text.
           const earlier = `msg_${event.turnId}`;
           rememberEnded(event.turnId);
+          resumerRef.current?.turnEnded(event.turnId, endOf(event));
           setMessages(prev =>
             prev.map(m =>
               m.id === earlier ? { ...m, isStreaming: false, ...(event.stopReason ? { stopped: event.stopReason } : {}) } : m,
@@ -528,6 +540,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
           const reason = event.stopReason;
           const asked = stoppingRef.current?.turnId === event.turnId;
           rememberEnded(event.turnId);
+          resumerRef.current?.turnEnded(event.turnId, { kind: 'stopped', reason });
           setReasoning(prev => endOpenReasoning(prev, event.turnId, Date.now()));
           setLastTurnEnd(turnEndOf(event.turnId, event, Date.now()));
           streamBufferRef.current = '';
@@ -549,6 +562,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
         }
         clearStopping();
         rememberEnded(event.turnId);
+        resumerRef.current?.turnEnded(event.turnId, endOf(event));
         setReasoning(prev => endOpenReasoning(prev, event.turnId, Date.now()));
         setLastTurnEnd(turnEndOf(event.turnId, event, Date.now()));
         // Finalize all streaming messages. Drop any assistant streaming bubble
@@ -581,6 +595,7 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
         break;
 
       case 'error':
+        if (event.turnId) resumerRef.current?.turnEnded(event.turnId, { kind: 'failed' });
         if (!endsLiveTurn(event.turnId)) {
           // An earlier turn's failure, arriving after the next turn was started: it is said, and the
           // turn in progress goes on.
@@ -831,18 +846,26 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     };
   }, []);
 
-  // --- Start a turn: the user's message, or the continuation after an approval decision ---
+  // --- Start a turn: the user's message, the continuation after an approval decision, or a resume after work ---
   const startTurn = useCallback(async (
     content: string,
-    { attachments, input, approval }: { attachments?: AttachmentRef[]; input?: MessageInput; approval?: ApprovalContinuation } = {},
+    {
+      attachments,
+      input,
+      approval,
+      resume,
+    }: { attachments?: AttachmentRef[]; input?: MessageInput; approval?: ApprovalContinuation; resume?: ResumeContinuation } = {},
   ) => {
+    // A click on the approval card, and work that ended after its turn, continue the conversation, but neither is a message.
+    const continuation = !!approval || !!resume;
     // A message sent while a conversation loads belongs to that conversation.
     if (pendingLoadRef.current) await pendingLoadRef.current;
     // Read at once when there is one: the message goes out in the same tick it was sent.
     const convId = conversationIdRef.current ?? (await ensureConversation());
 
-    // A click on the approval card continues the turn, but it is not a message.
-    if (!approval) {
+    if (!continuation) {
+      // The person wrote: turns resumed by themselves count from zero again.
+      resumerRef.current?.personWrote();
       const userMsg: AgentMessage = {
         id: `msg_user_${Date.now()}`,
         role: 'user',
@@ -861,9 +884,10 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     // A message sent while a turn runs supersedes it: the platform stops that turn,
     // and here it is shown as stopped at once. Its room is left when the new turn's is joined, so
     // its own end may never arrive to say so.
-    const superseded = approval ? null : liveTurnRef.current.turnId;
+    const superseded = continuation ? null : liveTurnRef.current.turnId;
     if (superseded) {
       rememberEnded(superseded);
+      resumerRef.current?.turnEnded(superseded, { kind: 'stopped', reason: 'superseded' });
       setMessages(prev => markStopped(prev, superseded, 'superseded'));
       roundPrefixRef.current = '';
       clearStopping();
@@ -876,21 +900,32 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
     streamBufferRef.current = '';
 
     try {
-      // A spoken message says so on its context; a typed one, and a card's click, say nothing.
-      const context: AgentMessageContext = { ...collectContext(), ...(input && !approval ? { input } : {}) };
-      addDebugLog('info', 'agent:api', approval ? 'Continuing after an approval decision...' : 'Sending message...', {
-        conversationId: convId,
-        contentLength: content.length,
-        context,
-        ...(approval ? { approvalId: approval.approvalId, decision: approval.decision } : {}),
-      });
+      // A spoken message says so on its context; a typed one, a card's click and a resume say nothing.
+      // A resume carries the page as it is now, like any turn: the host attaches the fresh OUI snapshot.
+      const context: AgentMessageContext = { ...collectContext(), ...(input && !continuation ? { input } : {}) };
+      addDebugLog(
+        'info',
+        'agent:api',
+        approval ? 'Continuing after an approval decision...' : resume ? 'Resuming after work that finished...' : 'Sending message...',
+        {
+          conversationId: convId,
+          contentLength: content.length,
+          context,
+          ...(approval ? { approvalId: approval.approvalId, decision: approval.decision } : {}),
+          ...(resume ? { requestIds: resume.requestIds } : {}),
+        },
+      );
       const { turnId, socketRoom, roomToken } = await configRef.current.sendMessage({
         conversationId: convId,
         content,
         context,
         ...(attachments?.length ? { attachments } : {}),
         ...(approval ? { approval } : {}),
+        ...(resume ? { resume } : {}),
       });
+      resumerRef.current?.turnStarted(turnId, convId);
+      // A later start took over while this one was in flight: this turn is superseded, as a running one would be.
+      if (turnStartsRef.current !== started) resumerRef.current?.turnEnded(turnId, { kind: 'stopped', reason: 'superseded' });
 
       addDebugLog('info', 'agent:api', `Turn started: ${turnId}`, {
         turnId,
@@ -1035,6 +1070,42 @@ export function AgentProvider({ config, children }: { config: AgentClientConfig;
   pendingApprovalRef.current = pendingApproval;
   const approvalDecidedElsewhereRef = useRef(approvalDecidedElsewhere);
   approvalDecidedElsewhereRef.current = approvalDecidedElsewhere;
+
+  // --- Resuming after work that finished after its turn ended (config.settledWork) ---
+  // The decision is resume-after-work.ts's; the tab's state is read from refs when it decides, since a
+  // settlement can arrive between renders. It is checked again when the turn would start.
+  const presentedOptionsRef = useRef(presentedOptions);
+  presentedOptionsRef.current = presentedOptions;
+  const holdRef = useRef(hold);
+  holdRef.current = hold;
+  const startTurnRef = useRef(startTurn);
+  startTurnRef.current = startTurn;
+  if (!resumerRef.current) {
+    resumerRef.current = createWorkResumer({
+      state: () => ({
+        conversationId: conversationIdRef.current,
+        turnBusy: liveTurnRef.current.starting || liveTurnRef.current.turnId !== null,
+        loading: pendingLoadRef.current !== null,
+        approvalWaiting: pendingApprovalRef.current !== null,
+        choiceWaiting: presentedOptionsRef.current !== null,
+        heldByStaff: holdRef.current !== null,
+      }),
+      // Through the same path as the approval continuation: no message, the page as it is now, nothing superseded.
+      resume: (requestIds) => void startTurnRef.current('', { resume: { requestIds } }),
+      log: (message, data) => addDebugLog('info', 'agent:state', message, data),
+    });
+  }
+  // Subscribed again only when the source's subscribe changes: a host that writes its config inline gives a
+  // new object on every render, and what was gathered meanwhile is kept.
+  const subscribeSettled = config.settledWork?.subscribe;
+  useEffect(() => {
+    const source = configRef.current.settledWork;
+    if (!subscribeSettled || !source) return;
+    const resumer = resumerRef.current!;
+    return source.subscribe((work) => resumer.settled(work));
+  }, [subscribeSettled]);
+  // Gone with the provider: nothing gathered is started after it.
+  useEffect(() => () => resumerRef.current?.dispose(), []);
   const decideApproval = useCallback(async (decision: ApprovalDecision) => {
     const request = pendingApprovalRef.current;
     const socket = socketRef.current;

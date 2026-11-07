@@ -6,7 +6,7 @@
  * decides how a turn arrives and what a failure means to its transport.
  */
 import { APICallError, RetryError } from 'ai';
-import { AGENT_SOCKET_EVENTS, APPROVAL_CHANNELS, isAttachmentId, type TurnStoppedReason, type TurnStoppedMarker } from '@ouispec/agent-core';
+import { AGENT_SOCKET_EVENTS, APPROVAL_CHANNELS, isAttachmentId, resumeRefusal, type TurnStoppedReason, type TurnStoppedMarker } from '@ouispec/agent-core';
 import { runAgentTurn } from '../orchestrator.js';
 import { createHttpEmitAdapter } from '../emit/http-adapter.js';
 import { createHttpUIActionChannel } from '../ui/channel.js';
@@ -131,6 +131,12 @@ export function payloadRefusal(payload: unknown): string | null {
   }
   if (p.supersedes !== undefined && !(Array.isArray(p.supersedes) && p.supersedes.every((id) => typeof id === 'string' && id))) {
     return 'supersedes must be a list of turn ids';
+  }
+  if (p.resume !== undefined) {
+    const refusal = resumeRefusal(p.resume);
+    if (refusal) return refusal;
+    // A turn continues one thing: the person's decision on a card, or work that ended after its turn.
+    if (p.approval !== undefined) return 'a turn carries resume or approval, never both';
   }
   if (p.approval !== undefined) {
     const a = p.approval as Record<string, unknown> | null;
@@ -257,7 +263,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
       const admission = await admit(sent, host);
       if ('outcome' in admission) return admission.outcome;
       const { payload, turn } = admission;
-      const { turnId, conversationId, userId, accountId, socketRoom, content, context, userToken, approval } = payload;
+      const { turnId, conversationId, userId, accountId, socketRoom, content, context, userToken, approval, resume } = payload;
       const emit = turnEmit(turn, host.observe);
       const supersedes = Array.isArray(payload.supersedes) ? payload.supersedes.filter((id) => typeof id === 'string' && id) : [];
       // The message's files, by reference: anything that is not one is left out.
@@ -271,7 +277,13 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
             ).values(),
           ]
         : [];
-      logger.info('[agent-sdk] Processing turn', { turnId, conversationId, userId, ...(supersedes.length ? { supersedes } : {}) });
+      logger.info('[agent-sdk] Processing turn', {
+        turnId,
+        conversationId,
+        userId,
+        ...(supersedes.length ? { supersedes } : {}),
+        ...(resume ? { resumed: { requestIds: resume.requestIds } } : {}),
+      });
 
       let db: TDb;
       try {
@@ -320,6 +332,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
           ...(!Array.isArray(history) && history.stepContext ? { stepContext: history.stepContext } : {}),
           userToken,
           ...(approval ? { approval } : {}),
+          ...(resume ? { resume } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
           ...(payload.channel ? { approvalChannel: payload.channel } : {}),
           stopWatch,
@@ -426,6 +439,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
               usage: result.usage,
               ...(result.stopped ? { stopReason: result.stopped.reason } : {}),
               ...(result.attachments ? { attachments: result.attachments } : {}),
+              ...(result.resumed ? { resumed: result.resumed } : {}),
               db,
             });
           } catch (err) {

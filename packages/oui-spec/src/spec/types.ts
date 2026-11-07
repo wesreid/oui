@@ -411,6 +411,30 @@ export interface OUIActionResult {
   settled?: boolean;
 }
 
+/**
+ * Work an action started has ended, and the agent runtime holds its outcome
+ * (§7.3.3). Told by a surface runtime (`onSettled`) once for each request it
+ * first answered `interim: true` (started, not done), when the request's final
+ * answer, a success or a failure, has been sent and the receiving side has
+ * acknowledged it: a reader of the agent runtime's results then finds it.
+ *
+ * What a client does with it is its own: an agent client can start a turn so
+ * the agent reports the outcome when the turn that started the work has
+ * already ended.
+ */
+export interface OUISettledWork {
+  /** The request whose work ended: the id its final answer carries. */
+  requestId: string;
+  /** The turn that sent the request, when the request named one (`OUIActionRequest.turnId`). */
+  turnId?: string;
+  surfaceId: string;
+  actionId: string;
+  /** Whether the work succeeded: the final answer's `success`. */
+  success: boolean;
+  /** When the final answer was acknowledged, epoch ms. */
+  at: number;
+}
+
 /** Latest observation values, keyed by surface id and then observation id. */
 export type OUIObservationSnapshot = Record<string, Record<string, unknown>>;
 

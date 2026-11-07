@@ -65,7 +65,9 @@ export interface FixtureTurnOptions {
   /** The tab that sends the turn; a new one is opened when none is given. */
   tab?: FixtureTab;
   /** What the turn carries beyond the fixture turn's defaults: its message, context, an approval. */
-  payload?: Partial<Pick<AgentTurnPayload, 'content' | 'context' | 'approval' | 'conversationId' | 'channel'>>;
+  payload?: Partial<Pick<AgentTurnPayload, 'content' | 'context' | 'approval' | 'resume' | 'conversationId' | 'channel'>>;
+  /** How long a UI call waits for the outcome of work its action started (`uiActions.jobWaitMs`). */
+  jobWaitMs?: number;
   /** Earlier turns of the conversation, and where this one's messages go. */
   conversation?: FixtureConversation;
   tools?: RegisteredTool[];
@@ -126,7 +128,11 @@ export async function runFixtureTurn(product: FixtureProduct, options: FixtureTu
     tools: options.tools ?? [],
     toolPolicy: options.toolPolicy,
     ...(options.apiSurface ? { apiSurface: options.apiSurface } : {}),
-    uiActions: { resultTimeoutMs: 10_000, channel: observedChannel(product, options.onUIDispatch) },
+    uiActions: {
+      resultTimeoutMs: 10_000,
+      channel: observedChannel(product, options.onUIDispatch),
+      ...(options.jobWaitMs !== undefined ? { jobWaitMs: options.jobWaitMs } : {}),
+    },
     getDb: async () => ({}),
     getHistory: async () => history,
     persistMessages: async ({ turnId: id, conversationId, messages, stopped }) => {

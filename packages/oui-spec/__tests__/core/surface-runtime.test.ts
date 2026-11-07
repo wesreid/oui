@@ -464,6 +464,198 @@ describe('createSurfaceRuntime', () => {
     });
   });
 
+  describe('telling the application when work ends (onSettled)', () => {
+    /** A job action whose work ends when `finish` is called: with its data, or failed. */
+    function jobSurface() {
+      let outcome: { done: boolean; data?: unknown; error?: { code: string; message: string } } = { done: false, data: { progress: 0 } };
+      const surface = defineSurface({
+        id: 'render',
+        name: 'Render',
+        description: 'r',
+        actions: [
+          {
+            id: 'render_start',
+            description: 'start',
+            input: { type: 'object' },
+            async: true,
+            polling: { intervalMs: 10, resolve: async () => outcome },
+            handler: async () => ({ success: true, data: { jobId: 'job-1' } }),
+          },
+          { id: 'render_name', description: 'name it', input: { type: 'object' }, handler: async () => ({ success: true }) },
+        ],
+      });
+      return {
+        surface,
+        finish: (data: unknown) => (outcome = { done: true, data }),
+        fail: (message: string) => (outcome = { done: true, data: { status: 'failed' }, error: { code: 'JOB_FAILED', message } }),
+      };
+    }
+    /** The answers the tab sent, each with what acknowledges it. */
+    const answers = (socket: ReturnType<typeof createMockSocket>) =>
+      socket.emitted.filter(e => e.event === 'oui:action:result').map(e => ({ result: e.data as OUIActionResult, ack: e.ack! }));
+    const finalOf = (socket: ReturnType<typeof createMockSocket>, requestId: string) =>
+      answers(socket).filter(a => a.result.requestId === requestId && a.result.interim === false);
+
+    it('is told once, after the final answer is acknowledged, with the request, its turn and how the work ended', async () => {
+      const socket = createMockSocket();
+      const runtime = createSurfaceRuntime({ socket, announce: false, settle: FAST });
+      const job = jobSurface();
+      runtime.mount(job.surface, () => ({}));
+      const told = vi.fn();
+      runtime.onSettled(told);
+
+      socket.receive('oui:dispatch', { ...request('render', 'render_start', {}, 'job-a'), turnId: 'turn-7' });
+      await wait(FAST.quietMs + 60);
+      // Started, not done: the acknowledgment of the "started" answer tells nothing.
+      const [started] = answers(socket);
+      expect(started.result).toMatchObject({ requestId: 'job-a', interim: true });
+      started.ack({ ok: true });
+      expect(told).not.toHaveBeenCalled();
+
+      job.finish({ url: 'https://x/y.mp4' });
+      await wait(60);
+      const [final] = finalOf(socket, 'job-a');
+      expect(final.result).toMatchObject({ success: true, data: { url: 'https://x/y.mp4' } });
+      // Sent, and not yet received: a reader of the agent runtime's results would not find it yet.
+      expect(told).not.toHaveBeenCalled();
+      const before = Date.now();
+      final.ack({ ok: true });
+      expect(told).toHaveBeenCalledOnce();
+      expect(told.mock.calls[0][0]).toEqual({
+        requestId: 'job-a',
+        turnId: 'turn-7',
+        surfaceId: 'render',
+        actionId: 'render_start',
+        success: true,
+        at: expect.any(Number),
+      });
+      expect(told.mock.calls[0][0].at).toBeGreaterThanOrEqual(before);
+      // An acknowledgment the transport repeats is not a second settlement.
+      await wait(60);
+      expect(told).toHaveBeenCalledOnce();
+      runtime.dispose();
+    });
+
+    it('is told of work that failed as a failure, and leaves out a turn the request did not name', async () => {
+      const socket = createMockSocket();
+      const runtime = createSurfaceRuntime({ socket, announce: false, settle: FAST });
+      const job = jobSurface();
+      runtime.mount(job.surface, () => ({}));
+      const told = vi.fn();
+      runtime.onSettled(told);
+
+      socket.receive('oui:dispatch', request('render', 'render_start', {}, 'job-b'));
+      await wait(FAST.quietMs + 30);
+      job.fail('GPU out of memory');
+      await wait(60);
+      finalOf(socket, 'job-b')[0].ack({ ok: true });
+      expect(told).toHaveBeenCalledOnce();
+      expect(told.mock.calls[0][0]).toMatchObject({ requestId: 'job-b', success: false });
+      expect(told.mock.calls[0][0]).not.toHaveProperty('turnId');
+      runtime.dispose();
+    });
+
+    it('is not told of a request that was never interim', async () => {
+      const socket = createMockSocket();
+      const runtime = createSurfaceRuntime({ socket, announce: false, settle: FAST });
+      runtime.mount(jobSurface().surface, () => ({}));
+      const told = vi.fn();
+      runtime.onSettled(told);
+
+      socket.receive('oui:dispatch', { ...request('render', 'render_name', {}, 'sync-1'), turnId: 'turn-7' });
+      await wait(FAST.quietMs + 60);
+      const [only] = answers(socket);
+      expect(only.result).toMatchObject({ requestId: 'sync-1', success: true });
+      expect(only.result.interim).toBeUndefined();
+      only.ack({ ok: true });
+      expect(told).not.toHaveBeenCalled();
+      runtime.dispose();
+    });
+
+    it('is told when the surface leaves the page mid-job, with the failure the runtime sends itself', async () => {
+      const socket = createMockSocket();
+      const runtime = createSurfaceRuntime({ socket, announce: false, settle: FAST });
+      const handle = runtime.mount(jobSurface().surface, () => ({}));
+      const told = vi.fn();
+      runtime.onSettled(told);
+
+      socket.receive('oui:dispatch', { ...request('render', 'render_start', {}, 'job-gone'), turnId: 'turn-8' });
+      await wait(FAST.quietMs + 30);
+      handle.unmount();
+      await wait(FAST.quietMs + 80);
+      const [final] = finalOf(socket, 'job-gone');
+      expect(final.result).toMatchObject({ success: false, error: { code: 'SURFACE_NOT_MOUNTED' } });
+      final.ack({ ok: true });
+      expect(told).toHaveBeenCalledOnce();
+      expect(told.mock.calls[0][0]).toMatchObject({ requestId: 'job-gone', turnId: 'turn-8', actionId: 'render_start', success: false });
+      runtime.dispose();
+    });
+
+    it('is told once a refused final answer is received trimmed, and never when every form of it is refused', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const socket = createMockSocket();
+      const runtime = createSurfaceRuntime({ socket, announce: false, settle: FAST });
+      const job = jobSurface();
+      runtime.mount(job.surface, () => ({}));
+      const told = vi.fn();
+      runtime.onSettled(told);
+
+      socket.receive('oui:dispatch', request('render', 'render_start', {}, 'job-big'));
+      socket.receive('oui:dispatch', request('render', 'render_start', {}, 'job-lost'));
+      await wait(FAST.quietMs + 30);
+      job.finish({ url: 'https://x/y.mp4' });
+      await wait(60);
+
+      // Refused, then received without what the page offers.
+      finalOf(socket, 'job-big')[0].ack({ ok: false, reason: 'too large' });
+      expect(told).not.toHaveBeenCalled();
+      const trimmed = finalOf(socket, 'job-big')[1];
+      expect(trimmed.result.delivery).toMatchObject({ trimmed: true });
+      trimmed.ack({ ok: true });
+      expect(told).toHaveBeenCalledTimes(1);
+
+      // Every form refused: the agent runtime never holds it, so nothing is told.
+      for (let i = 0; i < 4; i++) finalOf(socket, 'job-lost')[i]?.ack({ ok: false, reason: 'too large' });
+      expect(finalOf(socket, 'job-lost')).toHaveLength(4);
+      expect(told).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
+      runtime.dispose();
+    });
+
+    it('survives a listener that throws: the others are told, and the runtime goes on answering', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const socket = createMockSocket();
+      const runtime = createSurfaceRuntime({ socket, announce: false, settle: FAST });
+      const job = jobSurface();
+      runtime.mount(job.surface, () => ({}));
+      runtime.onSettled(() => {
+        throw new Error('listener broke');
+      });
+      const told = vi.fn();
+      const off = runtime.onSettled(told);
+
+      socket.receive('oui:dispatch', request('render', 'render_start', {}, 'job-c'));
+      await wait(FAST.quietMs + 30);
+      job.finish({ ok: 1 });
+      await wait(60);
+      expect(() => finalOf(socket, 'job-c')[0].ack({ ok: true })).not.toThrow();
+      expect(told).toHaveBeenCalledOnce();
+      expect(warn).toHaveBeenCalledWith(expect.stringMatching(/onSettled listener failed for job-c: listener broke/));
+
+      // Removed, a listener is told nothing more; the runtime still answers.
+      off();
+      socket.receive('oui:dispatch', request('render', 'render_name', {}, 'after'));
+      await wait(FAST.quietMs + 60);
+      expect(answers(socket).some(a => a.result.requestId === 'after' && a.result.success)).toBe(true);
+      socket.receive('oui:dispatch', request('render', 'render_start', {}, 'job-d'));
+      await wait(FAST.quietMs + 60);
+      finalOf(socket, 'job-d')[0].ack({ ok: true });
+      expect(told).toHaveBeenCalledOnce();
+      warn.mockRestore();
+      runtime.dispose();
+    });
+  });
+
   it('neither runs nor answers a socket request its accept check refuses', async () => {
     const socket = createMockSocket();
     let turnActive = false;

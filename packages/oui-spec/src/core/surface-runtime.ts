@@ -30,6 +30,7 @@ import type {
   OUIFit,
   OUIIndexSnapshot,
   OUIResultDelivery,
+  OUISettledWork,
   OUISurface,
   OUISurfaceIndex,
   OUISurfaceSnapshot,
@@ -248,6 +249,23 @@ export interface SurfaceRuntime<F extends SurfaceForm = "full"> {
   /** Called whenever the snapshot changes. */
   subscribe(listener: () => void): () => void;
 
+  /**
+   * Called once for each request this runtime first answered `interim: true`
+   * (its action started work and was not done), when the request's final
+   * answer, a success or a failure, has been sent and the receiving side has
+   * acknowledged it, so a reader of the agent runtime's results finds it
+   * (§7.3.3). That includes the failures the runtime sends itself: work that
+   * passed its polling limits (`TIMEOUT`), was started again (`SUPERSEDED`),
+   * or whose surface left the page (`SURFACE_NOT_MOUNTED`). A request that was
+   * never interim is not told, and neither is a final answer that was refused
+   * even trimmed, or sent with no transport attached.
+   *
+   * An agent client uses it to have the agent report work that outlived the
+   * turn that started it. A listener that throws is logged and does not stop
+   * the others. Returns the function that removes the listener.
+   */
+  onSettled(listener: (work: OUISettledWork) => void): () => void;
+
   /** Stop polling, detach from the socket and forget every mount. */
   dispose(): void;
 }
@@ -324,6 +342,20 @@ export function createSurfaceRuntime(
     (error: { code: string; message: string }) => void
   >();
   const listeners = new Set<() => void>();
+  // Told when work an action started has ended and its final answer was received (`onSettled`).
+  const settledListeners = new Set<(work: OUISettledWork) => void>();
+  function settled(work: OUISettledWork) {
+    for (const listener of [...settledListeners]) {
+      try {
+        listener(work);
+      } catch (err) {
+        // One listener's failure is its own: the runtime and the other listeners go on.
+        console.warn(
+          `[OUI] An onSettled listener failed for ${work.requestId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  }
   // Resolves once a request's first result has been handed to the transport.
   const acks = new Map<
     string,
@@ -512,12 +544,13 @@ export function createSurfaceRuntime(
    * action is acknowledged, then answered once more when it finishes).
    */
   function startPolling(
-    requestId: string,
+    request: Pick<OUIActionRequest, "requestId" | "turnId">,
     surfaceId: string,
     actionId: string,
     polling: ActionPollingConfig<unknown>,
     dispatchResult: unknown,
   ) {
+    const { requestId, turnId } = request;
     const finish = async (
       success: boolean,
       data: unknown,
@@ -537,6 +570,16 @@ export function createSurfaceRuntime(
           },
           answeredHash.get(requestId),
         ),
+        // Received, so the agent runtime holds the outcome: the application may act on it.
+        () =>
+          settled({
+            requestId,
+            ...(typeof turnId === "string" && turnId ? { turnId } : {}),
+            surfaceId,
+            actionId,
+            success,
+            at: Date.now(),
+          }),
       );
       acks.delete(requestId);
       answeredHash.delete(requestId);
@@ -822,7 +865,7 @@ export function createSurfaceRuntime(
         if (action?.polling) {
           interim = true;
           startPolling(
-            request.requestId,
+            request,
             entry.surface.id,
             action.id,
             action.polling,
@@ -1352,6 +1395,12 @@ export function createSurfaceRuntime(
         listeners.delete(listener);
       };
     },
+    onSettled(listener) {
+      settledListeners.add(listener);
+      return () => {
+        settledListeners.delete(listener);
+      };
+    },
     dispose() {
       for (const timer of pollers.values()) clearInterval(timer);
       pollers.clear();
@@ -1362,6 +1411,7 @@ export function createSurfaceRuntime(
       serializedObservations.clear();
       holds.clear();
       listeners.clear();
+      settledListeners.clear();
       acks.clear();
       answeredHash.clear();
       delivery.clear();

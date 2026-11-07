@@ -209,9 +209,11 @@ export const RECEIVED_RESEND_AFTER_MS = 10_000;
  * started (a GPU job, an export): `UIToolDependencies.jobWaitMs` by default.
  *
  * Work that ends within it is reported done in the call. Work that does not is
- * reported still running, and the turn goes on and ends: its outcome reaches
- * the conversation through the page state, where the app's job tracker lists
- * it, in the next turn. The call never waits on the action's own limit (its
+ * reported still running, and the turn goes on and ends (or waits for it with
+ * `ui_wait`): when it ends after the turn, the person's tab resumes the
+ * conversation with a turn that reports it (orchestrator.ts `resume`), and
+ * otherwise its outcome reaches the conversation through the page state, where
+ * the app's job tracker lists it, in the next turn. The call never waits on the action's own limit (its
  * `maxDurationMs`), which can be many minutes for a job queued behind a live
  * conversation: a turn held open that long could not be stopped or answered.
  */
@@ -622,10 +624,40 @@ function waitTool(shared: Shared): RegisteredTool {
         shared.running.delete(requestId);
         const outcome = withPage(final, shared);
         shared.deps.onResult(outcome.result, outcome.page);
-        return answerFor(action, shared, outcome, before, { action: id, ...(jobId ? { jobId } : {}) });
+        return answerFor(action, shared, outcome, before, settledWorkOf(id, jobId));
       });
     },
   };
+}
+
+/** What a settled answer to started work names beside its outcome: the action, and its job when it had one. */
+function settledWorkOf(actionId: string, jobId: string | undefined): Record<string, unknown> {
+  return { action: actionId, ...(jobId ? { jobId } : {}) };
+}
+
+/**
+ * The answer to a call whose work ended after the call's turn had ended, in
+ * the words `ui_wait` gives once work ends: its outcome and what the page showed
+ * when it ended, naming the action and its job. For the turn resumed after
+ * that work (orchestrator.ts), as the call's later result.
+ *
+ * It records nothing of the turn's: the page it ended on is older than the
+ * page the resumed turn was sent from, so what the page offers is reported as
+ * `page` (the turn's own) and not as a change, and whether the page can be seen
+ * is the turn's snapshot's to say. An action the page no longer offers is named
+ * by its id.
+ */
+export function laterAnswerFor(
+  final: OUIActionResult,
+  call: { actionId: string; jobId?: string },
+  page: readonly PageSurface[],
+  limits: Pick<UIToolDependencies, 'maxObservationChars' | 'maxAnswerDataChars'> = {},
+): ToolExecutionResult {
+  const action = pageActions(page).actions.find((a) => a.entry.id === call.actionId) ?? {
+    surface: { id: '', name: '', description: '', index: [] },
+    entry: { id: call.actionId, description: '', input: '', definitionHash: '' },
+  };
+  return renderAnswer(action, limits, { result: final, page: undefined }, page, settledWorkOf(call.actionId, call.jobId));
 }
 
 function stillRunningAfterWaitNote(id: string, why: 'limit' | 'turn'): string {
@@ -744,19 +776,30 @@ function answerFor(
   extra: Record<string, unknown> = {},
 ): ToolExecutionResult {
   const { deps, sight } = shared;
-  const { surface, entry } = action;
+  const { entry } = action;
   measure(deps, entry.id, answer.result);
   if (answer.result.delivery?.omitted.includes('observations')) {
     sight.lost(`the answer to "${entry.id}" came without the page's state (${answer.result.delivery.reason})`);
   } else {
     sight.seen();
   }
+  return renderAnswer(action, deps, answer, before, extra);
+}
 
+/** What the model reads of an answer, `extra` beside it, with a picture it carries lifted out as a picture. Records nothing. */
+function renderAnswer(
+  action: PageAction,
+  limits: Pick<UIToolDependencies, 'maxObservationChars' | 'maxAnswerDataChars'>,
+  answer: { result: OUIActionResult; page: PageSurface[] | undefined },
+  before: readonly PageSurface[],
+  extra: Record<string, unknown>,
+): ToolExecutionResult {
+  const { surface, entry } = action;
   // A picture in the answer goes to the model as a picture, not as base64 text.
   const lifted = liftAnswerImage(answer.result.data);
   const shown: OUIActionResult = lifted.data === answer.result.data ? answer.result : { ...answer.result, data: lifted.data };
   const data = {
-    ...forModel(shown, before, answer.page, deps.maxObservationChars ?? DEFAULT_PAGE_STATE_CHARS, surface.id, deps.maxAnswerDataChars ?? DEFAULT_ANSWER_DATA_CHARS),
+    ...forModel(shown, before, answer.page, limits.maxObservationChars ?? DEFAULT_PAGE_STATE_CHARS, surface.id, limits.maxAnswerDataChars ?? DEFAULT_ANSWER_DATA_CHARS),
     ...extra,
   };
   const image = lifted.image ? { image: lifted.image } : {};
@@ -865,17 +908,20 @@ export function jobWaitOf(deps: Pick<UIToolDependencies, 'jobWaitMs'>): number {
 }
 
 /**
- * What the model is told of work still running when its call answered. Nothing
- * starts a turn when the work ends: the model either waits for it now, or
- * hands back saying it is still running, and its outcome reaches the
- * conversation in the page state of the person's next message.
+ * What the model is told of work still running when its call answered. The
+ * model either waits for it now, or hands back saying it is still running.
+ * When it ends after the turn, the person's tab starts a turn by itself so the
+ * model reports it (a resumed turn) while their window is still open;
+ * otherwise its outcome reaches the conversation in the page state of the
+ * person's next message.
  */
-function stillRunningNote(entry: OUIActionIndexEntry): string {
+export function stillRunningNote(entry: Pick<OUIActionIndexEntry, 'id'>): string {
   return (
     `"${entry.id}" started and has not finished yet, so it is not done: never say it is done. ` +
     `When the rest of the request needs its outcome (to check what it made, or to act on it), wait for it with ${UI_WAIT_TOOL}. ` +
-    'Otherwise tell the person it is still running. Nothing tells you when it ends after this turn: its status and ' +
-    'result appear in the page state with the person’s next message.'
+    'Otherwise tell the person it is still running. If it finishes after this turn, you are brought back to report it ' +
+    'in this chat while the person’s window is still open; otherwise its status and result appear in the page state ' +
+    'with the person’s next message.'
   );
 }
 

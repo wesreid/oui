@@ -131,6 +131,7 @@ export { describeSchema, schemaAt, WHOLE_SCHEMA_CHARS, type SchemaView } from '.
 export { readClientKnowledge, renderClientKnowledge, withClientKnowledge, CLIENT_KNOWLEDGE_KEY, type ClientKnowledge } from './ui/knowledge.js';
 export { BLIND_REFUSALS_BEFORE_STOP, buildUITools, createPageSight, fitNotes, UI_ACT_TOOL, UI_DESCRIBE_TOOL, UI_READ_TOOL, UI_WAIT_TOOL } from './ui/ui-tools.js';
 export type { RunningWork, RunningWorkLog } from './ui/ui-tools.js';
+export type { ResumedTurn, ResumeIgnoredReason } from './resume/resumed-calls.js';
 export type { PageSight, UIToolDependencies, UIToolCollision } from './ui/ui-tools.js';
 export { createUISequence } from './ui/ui-sequence.js';
 export type { UISequence } from './ui/ui-sequence.js';

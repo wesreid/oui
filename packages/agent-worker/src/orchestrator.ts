@@ -32,6 +32,7 @@ import {
   type ApprovalChannel,
   type ApprovalContinuation,
   type ApprovalRequiredEvent,
+  type ResumeContinuation,
   type TurnStoppedMarker,
 } from '@ouispec/agent-core';
 import { DEFAULT_STOP_GRACE_MS, TurnStopped, stopOf, watchTurnStop, type TurnStopState } from './stop/turn-stop.js';
@@ -64,13 +65,15 @@ import {
   DefinitionUnavailable,
   fitNotes,
   jobWaitOf,
+  laterAnswerFor,
   UI_ACT_TOOL,
   UI_DESCRIBE_TOOL,
   UI_READ_TOOL,
   UI_WAIT_TOOL,
   type RunningWorkLog,
 } from './ui/ui-tools.js';
-import { DEFAULT_INDEX_CHARS, indexText, pageFingerprint, type HeldDefinitions, type PageSurface } from './ui/page-index.js';
+import { DEFAULT_INDEX_CHARS, indexText, pageActions, pageFingerprint, type HeldDefinitions, type PageSurface } from './ui/page-index.js';
+import { RESUME_READ_WAIT_MS, resumedCalls, resumeNote, storedToolCall, type ResumedCall, type ResumedTurn } from './resume/resumed-calls.js';
 import { describeSchema } from './ui/outline.js';
 import { createUISequence, type UISlot } from './ui/ui-sequence.js';
 import { actionCallAsUiAct } from './ui/action-as-tool.js';
@@ -92,6 +95,7 @@ import {
   unavailableNote,
   waitingCalls,
   withdrawnMarker,
+  type ApprovalMarker,
 } from './approvals/continuation.js';
 
 const DEFAULT_MAX_ROUNDS = 12;
@@ -161,6 +165,21 @@ interface CallOutcome {
 const notRun = (payload: Record<string, unknown>): CallOutcome => ({ text: JSON.stringify(payload), ran: false });
 
 /**
+ * What the model is given of a tool's result, and whether it succeeded.
+ * Built-in tools (present_options, etc.) return the raw payload directly,
+ * while schema and UI tools return `{ success, data, error }`. A failed call
+ * that still carries data (a UI action's page state) keeps its error message
+ * beside the data on the way to the model.
+ */
+function callResultPayload(result: unknown): { payload: unknown; success: boolean; wrapped: boolean } {
+  const wrapped = !!result && typeof result === 'object' && 'success' in result;
+  if (!wrapped) return { payload: result, success: true, wrapped };
+  const r = result as ToolExecutionResult;
+  const payload = !r.success && r.data !== undefined && r.error ? { error: r.error, ...(r.data as Record<string, unknown>) } : (r.data ?? r.error ?? null);
+  return { payload, success: r.success, wrapped };
+}
+
+/**
  * Run a complete agent turn using the Vercel AI SDK.
  *
  * A turn runs in one or more segments. Each segment is one `streamText` call
@@ -186,6 +205,9 @@ export async function runAgentTurn(
   if (!config.model) {
     throw new Error('[agent-sdk] config.model is required: pass an `ai` library model');
   }
+  if (input.resume && input.approval) {
+    throw new Error('[agent-sdk] A turn carries resume or approval, never both: it continues one thing.');
+  }
   const { turnId, socketRoom } = input;
   // The turn as every host hook is told of it: its id, its channel, how its message was entered.
   const turnInfo = turnInfoOf(input, input.channel, input.approvalChannel);
@@ -207,6 +229,7 @@ export async function runAgentTurn(
     maxRounds,
     maxTokens,
     temperature,
+    ...(input.resume ? { resumed: { requestIds: input.resume.requestIds } } : {}),
   });
 
   // ─── The client's UI ─────────────────────────────────────────
@@ -915,16 +938,7 @@ export async function runAgentTurn(
     // Waiting for started work, at the model's choice, is not a measure of the turn's steps (time-hand-back.ts).
     if (t.name === UI_WAIT_TOOL) stepClock.waited(durationMs);
 
-    // Normalize result — built-in tools (present_options, etc.) return the
-    // raw payload directly, while schema and UI tools return { success, data, error }.
-    const isWrapped = result && typeof result === 'object' && 'success' in result;
-    const resultData = isWrapped ? (result.data ?? result.error ?? null) : result;
-    const resultSuccess = isWrapped ? result.success : true;
-    // A failed call that still carries data (a UI action's page state) must
-    // not lose its error message on the way to the model.
-    const payload = isWrapped && !result.success && result.data !== undefined && result.error
-      ? { error: result.error, ...(result.data as Record<string, unknown>) }
-      : resultData;
+    const { payload, success: resultSuccess, wrapped: isWrapped } = callResultPayload(result);
     const modelPayload =
       readFromText.length > 0 && payload && typeof payload === 'object' && !Array.isArray(payload)
         ? {
@@ -1438,6 +1452,93 @@ export async function runAgentTurn(
     };
   }
 
+  /**
+   * The turn the person's tab started by itself, because work the assistant
+   * started in an earlier turn finished after that turn had ended (the
+   * payload's `resume`, resume/resumed-calls.ts).
+   *
+   * Each request whose call this conversation holds, still "running", has its
+   * final answer read from the realtime server (kept 35 minutes). It becomes
+   * that call's result in the words `ui_wait` gives once work ends
+   * (`laterAnswerFor`), and, like an approved call's outcome
+   * (continueApproval), it is a later result of the call already in the
+   * history: it takes the call's place in what the model is given, and is
+   * persisted under the call's own id, so every later turn reads the outcome
+   * instead of "still running". A final answer that cannot be read is said in
+   * the note, and nothing is stored for it. `note` is null when nothing is
+   * left to report: the turn then calls no model.
+   */
+  async function resumeAfterWork(resume: ResumeContinuation): Promise<{
+    note: string | null;
+    /** The later results, as the history gives them to the model. */
+    outcomes: TurnHistoryMessage[];
+    persisted: TurnMessage[];
+    record: ResumedTurn;
+  }> {
+    const { calls, ignored } = resumedCalls(input.history ?? [], resume.requestIds);
+    for (const left of ignored) {
+      log('info', 'agent:turn', 'A resumed turn left a request out', { turnId, requestId: left.requestId, reason: left.reason });
+    }
+    const channel = config.ui?.channel;
+    const finals = await Promise.all(
+      calls.map(async (call) => {
+        if (!channel) return null;
+        try {
+          return await channel.awaitResult(call.requestId, {
+            userId: input.userId,
+            timeoutMs: RESUME_READ_WAIT_MS,
+            signal: abortController.signal,
+            final: true,
+          });
+        } catch (err) {
+          log('warn', 'agent:turn', 'Could not read the final answer of work a resumed turn reports', {
+            turnId,
+            requestId: call.requestId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return null;
+        }
+      }),
+    );
+    const page = client?.page ?? [];
+    const reported: ResumedCall[] = [];
+    const unreadable: ResumedCall[] = [];
+    const outcomes: TurnHistoryMessage[] = [];
+    const persisted: TurnMessage[] = [];
+    calls.forEach((call, i) => {
+      const final = finals[i];
+      // None kept (expired, or never received), or a relay that keeps only first answers handing back the acknowledgment.
+      if (!final || final.interim) {
+        unreadable.push(call);
+        return;
+      }
+      const answer = laterAnswerFor(final, call, page, {
+        maxObservationChars: config.ui?.maxObservationChars,
+        maxAnswerDataChars: config.ui?.maxAnswerDataChars,
+      });
+      const text = JSON.stringify(callResultPayload(answer).payload ?? { error: 'no result' });
+      // Stored as the model is sent it; an approved call keeps saying it was approved and run once.
+      const content = answerWithoutState(call.approval !== undefined ? markedResult(text, call.approval as ApprovalMarker) : text);
+      outcomes.push({ role: 'tool', content, tool_call_id: call.callId, name: call.name });
+      persisted.push({ role: 'tool', content, toolCallId: call.callId, name: call.name });
+      reported.push(call);
+    });
+    const record: ResumedTurn = {
+      requestIds: [...resume.requestIds],
+      reported: reported.map((c) => c.requestId),
+      unreadable: unreadable.map((c) => c.requestId),
+      ignored,
+    };
+    log('info', 'agent:turn', 'Turn resumed after work that finished after its turn ended', { turnId, resumed: record });
+    const titles = new Map(pageActions(page).actions.map((a) => [a.entry.id, a.entry.title]));
+    return {
+      note: reported.length + unreadable.length > 0 ? resumeNote(reported, unreadable, (id) => titles.get(id)) : null,
+      outcomes,
+      persisted,
+      record,
+    };
+  }
+
   // Track cumulative text length emitted this turn.
   let totalTextEmitted = 0;
 
@@ -1615,10 +1716,13 @@ export async function runAgentTurn(
   // stores only that it was stopped.
   await stopWatch.checked();
   const stoppedBeforeStart = stopOf(abortController.signal);
-  if (stoppedBeforeStart) return await finishStopped(stoppedBeforeStart, { expired: null, continued: null });
+  if (stoppedBeforeStart) return await finishStopped(stoppedBeforeStart, { expired: null, continued: null, resumed: null });
 
   // ─── The turn after an approval decision ────────────────
   const continued = input.approval ? await continueApproval(input.approval) : null;
+
+  // ─── The turn resumed after work that finished after its turn ────────────
+  const resumed = input.resume ? await resumeAfterWork(input.resume) : null;
 
   // ─── Calls still stored as waiting, whose approval expired undecided ──────
   //
@@ -1696,7 +1800,7 @@ export async function runAgentTurn(
 
   // Stopped while the approved call ran, or while the store was asked: the model is not called.
   const stoppedBeforeModel = stopOf(abortController.signal);
-  if (stoppedBeforeModel) return await finishStopped(stoppedBeforeModel, { expired, continued });
+  if (stoppedBeforeModel) return await finishStopped(stoppedBeforeModel, { expired, continued, resumed });
 
   // Convert history to AI SDK CoreMessage format. Everything before the end
   // of the conversation is sent exactly as it was sent before, so the prompt
@@ -1711,10 +1815,10 @@ export async function runAgentTurn(
   const turnFilesGiven = !!fileArea && (input.attachments?.length ?? 0) > 0;
   const messages: ModelMessage[] = [
     ...convertHistoryToCoreMessages(
-      // An approved call's outcome, and an expired one's, is a later result of the call already in the
-      // history: it takes that call's place.
-      [...(input.history ?? []), ...expired.outcomes, ...(continued?.outcome ? [continued.outcome] : [])],
-      [input.content, continued?.note].filter(Boolean).join('\n\n'),
+      // An approved call's outcome, an expired one's, and work's that ended after its turn, is a later
+      // result of the call already in the history: it takes that call's place.
+      [...(input.history ?? []), ...expired.outcomes, ...(continued?.outcome ? [continued.outcome] : []), ...(resumed?.outcomes ?? [])],
+      [input.content, continued?.note, resumed?.note].filter(Boolean).join('\n\n'),
       // The turn's own message, when the history already holds it: its files are given below,
       // each with its line, so the history's copy of the message does not name them again.
       turnFilesGiven && input.history?.at(-1)?.role === 'user' ? input.history.length - 1 : null,
@@ -1794,7 +1898,7 @@ export async function runAgentTurn(
   // are newer than the page the turn began on.
   const turnMessageAt = messages.map((m) => m.role).lastIndexOf('user');
   const turnClock = clockText(new Date(), readClientTimeZone(input.context ?? null));
-  const turnSpoken = input.approval ? null : readClientMessageInput(input.context ?? null);
+  const turnSpoken = input.approval || input.resume ? null : readClientMessageInput(input.context ?? null);
   // The reply is spoken on every turn of a call, the turn an approval continues included.
   const turnSpokenReply = readClientReplyOutput(input.context ?? null);
   const turnPageValues =
@@ -1826,7 +1930,7 @@ export async function runAgentTurn(
       : []),
     turnClock,
     // A message the person spoke may hold a mis-heard word (prompt/spoken-input.ts). A click on an
-    // approval card is not a message, so it says nothing.
+    // approval card, and a resume after work, are not messages, so they say nothing.
     ...(turnSpoken ? [spokenInputText(turnSpoken)] : []),
     // A reply a voice will read out is written for the ear (prompt/spoken-reply.ts).
     ...(turnSpokenReply ? [spokenReplyText(turnSpokenReply)] : []),
@@ -1854,7 +1958,10 @@ export async function runAgentTurn(
   let outputLimitNote: string | null = null;
   let outputLimited = false;
 
-  for (;;) {
+  // A resumed turn with nothing left to report (every request it named left out) calls no model: it
+  // ends at once, complete, having stored nothing of its own.
+  const modelCalled = !(resumed && resumed.note === null);
+  while (modelCalled) {
     segments++;
     const aiTools = assembleTools();
     const previousSteps = [...allSteps];
@@ -2143,7 +2250,7 @@ export async function runAgentTurn(
   // its own end and a stop that lands from now on is not one. Its watch is
   // closed, so it cannot abort the store or cause a second announcement.
   const stop = stopOf(abortController.signal);
-  if (stop) return await finishStopped(stop, { expired, continued });
+  if (stop) return await finishStopped(stop, { expired, continued, resumed });
   ending = true;
   stopWatch.close();
 
@@ -2222,6 +2329,7 @@ export async function runAgentTurn(
         }
       : {}),
     ...(fileArea ? { attachments: fileGuard.usage() } : {}),
+    ...(resumed ? { resumed: resumed.record } : {}),
   });
 
   /** A step whose choice's card said the reply stores it as the step's text, as the person read it. */
@@ -2238,6 +2346,7 @@ export async function runAgentTurn(
   const newMessages = [
     ...expired.persisted,
     ...(continued?.persisted ?? []),
+    ...(resumed?.persisted ?? []),
     ...convertResponseToTurnMessages(
       { steps: withRepliesFromCards(outputLimited ? [...steps, { text: OUTPUT_LIMIT_REPLY, toolCalls: [] }] : steps) },
       executedToolResults,
@@ -2298,6 +2407,7 @@ export async function runAgentTurn(
     maxRoundsReached: steps.length >= maxRounds,
     stopReason,
     ...(fileArea ? { attachments: fileGuard.usage() } : {}),
+    ...(resumed ? { resumed: resumed.record } : {}),
   };
   } finally {
     clearTimeout(deadlineTimer);
@@ -2323,6 +2433,7 @@ export async function runAgentTurn(
     earlier: {
       expired: { persisted: TurnMessage[]; claimed: string[] } | null;
       continued: { persisted: TurnMessage[] } | null;
+      resumed: { persisted: TurnMessage[]; record: ResumedTurn } | null;
     },
   ): Promise<AgentTurnResult> {
     ending = true;
@@ -2366,6 +2477,7 @@ export async function runAgentTurn(
     const newMessages: TurnMessage[] = [
       ...(earlier.expired?.persisted ?? []),
       ...(earlier.continued?.persisted ?? []),
+      ...(earlier.resumed?.persisted ?? []),
       ...stoppedTurnMessages({ steps: recordedSteps, calls: [...recordedCalls.values()], streamedText, marker }),
     ];
     const unsettled = [...recordedCalls.values()].filter((call) => call.text === null).map((call) => call.toolName);
@@ -2395,6 +2507,7 @@ export async function runAgentTurn(
       ...(unsettled.length > 0 ? { unsettledCalls: unsettled } : {}),
       ...(client ? { ui: { ...uiCounts, blindRefusals: sight.refusals(), stopped: sight.stopped() } } : {}),
       ...(fileArea ? { attachments: fileGuard.usage() } : {}),
+      ...(earlier.resumed ? { resumed: earlier.resumed.record } : {}),
     });
 
     // The store and the announcement each get a limit of their own when the host says how long
@@ -2477,6 +2590,7 @@ export async function runAgentTurn(
       stopped: marker,
       ...(stored ? {} : { stored: false as const }),
       ...(fileArea ? { attachments: fileGuard.usage() } : {}),
+      ...(earlier.resumed ? { resumed: earlier.resumed.record } : {}),
     };
   }
 }
@@ -2582,26 +2696,7 @@ export function convertHistoryToCoreMessages(
         }
         if (msg.tool_calls?.length) {
           for (const tc of msg.tool_calls) {
-            let toolName: string;
-            let args: Record<string, unknown>;
-
-            if (tc.function && typeof tc.function === 'object') {
-              toolName = tc.function.name;
-              try {
-                args = typeof tc.function.arguments === 'string'
-                  ? JSON.parse(tc.function.arguments)
-                  : tc.function.arguments as unknown as Record<string, unknown>;
-              } catch { args = {}; }
-            } else {
-              const flat = tc as unknown as { id: string; name: string; arguments: unknown };
-              toolName = flat.name;
-              try {
-                args = typeof flat.arguments === 'string'
-                  ? JSON.parse(flat.arguments)
-                  : (flat.arguments as Record<string, unknown>) ?? {};
-              } catch { args = {}; }
-            }
-
+            const { name: toolName, args } = storedToolCall(tc);
             parts.push({ type: 'tool-call' as const, toolCallId: tc.id, toolName, input: args });
           }
         }
