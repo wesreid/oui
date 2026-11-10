@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.25.1
+
+### Patch Changes
+
+- A shared surface mounted on the page ranks with the page and its rooms in the page state over budget, not below them: one in the snapshot is on the page as much as the page is (a document two pages share is the page's content). Surfaces left out to fit go by rank, then the one mounted last first, as the index collapses; the shells still go first and the acting surface never.
+
 ## 0.25.0
 
 ### Minor Changes

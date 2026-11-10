@@ -122,15 +122,19 @@ const FIELD_KEYS = new Set(['values', 'unavailable', 'busy', 'schema']);
 
 /**
  * Where a surface comes in the page state over budget: the surface the action
- * acted on, then the pages and rooms, then shared parts of them, then anything
- * else, and the shells (the chrome around every page: accounts, projects,
- * navigation) last. A long project list in the shell must never crowd out the
- * page the model is working on.
+ * acted on, then the page's own surfaces — its page, its rooms and the shared
+ * components mounted on it — then anything else, and the shells (the chrome
+ * around every page: accounts, projects, navigation) last. A long project list
+ * in the shell must never crowd out the page the model is working on.
+ *
+ * A shared surface reports observations only while it is mounted, so one in the
+ * snapshot is on the page as much as the page is: a document two pages share
+ * (its sections a component tree) is the page's content, not a part beside it.
+ * Inside a rank, surfaces keep their mount order.
  */
 export function surfaceRank(surfaceId: string, acting: string | undefined): number {
   if (acting !== undefined && surfaceId === acting) return 0;
-  if (surfaceId.startsWith('page:') || surfaceId.startsWith('room:')) return 1;
-  if (surfaceId.startsWith('shared:')) return 2;
+  if (surfaceId.startsWith('page:') || surfaceId.startsWith('room:') || surfaceId.startsWith('shared:')) return 1;
   if (surfaceId.startsWith('shell:') || surfaceId === 'app-shell') return 4;
   return 3;
 }
@@ -437,11 +441,19 @@ function fitted(
   }
 
   const omitted: string[] = [];
-  /** Leave out surfaces matching `which`, furthest from the page and largest first, until the rest fit. */
+  /** Mount order, as the tab reported the surfaces. */
+  const mounted = new Map(Object.keys(observations).map((id, i) => [id, i]));
+  /**
+   * Leave out surfaces matching `which`, furthest from the page first, and inside a rank the one mounted last
+   * first (as the index collapses), until the rest fit.
+   */
   const leaveOut = (which: (id: string) => boolean): boolean => {
     const droppable = Object.keys(values)
       .filter((id) => id !== acting && which(id))
-      .sort((a, b) => surfaceRank(b, acting) - surfaceRank(a, acting) || size(values[b]) - size(values[a]));
+      .sort(
+        (a, b) =>
+          surfaceRank(b, acting) - surfaceRank(a, acting) || (mounted.get(b) ?? 0) - (mounted.get(a) ?? 0),
+      );
     for (const id of droppable) {
       if (Object.keys(values).length <= 1) break;
       values = Object.fromEntries(Object.entries(values).filter(([key]) => key !== id));
