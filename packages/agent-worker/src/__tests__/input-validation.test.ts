@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { deriveInputSchema } from '@ouispec/bindings';
 import { createToolInputValidator } from '../tools/input-validation.js';
 
 const speakSchema = {
@@ -127,6 +128,35 @@ describe('createToolInputValidator', () => {
     it('reports nothing coerced for input that was valid as sent', () => {
       const result = setProperties({ ids: ['a'], values: { x: 1 } });
       expect(result).toEqual({ ok: true, value: { ids: ['a'], values: { x: 1 } } });
+    });
+  });
+
+  describe('a number on a step (multipleOf)', () => {
+    // The schema a slider stepping by 0.05 from 0 to 1 gets from its binding.
+    const trait = createToolInputValidator(deriveInputSchema('number', { min: 0, max: 1, step: 0.05 }) as Record<string, unknown>);
+
+    it('takes every value on the step, which exact division refused for 0.7 (0.7 / 0.05 = 13.999999999999998)', () => {
+      expect(0.7 / 0.05).not.toBe(14);
+      expect(trait({ value: 0.7 })).toEqual({ ok: true, value: { value: 0.7 } });
+      for (let i = 0; i <= 20; i++) {
+        const value = Number((i * 0.05).toFixed(2));
+        expect([value, trait({ value }).ok]).toEqual([value, true]);
+      }
+    });
+
+    it('still refuses a value off the step, and one out of range', () => {
+      expect(trait({ value: 0.71 })).toEqual({ ok: false, errors: ['/value must be multiple of 0.05'] });
+      expect(trait({ value: 1.05 })).toEqual({ ok: false, errors: ['/value must be <= 1'] });
+    });
+
+    it('holds for other steps a control declares', () => {
+      const tenth = createToolInputValidator(deriveInputSchema('number', { min: 0, max: 10, step: 0.1 }) as Record<string, unknown>);
+      expect(tenth({ value: 0.3 }).ok).toBe(true);
+      expect(tenth({ value: 2.3 }).ok).toBe(true);
+      expect(tenth({ value: 0.35 }).ok).toBe(false);
+      const whole = createToolInputValidator(deriveInputSchema('number', { min: 0, max: 100, step: 5 }) as Record<string, unknown>);
+      expect(whole({ value: 35 }).ok).toBe(true);
+      expect(whole({ value: 36 }).ok).toBe(false);
     });
   });
 
