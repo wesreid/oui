@@ -117,11 +117,23 @@ export function assemble(
   // Each binding site, and the pages it is on.
   const sites = new Map<string, { control: FoundControl; pages: Set<string> }>();
   const reachOnPage = new Map<string, Map<string, (ReachStep | DialogStep)[]>>();
+  // The components that render each binding site on each page, and the pages each component renders
+  // a control on: what names the surface of a control shared between pages (`sharedOwner`).
+  const chainsOf = new Map<string, Map<string, readonly string[]>>();
+  const pagesOfComponent = new Map<string, Set<string>>();
   for (const page of pages) {
     for (const c of page.analysis?.controls ?? []) {
       const entry = sites.get(c.site) ?? { control: c, pages: new Set<string>() };
       entry.pages.add(page.component);
       sites.set(c.site, entry);
+      const chains = chainsOf.get(c.site) ?? new Map<string, readonly string[]>();
+      if (!chains.has(page.component)) chains.set(page.component, c.components);
+      chainsOf.set(c.site, chains);
+      for (const component of c.components) {
+        const on = pagesOfComponent.get(component) ?? new Set<string>();
+        on.add(page.component);
+        pagesOfComponent.set(component, on);
+      }
       const byPage = reachOnPage.get(c.site) ?? new Map<string, (ReachStep | DialogStep)[]>();
       if (!byPage.has(page.component)) byPage.set(page.component, c.reach);
       reachOnPage.set(c.site, byPage);
@@ -184,14 +196,15 @@ export function assemble(
   }
 
   const sortedSites = [...sites.entries()].sort(([a], [b]) => a.localeCompare(b));
-  for (const [, { control, pages: on }] of sortedSites) {
+  for (const [site, { control, pages: on }] of sortedSites) {
     const shared = on.size > 1;
     const firstPage = pages.find(p => on.has(p.component))!;
     const own = firstPage.frame ? 'shell' : 'page';
-    const surfaceId = shared ? `shared:${control.component}` : `${own}:${firstPage.component}`;
+    const owner = shared ? sharedOwner(control, on, chainsOf.get(site), pagesOfComponent) : null;
+    const surfaceId = owner ? `shared:${owner}` : `${own}:${firstPage.component}`;
     const surface = controlSurfaces.get(surfaceId) ?? {
       kind: shared ? ('shared' as const) : own,
-      title: shared ? words(control.component) : pageTitle(firstPage),
+      title: owner ? words(owner) : pageTitle(firstPage),
       routes: new Set<string>(),
       actions: [],
     };
@@ -589,6 +602,36 @@ function toolDescription(
 /** A text as a sentence: it ends with a full stop unless it already ends a sentence. */
 function sentence(text: string): string {
   return /[.!?…"”)]$/.test(text) ? text : `${text}.`;
+}
+
+/**
+ * The component a control shared between pages is a surface of: of the components that render it on
+ * every page it is on (the common end of its chains, page component first), the outermost whose pages
+ * are exactly the control's. So a tree of components two pages render together (a document's
+ * sections, each a component of its own) is one surface, named by the tree's root, not one per
+ * component, each repeating its name and routes in the index. A component that also renders on
+ * another page is a surface of its own, as before; with nothing shared above it, the control's own
+ * component is. Deterministic: chains are the walk's, compared name by name.
+ */
+export function sharedOwner(
+  control: Pick<FoundControl, 'component'>,
+  on: ReadonlySet<string>,
+  chains: ReadonlyMap<string, readonly string[]> | undefined,
+  pagesOfComponent: ReadonlyMap<string, ReadonlySet<string>>,
+): string {
+  const all = [...(chains?.values() ?? [])];
+  if (all.length === 0) return control.component;
+  let common = all[0];
+  for (const chain of all.slice(1)) {
+    let n = 0;
+    while (n < common.length && n < chain.length && common[common.length - 1 - n] === chain[chain.length - 1 - n]) n++;
+    common = common.slice(common.length - n);
+  }
+  for (const component of common) {
+    const where = pagesOfComponent.get(component);
+    if (where && where.size === on.size && [...on].every(page => where.has(page))) return component;
+  }
+  return control.component;
 }
 
 export function describeStep(step: ReachStep): string {
