@@ -45,7 +45,22 @@ export type ToolInputValidation =
 
 export type ToolInputValidator = (input: unknown) => ToolInputValidation;
 
-const ajv = new Ajv({ allErrors: true, strict: false, useDefaults: false, coerceTypes: false });
+/**
+ * `multipleOf` is checked within 1e-9 of a whole number of steps, not by exact division. A
+ * control's step becomes its schema's `multipleOf` (`@ouispec/bindings` `numberSchema`), and in
+ * binary floating point 0.7 / 0.05 is 13.999999999999998: exact division refused `0.7` for a
+ * slider stepping by 0.05 ("/value must be multiple of 0.05") while it took `0.75`. A value that
+ * is off the step by more than float error (0.71 for 0.05) is still refused.
+ */
+export const MULTIPLE_OF_PRECISION = 9;
+
+const ajv = new Ajv({
+  allErrors: true,
+  strict: false,
+  useDefaults: false,
+  coerceTypes: false,
+  multipleOfPrecision: MULTIPLE_OF_PRECISION,
+});
 addFormats(ajv);
 // An input that takes a file the person attached is given the file's id (OUI spec §7.3.11).
 ajv.addFormat(OUI_ATTACHMENT_FORMAT, ATTACHMENT_ID_PATTERN);

@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentTurnInput, AgentWorkerConfig } from '../types.js';
 import type { RegisteredTool } from '../tools/types.js';
 import { createToolRegistry } from '../tools/types.js';
+import { deriveInputSchema } from '@ouispec/bindings';
 
 let mockStreamTextImpl: (opts: Record<string, unknown>) => Record<string, unknown>;
 
@@ -186,5 +187,24 @@ describe('orchestrator tool input validation', () => {
     expect(result).toEqual({ updated: true });
     expect(tool.execute).toHaveBeenCalledWith({ id: 'c1' }, expect.anything());
     expect(evaluate).toHaveBeenCalledWith(expect.objectContaining({ args: { id: 'c1' } }));
+  });
+
+  it('runs a slider value on its step that floating-point division calls off it (0.7 on a 0.05 step)', async () => {
+    const execute = vi.fn(async (input: Record<string, unknown>) => ({ success: true, data: { set: input.value } }));
+    const tool: RegisteredTool = {
+      name: 'persona_trait',
+      description: 'How strongly the character shows a personality trait, 0 to 1.',
+      inputSchema: deriveInputSchema('number', { min: 0, max: 1, step: 0.05 }) as Record<string, unknown>,
+      execute,
+    };
+    const [onStep, offStep] = await runCalls([tool], [
+      { tool: 'persona_trait', args: { value: 0.7 } },
+      { tool: 'persona_trait', args: { value: 0.72 } },
+    ]);
+
+    expect(onStep).toEqual({ set: 0.7 });
+    expect(offStep).toMatchObject({ success: false, invalidInput: true, error: 'Invalid input for "persona_trait": /value must be multiple of 0.05' });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledWith({ value: 0.7 }, expect.anything());
   });
 });

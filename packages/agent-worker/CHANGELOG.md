@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.25.3
+
+### Patch Changes
+
+- A number on its control's step is taken: `multipleOf` is checked within float error (1e-9 of a whole number of steps), so `0.7` on a slider stepping by `0.05` is no longer refused as "/value must be multiple of 0.05" (0.7 / 0.05 is 13.999999999999998 in binary floating point). A value off the step, such as `0.71`, is still refused.
+
 ## 0.25.2
 
 ### Patch Changes
