@@ -97,7 +97,9 @@ interface ListStep {
    * rows, then a count. Before these, a form of short lists could not fit: it
    * was left out of the page state whole, or cut off mid-value.
    */
-  short?: 'no-schema' | 'index' | 'count';
+  short?: 'no-schema' | 'index' | 'count' | 'lists';
+  /** At the `lists` steps: how many of a page state's lists stay listed (each a count), in their order. */
+  keepLists?: number;
 }
 
 const LIST_STEPS: readonly ListStep[] = [
@@ -112,6 +114,14 @@ const LIST_STEPS: readonly ListStep[] = [
   { whole: 0, index: 0, short: 'no-schema' },
   { whole: 0, index: 0, short: 'index' },
   { whole: 0, index: 0, short: 'count' },
+  // A page state of many lists, each already a count, is still one entry per list: a form of a hundred
+  // lists takes thousands of characters saying "1 rows" a hundred times. Last, a page state keeps its first
+  // lists (each a count) and the ones holding a chosen row, and says how many more there are, their ids read
+  // on request: 40, 20, 10, then none.
+  { whole: 0, index: 0, short: 'lists', keepLists: 40 },
+  { whole: 0, index: 0, short: 'lists', keepLists: 20 },
+  { whole: 0, index: 0, short: 'lists', keepLists: 10 },
+  { whole: 0, index: 0, short: 'lists', keepLists: 0 },
 ];
 
 /**
@@ -214,7 +224,7 @@ function shortenRows(rows: unknown[], step: ListStep, shape: RowShape | null): u
   if (rows.length <= Math.max(step.whole, WHOLE_LIST_ROWS)) {
     if (!step.short || !shape) return rows;
     if (step.short === 'no-schema') return rows.map(withoutRowSchema);
-    return shortRows(rows, step.short, shape);
+    return shortRows(rows, step.short === 'lists' ? 'count' : step.short, shape);
   }
   const chosen = shape?.chosen ?? isChosenValue;
   const whole: unknown[] = [];
@@ -358,11 +368,41 @@ function compactValue(value: unknown, schema: SchemaNode | undefined, ctx: FitCo
         if (key === 'shown' && Array.isArray(v)) return [key, shortenShown(v, inner, child?.['x-rows'])];
         const selection = child?.['x-rows']?.selection;
         const chosen = selection && Array.isArray(object[selection]) ? (object[selection] as unknown[]).map(String) : [];
-        return [key, compactValue(v, child, inner, chosen)];
+        const compacted = compactValue(v, child, inner, chosen);
+        if (key === 'lists' && ctx.step.short === 'lists')
+          return [key, collapsedLists(compacted, ctx.step.keepLists ?? 0, inner.place)];
+        return [key, compacted];
       }),
     );
   }
   return value;
+}
+
+/**
+ * A page state's lists at the last steps of fitting: its first `keep` lists and those holding a row kept
+ * whole (a chosen one) as they are, and the rest as how many there are, with the `ui_read` call that returns
+ * their ids and rows.
+ */
+function collapsedLists(lists: unknown, keep: number, place: ValuePlace | undefined): unknown {
+  if (lists === null || typeof lists !== 'object' || Array.isArray(lists)) return lists;
+  const kept: Record<string, unknown> = {};
+  let listed = 0;
+  let rest = 0;
+  for (const [id, rows] of Object.entries(lists as Record<string, unknown>)) {
+    const chosen = Array.isArray(rows) && rows.some((row) => typeof row !== 'string');
+    if (chosen || listed < keep) {
+      kept[id] = rows;
+      if (!chosen) listed += 1;
+    } else rest += 1;
+  }
+  if (rest <= 1) return lists;
+  const where = place
+    ? `${AGENT_UI_TOOLS.read} with surface "${place.surface}", observation "${place.observation}", at "${place.path}"`
+    : `${AGENT_UI_TOOLS.read} at "/lists"`;
+  return {
+    ...kept,
+    '…': `${rest}${Object.keys(kept).length ? ' more' : ''} lists, not listed to fit the page state; their ids and rows: ${where}`,
+  };
 }
 
 interface Fitted {
@@ -488,6 +528,8 @@ function fitSummary(fit: Fitted, maxChars: number, whole: string[], acted: boole
       ? `rows of lists longer than ${WHOLE_LIST_ROWS} are given as index rows (what each is addressed and called by)${
           Number.isFinite(step.index) ? `, the first ${step.index} of them` : ''
         }`
+      : step.short === 'lists'
+      ? `lists are given as a count, a page's first ${step.keepLists ?? 0} and any holding a chosen row by name and the rest as how many there are; ${READ_A_LIST}`
       : step.short === 'count'
       ? `lists are given as a count; ${READ_A_LIST}`
       : step.short === 'index'

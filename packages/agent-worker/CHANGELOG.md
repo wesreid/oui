@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.25.2
+
+### Patch Changes
+
+- A page state of many lists fits at the last steps: once every list is already a count, a page keeps its first lists (40, then 20, then 10, then none) and the ones holding a chosen row, and says how many more there are with the `ui_read` call that returns their ids and rows. A surface of sixty lists no longer takes thousands of characters saying "1 rows" per list, and is no longer left out of the page state whole beside the rest of the page.
+
 ## 0.25.1
 
 ### Patch Changes
