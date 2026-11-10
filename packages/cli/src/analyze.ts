@@ -74,6 +74,11 @@ export interface FoundControl {
   line: number;
   /** The component whose JSX declares it. */
   component: string;
+  /**
+   * The components that render it on this page, from the page's own component down to `component`:
+   * what decides the surface of a control shared between pages (the outermost one shared as it is).
+   */
+  components: readonly string[];
   /** The navigate target its callback calls with a literal, when it declares no effect. */
   inferredNavigate?: string;
   /**
@@ -186,6 +191,8 @@ interface WalkContext {
    * id among them) can differ.
    */
   trail?: string;
+  /** The components that rendered it, from the page's own component down to this one, by name. */
+  components: readonly string[];
 }
 
 const ITERATORS = new Set(['map', 'flatMap']);
@@ -258,7 +265,13 @@ export class PageAnalyzer {
     this.nonAgentReasons = result.nonAgent;
     this.importsChecked = new Set();
     const seen = new Set<string>();
-    this.walk(pageDecl, { reach: [], itemized: false, props: new Map(), depth: 0 }, result, seen, true);
+    this.walk(
+      pageDecl,
+      { reach: [], itemized: false, props: new Map(), depth: 0, components: [this.componentName(pageDecl)] },
+      result,
+      seen,
+      true,
+    );
     this.resolveOpeners(result);
     this.checkApprovedOnce(result);
     return result;
@@ -972,7 +985,8 @@ export class PageAnalyzer {
       }
     }
     const trail = `${ctx.trail ?? ''}>${el.getSourceFile().fileName}@${el.pos}`;
-    this.walk(target, { reach, itemized, props, depth: ctx.depth + 1, element: el, trail }, out, seen, false);
+    const components = [...ctx.components, this.componentName(target)];
+    this.walk(target, { reach, itemized, props, depth: ctx.depth + 1, element: el, trail, components }, out, seen, false);
   }
 
   /** The app's own component a tag names, through `lazy` and `React.lazy`; null for anything else. */
@@ -1395,6 +1409,7 @@ export class PageAnalyzer {
       declaredIn: at.file,
       line: at.line,
       component,
+      components: ctx.components,
       owner: decl,
       schemaProps: this.schemaProps(el, descriptor),
     };
@@ -1600,7 +1615,13 @@ export class PageAnalyzer {
     reach: (ReachStep | DialogStep)[],
     itemized: boolean,
     tag: string,
-    base: { declaredIn: string; line: number; owner: ts.Node; schemaProps: SchemaProps },
+    base: {
+      declaredIn: string;
+      line: number;
+      owner: ts.Node;
+      schemaProps: SchemaProps;
+      components: readonly string[];
+    },
     out: PageAnalysis,
   ): void {
     const cb = objectProperty(obj, callback);

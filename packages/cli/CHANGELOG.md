@@ -1,5 +1,11 @@
 # @ouispec/cli
 
+## 0.13.0
+
+### Minor Changes
+
+- A control shared between pages is a surface of the outermost component that renders it on exactly those pages, not of the component its JSX is written in. A tree of components two pages render together (a document whose sections are each a component) is one `shared:` surface named by its root, instead of one per component, each repeating its name and routes in the assistant's index. A component that also renders on another page stays a surface of its own. Every action keeps its id; only surface ids and titles change.
+
 ## 0.12.2
 
 ### Patch Changes
