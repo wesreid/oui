@@ -8,6 +8,10 @@
     "version": { "description": "The suite format's version.", "const": 1 },
     "name": { "description": "The suite's name, as reports show it.", "type": "string", "minLength": 1, "maxLength": 120 },
     "description": { "type": "string" },
+    "tags": {
+      "description": "The categories every scenario of the suite belongs to, before its own `tags`: a model matrix reports a pass rate for each category.",
+      "$ref": "#/$defs/AgentEvalTagList"
+    },
     "channels": {
       "description": "The channels every scenario runs on, as the eval configuration names them (`web_chat`, `sms`, `voice`). Default: every channel the configuration names.",
       "$ref": "#/$defs/AgentEvalChannelList"
@@ -34,6 +38,13 @@
       "minItems": 1,
       "uniqueItems": true
     },
+    "AgentEvalTagList": {
+      "description": "Category names a report groups scenarios by.",
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]*$", "maxLength": 60 },
+      "minItems": 1,
+      "uniqueItems": true
+    },
     "AgentEvalScenario": {
       "description": "One conversation: its turns in order, and what must hold after each.",
       "type": "object",
@@ -41,6 +52,10 @@
         "id": { "description": "Unique in the suite; names its recordings.", "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$", "maxLength": 80 },
         "title": { "description": "What it shows, as reports name it.", "type": "string", "minLength": 1 },
         "description": { "type": "string" },
+        "tags": {
+          "description": "The categories this scenario belongs to, after the suite's (`single-edit`, `navigation`, `refusal`): a model matrix reports a pass rate for each category. They change nothing the model is asked.",
+          "$ref": "#/$defs/AgentEvalTagList"
+        },
         "channels": { "description": "The suite's channels this scenario runs on, when not all of them.", "$ref": "#/$defs/AgentEvalChannelList" },
         "context": { "description": "What each of its turns carries as its context, after the suite's and the channel's.", "type": "object", "additionalProperties": true },
         "stubs": { "description": "What each tool returns in this scenario, before the suite's stubs.", "$ref": "#/$defs/AgentEvalStubs" },

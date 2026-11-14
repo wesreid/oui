@@ -4,10 +4,11 @@
  * configuration, which the harness runs through the SDK's own turn runner.
  */
 import type { ApprovalChannel, MessageInput } from '@ouispec/agent-core';
-import type { AgentEvalScenario, AgentEvalSuite } from '@ouispec/contract';
+import type { AgentEvalScenario, AgentEvalSuite, AgentEvalTextMatcher } from '@ouispec/contract';
 import type { AgentRuntimeConfig, LanguageModel, ProviderOptions, ToolExecutionContext, ToolExecutionResult } from '@ouispec/agent-worker';
 import type { JudgeOptions } from './judge.js';
 import type { EvalHistory } from './memory.js';
+import type { EvalCandidate, EvalJudgeModel } from './models.js';
 import type { EvalPageSource } from './page.js';
 
 /**
@@ -80,6 +81,36 @@ export interface EvalModelSeam {
   mode: EvalMode;
   /** `agent` for the turns; `judge` for a rubric's verdict. */
   purpose: 'agent' | 'judge';
+  /**
+   * In a model matrix, for `purpose: 'agent'`: the candidate to build, by its
+   * `id`. The run checks that the model built is that one.
+   */
+  candidate?: EvalCandidate;
+  /** For `purpose: 'judge'`, when the configuration names it (`judgeModel`): the judge to build, by its `id`. */
+  judgeModel?: EvalJudgeModel;
+}
+
+/** What one of the agent's turns may use, for a run's cost estimate: a turn's own `usage` bounds come first. */
+export interface EvalTurnBudget {
+  /** The input tokens of all its model calls together. */
+  inputTokens: number;
+  /** The output tokens of all its model calls together. */
+  outputTokens: number;
+  /** The share of its input read from the prompt cache, where the model has one (0 to 1). Default 0. */
+  cachedShare?: number;
+}
+
+/**
+ * What an estimate takes for what a suite does not say. A turn's budget is
+ * its expectation's `usage` bounds: `inputTokens.max` (or
+ * `callInputTokens.max` × `modelCalls.max`), `outputTokens.max` and
+ * `cachedShare.min`; a turn that does not bound them takes `turn`'s.
+ */
+export interface EvalBudgets {
+  /** Every turn's budget where its own expectation gives none. */
+  turn?: EvalTurnBudget;
+  /** One verdict of the judge. Default: 2,000 input tokens, and the judge's `maxOutputTokens` (1,024) out. */
+  judgeCall?: { inputTokens: number; outputTokens: number };
 }
 
 /** A tool's stub as code: what the tool returns for a call, or `undefined` to fall through to the suite's data. */
@@ -101,11 +132,35 @@ export interface AgentEvalConfig {
   cassettes: string;
   /** Every channel the product serves, by the name suites use. */
   channels: Readonly<Record<string, EvalChannel>>;
-  /** The model: any `ai` provider, built with the fetch the harness hands it. */
+  /**
+   * The model: any `ai` provider, built with the fetch the harness hands it.
+   * In a model matrix it is handed each candidate (`seam.candidate`) and
+   * builds that one; and the judge (`seam.judgeModel`) unless `judge` builds it.
+   */
   model: (seam: EvalModelSeam) => LanguageModel;
+  /**
+   * The candidates a model matrix chooses from (`agent-evals --models all`, or
+   * by id): the product's model registry, each with its provider options,
+   * capabilities and prices. `--models <file>` gives them instead.
+   */
+  models?: readonly EvalCandidate[];
+  /**
+   * The judge of rubrics, by id: one model for the whole run, never a
+   * candidate. A matrix whose suites have rubrics needs it, with its prices.
+   */
+  judgeModel?: EvalJudgeModel;
+  /** What a run's cost estimate (`--estimate`, `--max-cost`) takes where a suite gives no budget. */
+  budgets?: EvalBudgets;
+  /**
+   * How a matrix tells a reply that declines from one that does not, for its
+   * refusal count, in turns that do not expect one: a string or a pattern.
+   * Default: the usual phrasing (`DEFAULT_REFUSAL`). A call the provider
+   * stopped for its content (`content-filter`) counts too.
+   */
+  refusal?: Exclude<AgentEvalTextMatcher, { rubric: string }>;
   /** The model's prompt-cache breakpoint, as the worker is given it. */
   promptCacheBreakpoint?: ProviderOptions;
-  /** The judge of rubrics. Default: `model`, asked with `purpose: 'judge'`. */
+  /** The judge of rubrics. Default: `model`, asked with `purpose: 'judge'` (and `judgeModel`, when given). */
   judge?: (seam: EvalModelSeam) => LanguageModel;
   /** The product's real agent configuration for a channel and scenario: the parts its worker runs with. */
   agent: (context: { channel: string; scenario: AgentEvalScenario; suite: AgentEvalSuite }) => EvalAgentConfig | Promise<EvalAgentConfig>;

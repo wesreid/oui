@@ -5,7 +5,13 @@
  * The fingerprint is a hash of everything that shapes what the model is
  * asked: the system prompt, the tools' names, descriptions and schemas, the
  * channel's settings, the scenario's inputs, its page, the agent's provider
- * and UI settings, and the rubrics its judge reads.
+ * and UI settings, and the rubrics its judge reads; in a model matrix, the
+ * candidate too (its id, its provider options and what it can be asked for)
+ * and the judge's id.
+ *
+ * A matrix files each candidate's recordings apart, and each run of a
+ * scenario apart from its first. A recording also keeps how long each of the
+ * agent's model calls took, so a replay reports the live run's times.
  * A recording replayed against a changed configuration or scenario fails,
  * rather than passing on answers to a question no longer asked.
  */
@@ -17,7 +23,9 @@ import type { AgentEvalScenario, AgentEvalSuite } from '@ouispec/contract';
 import type { RecordedExchange } from '@ouispec/agent-worker/testing';
 import type { RegisteredTool } from '@ouispec/agent-worker';
 import type { EvalChannel } from './config.js';
+import { slug, type EvalCandidate } from './models.js';
 import { rubricsOf } from './suite.js';
+import type { EvalCallTiming } from './usage.js';
 
 export const CASSETTE_VERSION = 1;
 
@@ -31,14 +39,24 @@ export interface Cassette {
   recordedAt: string;
   fingerprint: string;
   exchanges: RecordedExchange[];
+  /** How long each of the agent's model calls took, in order (never the judge's): a replay reports these. */
+  timings?: EvalCallTiming[];
 }
 
-/** A file-system-safe form of a suite's name. */
-const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'suite';
+/** Which of a matrix's recordings: the candidate's, and the run (1 for the first). */
+export interface CassetteSlot {
+  model?: string;
+  run?: number;
+}
 
-/** Where a scenario's recording on a channel lives. */
-export function cassettePath(directory: string, suite: AgentEvalSuite, scenario: AgentEvalScenario, channel: string): string {
-  return join(directory, slug(suite.name), `${scenario.id}.${channel}.json`);
+/**
+ * Where a scenario's recording on a channel lives: `<suite>/<scenario>.<channel>.json`;
+ * in a matrix `<suite>/<model>/<scenario>.<channel>.json`, and from its second
+ * run on `….run-<n>.json`.
+ */
+export function cassettePath(directory: string, suite: AgentEvalSuite, scenario: AgentEvalScenario, channel: string, slot: CassetteSlot = {}): string {
+  const run = slot.run !== undefined && slot.run > 1 ? `.run-${slot.run}` : '';
+  return join(directory, slug(suite.name), ...(slot.model !== undefined ? [slug(slot.model, 'model')] : []), `${scenario.id}.${channel}${run}.json`);
 }
 
 export function readCassette(path: string): Cassette | null {
@@ -70,10 +88,13 @@ export interface FingerprintInputs {
   /** Whether a choice waits for a reply: it can add a step to a turn. */
   requireReplyBeforeChoice?: boolean;
   uiActions?: unknown;
+  /** In a model matrix: the candidate, as it shapes what is sent, and the judge's id. */
+  candidate?: Pick<EvalCandidate, 'id' | 'providerOptions' | 'capabilities'>;
+  judge?: string;
 }
 
 export function fingerprint(inputs: FingerprintInputs): string {
-  const { systemPrompt, tools, channel, suite, scenario, page, modelProviderOptions, forcedToolChoice, requireReplyBeforeChoice, uiActions } = inputs;
+  const { systemPrompt, tools, channel, suite, scenario, page, modelProviderOptions, forcedToolChoice, requireReplyBeforeChoice, uiActions, candidate, judge } = inputs;
   const shaped = {
     systemPrompt,
     tools: [...tools]
@@ -98,6 +119,8 @@ export function fingerprint(inputs: FingerprintInputs): string {
     ...(forcedToolChoice !== undefined ? { forcedToolChoice } : {}),
     ...(requireReplyBeforeChoice ? { requireReplyBeforeChoice } : {}),
     ...(uiActions !== undefined ? { uiActions } : {}),
+    ...(candidate ? { candidate: { id: candidate.id, providerOptions: candidate.providerOptions ?? null, capabilities: candidate.capabilities } } : {}),
+    ...(judge !== undefined ? { judge } : {}),
   };
   return createHash('sha256').update(canonicalJson(shaped)).digest('hex');
 }

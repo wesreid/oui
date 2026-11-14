@@ -1,5 +1,31 @@
 # @ouispec/agent-evals
 
+## 0.26.0
+
+### Minor Changes
+
+- **A model matrix: one run of your suites against every candidate model, and a leaderboard that says which is cheapest for the work it does well enough.**
+
+  `agent-evals --models <file | ids | all> --runs <n>` runs every scenario × channel × model × run through the same harness as a single run (your real agent configuration, its stubs, its page), and reports each model side by side.
+
+  - **Candidates are data.** `models` in the configuration, or a file (`.json`, `.yaml`, a module): `{ id, label, providerOptions, capabilities: { promptCache, forcedToolChoice, temperature, vision, contextWindow }, prices: { input, output, cacheRead, cacheWrite } }`, prices in US dollars per million tokens (`EvalCandidate`, checked by `checkCandidates`; `selectModels` reads `--models`). The model factory is handed each one as `seam.candidate`, and a case whose factory builds another model fails (`model`). A candidate's turns send its `providerOptions` in place of the agent's `modelProviderOptions`, the cache breakpoint only where it caches, and no forced tool choice or temperature where it takes none (`agentForCandidate`).
+  - **One judge.** `judgeModel` (`{ id, label, providerOptions, prices }`) decides every rubric for every candidate, and is never one of them; a matrix whose suites have rubrics needs it. The seam hands it to the factory as `seam.judgeModel`, its provider options reach every verdict, and the judge is built only for a scenario with a rubric.
+  - **What each call used.** `EvalModelCall` now carries `noCacheTokens`, `firstTokenMs`, `durationMs` and `finishReason`; a turn's usage its `noCacheTokens`, `firstTokenMs` (to the turn's first token) and `modelMs`. A turn's record carries `invalidToolCalls` (input the tool's schema refused or that would not parse, or no such tool), `refusal` (`provider` for a call stopped for its content, `reply` for a reply in the words of a refusal where none is expected; `refusal` in the configuration sets the words) and `costUsd`; a case's result its `model`, `run`, `costUsd`, `judgeCalls`, `judgeCostUsd` and `stoppedBy`. A recording keeps its agent calls' times (`timings`), so a replay reports the live run's latency.
+  - **Per model** (`summarizeModel`): pass rate over the cases judged, with its mean, least and most across runs; each category's pass rate and cost per completed task, by the scenarios' `tags`; tokens with the cache split; model calls per turn; cost in all, per turn, per whole run and **per completed task** (everything spent, failures included, over the cases passed); first-token and model time p50 and p90; invalid tool calls; refusals. And the picks (`leadersOf`): for all scenarios and each category, the cheapest model per completed task among those within `--within` points (default 2) of the best pass rate.
+  - **Reports.** `--json` writes the results (`MatrixResults`, `format: "agent-evals-matrix"`, `version: 1`), `--html` a self-contained leaderboard (`leaderboardHtml`: a sortable table, the picks, the categories, the models, every scenario's results by model; it loads nothing), `--markdown` a summary (`matrixMarkdown`). The same results give the same bytes. JUnit names each case's model and run.
+  - **A spend limit.** `--estimate` prices the run without calling a model (`estimateRun`, `estimateMatrix`): each turn's budget from its `usage` bounds, else the configuration's `budgets.turn`, at each model's prices, plus one verdict per rubric at the judge's (`budgets.judgeCall`, default 2,000 tokens in and the judge's most out); input not declared as read from the cache is priced as written to it where the model caches. `--max-cost <usd>` runs nothing when the estimate is over it, and refuses the next model request once the run has spent it (`SpendGuard`, `SpendLimitError`): the run stops, says so, and leaves the cases it stopped out of every figure. A matrix exits 0 when every case ran, 1 when a case could not run as written, 2 when it could not start, and 4 when the limit stopped it. `--concurrency <n>` runs cases side by side.
+  - **Recordings.** A matrix files each model's recordings apart, and each run after the first apart (`<suite>/<model>/<scenario>.<channel>.run-<n>.json`); its fingerprint takes the candidate and the judge, so a single model's recordings are unchanged.
+
+  `@ouispec/contract`: a suite and a scenario take `tags` (`AgentEvalTagList`), the categories a matrix reports pass rates by; they change nothing the model is asked. The integrator guide describes the matrix.
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/contract@0.14.0
+  - @ouispec/agent-core@0.26.0
+  - @ouispec/bindings@0.14.0
+  - @ouispec/agent-worker@0.26.0
+
 ## 0.25.0
 
 ### Patch Changes

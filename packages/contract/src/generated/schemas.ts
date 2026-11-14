@@ -4322,6 +4322,10 @@ export const CONTRACT_SCHEMAS = {
       "description": {
         "type": "string"
       },
+      "tags": {
+        "description": "The categories every scenario of the suite belongs to, before its own `tags`: a model matrix reports a pass rate for each category.",
+        "$ref": "#/$defs/AgentEvalTagList"
+      },
       "channels": {
         "description": "The channels every scenario runs on, as the eval configuration names them (`web_chat`, `sms`, `voice`). Default: every channel the configuration names.",
         "$ref": "#/$defs/AgentEvalChannelList"
@@ -4364,6 +4368,17 @@ export const CONTRACT_SCHEMAS = {
         "minItems": 1,
         "uniqueItems": true
       },
+      "AgentEvalTagList": {
+        "description": "Category names a report groups scenarios by.",
+        "type": "array",
+        "items": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_.-]*$",
+          "maxLength": 60
+        },
+        "minItems": 1,
+        "uniqueItems": true
+      },
       "AgentEvalScenario": {
         "description": "One conversation: its turns in order, and what must hold after each.",
         "type": "object",
@@ -4381,6 +4396,10 @@ export const CONTRACT_SCHEMAS = {
           },
           "description": {
             "type": "string"
+          },
+          "tags": {
+            "description": "The categories this scenario belongs to, after the suite's (`single-edit`, `navigation`, `refusal`): a model matrix reports a pass rate for each category. They change nothing the model is asked.",
+            "$ref": "#/$defs/AgentEvalTagList"
           },
           "channels": {
             "description": "The suite's channels this scenario runs on, when not all of them.",
@@ -5558,6 +5577,7 @@ export const CONTRACT_TYPES = {
   ConversationMessageEvent: 'conversation-takeover.json#/$defs/ConversationMessageEvent',
   AgentEvalSuite: 'agent-evals.json',
   AgentEvalChannelList: 'agent-evals.json#/$defs/AgentEvalChannelList',
+  AgentEvalTagList: 'agent-evals.json#/$defs/AgentEvalTagList',
   AgentEvalScenario: 'agent-evals.json#/$defs/AgentEvalScenario',
   AgentEvalTurn: 'agent-evals.json#/$defs/AgentEvalTurn',
   AgentEvalUserTurn: 'agent-evals.json#/$defs/AgentEvalUserTurn',

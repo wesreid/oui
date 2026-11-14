@@ -117,12 +117,12 @@ export const SUITE: AgentEvalSuite = {
 };
 
 // What the model was asked, read past the step's tail (the page's state and the clock), which follows the conversation.
-const lastUser = (request: ChatRequest) => {
+export const lastUser = (request: ChatRequest) => {
   const said = [...conversationOf(request)].reverse().find((m) => m.role === 'user');
   return said ? messageText(said) : '';
 };
-const lastRole = (request: ChatRequest) => conversationOf(request).at(-1)?.role;
-const isJudge = (request: ChatRequest) => request.messages.some((m) => m.role === 'system' && String(m.content).startsWith(JUDGE_INSTRUCTIONS.slice(0, 40)));
+export const lastRole = (request: ChatRequest) => conversationOf(request).at(-1)?.role;
+export const isJudge = (request: ChatRequest) => request.messages.some((m) => m.role === 'system' && String(m.content).startsWith(JUDGE_INSTRUCTIONS.slice(0, 40)));
 const judged = (request: ChatRequest, pass: (reply: string) => boolean): ScriptedReply => {
   const reply = /The agent replied:\n([\s\S]*)$/.exec(lastUser(request))?.[1] ?? '';
   return { text: JSON.stringify({ pass: pass(reply), reason: 'scripted' }) };
