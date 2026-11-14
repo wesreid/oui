@@ -26,6 +26,7 @@ import {
   UI_ACT_TOOL,
   withoutClientUI,
   type AgentTurnPayload,
+  type LanguageModel,
   type RegisteredTool,
   type ToolExecutionResult,
   type TurnMessage,
@@ -36,12 +37,17 @@ import { toolName } from '@ouispec/bindings';
 import type { AgentEvalBound, AgentEvalExpectation, AgentEvalPage, AgentEvalScenario, AgentEvalSuite, AgentEvalTextMatcher } from '@ouispec/contract';
 import type { AgentEvalConfig, EvalAgentConfig, EvalChannel, EvalMode } from './config.js';
 import { CASSETTE_VERSION, cassettePath, fingerprint, readCassette, writeCassette } from './cassettes.js';
-import { checkSuite, readSuiteFile } from './suite.js';
+import { mergeExpectations } from './expectations.js';
+import { checkSuite, readSuiteFile, rubricsOf } from './suite.js';
 import { DEFAULT_REFUSAL, describeMatcher, holdsSubset, matchesText } from './matchers.js';
-import { judge, type JudgeOptions } from './judge.js';
+import { judge, type JudgeAsk } from './judge.js';
 import { NO_PAGE, createMemoryApprovalStore, createMemoryEmit, createMemoryHistory, createMemoryStops, type EvalHistoryTurn } from './memory.js';
+import { callCost, callsCost, type EvalCandidate } from './models.js';
 import { createFixturePage, type EvalPage, type EvalPageRun } from './page.js';
-import { recordingCalls, turnUsage, type EvalModelCall, type EvalTurnUsage } from './usage.js';
+import type { EvalTarget, SpendGuard } from './spend.js';
+import { recordingCalls, turnUsage, type EvalCallTiming, type EvalModelCall, type EvalTurnUsage } from './usage.js';
+
+export { mergeExpectations } from './expectations.js';
 
 // ─── What a run reports ─────────────────────────────────────────────────────
 
@@ -90,6 +96,19 @@ export interface EvalTurnRecord {
   choices: EvalChoices[];
   /** Where the page was after the turn, and what ran on it during the turn; null with no page. */
   page: { at: string; ran: EvalPageRun[] } | null;
+  /**
+   * Its calls that ran no tool because the model wrote them wrong: input that
+   * failed the tool's schema or would not parse, or a tool that does not exist.
+   */
+  invalidToolCalls: number;
+  /**
+   * Whether it declined: `provider`, a model call the provider stopped for its
+   * content; `reply`, a reply in the words of a refusal (`config.refusal`) on a
+   * turn that does not expect one; null otherwise.
+   */
+  refusal: 'provider' | 'reply' | null;
+  /** What its model calls cost at the candidate's prices, in US dollars; null outside a model matrix. */
+  costUsd: number | null;
   outcome: TurnOutcome['status'];
   stopReason?: string;
 }
@@ -110,6 +129,17 @@ export interface EvalCaseResult {
   cassette: string;
   modelRequests: number;
   durationMs: number;
+  /** In a model matrix: the candidate's id, and the run (1 for the first). */
+  model?: string;
+  run?: number;
+  /** What the agent's model calls cost at the candidate's prices, in US dollars; null outside a model matrix. */
+  costUsd: number | null;
+  /** The judge's calls, for the rubrics: never the agent's. */
+  judgeCalls: EvalModelCall[];
+  /** What the judge's calls cost at its prices, in US dollars; null when it has none. */
+  judgeCostUsd: number | null;
+  /** `max-cost`: the spend guard refused a request of this case, so it did not run to its end. */
+  stoppedBy?: 'max-cost';
 }
 
 export interface EvalReport {
@@ -164,12 +194,15 @@ function rootOf(config: AgentEvalConfig, fallback: string | undefined): string {
   return resolve(fallback ?? process.cwd());
 }
 
-/** Every scenario on every channel it runs on, as cases to run. */
-export async function evalCases(config: AgentEvalConfig, options: EvalRunOptions = {}): Promise<EvalCase[]> {
+/**
+ * Every scenario on every channel it runs on, its suites read and checked,
+ * narrowed to the channels and scenarios asked for; and the recordings'
+ * directory.
+ */
+export function evalTargets(config: AgentEvalConfig, options: Pick<EvalRunOptions, 'channels' | 'scenarios' | 'root'> = {}): { targets: EvalTarget[]; cassettes: string } {
   const root = rootOf(config, options.root);
   const channelNames = Object.keys(config.channels);
   if (channelNames.length === 0) throw new Error('[agent-evals] the configuration names no channels');
-  const mode = options.mode ?? 'replay';
   const cassettes = resolve(root, config.cassettes);
   const suites = config.suites.map((entry) => {
     if (typeof entry !== 'string') return checkSuite(entry, `the suite "${(entry as { name?: string }).name ?? '(unnamed)'}"`, channelNames);
@@ -179,34 +212,43 @@ export async function evalCases(config: AgentEvalConfig, options: EvalRunOptions
   for (const name of options.channels ?? []) {
     if (!channelNames.includes(name)) throw new Error(`[agent-evals] no channel "${name}" in the configuration (${channelNames.join(', ')})`);
   }
-  const cases: EvalCase[] = [];
+  const targets: EvalTarget[] = [];
   for (const suite of suites) {
     for (const scenario of suite.scenarios) {
       if (options.scenarios && !options.scenarios.includes(scenario.id)) continue;
       for (const channel of scenario.channels ?? suite.channels ?? channelNames) {
         if (options.channels && !options.channels.includes(channel)) continue;
-        const run = () => runEvalCase(config, { suite, scenario, channel, mode, cassettes });
-        cases.push({
-          name: `${suite.name} › ${scenario.id} [${channel}]`,
-          suite,
-          scenario,
-          channel,
-          run,
-          async assert() {
-            const result = await run();
-            if (!result.passed) throw new EvalCaseFailed(result);
-            return result;
-          },
-        });
+        targets.push({ suite, scenario, channel });
       }
     }
   }
   if (options.scenarios) {
-    const found = new Set(cases.map((c) => c.scenario.id));
+    const found = new Set(targets.map((t) => t.scenario.id));
     const missing = options.scenarios.filter((id) => !found.has(id));
     if (missing.length > 0) throw new Error(`[agent-evals] no scenario ${missing.join(', ')} on the channels asked for`);
   }
-  return cases;
+  return { targets, cassettes };
+}
+
+/** Every scenario on every channel it runs on, as cases to run. */
+export async function evalCases(config: AgentEvalConfig, options: EvalRunOptions = {}): Promise<EvalCase[]> {
+  const mode = options.mode ?? 'replay';
+  const { targets, cassettes } = evalTargets(config, options);
+  return targets.map(({ suite, scenario, channel }) => {
+    const run = () => runEvalCase(config, { suite, scenario, channel, mode, cassettes });
+    return {
+      name: `${suite.name} › ${scenario.id} [${channel}]`,
+      suite,
+      scenario,
+      channel,
+      run,
+      async assert() {
+        const result = await run();
+        if (!result.passed) throw new EvalCaseFailed(result);
+        return result;
+      },
+    };
+  });
 }
 
 /** Runs every case, one after another, and reports them all. */
@@ -292,39 +334,91 @@ const replyOf = (messages: readonly TurnMessage[]) =>
     .map((m) => m.content!.trim())
     .join('\n\n');
 
+/** Whether a stored tool result says the model wrote the call wrong: input the tool's schema refused, input that would not parse, or no such tool. */
+const INVALID_CALL_ERROR = /^(?:Invalid input for tool |Model tried to call unavailable tool )/;
+const invalidCall = (content: string | null | undefined): boolean => {
+  if (!content) return false;
+  try {
+    const parsed = JSON.parse(content) as { invalidInput?: unknown; notRun?: unknown; error?: unknown };
+    return parsed?.invalidInput === true || (parsed?.notRun === true && typeof parsed.error === 'string' && INVALID_CALL_ERROR.test(parsed.error));
+  } catch {
+    return false;
+  }
+};
+
+/** The id the provider's model is built for: what a matrix checks against the candidate it asked for. */
+const builtId = (model: LanguageModel): string => (typeof model === 'string' ? model : model.modelId);
+
+/**
+ * The agent's configuration as a candidate runs it: the candidate's provider
+ * options in place of the agent's own, and only what the model takes (no
+ * forced tool choice, no temperature where it takes none).
+ */
+export function agentForCandidate(agent: EvalAgentConfig, candidate: EvalCandidate): EvalAgentConfig {
+  const { modelProviderOptions: _own, ...rest } = agent;
+  return {
+    ...rest,
+    ...(candidate.providerOptions ? { modelProviderOptions: candidate.providerOptions } : {}),
+    ...(candidate.capabilities.forcedToolChoice ? {} : { forcedToolChoice: false }),
+    ...(candidate.capabilities.temperature ? {} : { temperature: null }),
+  };
+}
+
 /** Everything a turn stored, as text: what `doesNotStore` searches. */
 const storedText = (messages: readonly TurnMessage[]) =>
   messages
     .flatMap((m) => [m.content ?? '', ...(m.toolCalls ?? []).map((c) => JSON.stringify(c.arguments))])
     .join('\n');
 
-export async function runEvalCase(
-  config: AgentEvalConfig,
-  target: { suite: AgentEvalSuite; scenario: AgentEvalScenario; channel: string; mode: EvalMode; cassettes: string },
-): Promise<EvalCaseResult> {
-  const { suite, scenario, channel, mode } = target;
+/** One case to run: a scenario on a channel, and in a model matrix the candidate, the run, and the run's spend guard. */
+export interface EvalCaseTarget {
+  suite: AgentEvalSuite;
+  scenario: AgentEvalScenario;
+  channel: string;
+  mode: EvalMode;
+  cassettes: string;
+  candidate?: EvalCandidate;
+  /** The run, from 1. */
+  run?: number;
+  guard?: SpendGuard;
+}
+
+export async function runEvalCase(config: AgentEvalConfig, target: EvalCaseTarget): Promise<EvalCaseResult> {
+  const { suite, scenario, channel, mode, candidate, guard } = target;
   const started = Date.now();
   const settings: EvalChannel = config.channels[channel] ?? {};
   const failures: EvalFailure[] = [];
   const turns: EvalTurnRecord[] = [];
   const fail = (turn: number, assertion: string, message: string, kind: EvalFailure['kind'] = 'case') => failures.push({ turn, assertion, message, kind });
-  const path = cassettePath(target.cassettes, suite, scenario, channel);
+  const path = cassettePath(target.cassettes, suite, scenario, channel, candidate ? { model: candidate.id, run: target.run ?? 1 } : {});
+  const prices = candidate?.prices;
+  const judgePrices = config.judgeModel?.prices;
   let modelRequests = 0;
+  // Every call of the agent's model, as the provider reported what it used, and the judge's apart.
+  const modelCalls: EvalModelCall[] = [];
+  const judgeCalls: EvalModelCall[] = [];
+  // Whether the spend guard refused one of this case's requests.
+  let stoppedBySpend = false;
   const result = (): EvalCaseResult => {
     const status = failures.length === 0 ? 'passed' : failures.every((f) => f.kind === 'judge') ? 'unjudged' : 'failed';
     return {
-    suite: suite.name,
-    scenario: scenario.id,
-    title: scenario.title,
-    channel,
-    mode,
-    passed: status === 'passed',
-    status,
-    failures,
-    turns,
-    cassette: path,
-    modelRequests,
-    durationMs: Date.now() - started,
+      suite: suite.name,
+      scenario: scenario.id,
+      title: scenario.title,
+      channel,
+      mode,
+      passed: status === 'passed',
+      status,
+      failures,
+      turns,
+      cassette: path,
+      modelRequests,
+      durationMs: Date.now() - started,
+      ...(candidate ? { model: candidate.id, run: target.run ?? 1 } : {}),
+      costUsd: prices ? callsCost(modelCalls, prices) : null,
+      judgeCalls,
+      judgeCostUsd: judgePrices ? callsCost(judgeCalls, judgePrices) : null,
+      ...(stoppedBySpend ? { stoppedBy: 'max-cost' as const } : {}),
     };
   };
 
@@ -335,8 +429,11 @@ export async function runEvalCase(
   // A customer's message on a voice channel says it was spoken; an approval's continuation is no message at all.
   const context: Record<string, unknown> = { ...sharedContext, ...(settings.input ? { input: settings.input } : {}) };
 
-  // The product's real configuration for this channel and scenario.
-  const agent = await config.agent({ channel, scenario, suite });
+  // The product's real configuration for this channel and scenario, as the candidate runs it.
+  const ownAgent = await config.agent({ channel, scenario, suite });
+  const agent = candidate ? agentForCandidate(ownAgent, candidate) : ownAgent;
+  // The cache breakpoint goes only to a model that reads a prompt cache.
+  const promptCacheBreakpoint = candidate && !candidate.capabilities.promptCache ? undefined : config.promptCacheBreakpoint;
   const resolveTools = async (turnId: string): Promise<RegisteredTool[]> =>
     typeof agent.tools === 'function' ? await agent.tools({ ...customer, turnId }) : agent.tools;
   // The person's page: the scenario's, else the suite's.
@@ -353,12 +450,16 @@ export async function runEvalCase(
     ...(agent.forcedToolChoice !== undefined ? { forcedToolChoice: agent.forcedToolChoice } : {}),
     ...(agent.requireReplyBeforeChoice ? { requireReplyBeforeChoice: true } : {}),
     ...(agent.uiActions !== undefined ? { uiActions: agent.uiActions } : {}),
+    // In a matrix: the candidate, and the judge whose verdicts the recording holds.
+    ...(candidate ? { candidate, ...(config.judgeModel ? { judge: config.judgeModel.id } : {}) } : {}),
   });
 
   // The model's network: replayed, recorded or live, every request counted.
   const exchanges: RecordedExchange[] = [];
   let network: typeof globalThis.fetch;
   let recorded = 0;
+  // A recording's times for the agent's calls, which a replay reports in place of its own.
+  let recordedTimings: readonly EvalCallTiming[] | undefined;
   if (mode === 'replay') {
     const cassette = readCassette(path);
     if (!cassette) {
@@ -374,19 +475,47 @@ export async function runEvalCase(
       return result();
     }
     recorded = cassette.exchanges.length;
+    recordedTimings = cassette.timings;
     network = replayingFetch(cassette.exchanges);
   } else {
     network = mode === 'record' ? recordingFetch(exchanges) : globalThis.fetch;
   }
-  const counted: typeof globalThis.fetch = (input, init) => {
+  // The spend guard is asked before every request: once the run has spent its limit, none is made.
+  const counted: typeof globalThis.fetch = async (input, init) => {
+    try {
+      guard?.admit();
+    } catch (err) {
+      stoppedBySpend = true;
+      throw err;
+    }
     modelRequests += 1;
     return network(input, init);
   };
-  const providerModel = config.model({ fetch: counted, mode, purpose: 'agent' });
-  // Every call of the agent's model, as the provider reported what it used: never the judge's.
-  const modelCalls: EvalModelCall[] = [];
-  const model = recordingCalls(providerModel, (call) => modelCalls.push(call));
-  const judgeModel = (config.judge ?? config.model)({ fetch: counted, mode, purpose: 'judge' });
+  const providerModel = config.model({ fetch: counted, mode, purpose: 'agent', ...(candidate ? { candidate } : {}) });
+  if (candidate && builtId(providerModel) !== candidate.id) {
+    fail(-1, 'model', `the configuration's model factory built ${builtId(providerModel)} for the candidate ${candidate.id}: build the model \`seam.candidate.id\` names`);
+    return result();
+  }
+  const model = recordingCalls(providerModel, (call) => {
+    const timing = recordedTimings?.[modelCalls.length];
+    const measured: EvalModelCall = timing ? { ...call, firstTokenMs: timing.firstTokenMs, durationMs: timing.durationMs } : call;
+    modelCalls.push(measured);
+    if (prices) guard?.add(callCost(measured, prices), 'agent');
+  });
+  // The judge, built only for a scenario that asks it something.
+  let judgeModel: LanguageModel | null = null;
+  if (rubricsOf(scenario).length > 0) {
+    const built = (config.judge ?? config.model)({ fetch: counted, mode, purpose: 'judge', ...(config.judgeModel ? { judgeModel: config.judgeModel } : {}) });
+    if (config.judgeModel && builtId(built) !== config.judgeModel.id) {
+      fail(-1, 'model', `the configuration built ${builtId(built)} for the judge ${config.judgeModel.id}: build the model \`seam.judgeModel.id\` names`);
+      return result();
+    }
+    judgeModel = recordingCalls(built, (call) => {
+      judgeCalls.push(call);
+      if (judgePrices) guard?.add(callCost(call, judgePrices), 'judge');
+    });
+  }
+  const judgeAsk: JudgeAsk = { ...config.judgeOptions, ...(config.judgeModel?.providerOptions ? { providerOptions: config.judgeModel.providerOptions } : {}) };
 
   // Each tool runs only as its stub says: an eval never reaches a real backend.
   let currentTurn = -1;
@@ -430,7 +559,7 @@ export async function runEvalCase(
     ...agentParts(agent),
     tools: async ({ turnId }) => (await resolveTools(turnId)).map(wrap),
     model,
-    ...(config.promptCacheBreakpoint ? { promptCacheBreakpoint: config.promptCacheBreakpoint } : {}),
+    ...(promptCacheBreakpoint ? { promptCacheBreakpoint } : {}),
     realtime: { url: NOWHERE, apiKey: 'agent-evals', emit },
     // The page answers; with none, nothing does, at once (a turn whose context carries a snapshot is told the page is not responding).
     uiActions: { ...agent.uiActions, ...(page ? { channel: page.channel } : { channel: NO_PAGE, resultTimeoutMs: 0 }) },
@@ -450,7 +579,8 @@ export async function runEvalCase(
     logger: QUIET,
   });
 
-  const runTurn = async (index: number, kind: 'user' | 'approval', payload: Pick<AgentTurnPayload, 'content' | 'approval'>) => {
+  const refusalMatcher = (config.refusal ?? DEFAULT_REFUSAL) as Exclude<AgentEvalTextMatcher, { rubric: string }>;
+  const runTurn = async (index: number, kind: 'user' | 'approval', payload: Pick<AgentTurnPayload, 'content' | 'approval'>, expectation: AgentEvalExpectation) => {
     currentTurn = index;
     const turnId = `${conversationId}-${index}`;
     // The product's API stores the customer's message before it runs the turn.
@@ -485,18 +615,27 @@ export async function runEvalCase(
     const asked = emit.events.find((e) => e.event === AGENT_SOCKET_EVENTS.APPROVAL_REQUIRED && e.data.turnId === turnId);
     const pending = asked ? approvals.asked.find((a) => a.approvalId === asked.data.approvalId) : undefined;
     const stopReason = outcome.status === 'stopped' ? outcome.stopReason : undefined;
+    const calls = modelCalls.slice(callsBefore);
+    const reply = replyOf(messages);
     const record: EvalTurnRecord = {
       turn: index,
       kind,
       customer: payload.content,
-      reply: replyOf(messages),
+      reply,
       toolCalls,
       approval: pending ? { tool: pending.tool, args: pending.args, preview: pending.preview } : null,
       held: stopReason === 'taken_over' && modelRequests === before,
       modelRequests: modelRequests - before,
-      usage: turnUsage(modelCalls.slice(callsBefore)),
+      usage: turnUsage(calls),
       choices: choicesOf(shownCalls),
       page: page ? { at: page.location(), ran: page.ran.slice(ranBefore) } : null,
+      invalidToolCalls: messages.filter((m) => m.role === 'tool' && invalidCall(m.content)).length,
+      refusal: calls.some((c) => c.finishReason === 'content-filter')
+        ? 'provider'
+        : expectation.refusal === undefined && reply && matchesText(refusalMatcher, reply)
+          ? 'reply'
+          : null,
+      costUsd: prices ? callsCost(calls, prices) : null,
       outcome: outcome.status,
       ...(stopReason ? { stopReason } : {}),
     };
@@ -524,9 +663,10 @@ export async function runEvalCase(
         }
         continue;
       }
+      const expectation = mergeExpectations(turn.expect, turn.expectOn?.[channel]);
       let ran: Awaited<ReturnType<typeof runTurn>>;
       if ('user' in turn) {
-        ran = await runTurn(index, 'user', { content: turn.user });
+        ran = await runTurn(index, 'user', { content: turn.user }, expectation);
       } else {
         const waiting = turns.at(-1)?.approval ? approvals.asked.at(-1) : undefined;
         if (!waiting) {
@@ -546,10 +686,9 @@ export async function runEvalCase(
             turn.approval === 'approve'
               ? { approvalId: waiting.approvalId, decision: 'approve', token: decided.decision === 'approve' ? decided.token : '' }
               : { approvalId: waiting.approvalId, decision: 'decline' },
-        });
+        }, expectation);
       }
-      const expectation = mergeExpectations(turn.expect, turn.expectOn?.[channel]);
-      for (const failure of await check(expectation, ran.record, ran.stored, judgeModel, { judge: config.judgeOptions })) {
+      for (const failure of await check(expectation, ran.record, ran.stored, judgeModel, { judge: judgeAsk })) {
         fail(index, failure.assertion, failure.message, failure.kind ?? 'assertion');
       }
     }
@@ -573,6 +712,7 @@ export async function runEvalCase(
       recordedAt: new Date().toISOString(),
       fingerprint: configured,
       exchanges,
+      timings: modelCalls.map(({ firstTokenMs, durationMs }) => ({ firstTokenMs, durationMs })),
     });
   }
   return result();
@@ -580,20 +720,8 @@ export async function runEvalCase(
 
 // ─── Checking a turn ────────────────────────────────────────────────────────
 
-/** A turn's general expectation and its channel's, as one: lists joined, the channel's single values winning. */
-export function mergeExpectations(general?: AgentEvalExpectation, channel?: AgentEvalExpectation): AgentEvalExpectation {
-  if (!general) return channel ?? {};
-  if (!channel) return general;
-  const lists = ['says', 'mustNotSay', 'toolCalled', 'toolNotCalled', 'doesNotStore', 'calls'] as const;
-  const merged: Record<string, unknown> = { ...general, ...channel };
-  for (const key of lists) {
-    const joined = [...(general[key] ?? []), ...(channel[key] ?? [])];
-    if (joined.length > 0) merged[key] = joined;
-  }
-  return merged as AgentEvalExpectation;
-}
-
-type Judge = Parameters<typeof judge>[0];
+/** The judge of a scenario's rubrics; null for one that asks it nothing. */
+type Judge = Parameters<typeof judge>[0] | null;
 
 /** One way a turn broke its expectation; `kind: 'judge'` when a rubric could not be judged at all. */
 export interface CheckFailure {
@@ -608,9 +736,10 @@ async function matches(
   text: string,
   record: EvalTurnRecord,
   judgeModel: Judge,
-  options: JudgeOptions | undefined,
+  options: JudgeAsk | undefined,
 ): Promise<{ matched: boolean; why?: string } | { error: string }> {
   if (typeof matcher === 'object' && 'rubric' in matcher) {
+    if (!judgeModel) return { error: 'there is no judge to ask' };
     const verdict = await judge(judgeModel, matcher.rubric, record.customer, text, options);
     return 'error' in verdict ? verdict : { matched: verdict.pass, why: verdict.reason };
   }
@@ -643,7 +772,7 @@ export async function check(
   record: EvalTurnRecord,
   stored: string,
   judgeModel: Judge,
-  options: { judge?: JudgeOptions } = {},
+  options: { judge?: JudgeAsk } = {},
 ): Promise<CheckFailure[]> {
   const out: CheckFailure[] = [];
   const reply = record.reply;

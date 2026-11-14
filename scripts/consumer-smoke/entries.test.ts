@@ -56,7 +56,7 @@ const ENTRIES: Record<string, string[]> = {
   '@ouispec/agent-realtime/testing': ['startTestRedis'],
   '@ouispec/agent-react': ['AgentProvider', 'useAgent', 'ApprovalCard', 'useStaffConversation'],
   '@ouispec/agent-mcp': ['createMCPApiToolServer', 'handleMCPRequest'],
-  '@ouispec/agent-evals': ['defineEvals', 'evalCases', 'runEvals'],
+  '@ouispec/agent-evals': ['defineEvals', 'evalCases', 'runEvals', 'runMatrix', 'estimateRun', 'leaderboardHtml', 'matrixMarkdown'],
 };
 
 describe('the installed packages', () => {

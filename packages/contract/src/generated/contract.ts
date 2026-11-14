@@ -2026,6 +2026,11 @@ export interface AgentEvalSuite {
   name: string;
   description?: string;
   /**
+   * The categories every scenario of the suite belongs to, before its own `tags`: a model
+   * matrix reports a pass rate for each category.
+   */
+  tags?: AgentEvalTagList;
+  /**
    * The channels every scenario runs on, as the eval configuration names them (`web_chat`,
    * `sms`, `voice`). Default: every channel the configuration names.
    */
@@ -2049,6 +2054,9 @@ export interface AgentEvalSuite {
 /** Channel names, as the eval configuration names them. */
 export type AgentEvalChannelList = readonly string[];
 
+/** Category names a report groups scenarios by. */
+export type AgentEvalTagList = readonly string[];
+
 /** One conversation: its turns in order, and what must hold after each. */
 export interface AgentEvalScenario {
   /** Unique in the suite; names its recordings. */
@@ -2056,6 +2064,12 @@ export interface AgentEvalScenario {
   /** What it shows, as reports name it. */
   title: string;
   description?: string;
+  /**
+   * The categories this scenario belongs to, after the suite's (`single-edit`, `navigation`,
+   * `refusal`): a model matrix reports a pass rate for each category. They change nothing the
+   * model is asked.
+   */
+  tags?: AgentEvalTagList;
   /** The suite's channels this scenario runs on, when not all of them. */
   channels?: AgentEvalChannelList;
   /** What each of its turns carries as its context, after the suite's and the channel's. */

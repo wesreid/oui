@@ -7,12 +7,18 @@
  */
 import { failureLine, type EvalCaseResult, type EvalReport } from './run.js';
 
-/** A case's status as its line starts: `PASS`, `FAIL`, or `JUDGE` when only the judge failed. */
-export const statusWord = (c: EvalCaseResult) => (c.status === 'passed' ? 'PASS' : c.status === 'unjudged' ? 'JUDGE' : 'FAIL');
+/** A case's status as its line starts: `PASS`, `FAIL`, `JUDGE` when only the judge failed, or `STOP` when the spend guard stopped it. */
+export const statusWord = (c: EvalCaseResult) => (c.stoppedBy ? 'STOP' : c.status === 'passed' ? 'PASS' : c.status === 'unjudged' ? 'JUDGE' : 'FAIL');
+
+/** In a model matrix, which model and run a case is: `[model] run 2 `. */
+const slotOf = (c: EvalCaseResult) => (c.model !== undefined ? `[${c.model}]${c.run !== undefined ? ` run ${c.run}` : ''}  ` : '');
 
 /** A case's line, and under it every failure. */
 export function caseLines(c: EvalCaseResult): string[] {
-  return [`${statusWord(c).padEnd(4)}  ${c.suite} › ${c.scenario} [${c.channel}]  ${c.title}  (${c.durationMs} ms)`, ...c.failures.map((f) => `        ${failureLine(f)}`)];
+  return [
+    `${statusWord(c).padEnd(4)}  ${slotOf(c)}${c.suite} › ${c.scenario} [${c.channel}]  ${c.title}  (${c.durationMs} ms)`,
+    ...c.failures.map((f) => `        ${failureLine(f)}`),
+  ];
 }
 
 /** The report's last line: how many passed, failed and could not be judged. */
@@ -52,7 +58,10 @@ export function junitReport(report: EvalReport): string {
     const time = cases.reduce((ms, c) => ms + c.durationMs, 0) / 1000;
     const body = cases
       .map((c) => {
-        const head = `    <testcase classname="${xml(`${name}.${c.channel}`)}" name="${xml(`${c.scenario}: ${c.title}`)}" time="${(c.durationMs / 1000).toFixed(3)}"`;
+        // In a model matrix, each model's cases are a class of their own, and each run of a case its own test.
+        const classname = c.model !== undefined ? `${name}.${c.model}.${c.channel}` : `${name}.${c.channel}`;
+        const run = c.run !== undefined && c.run > 1 ? ` (run ${c.run})` : '';
+        const head = `    <testcase classname="${xml(classname)}" name="${xml(`${c.scenario}: ${c.title}${run}`)}" time="${(c.durationMs / 1000).toFixed(3)}"`;
         if (c.passed) return `${head}/>`;
         const message = c.failures.map(failureLine).join('\n');
         // A judge that gave no verdict is an error of the run, not a failure of the agent.

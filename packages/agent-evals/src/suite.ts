@@ -35,7 +35,8 @@ export function readSuiteFile(path: string): unknown {
   throw new EvalSuiteError(path, [`a suite is a .json, .yaml or .yml file, not ${ext || 'a file with no extension'}`]);
 }
 
-const matchersOf = (expect: AgentEvalExpectation | undefined): AgentEvalTextMatcher[] => {
+/** Every text matcher an expectation holds a turn to: what a rubric's judge may be asked about. */
+export const matchersOf = (expect: AgentEvalExpectation | undefined): AgentEvalTextMatcher[] => {
   if (!expect) return [];
   const out: AgentEvalTextMatcher[] = [...(expect.says ?? []), ...(expect.mustNotSay ?? []), ...(expect.doesNotStore ?? [])];
   if (expect.refusal && expect.refusal !== true) out.push(expect.refusal);

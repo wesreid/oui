@@ -13,7 +13,7 @@
  * case's assertions: the reply was not found wanting, it was not judged.
  */
 import { generateText, jsonSchema, NoObjectGeneratedError, Output } from 'ai';
-import type { LanguageModel } from '@ouispec/agent-worker';
+import type { LanguageModel, ProviderOptions } from '@ouispec/agent-worker';
 
 export interface Verdict {
   pass: boolean;
@@ -49,6 +49,12 @@ export interface JudgeOptions {
   maxOutputTokens?: number;
 }
 
+/** The judge's most output by default, thinking included. */
+export const DEFAULT_JUDGE_MAX_OUTPUT_TOKENS = 1024;
+
+/** How a verdict is asked for: the configuration's options, and the judge model's provider options when it names them. */
+export type JudgeAsk = JudgeOptions & { providerOptions?: ProviderOptions };
+
 /** The JSON object in a judge's answer, or why there is none. */
 export function readVerdict(text: string): Verdict | { error: string } {
   const start = text.indexOf('{');
@@ -73,12 +79,12 @@ export async function judge(
   rubric: string,
   customer: string,
   reply: string,
-  options: JudgeOptions = {},
+  options: JudgeAsk = {},
 ): Promise<Verdict | JudgeFailure> {
   const attempts = 1 + Math.max(0, options.retries ?? 2);
   const errors: string[] = [];
   for (let attempt = 1; attempt <= attempts; attempt++) {
-    const answer = await askOnce(model, rubric, customer, reply, options.maxOutputTokens ?? 1024);
+    const answer = await askOnce(model, rubric, customer, reply, options.maxOutputTokens ?? DEFAULT_JUDGE_MAX_OUTPUT_TOKENS, options.providerOptions);
     if (!('error' in answer)) return answer;
     errors.push(answer.error);
     // A request that failed is not asked again here: the provider has its own retries for that.
@@ -96,6 +102,7 @@ async function askOnce(
   customer: string,
   reply: string,
   maxOutputTokens: number,
+  providerOptions: ProviderOptions | undefined,
 ): Promise<Verdict | { error: string; askAgain: boolean }> {
   try {
     const result = await generateText({
@@ -104,6 +111,7 @@ async function askOnce(
       prompt: `Rubric: ${rubric}\n\nThe customer wrote:\n${customer || '(nothing: the turn continued after an approval)'}\n\nThe agent replied:\n${reply || '(nothing)'}`,
       output: Output.object({ schema: jsonSchema<Verdict>(VERDICT_SCHEMA), name: 'verdict', description: 'Whether the reply does what the rubric describes.' }),
       maxOutputTokens,
+      ...(providerOptions ? { providerOptions } : {}),
     });
     const verdict = asVerdict(result.output, JSON.stringify(result.output));
     return 'error' in verdict ? { ...verdict, askAgain: true } : verdict;
