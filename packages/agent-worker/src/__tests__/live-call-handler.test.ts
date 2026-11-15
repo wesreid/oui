@@ -203,7 +203,7 @@ describe('the turn the handler runs', () => {
       currentPath: page.currentPath,
     });
     // The host sees the whole of it, its build included, to check or log.
-    expect(seen).toEqual([{ ui: page }]);
+    expect(seen).toEqual([{ ui: page, vision: null }]);
   });
 
   it('keeps what the host’s own context sets, and adds nothing for a call with no page', async () => {

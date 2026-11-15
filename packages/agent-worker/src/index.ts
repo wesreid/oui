@@ -175,7 +175,14 @@ export type { ContainerAgentConfig, ContainerAgentWorker, ContainerLiveCallRoute
 
 // Live calls: the call service's turns, answered by the product's own agent as
 // a server-sent event stream, while the turn streams to its room as any turn does.
-export { createLiveCallTurnHandler, LIVE_CALL_SPEECH, LIVE_CALL_CHANNEL, LIVE_CALL_APPROVAL_CHANNELS } from './live-call/handler.js';
+export {
+  createLiveCallTurnHandler,
+  liveCallTurnMessage,
+  LIVE_CALL_SPEECH,
+  LIVE_CALL_CHANNEL,
+  LIVE_CALL_APPROVAL_CHANNELS,
+  LIVE_CALL_MAX_BODY_BYTES,
+} from './live-call/handler.js';
 export type {
   LiveCallSpeech,
   LiveCallApprovalChannel,
@@ -190,6 +197,7 @@ export {
   liveCallError,
   LIVE_CALL_TURN_KINDS,
   LIVE_CALL_OPENING_MESSAGE,
+  LIVE_CALL_GLANCE_MESSAGE,
   liveCallOpeningMessage,
   LIVE_CALL_TYPED_INPUT_MODE,
   LIVE_CALL_LIMITS,
@@ -205,6 +213,9 @@ export type {
   LiveCallClientUi,
 } from './live-call/protocol.js';
 export { DEFAULT_KEEP_ALIVE_MS as LIVE_CALL_KEEP_ALIVE_MS } from './live-call/event-stream.js';
+// What the person's camera shows on a turn: read, and told to the model.
+export { readTurnVision, visionText, VISION_FRAME_MEDIA_TYPES, VISION_ABSENCES, VISION_LIMITS } from './prompt/vision.js';
+export type { TurnVision, VisionFrame, VisionFrameMediaType, VisionAbsence } from './prompt/vision.js';
 
 // Prompt Framework
 export { buildAgentSystemPrompt } from './prompt/index.js';

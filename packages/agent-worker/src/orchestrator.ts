@@ -53,6 +53,7 @@ import { stepMessages as forStep, STEP_NOTE_CLOSE, STEP_NOTE_OPEN } from './step
 import { clockText, readClientTimeZone } from './prompt/clock.js';
 import { readClientMessageInput, spokenInputText } from './prompt/spoken-input.js';
 import { readClientReplyOutput, spokenReplyText } from './prompt/spoken-reply.js';
+import { visionImagePart, visionText } from './prompt/vision.js';
 import { AttachmentGuard } from './attachments/guard.js';
 import { ATTACHMENT_DATA_NOTE, turnAttachmentParts, withReferenceLines, withTurnAttachments, withoutLeftOut } from './attachments/content.js';
 import { attachmentTools } from './attachments/tools.js';
@@ -1901,6 +1902,10 @@ export async function runAgentTurn(
   const turnSpoken = input.approval || input.resume ? null : readClientMessageInput(input.context ?? null);
   // The reply is spoken on every turn of a call, the turn an approval continues included.
   const turnSpokenReply = readClientReplyOutput(input.context ?? null);
+  // What the person's camera shows now (prompt/vision.ts): its picture and its line, after the conversation.
+  const turnVisionText = visionText(input.vision);
+  const turnVisionPicture = visionImagePart(input.vision);
+  const turnPictures = turnVisionPicture ? [turnVisionPicture] : [];
   const turnPageValues =
     client && client.page.length > 0
       ? [
@@ -1934,6 +1939,8 @@ export async function runAgentTurn(
     ...(turnSpoken ? [spokenInputText(turnSpoken)] : []),
     // A reply a voice will read out is written for the ear (prompt/spoken-reply.ts).
     ...(turnSpokenReply ? [spokenReplyText(turnSpokenReply)] : []),
+    // What the model may do with the picture of the person, or that it cannot see them and why.
+    ...(turnVisionText ? [turnVisionText] : []),
     ...(expired.outcomes.length > 0 ? [expiredNote(expired)] : []),
     ...(input.stepContext?.trim() ? [input.stepContext.trim()] : []),
     ...(notes.length > 0 ? [[STEP_NOTE_OPEN, ...notes, STEP_NOTE_CLOSE].join('\n')] : []),
@@ -2119,7 +2126,7 @@ export async function runAgentTurn(
         const stepMessages = leftOut.length > 0 && messages ? withoutLeftOut(trimmed?.messages ?? messages, leftOut) : trimmed?.messages ?? messages;
         return {
           ...constraints,
-          ...(stepMessages ? { messages: forStep(stepMessages, stepTail(notes), cachePoint) } : {}),
+          ...(stepMessages ? { messages: forStep(stepMessages, stepTail(notes), cachePoint, turnPictures) } : {}),
           instructions,
         };
       },
@@ -2679,6 +2686,10 @@ export function convertHistoryToCoreMessages(
       continue;
     }
     if (msg.role === 'user') {
+      // A blank message with no files says nothing, and a model provider refuses an empty text block: a host
+      // that stored a live call's glance as the empty words it carried (`request.text`) is read past, and
+      // the turn's own message is then the one it was given (`currentContent`, below).
+      if (!(typeof msg.content === 'string' && msg.content.trim()) && !msg.attachments?.length) continue;
       // A message's files are in history as their reference lines, never their content.
       messages.push({ role: 'user', content: idx === turnMessageAt ? msg.content : withReferenceLines(msg.content, msg.attachments ?? undefined) });
     } else if (msg.role === 'assistant') {

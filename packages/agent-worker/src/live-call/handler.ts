@@ -29,6 +29,16 @@
  * a typed turn, and its UI actions reach that page through the room. What the
  * host's `context` sets itself is kept.
  *
+ * The character can see the caller: the call service carries their
+ * camera's latest frame on a turn (`client.vision`), and the handler sets it
+ * as the turn's `vision`. The model is given the frame as a picture with that
+ * turn only, and told what it may do with it, or that it cannot see the
+ * caller and why (prompt/vision.ts). A `glance` turn, run when the picture
+ * changed while nobody spoke, is told to remark only on something worth it;
+ * when the model says nothing, the stream ends `done` with no `text`, and the
+ * call stays silent. The frame is never logged: the turn's log line records
+ * only whether one was attached, its size and age, or why none came.
+ *
  * A call is a voice: an approval is read back (the host's `spokenReadback`
  * when it wrote one) and the person's next words confirm it, as on any voice
  * channel. A UI action's too: its card is also on the person's
@@ -63,7 +73,15 @@ import { createTurnSlots, type TurnSlots } from '../runtime/turn-slots.js';
 import type { AgentTurnPayload } from '../runtime/types.js';
 import type { TurnEventObserver } from '../emit/tee.js';
 import { DEFAULT_KEEP_ALIVE_MS, openLiveCallEventStream, type LiveCallEventStream } from './event-stream.js';
-import { liveCallError, liveCallOpeningMessage, readLiveCallTurnRequest, type LiveCallStreamEvents, type LiveCallTurnRequest } from './protocol.js';
+import {
+  LIVE_CALL_GLANCE_MESSAGE,
+  liveCallError,
+  liveCallOpeningMessage,
+  readLiveCallTurnRequest,
+  type LiveCallStreamEvents,
+  type LiveCallTurnRequest,
+} from './protocol.js';
+import { visionFacts } from '../prompt/vision.js';
 
 /** Who and where a live-call turn is, in the product: what the host resolves a call's `clientRef` to. */
 export interface LiveCallTurnTarget {
@@ -192,7 +210,11 @@ export interface LiveCallTurnHandlerConfig extends LiveCallTurnOptions {
   runner: AgentTurnRunner;
   /** Turns run at once; more are answered `503`. Default 8. */
   maxConcurrentTurns?: number;
-  /** Largest request body, in bytes. Default 128 KiB: a turn with the page's UI context at its 64 KiB bound fits. */
+  /**
+   * Largest request body, in bytes. Default 384 KiB (`LIVE_CALL_MAX_BODY_BYTES`):
+   * a turn with the page's UI context at its 64 KiB bound and a camera frame
+   * at its 256 KiB bound fits.
+   */
   maxBodyBytes?: number;
   /** Called with each turn's outcome, after it ends. */
   onTurnEnd?: (outcome: TurnOutcome) => void;
@@ -215,8 +237,12 @@ interface LiveCallRouteHost {
   onTurnEnd?: (outcome: TurnOutcome) => void;
 }
 
-/** Room for the largest turn: its text, its directions, and the page's UI (`LIVE_CALL_LIMITS.clientUiBytes`). */
-const DEFAULT_MAX_BODY_BYTES = 128 * 1024;
+/**
+ * Room for the largest turn: its text, its directions, the page's UI
+ * (`LIVE_CALL_LIMITS.clientUiBytes`) and the caller's camera frame
+ * (`LIVE_CALL_LIMITS.visionFrameChars`).
+ */
+export const LIVE_CALL_MAX_BODY_BYTES = 384 * 1024;
 
 /**
  * Creates the live-call turn handler.
@@ -246,7 +272,7 @@ export function createLiveCallTurnHandler(config: LiveCallTurnHandlerConfig): Li
   const handle = liveCallRoute(config, {
     runner: config.runner,
     slots,
-    maxBodyBytes: config.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES,
+    maxBodyBytes: config.maxBodyBytes ?? LIVE_CALL_MAX_BODY_BYTES,
     onTurnEnd: config.onTurnEnd,
   });
   return Object.assign((req: IncomingMessage, res: ServerResponse) => handle(req, res), {
@@ -384,6 +410,8 @@ export function liveCallRoute(options: LiveCallTurnOptions, host: LiveCallRouteH
         kind: request.kind,
         conversationId: target.conversationId,
         ...(request.supersedes.length ? { supersedes: request.supersedes } : {}),
+        // Facts only: whether a frame was attached, its size and age, or why none came. Never the frame.
+        ...(request.client?.vision ? { vision: visionFacts(request.client.vision) } : {}),
       });
 
       let outcome: TurnOutcome;
@@ -441,14 +469,41 @@ function turnPayload(request: LiveCallTurnRequest, target: LiveCallTurnTarget): 
     userId: target.userId,
     accountId: target.accountId,
     socketRoom: target.socketRoom,
-    content: target.content ?? (request.kind === 'opening' ? liveCallOpeningMessage(request) : request.text),
+    // An opening's or a glance's blank content is no redaction: the model reads the instruction that stands for it.
+    content:
+      request.kind !== 'message' && !(typeof target.content === 'string' && target.content.trim())
+        ? turnMessage(request)
+        : (target.content ?? turnMessage(request)),
     context,
     // A call is spoken: an approval is read back, and the person's next words confirm it.
     channel: target.channel ?? 'voice',
     ...(target.userToken ? { userToken: target.userToken } : {}),
     ...(target.approval ? { approval: target.approval } : {}),
     ...(request.supersedes.length > 0 ? { supersedes: request.supersedes } : {}),
+    // What the caller's camera shows, for this turn only.
+    ...(request.client?.vision ? { vision: request.client.vision } : {}),
   };
+}
+
+/**
+ * What the model reads as the person's message, unless the host's target
+ * gives its own `content`: what they said, or for an `opening` and a `glance`
+ * the instruction that stands in for it. A host that stores the person's
+ * messages stores the same.
+ */
+export function liveCallTurnMessage(request: Pick<LiveCallTurnRequest, 'kind' | 'text' | 'disclosureLine'>): string {
+  return turnMessage(request);
+}
+
+function turnMessage(request: Pick<LiveCallTurnRequest, 'kind' | 'text' | 'disclosureLine'>): string {
+  switch (request.kind) {
+    case 'opening':
+      return liveCallOpeningMessage(request);
+    case 'glance':
+      return LIVE_CALL_GLANCE_MESSAGE;
+    default:
+      return request.text;
+  }
 }
 
 /** Where the person is in the page, on a typed turn's context (`AgentMessageContext.currentPath`). */
@@ -489,7 +544,11 @@ function relayTurn(
   /** Whether the turn read its approval back: only then is the person's next utterance the answer to it. */
   let readBack = false;
   const send = (text: string) => {
-    stream.send('text', { text });
+    // Nothing is spoken before the reply's first words: a reply that is only whitespace (a glance with
+    // nothing worth a remark) sends no text at all.
+    const piece = sent ? text : text.trimStart();
+    if (!piece) return;
+    stream.send('text', { text: piece });
     sent = true;
   };
   const ofTurn = (data: unknown): data is Record<string, unknown> =>

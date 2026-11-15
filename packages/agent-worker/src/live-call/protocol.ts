@@ -12,7 +12,7 @@
  *   Content-Type: application/json
  *   Accept: text/event-stream
  *
- *   { sessionId, clientRef, turnId, kind, text, input?, output?, supersedes?, disclosureLine?, client? }
+ *   { sessionId, clientRef, turnId, kind, text, input?, output?, supersedes?, disclosureLine?, client?: { ui?, vision? } }
  *
  * `input` is `{ mode: 'voice', language? }` for what the person said and
  * `{ mode: 'text' }` for what they typed during the call. `output` is
@@ -22,6 +22,25 @@
  * agent's greeting (that they are talking with an AI assistant), as spoken.
  * `client.ui`, when the person's page sent its UI into the call, is that page
  * as its typed turns carry it: `{ buildId?, currentPath?, oui?, uiKnowledge? }`.
+ *
+ * `client.vision`, when the character can see the caller, is
+ *
+ *   { seeing, remarks, frame: { mediaType, data, width, height, capturedAt } | null,
+ *     absent: 'camera_off' | 'turned_off' | 'stale' | null }
+ *
+ * `seeing`: the character receives the caller's camera; `remarks`: it may
+ * bring up what it sees unprompted. `frame` is the caller's latest camera
+ * frame (JPEG, PNG or WebP, base64, at most 256 KiB), given to the model as a
+ * picture with this turn only; `absent` says why none came. The model is told
+ * what it may do with the picture (answer about it, remark on it only when
+ * `remarks`), or that it cannot see the caller and why. The frame is never
+ * logged, emitted or stored, and the next turn does not send it again.
+ *
+ * A `glance` turn is the call service's look between turns: nobody has spoken
+ * for a while and the picture changed. `text` is empty, `client.vision` has a
+ * frame and `remarks` is on. The model says one short remark if something in
+ * the picture is worth one, and otherwise nothing: an empty answer is `done`
+ * with no `text`, and the call stays silent.
  *
  * and the answer is `200 text/event-stream`:
  *
@@ -33,9 +52,15 @@
  * with `: keep-alive` comments while nothing else is sent.
  */
 import { readMessageInput, readReplyOutput, type MessageInput, type ReplyOutput } from '@ouispec/agent-core';
+import { VISION_LIMITS, readTurnVision, type TurnVision } from '../prompt/vision.js';
 
-/** `message`: the person said `text`. `opening`: the call has just connected; nothing has been said, and the agent greets. */
-export const LIVE_CALL_TURN_KINDS = ['message', 'opening'] as const;
+/**
+ * `message`: the person said `text`. `opening`: the call has just connected;
+ * nothing has been said, and the agent greets. `glance`: nobody has spoken for
+ * a while and the caller's picture changed; the agent remarks on it, or says
+ * nothing.
+ */
+export const LIVE_CALL_TURN_KINDS = ['message', 'opening', 'glance'] as const;
 
 export type LiveCallTurnKind = (typeof LIVE_CALL_TURN_KINDS)[number];
 
@@ -60,6 +85,13 @@ export interface LiveCallClientUi {
 export interface LiveCallClient {
   /** Their page's latest UI, when it sent one into the call. */
   ui: LiveCallClientUi | null;
+  /**
+   * What their camera shows, and what the character may do with it, when the
+   * call service said (`client.vision`); null when it said nothing (vision is
+   * off for the session, or the call service predates it). Set as the turn
+   * payload's `vision`.
+   */
+  vision: TurnVision | null;
 }
 
 /** A live-call turn request, as read: every field checked, `input` and `output` kept only as far as they are known. */
@@ -71,12 +103,12 @@ export interface LiveCallTurnRequest {
   /** Unique per turn; the turn runs under this id. */
   turnId: string;
   kind: LiveCallTurnKind;
-  /** What the person said, as transcribed. Empty for `opening`. */
+  /** What the person said, as transcribed. Empty for `opening` and `glance`. */
   text: string;
   /**
    * How `text` was entered: `{ mode: 'voice', language? }` for what the person
    * said. Null for a message they typed during the call (`{ mode: 'text' }` on
-   * the wire), for `opening`, and when not said: a typed message is read as
+   * the wire), for `opening` and `glance`, and when not said: a typed message is read as
    * typed, with no spoken-input line.
    */
   input: MessageInput | null;
@@ -98,8 +130,10 @@ export interface LiveCallTurnRequest {
   disclosureLine: string | null;
   /**
    * The person's own side of the call: their page's latest UI, when the page
-   * sent it into the call (`client.ui`). Null when the call service said
-   * nothing of it, as for a call with no page (a phone call).
+   * sent it into the call (`client.ui`), and what their camera shows
+   * (`client.vision`). Null when the call service said nothing of either, as
+   * for a call with no page (a phone call). A `glance` always has
+   * `client.vision` with a frame.
    */
   client: LiveCallClient | null;
 }
@@ -160,6 +194,20 @@ export function liveCallOpeningMessage(request: Pick<LiveCallTurnRequest, 'discl
 }
 
 /**
+ * The person's message for a `glance` turn, as the model reads it: an
+ * instruction to remark on the picture only if something in it is worth a
+ * remark, and otherwise to say nothing, so the call stays silent. A host that
+ * stores the person's messages stores this for the glance turn, as it stores
+ * the opening's.
+ */
+export const LIVE_CALL_GLANCE_MESSAGE =
+  '<call_glance>Nobody has spoken for a few seconds, and the picture from the user’s camera has changed. This is not a message from the user. ' +
+  'If, and only if, something in the picture is worth remarking on (they hold something up, put something on, someone else appears), ' +
+  'say one short remark about it, in a sentence, and call no tools. ' +
+  'Otherwise answer with nothing at all, not a word or a mark, and the call stays silent. ' +
+  'Never repeat a remark you have already made in this call.</call_glance>';
+
+/**
  * The `input` mode of a message the person typed during the call. It is read
  * as typed: the turn's context carries no `input`, as for a message typed in
  * the product's own chat.
@@ -180,6 +228,8 @@ export const LIVE_CALL_LIMITS = {
   disclosureLineChars: 1_000,
   /** The most `client.ui` may weigh, as UTF-8 JSON: the bound the page and the call service hold it to. */
   clientUiBytes: 64 * 1024,
+  /** The longest `client.vision.frame.data`, in base64 characters (`VISION_LIMITS.frameDataChars`). */
+  visionFrameChars: VISION_LIMITS.frameDataChars,
 } as const;
 
 /** An id: letters, digits and `.` `_` `:` `-`, starting with a letter or digit. */
@@ -210,11 +260,11 @@ export function readLiveCallTurnRequest(body: unknown): LiveCallRequestReading {
     return refuse(`kind must be one of ${LIVE_CALL_TURN_KINDS.join(', ')}`);
   }
   const kind = b.kind as LiveCallTurnKind;
-  const text = b.text === undefined && kind === 'opening' ? '' : b.text;
+  const text = b.text === undefined && kind !== 'message' ? '' : b.text;
   if (typeof text !== 'string') return refuse('text must be a string');
   if (text.length > LIVE_CALL_LIMITS.textChars) return refuse(`text is longer than ${LIVE_CALL_LIMITS.textChars} characters`);
   if (kind === 'message' && !text.trim()) return refuse('a message turn needs the text the person said');
-  if (kind === 'opening' && text.trim()) return refuse('an opening turn carries no text');
+  if (kind !== 'message' && text.trim()) return refuse(`${kind === 'opening' ? 'an opening' : 'a glance'} turn carries no text`);
 
   for (const field of ['input', 'output'] as const) {
     const value = b[field];
@@ -237,6 +287,11 @@ export function readLiveCallTurnRequest(body: unknown): LiveCallRequestReading {
 
   const client = readClient(b.client);
   if (typeof client === 'string') return refuse(client);
+  if (kind === 'glance') {
+    // A glance is a look at the picture: without one, or without leave to remark on it, there is nothing to run.
+    if (!client?.vision?.frame) return refuse('a glance turn needs client.vision.frame');
+    if (!client.vision.remarks) return refuse('a glance turn needs client.vision.remarks on');
+  }
 
   return {
     ok: true,
@@ -245,9 +300,9 @@ export function readLiveCallTurnRequest(body: unknown): LiveCallRequestReading {
       clientRef,
       turnId: b.turnId as string,
       kind,
-      text: kind === 'opening' ? '' : text,
-      // Nothing was said on an opening turn, so nothing was entered; a typed message is read as typed.
-      input: kind === 'opening' || isTyped(b.input) ? null : readMessageInput(b.input),
+      text: kind === 'message' ? text : '',
+      // Nothing was said on an opening or a glance, so nothing was entered; a typed message is read as typed.
+      input: kind !== 'message' || isTyped(b.input) ? null : readMessageInput(b.input),
       output: readReplyOutput(b.output),
       supersedes: [...new Set(supersedes as string[])].filter((id) => id !== b.turnId),
       // Said before the greeting: an opening turn's alone.
@@ -264,13 +319,21 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 /**
  * The request's `client`, or why it is not one. Fields it does not know are
  * left out, so a newer call service is read past; a known field of the wrong
- * type is refused, naming it.
+ * type is refused, naming it. A refusal never repeats a frame's data.
  */
 function readClient(value: unknown): LiveCallClient | null | string {
   if (value === undefined || value === null) return null;
   if (!isPlainObject(value)) return 'client must be an object';
-  const raw = value.ui;
-  if (raw === undefined || raw === null) return { ui: null };
+  const vision = readTurnVision(value.vision, 'client.vision');
+  if (typeof vision === 'string') return vision;
+  const ui = readClientUi(value.ui);
+  if (typeof ui === 'string') return ui;
+  return { ui, vision };
+}
+
+/** The request's `client.ui`, or why it is not one. */
+function readClientUi(raw: unknown): LiveCallClientUi | null | string {
+  if (raw === undefined || raw === null) return null;
   if (!isPlainObject(raw)) return 'client.ui must be an object';
   const bytes = Buffer.byteLength(JSON.stringify(raw));
   if (bytes > LIVE_CALL_LIMITS.clientUiBytes) return `client.ui is ${bytes} bytes, more than ${LIVE_CALL_LIMITS.clientUiBytes}`;
@@ -287,7 +350,7 @@ function readClient(value: unknown): LiveCallClient | null | string {
     if (!isPlainObject(v)) return `client.ui.${field} must be an object`;
     ui[field] = v;
   }
-  return { ui };
+  return ui;
 }
 
 /** Whether `input` says the message was typed during the call. */

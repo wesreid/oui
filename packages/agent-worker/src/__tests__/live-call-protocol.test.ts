@@ -205,7 +205,7 @@ describe('the person’s page on a call turn (client.ui)', () => {
   it('is read as the page sent it, on a message and an opening alike', () => {
     for (const body of [{ ...SPOKEN, client: { ui: page } }, { ...SPOKEN, kind: 'opening', text: '', client: { ui: page } }]) {
       const reading = readLiveCallTurnRequest(body);
-      expect(reading.ok && reading.request.client).toEqual({ ui: page });
+      expect(reading.ok && reading.request.client).toEqual({ ui: page, vision: null });
     }
   });
 
@@ -213,12 +213,12 @@ describe('the person’s page on a call turn (client.ui)', () => {
     const silent = readLiveCallTurnRequest(SPOKEN);
     expect(silent.ok && silent.request.client).toBeNull();
     const none = readLiveCallTurnRequest({ ...SPOKEN, client: { ui: null } });
-    expect(none.ok && none.request.client).toEqual({ ui: null });
+    expect(none.ok && none.request.client).toEqual({ ui: null, vision: null });
   });
 
   it('keeps only the fields it knows, so a newer call service is read past', () => {
     const reading = readLiveCallTurnRequest({ ...SPOKEN, client: { ui: { ...page, theme: 'dark' }, device: 'phone' } });
-    expect(reading.ok && reading.request.client).toEqual({ ui: page });
+    expect(reading.ok && reading.request.client).toEqual({ ui: page, vision: null });
   });
 
   it('refuses a known field of the wrong type, and a page heavier than the bound, naming it', () => {

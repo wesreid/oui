@@ -1,6 +1,7 @@
 import type { ApprovalChannel, AttachmentRef, StaffSpeaker, TakeoverChange, TurnStoppedReason, TurnStoppedMarker } from '@ouispec/agent-core';
 import type { AttachmentWorkerConfig } from './attachments/store.js';
 import type { AttachmentUsage } from './attachments/guard.js';
+import type { TurnVision } from './prompt/vision.js';
 import type { TurnStopClient, TurnStopWatch } from './stop/turn-stop.js';
 import type { LanguageModel, ProviderOptions } from './model.js';
 import type { RealtimeEmitAdapter } from './emit/types.js';
@@ -216,6 +217,13 @@ export interface AgentTurnInput {
    * given to the model with it, through `config.attachments`.
    */
   attachments?: AttachmentRef[];
+  /**
+   * What the person's camera shows for this turn (a live call's
+   * `client.vision`): its frame is given to the model as a picture after the
+   * conversation, with what it may do with it, or the model is told it
+   * cannot see them and why. Never stored or logged (prompt/vision.ts).
+   */
+  vision?: TurnVision;
   /**
    * How the turn reached the runtime, as the host's hooks are told
    * (`AgentTurnInfo.channel`). Default `direct`.

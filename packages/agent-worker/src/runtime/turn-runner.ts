@@ -20,6 +20,7 @@ import { withoutClientUI } from '../ui/snapshot.js';
 import { createToolRegistry } from '../tools/types.js';
 import { buildAgentSystemPrompt } from '../prompt/index.js';
 import { describeModel } from '../model.js';
+import { readTurnVision, visionFacts } from '../prompt/vision.js';
 import type { AgentTurnInput, AgentTurnResult, TurnMessage } from '../types.js';
 import type { AgentRuntimeConfig, AgentTurnPayload } from './types.js';
 import { assertAgentRuntimeConfig } from './config.js';
@@ -128,6 +129,10 @@ export function payloadRefusal(payload: unknown): string | null {
   if (p.userToken !== undefined && typeof p.userToken !== 'string') return 'userToken must be a string';
   if (p.channel !== undefined && !(APPROVAL_CHANNELS as readonly unknown[]).includes(p.channel)) {
     return `channel must be one of ${APPROVAL_CHANNELS.join(', ')}`;
+  }
+  if (p.vision !== undefined && p.vision !== null) {
+    const vision = readTurnVision(p.vision, 'vision');
+    if (typeof vision === 'string') return vision;
   }
   if (p.supersedes !== undefined && !(Array.isArray(p.supersedes) && p.supersedes.every((id) => typeof id === 'string' && id))) {
     return 'supersedes must be a list of turn ids';
@@ -277,10 +282,16 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
             ).values(),
           ]
         : [];
+      // What the person's camera shows, as read: every adapter refuses a malformed one (payloadRefusal); a
+      // host calling run itself has it left out. Only its facts are logged, never the frame.
+      const read = readTurnVision(payload.vision, 'vision');
+      const vision = read && typeof read === 'object' ? read : null;
+      if (typeof read === 'string') logger.warn('[agent-sdk] The turn’s vision is not one; the turn runs without it', { turnId, error: read });
       logger.info('[agent-sdk] Processing turn', {
         turnId,
         conversationId,
         userId,
+        ...(vision ? { vision: visionFacts(vision) } : {}),
         ...(supersedes.length ? { supersedes } : {}),
         ...(resume ? { resumed: { requestIds: resume.requestIds } } : {}),
       });
@@ -334,6 +345,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
           ...(approval ? { approval } : {}),
           ...(resume ? { resume } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
+          ...(vision ? { vision } : {}),
           ...(payload.channel ? { approvalChannel: payload.channel } : {}),
           stopWatch,
           ...(host.remainingMs ? { remainingMs: host.remainingMs } : {}),
