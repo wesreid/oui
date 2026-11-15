@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.27.0
+
+### Minor Changes
+
+- A live character sees the caller. A live-call turn reads `client.vision` (`{ seeing, remarks, frame: { mediaType, data, width, height, capturedAt } | null, absent }`) as strictly as `client.ui`: a frame with the wrong media type, base64, image signature, size or `capturedAt` answers `400` naming the field, and no refusal repeats its data. The handler sets it as the turn payload's new `vision` (`TurnVision`, checked by `payloadRefusal`), and the worker gives the model the frame as a picture after the conversation's cache breakpoint, with the vision clause (answer about what it sees; with `remarks`, remark unprompted sparingly; never sensitive traits, identification or a body), or a line that it cannot see the caller and why. The stored message keeps the caller's words only, so the next turn never sends an earlier frame. A new turn kind, `glance` (`text` empty, a frame, `remarks` on), reads `LIVE_CALL_GLANCE_MESSAGE`: the model remarks only on something worth it, and an empty answer is `done` with no `text`. `liveCallTurnMessage(request)` is what the model reads for any kind. The frame is never logged, emitted or stored; log lines carry `vision: { seeing, remarks, attached, frameBytes, frameAgeMs }` or `absent`. The live-call body limit is now 384 KiB (`LIVE_CALL_MAX_BODY_BYTES`, also on the container route, which had capped it at 64 KiB), leading whitespace of a reply is never spoken, and a blank user message with no files in history is no longer sent to the provider.
+
 ## 0.26.0
 
 ### Patch Changes

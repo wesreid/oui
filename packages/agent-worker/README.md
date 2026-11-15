@@ -259,7 +259,7 @@ Your API sends turns to the worker's HTTP endpoints:
 A service that runs a voice call (it hears the person, transcribes them, and speaks the reply in a character's voice) can be answered by your own agent: its persona, tools, UI actions, approvals and records. Each turn of the call is one HTTP request to a route you mount, and the reply streams back as server-sent events. The turn runs on the same runtime as every other turn, so it still streams to the conversation's realtime room: every page joined to that conversation receives the reply and every UI action, as for a typed message, and the call page can show what the agent is talking about.
 
 ```ts
-import { createAgentTurnRunner, createLiveCallTurnHandler, liveCallOpeningMessage } from '@ouispec/agent-worker';
+import { createAgentTurnRunner, createLiveCallTurnHandler, liveCallTurnMessage } from '@ouispec/agent-worker';
 
 const runner = createAgentTurnRunner(runtimeConfig);   // the same config as your other turns
 const liveCall = createLiveCallTurnHandler({
@@ -268,7 +268,8 @@ const liveCall = createLiveCallTurnHandler({
   resolveTurn: async (request, { signal }) => {
     const conversation = await findConversationByCallRef(request.clientRef);
     if (!conversation) return null;                    // answered 404
-    const said = request.kind === 'opening' ? liveCallOpeningMessage(request) : redactCardNumbers(request.text);
+    // What the person said, redacted; for an opening or a glance, the instruction that stands for it.
+    const said = request.kind === 'message' ? redactCardNumbers(request.text) : liveCallTurnMessage(request);
     await storeUserMessage(conversation.id, said, request.input);
     return {
       conversationId: conversation.id,
@@ -299,7 +300,7 @@ process.on('SIGTERM', () => liveCall.close());        // waits for running turns
 | `holdingLine` | With `final-round` only: a line of yours spoken once, as the turn's first tool starts (not a choice the turn ends with), so the caller does not wait in silence. A string, or `(request, target)` returning one (localise from `request.input.language`); null or blank says nothing; a throw fails the turn. Set with `all`, the handler refuses to start: there the model's own words before a tool call are spoken. |
 | `keepAliveMs` | Default 5 s: a `: keep-alive` comment after this long with nothing written. |
 | `maxConcurrentTurns` | Default 8; more are answered `503`. |
-| `maxBodyBytes` | Default 128 KiB: room for a turn's longest text with the page's UI context at its 64 KiB bound. |
+| `maxBodyBytes` | Default 384 KiB (`LIVE_CALL_MAX_BODY_BYTES`): room for a turn's longest text with the page's UI context at its 64 KiB bound and a camera frame at its 256 KiB bound. The container adapter's live-call route takes the same, within its own `maxBodyBytes`. |
 | `onTurnEnd(outcome)` | Each turn's outcome, after it ends. |
 
 **The request.** `POST`, `Content-Type: application/json`, `Authorization: Bearer <credential>`:
@@ -309,13 +310,13 @@ process.on('SIGTERM', () => liveCall.close());        // waits for running turns
 | `sessionId` | The call service's session. |
 | `clientRef` | Your conversation reference, given to the call service when the call was created. |
 | `turnId` | Unique per turn; the turn runs under it. |
-| `kind` | `message`: the person said `text`. `opening`: the call has just connected, `text` is empty, and the agent greets: the model reads `liveCallOpeningMessage(request)` where the person's words would be (`LIVE_CALL_OPENING_MESSAGE` when no disclosure was sent). |
+| `kind` | `message`: the person said `text`. `opening`: the call has just connected, `text` is empty, and the agent greets: the model reads `liveCallOpeningMessage(request)` where the person's words would be (`LIVE_CALL_OPENING_MESSAGE` when no disclosure was sent). `glance`: nobody has spoken for a while and the caller's picture changed; `text` is empty, `client.vision` carries a frame with `remarks` on, and the model reads `LIVE_CALL_GLANCE_MESSAGE` ("Vision"). `liveCallTurnMessage(request)` is what the model reads for any kind. |
 | `text` | What the person said, as transcribed; at most 8,000 characters. |
 | `input` | `{ mode: 'voice', language? }` for what the person said: set as the turn's `context.input`, so the model is told it was transcribed. `{ mode: 'text' }` for a message they typed during the call: read as typed, with no `context.input`. Dropped on an `opening`. |
 | `output` | `{ mode: 'voice', voiceDirections? }`: set as the turn's `context.output`, so the model writes for the ear, and may use the voice's tags when `voiceDirections: { engine, tags, guidance }` offers them ("What a UI client sends with a turn"). |
 | `disclosureLine` | On an `opening`: what the call service has just said to the person before the greeting (that they are talking with an AI assistant), as spoken; at most 1,000 characters. The model is told it was said, and greets following on from it without repeating it. Not read on a `message`. |
 | `supersedes` | Turns this one replaces. Each still running in this process is stopped at once, and the turn's `getHistory` is given them to wait for, as for any superseding message. |
-| `client` | `{ ui }`: the person's page, when it sent its UI into the call (Closure's `<LiveCall uiContext>`), as its typed turns carry it: `{ buildId?, currentPath?, oui?, uiKnowledge? }`, at most 64 KiB (`LIVE_CALL_LIMITS.clientUiBytes`). Its `oui`, `uiKnowledge` and `currentPath` go on the turn's context under those names, so the turn's UI tools are the page's and its UI actions reach that page through the room, as on a typed turn; a key your target's `context` sets itself is kept. `buildId` stays on `request.client.ui`, for your `resolveTurn` to check against the build you expect. Fields it does not know are read past. Absent, or `ui: null`, for a call with no page (a phone call): the turn has only your context. |
+| `client` | `{ ui, vision }`. `ui`: the person's page, when it sent its UI into the call (Closure's `<LiveCall uiContext>`), as its typed turns carry it: `{ buildId?, currentPath?, oui?, uiKnowledge? }`, at most 64 KiB (`LIVE_CALL_LIMITS.clientUiBytes`). Its `oui`, `uiKnowledge` and `currentPath` go on the turn's context under those names, so the turn's UI tools are the page's and its UI actions reach that page through the room, as on a typed turn; a key your target's `context` sets itself is kept. `buildId` stays on `request.client.ui`, for your `resolveTurn` to check against the build you expect. Fields it does not know are read past. Absent, or `ui: null`, for a call with no page (a phone call): the turn has only your context. `vision`: what the caller's camera shows ("Vision"). |
 
 `readLiveCallTurnRequest` reads a body as the handler does, and `LIVE_CALL_LIMITS` holds its limits.
 
@@ -325,10 +326,28 @@ process.on('SIGTERM', () => liveCall.close());        // waits for running turns
 |---|---|---|
 | `text` | `{ text }` | The reply; concatenate the pieces. With `speak: 'all'`, as the model writes it: rounds written between tool calls are separated by a blank line, as in the room. With `final-round`, the holding line and the turn's last round. |
 | `readback` | `{ approvalId, text, expiresAt }` | The turn stopped at a call that needs approval. `text` is the preview's `spokenReadback` when your `approvals.preview` wrote one, else its `readback`, verbatim; `expiresAt` is ISO 8601. Sent once the turn has ended by itself, after all of its text. A turn that was stopped withdrew its approval, and sends none. |
-| `done` | `{ stopReason? }` | The turn is over: `complete`, `awaiting_approval`, `present_options`, `time_limit`, `output_limit` or `step_count` when it ended by itself; `user_stop`, `superseded` or `deadline` when it was stopped. |
+| `done` | `{ stopReason? }` | The turn is over: `complete`, `awaiting_approval`, `present_options`, `time_limit`, `output_limit` or `step_count` when it ended by itself; `user_stop`, `superseded` or `deadline` when it was stopped. A turn whose reply is nothing (a glance with nothing worth a remark) is `done` alone, with no `text` before it: silence. |
 | `error` | `{ code, message }` | The turn failed or did not run: `RATE_LIMIT`, `SERVICE_UNAVAILABLE`, `MODEL_TIMEOUT`, `TURN_TIMEOUT`, `TURN_DEADLINE_EXCEEDED`, `TURN_REFUSED` (your turn record refused it), `TURN_DECLINED` (your `beforeTurn` refused it) or `WORKER_ERROR`. `message` is a fixed line for the code; the cause stays in your logs. |
 
 The stream is written from the turn's own events as the room receives them (`TurnHost.observe`): the same text, from the same model call. Before the stream opens, a refusal is a status and `{ error: { code, message } }`: `400 INVALID_REQUEST` naming the field, `401 UNAUTHORIZED`, `404 UNKNOWN_CLIENT_REF`, `405`, `409 TURN_RUNNING`, `413 BODY_TOO_LARGE`, `415`, `500 RESOLVE_FAILED` (your `resolveTurn` threw, or returned a target that is not a turn; nothing ran) and `503 UNAVAILABLE`.
+
+**Vision.** When the character can see the caller, the call service carries their camera on each turn as `client.vision`:
+
+```json
+{ "seeing": true, "remarks": true,
+  "frame": { "mediaType": "image/jpeg", "data": "<base64>", "width": 512, "height": 384, "capturedAt": "2026-11-14T10:15:30.120Z" },
+  "absent": null }
+```
+
+`seeing`: the character receives the caller's camera; `remarks`: it may bring up what it sees unprompted (false whenever `seeing` is). `frame` is the latest frame, JPEG, PNG or WebP, at most 256 KiB of base64 (`VISION_LIMITS`), or null with `absent` saying why: `camera_off`, `turned_off` (the caller turned "can see me" off, with `seeing: false`) or `stale`. It is read as strictly as `client.ui`: a frame whose media type, base64, image signature, size or `capturedAt` is wrong answers `400` naming the field, and no refusal repeats its data. The handler sets it as the turn payload's `vision` (`TurnVision`; any turn can carry one, `payloadRefusal` checks it), and the worker gives the model:
+
+- the frame as a picture, after the conversation's cache breakpoint with what else is true only for this turn: on Anthropic a base64 `image` block, on Bedrock an `image` block, on Chat Completions an `image_url`, from the same `ai` file part. The person's stored message keeps their words only, so the next turn does not send the frame again, a call's input grows by one frame rather than one per turn, and the conversation is still read from the prompt cache;
+- one line with it: that it can see the caller and may answer about what they wear, their expression, what they hold and the room behind them; with `remarks`, that it may also remark unprompted on something significant or compliment what they wear, at most once about their appearance in its greeting and never the same remark twice; without, that it brings up nothing it sees unless asked; and always, that it never infers or names sensitive traits (ethnicity, health or disability, religion, sexual orientation, a guessed age or weight), never identifies anyone from their face and never comments on a body;
+- with no frame, a line that it cannot see the caller and why, so it never claims to.
+
+A **glance** is the call service's look between turns. The model reads `LIVE_CALL_GLANCE_MESSAGE` and the picture, and says one short remark only if something is worth one; otherwise it says nothing, and the stream is `done` with no `text` event: the call stays silent. Store `liveCallTurnMessage(request)` for it as you store an opening's message; a history that kept the glance as its empty `text` is read past (a blank message with no files is never sent to the provider). A glance without a frame, or with `remarks` off, answers `400`. An `opening` with a frame lets the greeting compliment the caller.
+
+The frame is never logged, emitted to the room, stored or kept after the turn. The turn's log lines carry facts only: `vision: { seeing, remarks, attached, frameBytes, frameAgeMs }`, or `absent` when none came. Nothing changes for a host: `resolveTurn` sees `request.client.vision` and need not touch it.
 
 **Barge-in.** When the person speaks over the reply, the call service closes the connection. The turn is stopped as a superseding message stops it (`stopReason: 'superseded'`): what it had produced is stored with the mark and announced to the room, and the next request names it in `supersedes`. A stop asked for through the realtime server (the person's Stop on a page) is heard too, and that stream ends with `done`.
 

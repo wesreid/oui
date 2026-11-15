@@ -20,6 +20,7 @@ import type { ApprovalChannel, ApprovalContinuation, AttachmentRef, ResumeContin
 import type { ResumedTurn } from '../resume/resumed-calls.js';
 import type { AttachmentWorkerConfig } from '../attachments/store.js';
 import type { AttachmentUsage } from '../attachments/guard.js';
+import type { TurnVision } from '../prompt/vision.js';
 import type { TurnStopClient } from '../stop/turn-stop.js';
 import type { ApprovalPreviewHook, ValidateBeforeApproval } from '../approvals/hooks.js';
 import type { AgentTurnInfo } from './turn-info.js';
@@ -70,6 +71,15 @@ export interface AgentTurnPayload {
    * enqueued the turn; the worker reads them through `attachments.store`.
    */
   attachments?: AttachmentRef[];
+  /**
+   * What the person's camera shows for this turn: `{ seeing, remarks, frame,
+   * absent }` (`TurnVision`; a live call's `client.vision`, which the live-call
+   * handler sets here). The frame is given to the model as a picture with this
+   * turn only, and is never stored, emitted or logged. A malformed one refuses
+   * the turn (`payloadRefusal`). It weighs up to 256 KiB: through the Lambda
+   * adapter it must fit the queue's message size.
+   */
+  vision?: TurnVision;
   /**
    * Where the person is: `ui` (default) or a conversation
    * channel (`chat`, `sms`, `voice`, `phone`), where an approval is a readback

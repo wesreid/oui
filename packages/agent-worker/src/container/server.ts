@@ -22,7 +22,7 @@ import type { AddressInfo } from 'node:net';
 import { createAgentTurnRunner, payloadRefusal, type TurnOutcome } from '../runtime/turn-runner.js';
 import { createTurnSlots } from '../runtime/turn-slots.js';
 import type { AgentRuntimeConfig, AgentTurnPayload } from '../runtime/types.js';
-import { liveCallRoute, type LiveCallTurnOptions } from '../live-call/handler.js';
+import { LIVE_CALL_MAX_BODY_BYTES, liveCallRoute, type LiveCallTurnOptions } from '../live-call/handler.js';
 
 /** The live-call route on the container: its settings, and where it is served. */
 export interface ContainerLiveCallRoute extends LiveCallTurnOptions {
@@ -78,7 +78,7 @@ export async function startContainerAgentWorker<TDb>(config: ContainerAgentConfi
   const slots = createTurnSlots(capacity);
   const maxBodyBytes = config.maxBodyBytes ?? 1024 * 1024;
   const liveCall = config.liveCall
-    ? liveCallRoute(config.liveCall, { runner, slots, maxBodyBytes: Math.min(maxBodyBytes, 64 * 1024), onTurnEnd: config.onTurnEnd })
+    ? liveCallRoute(config.liveCall, { runner, slots, maxBodyBytes: Math.min(maxBodyBytes, LIVE_CALL_MAX_BODY_BYTES), onTurnEnd: config.onTurnEnd })
     : null;
   const expectedKey = crypto.createHash('sha256').update(config.workerApiKey).digest();
   const isKey = (presented: unknown) =>

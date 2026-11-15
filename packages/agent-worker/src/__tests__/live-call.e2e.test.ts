@@ -28,8 +28,8 @@ import { FixtureConversation } from './support/fixture-turn.js';
 import { chunk, sse, type ChatRequest, type ScriptedReply } from './support/replay.js';
 import { createAgentTurnRunner, type TurnOutcome } from '../runtime/turn-runner.js';
 import { startContainerAgentWorker, DEFAULT_LIVE_CALL_PATH } from '../container/server.js';
-import { createLiveCallTurnHandler, type LiveCallTurnHandler, type LiveCallTurnOptions, type LiveCallTurnTarget } from '../live-call/handler.js';
-import { LIVE_CALL_OPENING_MESSAGE, liveCallOpeningMessage, type LiveCallTurnRequest } from '../live-call/protocol.js';
+import { createLiveCallTurnHandler, LIVE_CALL_MAX_BODY_BYTES, type LiveCallTurnHandler, type LiveCallTurnOptions, type LiveCallTurnTarget } from '../live-call/handler.js';
+import { LIVE_CALL_GLANCE_MESSAGE, LIVE_CALL_OPENING_MESSAGE, liveCallOpeningMessage, type LiveCallTurnRequest } from '../live-call/protocol.js';
 import { createHttpApprovalStoreClient } from '../approvals/client.js';
 import { createHttpConversationClient } from '../conversations/client.js';
 import { READBACK_APPROVAL_TOOL_NOTE } from '../approvals/requirement.js';
@@ -1194,6 +1194,92 @@ describe('a UI action approved by a spoken yes', () => {
   }, 30_000);
 });
 
+describe('the caller seen through their camera', () => {
+  /** A JPEG's first bytes, then bytes no prompt holds by chance. */
+  const jpeg = (seed: number) =>
+    Buffer.from([0xff, 0xd8, 0xff, 0xe0, ...Array.from({ length: 60 }, (_, i) => (i * 29 + seed * 13 + 5) % 256)]).toString('base64');
+  const seen = (data: string, remarks = true) => ({
+    vision: { seeing: true, remarks, frame: { mediaType: 'image/jpeg', data, width: 512, height: 384, capturedAt: new Date().toISOString() }, absent: null },
+  });
+  type ContentPart = { type: string; text?: string; image_url?: { url: string } };
+  /** The pictures of a Chat Completions request, as their data URLs. */
+  const picturesOf = (request: ChatRequest) =>
+    request.messages.flatMap((m) =>
+      Array.isArray(m.content) ? (m.content as ContentPart[]).filter((p) => p.type === 'image_url').map((p) => p.image_url!.url) : [],
+    );
+
+  it('answers about what it sees: the frame reaches the model with the turn, the next turn sends only its own, and none reaches the page, the store or a log', async () => {
+    const first = jpeg(1);
+    const later = jpeg(2);
+    const m = scriptedModel([{ text: 'You are wearing a yellow shirt.' }, { text: 'Now you are holding a coffee mug.' }]);
+    const lines: string[] = [];
+    const capture = (...args: unknown[]) => lines.push(JSON.stringify(args));
+    const call = await startCallProduct({ model: m.model, runtime: { logger: { info: capture, warn: capture, error: capture, debug: capture } } });
+    const consoleSpies = (['log', 'warn', 'error'] as const).map((level) =>
+      vi.spyOn(console, level).mockImplementation((...args: unknown[]) => void lines.push(args.map(String).join(' '))),
+    );
+    try {
+      const asked = turnRequest(call, { text: 'What am I wearing?', client: seen(first) });
+      const answer = await streamOf(await post(call.url, asked));
+      expect(answer.text()).toBe('You are wearing a yellow shirt.');
+      expect(answer.events.at(-1)).toEqual({ event: 'done', data: { stopReason: 'complete' } });
+      // The model was given the frame, as a picture, and the vision clause.
+      expect(picturesOf(m.requests[0])).toEqual([`data:image/jpeg;base64,${first}`]);
+      expect(textsOf(m.requests[0]).join('\n')).toContain('<vision>You can see the user through their camera');
+
+      const next = turnRequest(call, { text: 'And now?', client: seen(later) });
+      expect((await streamOf(await post(call.url, next))).text()).toBe('Now you are holding a coffee mug.');
+      // The earlier frame is not sent again: the conversation keeps the caller's words only.
+      expect(picturesOf(m.requests[1])).toEqual([`data:image/jpeg;base64,${later}`]);
+      expect(JSON.stringify(m.requests[1])).not.toContain(first.slice(0, 16));
+
+      await call.tab.waitForTurn(AGENT_SOCKET_EVENTS.TURN_COMPLETE, next.turnId);
+      for (const leaked of [first.slice(0, 16), later.slice(0, 16)]) {
+        expect(JSON.stringify(call.tab.events)).not.toContain(leaked);
+        expect(JSON.stringify(call.persisted)).not.toContain(leaked);
+        expect(JSON.stringify(call.conversation.history)).not.toContain(leaked);
+        expect(lines.join('\n')).not.toContain(leaked);
+      }
+      // What the logs say of it is facts.
+      expect(lines.find((l) => l.includes('Live-call turn'))).toMatch(/"attached":true,"frameBytes":64/);
+    } finally {
+      for (const spy of consoleSpies) spy.mockRestore();
+      await call.close();
+    }
+  }, 30_000);
+
+  it('a glance the model finds nothing in is silence: done with no text; one worth a remark is spoken', async () => {
+    const m = scriptedModel([{ text: '' }, { text: 'Oh, what a cute puppy!' }]);
+    const call = await startCallProduct({ model: m.model });
+    try {
+      // The fixture product stores the glance as the empty words it carried, as a host that stores `request.text` does.
+      const quiet = turnRequest(call, { kind: 'glance', text: '', input: undefined, client: seen(jpeg(3)) });
+      const silence = await streamOf(await post(call.url, quiet));
+      expect(silence.events).toEqual([{ event: 'done', data: { stopReason: 'complete' } }]);
+      // The model read the glance's instruction where the person's words would be, and the picture.
+      expect(textsOf(m.requests[0]).join('\n')).toContain(LIVE_CALL_GLANCE_MESSAGE);
+      expect(picturesOf(m.requests[0])).toHaveLength(1);
+      await call.tab.waitForTurn(AGENT_SOCKET_EVENTS.TURN_COMPLETE, quiet.turnId);
+      expect(roomText(call.tab, quiet.turnId)).toBe('');
+
+      const remark = turnRequest(call, { kind: 'glance', text: '', input: undefined, client: seen(jpeg(4)) });
+      const spoken = await streamOf(await post(call.url, remark));
+      expect(spoken.text()).toBe('Oh, what a cute puppy!');
+      expect(spoken.events.at(-1)).toEqual({ event: 'done', data: { stopReason: 'complete' } });
+      // The earlier, empty glance is read past: no blank message reaches the provider.
+      expect(m.requests[1].messages.filter((msg) => msg.role === 'user' && msg.content === '')).toEqual([]);
+
+      // A glance without leave to remark is not run.
+      const refused = await post(call.url, turnRequest(call, { kind: 'glance', text: '', input: undefined, client: seen(jpeg(5), false) }));
+      expect(refused.status).toBe(400);
+      expect(((await refused.json()) as { error: { message: string } }).error.message).toBe('a glance turn needs client.vision.remarks on');
+      expect(m.requests).toHaveLength(2);
+    } finally {
+      await call.close();
+    }
+  }, 30_000);
+});
+
 describe('requests that are not a turn it can run', () => {
   it('refuses a missing, wrong or badly sent credential with 401, and runs nothing', async () => {
     const m = scriptedModel([]);
@@ -1241,7 +1327,7 @@ describe('requests that are not a turn it can run', () => {
       await refused(await post(call.url, turnRequest(call, { turnId: 'not an id' })), 400, 'INVALID_REQUEST', /^turnId/);
       await refused(await post(call.url, turnRequest(call, { supersedes: 'call-turn-1' })), 400, 'INVALID_REQUEST', /^supersedes/);
       await refused(await post(call.url, turnRequest(call), { contentType: 'text/plain' }), 415, 'UNSUPPORTED_MEDIA_TYPE');
-      await refused(await post(call.url, turnRequest(call, { text: 'x'.repeat(130 * 1024) })), 413, 'BODY_TOO_LARGE');
+      await refused(await post(call.url, turnRequest(call, { text: 'x'.repeat(LIVE_CALL_MAX_BODY_BYTES + 1024) })), 413, 'BODY_TOO_LARGE');
       const get = await post(call.url, undefined, { method: 'GET' });
       expect(get.status).toBe(405);
       expect(get.headers.get('allow')).toBe('POST');
