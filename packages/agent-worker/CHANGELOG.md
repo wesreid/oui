@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.28.0
+
+### Minor Changes
+
+- The character looks at the caller only when it chooses to: no turn carries a picture any more, and integrators implement no vision. `client.vision` is now `{ seeing, remarks, canLook, absent: 'camera_off' | 'turned_off' | null, look: { url, token, expiresAt } | null, observation }`; `frame` is removed (an older call service's frame is read past and never given to the model), and so are `VISION_FRAME_MEDIA_TYPES`, `VisionFrame`, `VisionFrameMediaType` and the `stale` absence. With `canLook`, the live-call agent has the new `look({ question, frames? })` tool (`lookTool`, SDK tool class `vision`, a `view`): it `POST`s the question (at most 500 characters) and 1–4 frames to `look.url` with `Authorization: Bearer <token>`, and the call service's answer in words reaches the model for that call only, while the stored result says only `{ looked, pictures, newestSecondsAgo }`; nothing seen is `{ looked: false, absent, why }`, and a `409`, `429`, other refusal, timeout or expired token fails with what to do instead. The look route must be https (or this machine). The vision clause now says "You can look at the caller with `look` when the conversation calls for it: they ask about how they look or what is around them, they show you something, or a glance offers it. Do not look otherwise." (`LOOK_WHEN`), or that it cannot see and why. A `glance` now needs `remarks` and an `observation` (no frame): the observation reaches the model in the turn's vision line, escaped as data, and is never stored, so the model phrases one remark or stays silent. A tool's new `inputPrivate` keeps its input out of logs and room events (set on `look`); the token, question, answer and observation are never logged or emitted, and log lines carry `vision: { seeing, remarks, canLook, absent?, observed? }`. A tool policy that admits by name should admit the `vision` class.
+
 ## 0.27.0
 
 ### Minor Changes

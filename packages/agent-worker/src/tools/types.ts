@@ -14,6 +14,9 @@ import type { UISlot } from '../ui/ui-sequence.js';
  */
 export type ToolEffect = EffectOrKind;
 
+/** The classes of the tools the SDK owns: `attachment` (the attachment tools) and `vision` (`look`). */
+export type SdkToolClass = 'attachment' | 'vision';
+
 export interface RegisteredTool {
   name: string;
   /**
@@ -24,10 +27,11 @@ export interface RegisteredTool {
   kind?: 'ui' | 'backend';
   /**
    * The SDK's class for a tool it owns: `attachment` for the
-   * attachment tools. A host's tool policy may admit a class as well as a name,
-   * so a tool the SDK adds later in that class needs no change in the host.
+   * attachment tools, `vision` for `look`. A host's tool policy may admit a
+   * class as well as a name, so a tool the SDK adds later in that class needs
+   * no change in the host.
    */
-  toolClass?: 'attachment';
+  toolClass?: SdkToolClass;
   /**
    * What calling the tool changes. A tool that declares none is
    * treated as a write. Approvals key on this and `destructive`.
@@ -55,6 +59,12 @@ export interface RegisteredTool {
    * arguments are logged only when its declaration says they are not sensitive.
    */
   argsSensitive?: boolean;
+  /**
+   * Whether the call's input is kept out of logs and the room's events, which
+   * then say only that the tool was called. For input that speaks of the
+   * person (a look's question). Default false.
+   */
+  inputPrivate?: boolean;
   /**
    * The API this tool's approved calls go to, as an origin
    * (`https://api.example.com`): the audience of the receipt an approved call

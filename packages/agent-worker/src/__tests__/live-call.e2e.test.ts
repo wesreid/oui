@@ -30,6 +30,7 @@ import { createAgentTurnRunner, type TurnOutcome } from '../runtime/turn-runner.
 import { startContainerAgentWorker, DEFAULT_LIVE_CALL_PATH } from '../container/server.js';
 import { createLiveCallTurnHandler, LIVE_CALL_MAX_BODY_BYTES, type LiveCallTurnHandler, type LiveCallTurnOptions, type LiveCallTurnTarget } from '../live-call/handler.js';
 import { LIVE_CALL_GLANCE_MESSAGE, LIVE_CALL_OPENING_MESSAGE, liveCallOpeningMessage, type LiveCallTurnRequest } from '../live-call/protocol.js';
+import { LOOK_WHEN } from '../prompt/vision.js';
 import { createHttpApprovalStoreClient } from '../approvals/client.js';
 import { createHttpConversationClient } from '../conversations/client.js';
 import { READBACK_APPROVAL_TOOL_NOTE } from '../approvals/requirement.js';
@@ -1194,24 +1195,43 @@ describe('a UI action approved by a spoken yes', () => {
   }, 30_000);
 });
 
-describe('the caller seen through their camera', () => {
-  /** A JPEG's first bytes, then bytes no prompt holds by chance. */
-  const jpeg = (seed: number) =>
-    Buffer.from([0xff, 0xd8, 0xff, 0xe0, ...Array.from({ length: 60 }, (_, i) => (i * 29 + seed * 13 + 5) % 256)]).toString('base64');
-  const seen = (data: string, remarks = true) => ({
-    vision: { seeing: true, remarks, frame: { mediaType: 'image/jpeg', data, width: 512, height: 384, capturedAt: new Date().toISOString() }, absent: null },
-  });
-  type ContentPart = { type: string; text?: string; image_url?: { url: string } };
-  /** The pictures of a Chat Completions request, as their data URLs. */
-  const picturesOf = (request: ChatRequest) =>
-    request.messages.flatMap((m) =>
-      Array.isArray(m.content) ? (m.content as ContentPart[]).filter((p) => p.type === 'image_url').map((p) => p.image_url!.url) : [],
-    );
+describe('the caller seen when the character chooses to look', () => {
+  const TOKEN = 'lvl1.eyJzaWQiOiJmaXh0dXJlIn0.bG9vay10b2tlbi1zaWduYXR1cmU';
+  const QUESTION = 'What colour is their shirt?';
+  const ANSWER = 'A bright yellow crew-neck shirt.';
 
-  it('answers about what it sees: the frame reaches the model with the turn, the next turn sends only its own, and none reaches the page, the store or a log', async () => {
-    const first = jpeg(1);
-    const later = jpeg(2);
-    const m = scriptedModel([{ text: 'You are wearing a yellow shirt.' }, { text: 'Now you are holding a coffee mug.' }]);
+  /** The look route, answering as studio-api does, recording what it was asked. */
+  async function lookRoute(): Promise<{ url: string; received: Array<{ authorization?: string; body: unknown }>; close(): Promise<void> }> {
+    const received: Array<{ authorization?: string; body: unknown }> = [];
+    const server = http.createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        received.push({ authorization: req.headers.authorization, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown });
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ looked: true, answer: ANSWER, frames: 1, newestAgeMs: 640 }));
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    return {
+      url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/sessions/s/vision/look`,
+      received,
+      close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    };
+  }
+  const vision = (url: string, extra: Record<string, unknown> = {}) => ({
+    vision: { seeing: true, remarks: true, canLook: true, absent: null, look: { url, token: TOKEN, expiresAt: new Date(Date.now() + 60_000).toISOString() }, observation: null, ...extra },
+  });
+  /** Whether a Chat Completions request carries a picture. */
+  const hasPicture = (request: ChatRequest) => JSON.stringify(request.messages).includes('image_url');
+
+  it('looks when asked and is answered in words: no request carries a picture, and the look reaches no page, store or log', async () => {
+    const route = await lookRoute();
+    const m = scriptedModel([
+      { toolCalls: [{ id: 'call_look_1', name: 'look', args: { question: QUESTION } }] },
+      { text: 'You are wearing a bright yellow shirt.' },
+      { text: 'Happy to help with anything else.' },
+    ]);
     const lines: string[] = [];
     const capture = (...args: unknown[]) => lines.push(JSON.stringify(args));
     const call = await startCallProduct({ model: m.model, runtime: { logger: { info: capture, warn: capture, error: capture, debug: capture } } });
@@ -1219,63 +1239,78 @@ describe('the caller seen through their camera', () => {
       vi.spyOn(console, level).mockImplementation((...args: unknown[]) => void lines.push(args.map(String).join(' '))),
     );
     try {
-      const asked = turnRequest(call, { text: 'What am I wearing?', client: seen(first) });
+      const asked = turnRequest(call, { text: 'What am I wearing?', client: vision(route.url) });
       const answer = await streamOf(await post(call.url, asked));
-      expect(answer.text()).toBe('You are wearing a yellow shirt.');
+      expect(answer.text()).toBe('You are wearing a bright yellow shirt.');
       expect(answer.events.at(-1)).toEqual({ event: 'done', data: { stopReason: 'complete' } });
-      // The model was given the frame, as a picture, and the vision clause.
-      expect(picturesOf(m.requests[0])).toEqual([`data:image/jpeg;base64,${first}`]);
-      expect(textsOf(m.requests[0]).join('\n')).toContain('<vision>You can see the user through their camera');
+      // The look route was asked the model's question with the turn's token.
+      expect(route.received).toEqual([{ authorization: `Bearer ${TOKEN}`, body: { question: QUESTION } }]);
+      // The model was offered `look`, told when to use it, and read the answer as its result.
+      expect(m.requests[0].tools?.map((t) => t.function.name)).toContain('look');
+      expect(textsOf(m.requests[0]).join('\n')).toContain(LOOK_WHEN);
+      expect(m.requests[1].messages.find((msg) => msg.role === 'tool')?.content).toContain(ANSWER);
 
-      const next = turnRequest(call, { text: 'And now?', client: seen(later) });
-      expect((await streamOf(await post(call.url, next))).text()).toBe('Now you are holding a coffee mug.');
-      // The earlier frame is not sent again: the conversation keeps the caller's words only.
-      expect(picturesOf(m.requests[1])).toEqual([`data:image/jpeg;base64,${later}`]);
-      expect(JSON.stringify(m.requests[1])).not.toContain(first.slice(0, 16));
+      // The next turn does not look, and carries neither a picture nor the earlier answer.
+      const next = turnRequest(call, { text: 'Thanks!', client: vision(route.url) });
+      expect((await streamOf(await post(call.url, next))).text()).toBe('Happy to help with anything else.');
+      expect(route.received).toHaveLength(1);
+      expect(JSON.stringify(m.requests[2])).not.toContain(ANSWER);
+      expect(m.requests.some(hasPicture)).toBe(false);
 
       await call.tab.waitForTurn(AGENT_SOCKET_EVENTS.TURN_COMPLETE, next.turnId);
-      for (const leaked of [first.slice(0, 16), later.slice(0, 16)]) {
+      for (const leaked of [ANSWER, TOKEN]) {
         expect(JSON.stringify(call.tab.events)).not.toContain(leaked);
         expect(JSON.stringify(call.persisted)).not.toContain(leaked);
         expect(JSON.stringify(call.conversation.history)).not.toContain(leaked);
-        expect(lines.join('\n')).not.toContain(leaked);
       }
+      expect(JSON.stringify(call.tab.events)).not.toContain(QUESTION);
+      for (const leaked of [QUESTION, ANSWER, TOKEN]) expect(lines.join('\n')).not.toContain(leaked);
       // What the logs say of it is facts.
-      expect(lines.find((l) => l.includes('Live-call turn'))).toMatch(/"attached":true,"frameBytes":64/);
+      expect(lines.find((l) => l.includes('Live-call turn'))).toMatch(/"vision":\{"seeing":true,"remarks":true,"canLook":true\}/);
     } finally {
       for (const spy of consoleSpies) spy.mockRestore();
       await call.close();
+      await route.close();
     }
   }, 30_000);
 
-  it('a glance the model finds nothing in is silence: done with no text; one worth a remark is spoken', async () => {
+  it('a glance the model finds nothing worth a remark in is silence; one worth a remark is spoken; what was noticed is never stored', async () => {
+    const route = await lookRoute();
     const m = scriptedModel([{ text: '' }, { text: 'Oh, what a cute puppy!' }]);
     const call = await startCallProduct({ model: m.model });
+    const NOTICED = 'The caller is holding up a small brown puppy.';
     try {
       // The fixture product stores the glance as the empty words it carried, as a host that stores `request.text` does.
-      const quiet = turnRequest(call, { kind: 'glance', text: '', input: undefined, client: seen(jpeg(3)) });
+      const quiet = turnRequest(call, { kind: 'glance', text: '', input: undefined, client: vision(route.url, { observation: 'A cup on the desk behind them.' }) });
       const silence = await streamOf(await post(call.url, quiet));
       expect(silence.events).toEqual([{ event: 'done', data: { stopReason: 'complete' } }]);
-      // The model read the glance's instruction where the person's words would be, and the picture.
+      // The model read the glance's instruction where the person's words would be, and what was noticed after it.
       expect(textsOf(m.requests[0]).join('\n')).toContain(LIVE_CALL_GLANCE_MESSAGE);
-      expect(picturesOf(m.requests[0])).toHaveLength(1);
+      expect(textsOf(m.requests[0]).join('\n')).toContain('<observation>A cup on the desk behind them.</observation>');
       await call.tab.waitForTurn(AGENT_SOCKET_EVENTS.TURN_COMPLETE, quiet.turnId);
       expect(roomText(call.tab, quiet.turnId)).toBe('');
 
-      const remark = turnRequest(call, { kind: 'glance', text: '', input: undefined, client: seen(jpeg(4)) });
+      const remark = turnRequest(call, { kind: 'glance', text: '', input: undefined, client: vision(route.url, { observation: NOTICED }) });
       const spoken = await streamOf(await post(call.url, remark));
       expect(spoken.text()).toBe('Oh, what a cute puppy!');
       expect(spoken.events.at(-1)).toEqual({ event: 'done', data: { stopReason: 'complete' } });
-      // The earlier, empty glance is read past: no blank message reaches the provider.
+      // The earlier, empty glance is read past, and its observation is not sent again.
       expect(m.requests[1].messages.filter((msg) => msg.role === 'user' && msg.content === '')).toEqual([]);
+      expect(JSON.stringify(m.requests[1])).not.toContain('A cup on the desk');
+      expect(m.requests.some(hasPicture)).toBe(false);
+      await call.tab.waitForTurn(AGENT_SOCKET_EVENTS.TURN_COMPLETE, remark.turnId);
+      expect(JSON.stringify(call.persisted)).not.toContain(NOTICED);
+      expect(JSON.stringify(call.tab.events)).not.toContain(NOTICED);
 
       // A glance without leave to remark is not run.
-      const refused = await post(call.url, turnRequest(call, { kind: 'glance', text: '', input: undefined, client: seen(jpeg(5), false) }));
+      const refused = await post(call.url, turnRequest(call, { kind: 'glance', text: '', input: undefined, client: vision(route.url, { remarks: false, observation: NOTICED }) }));
       expect(refused.status).toBe(400);
       expect(((await refused.json()) as { error: { message: string } }).error.message).toBe('a glance turn needs client.vision.remarks on');
       expect(m.requests).toHaveLength(2);
+      expect(route.received).toEqual([]);
     } finally {
       await call.close();
+      await route.close();
     }
   }, 30_000);
 });

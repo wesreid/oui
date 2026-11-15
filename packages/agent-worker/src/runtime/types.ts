@@ -72,12 +72,12 @@ export interface AgentTurnPayload {
    */
   attachments?: AttachmentRef[];
   /**
-   * What the person's camera shows for this turn: `{ seeing, remarks, frame,
-   * absent }` (`TurnVision`; a live call's `client.vision`, which the live-call
-   * handler sets here). The frame is given to the model as a picture with this
-   * turn only, and is never stored, emitted or logged. A malformed one refuses
-   * the turn (`payloadRefusal`). It weighs up to 256 KiB: through the Lambda
-   * adapter it must fit the queue's message size.
+   * Whether the model may look at the person's camera on this turn, and how:
+   * `{ seeing, remarks, canLook, absent, look, observation }` (`TurnVision`; a
+   * live call's `client.vision`, which the live-call handler sets here). With
+   * `canLook` the model has the `look` tool; it carries no picture. Its token
+   * and observation are never emitted or logged. A malformed one refuses the
+   * turn (`payloadRefusal`).
    */
   vision?: TurnVision;
   /**
