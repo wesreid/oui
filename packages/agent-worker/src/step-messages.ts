@@ -9,7 +9,7 @@
  * provider's limit (Bedrock and Anthropic take four). Both are tagged when
  * added and taken back off before the next step adds its own.
  */
-import type { FilePart, ModelMessage } from 'ai';
+import type { ModelMessage } from 'ai';
 import type { ProviderOptions } from './model.js';
 
 /** Opens and closes what the model is told for one step only. */
@@ -44,17 +44,8 @@ function withoutStepAdditions(messages: readonly ModelMessage[]): ModelMessage[]
  * The conversation as this step sends it: an earlier step's tail and
  * breakpoint taken off, a breakpoint on its last message (unless that message
  * has one), and this step's tail after it, where it changes no prefix.
- *
- * `pictures` are true only now too (the person's camera, prompt/vision.ts):
- * they open the tail, before its text, so they are never part of the
- * conversation a later step or turn sends.
  */
-export function stepMessages(
-  messages: readonly ModelMessage[],
-  tail: readonly string[],
-  breakpoint: ProviderOptions | undefined,
-  pictures: readonly FilePart[] = [],
-): ModelMessage[] {
+export function stepMessages(messages: readonly ModelMessage[], tail: readonly string[], breakpoint: ProviderOptions | undefined): ModelMessage[] {
   const conversation = withoutStepAdditions(messages);
   const last = conversation.at(-1);
   const marked =
@@ -67,12 +58,12 @@ export function stepMessages(
             providerOptions: { ...(last.providerOptions ?? {}), ...breakpoint, [RUNTIME_KEY]: { breakpoint: { before: last.providerOptions ?? null } } },
           } as ModelMessage,
         ];
-  if (tail.length === 0 && pictures.length === 0) return marked;
+  if (tail.length === 0) return marked;
   return [
     ...marked,
     {
       role: 'user',
-      content: [...pictures, ...(tail.length > 0 ? [{ type: 'text' as const, text: tail.join('\n\n') }] : [])],
+      content: [{ type: 'text', text: tail.join('\n\n') }],
       providerOptions: { [RUNTIME_KEY]: { stepTail: true } },
     },
   ];

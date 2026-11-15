@@ -29,15 +29,16 @@
  * a typed turn, and its UI actions reach that page through the room. What the
  * host's `context` sets itself is kept.
  *
- * The character can see the caller: the call service carries their
- * camera's latest frame on a turn (`client.vision`), and the handler sets it
- * as the turn's `vision`. The model is given the frame as a picture with that
- * turn only, and told what it may do with it, or that it cannot see the
- * caller and why (prompt/vision.ts). A `glance` turn, run when the picture
- * changed while nobody spoke, is told to remark only on something worth it;
- * when the model says nothing, the stream ends `done` with no `text`, and the
- * call stays silent. The frame is never logged: the turn's log line records
- * only whether one was attached, its size and age, or why none came.
+ * The character can see the caller when it chooses to: the call service
+ * says on a turn whether it may look (`client.vision`), and the handler sets
+ * that as the turn's `vision`. With `canLook`, the model has the `look` tool,
+ * which the call service answers in words (vision/look-tool.ts); otherwise it
+ * is told it cannot see the caller and why (prompt/vision.ts). No picture ever
+ * reaches the worker. A `glance` turn, run when the call service's own look
+ * noticed something while nobody spoke, gives the model that `observation`
+ * to phrase one remark on; when the model says nothing, the stream ends
+ * `done` with no `text`, and the call stays silent. The turn's log line
+ * records facts only: never the look's token or the observation.
  *
  * A call is a voice: an approval is read back (the host's `spokenReadback`
  * when it wrote one) and the person's next words confirm it, as on any voice
@@ -212,8 +213,8 @@ export interface LiveCallTurnHandlerConfig extends LiveCallTurnOptions {
   maxConcurrentTurns?: number;
   /**
    * Largest request body, in bytes. Default 384 KiB (`LIVE_CALL_MAX_BODY_BYTES`):
-   * a turn with the page's UI context at its 64 KiB bound and a camera frame
-   * at its 256 KiB bound fits.
+   * a turn with the page's UI context at its 64 KiB bound fits, and so does
+   * one from a call service that still sends a camera frame (read past).
    */
   maxBodyBytes?: number;
   /** Called with each turn's outcome, after it ends. */
@@ -238,9 +239,10 @@ interface LiveCallRouteHost {
 }
 
 /**
- * Room for the largest turn: its text, its directions, the page's UI
- * (`LIVE_CALL_LIMITS.clientUiBytes`) and the caller's camera frame
- * (`LIVE_CALL_LIMITS.visionFrameChars`).
+ * Room for the largest turn: its text, its directions and the page's UI
+ * (`LIVE_CALL_LIMITS.clientUiBytes`), and for a call service from before
+ * looking that still sends a camera frame of up to 256 KiB with it: the
+ * frame is read past, never given to the model, and the turn still runs.
  */
 export const LIVE_CALL_MAX_BODY_BYTES = 384 * 1024;
 
@@ -410,7 +412,7 @@ export function liveCallRoute(options: LiveCallTurnOptions, host: LiveCallRouteH
         kind: request.kind,
         conversationId: target.conversationId,
         ...(request.supersedes.length ? { supersedes: request.supersedes } : {}),
-        // Facts only: whether a frame was attached, its size and age, or why none came. Never the frame.
+        // Facts only: the switches, whether it can look, why not. Never the look's token or the observation.
         ...(request.client?.vision ? { vision: visionFacts(request.client.vision) } : {}),
       });
 

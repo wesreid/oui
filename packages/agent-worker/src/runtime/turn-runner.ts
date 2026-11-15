@@ -283,7 +283,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
           ]
         : [];
       // What the person's camera shows, as read: every adapter refuses a malformed one (payloadRefusal); a
-      // host calling run itself has it left out. Only its facts are logged, never the frame.
+      // host calling run itself has it left out. Only its facts are logged, never its token or observation.
       const read = readTurnVision(payload.vision, 'vision');
       const vision = read && typeof read === 'object' ? read : null;
       if (typeof read === 'string') logger.warn('[agent-sdk] The turn’s vision is not one; the turn runs without it', { turnId, error: read });

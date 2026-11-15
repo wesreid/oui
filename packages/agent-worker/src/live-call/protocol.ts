@@ -23,24 +23,26 @@
  * `client.ui`, when the person's page sent its UI into the call, is that page
  * as its typed turns carry it: `{ buildId?, currentPath?, oui?, uiKnowledge? }`.
  *
- * `client.vision`, when the character can see the caller, is
+ * `client.vision`, when the character may see the caller, is
  *
- *   { seeing, remarks, frame: { mediaType, data, width, height, capturedAt } | null,
- *     absent: 'camera_off' | 'turned_off' | 'stale' | null }
+ *   { seeing, remarks, canLook, absent: 'camera_off' | 'turned_off' | null,
+ *     look: { url, token, expiresAt } | null, observation: '<one sentence>' | null }
  *
- * `seeing`: the character receives the caller's camera; `remarks`: it may
- * bring up what it sees unprompted. `frame` is the caller's latest camera
- * frame (JPEG, PNG or WebP, base64, at most 256 KiB), given to the model as a
- * picture with this turn only; `absent` says why none came. The model is told
- * what it may do with the picture (answer about it, remark on it only when
- * `remarks`), or that it cannot see the caller and why. The frame is never
- * logged, emitted or stored, and the next turn does not send it again.
+ * No turn carries a picture. `seeing`: the character may see
+ * the caller; `remarks`: it may bring up what it sees unprompted. With
+ * `canLook`, the model is given the `look` tool, which asks the call service's
+ * `look.url` a question about the caller's camera with `look.token` and is
+ * answered in words; it is told to look only when the conversation calls for
+ * it. Without, it is told it cannot see the caller, and why (`absent`). The
+ * token, a look's question and answer, and the observation are never logged
+ * or emitted.
  *
  * A `glance` turn is the call service's look between turns: nobody has spoken
- * for a while and the picture changed. `text` is empty, `client.vision` has a
- * frame and `remarks` is on. The model says one short remark if something in
- * the picture is worth one, and otherwise nothing: an empty answer is `done`
- * with no `text`, and the call stays silent.
+ * for a while, and its own look noticed something worth a remark. `text` is
+ * empty, `client.vision.remarks` is on and `client.vision.observation` says
+ * what was noticed. The model phrases one short remark on it (and may look for
+ * more), or says nothing: an empty answer is `done` with no `text`, and the
+ * call stays silent. `observation` is read on a glance only.
  *
  * and the answer is `200 text/event-stream`:
  *
@@ -86,10 +88,10 @@ export interface LiveCallClient {
   /** Their page's latest UI, when it sent one into the call. */
   ui: LiveCallClientUi | null;
   /**
-   * What their camera shows, and what the character may do with it, when the
-   * call service said (`client.vision`); null when it said nothing (vision is
-   * off for the session, or the call service predates it). Set as the turn
-   * payload's `vision`.
+   * Whether and how the character may look at their camera, when the call
+   * service said (`client.vision`); null when it said nothing (vision is off
+   * for the session, the brain does not take it, or the call service predates
+   * it). Set as the turn payload's `vision`.
    */
   vision: TurnVision | null;
 }
@@ -130,10 +132,10 @@ export interface LiveCallTurnRequest {
   disclosureLine: string | null;
   /**
    * The person's own side of the call: their page's latest UI, when the page
-   * sent it into the call (`client.ui`), and what their camera shows
-   * (`client.vision`). Null when the call service said nothing of either, as
+   * sent it into the call (`client.ui`), and whether the character may look
+   * at their camera (`client.vision`). Null when the call service said nothing of either, as
    * for a call with no page (a phone call). A `glance` always has
-   * `client.vision` with a frame.
+   * `client.vision` with `remarks` on and an `observation`.
    */
   client: LiveCallClient | null;
 }
@@ -195,15 +197,17 @@ export function liveCallOpeningMessage(request: Pick<LiveCallTurnRequest, 'discl
 
 /**
  * The person's message for a `glance` turn, as the model reads it: an
- * instruction to remark on the picture only if something in it is worth a
- * remark, and otherwise to say nothing, so the call stays silent. A host that
- * stores the person's messages stores this for the glance turn, as it stores
- * the opening's.
+ * instruction to phrase one short remark on what a look at the camera just
+ * noticed (the turn's `observation`, in its vision note), or to say nothing,
+ * so the call stays silent. A host that stores the person's messages stores
+ * this for the glance turn, as it stores the opening's: the observation is
+ * never in it.
  */
 export const LIVE_CALL_GLANCE_MESSAGE =
-  '<call_glance>Nobody has spoken for a few seconds, and the picture from the user’s camera has changed. This is not a message from the user. ' +
-  'If, and only if, something in the picture is worth remarking on (they hold something up, put something on, someone else appears), ' +
-  'say one short remark about it, in a sentence, and call no tools. ' +
+  '<call_glance>Nobody has spoken for a few seconds, and a look at the user’s camera noticed something; what it noticed is in the vision note. ' +
+  'This is not a message from the user. ' +
+  'If it is worth one brief, friendly remark (they hold something up, put something on, someone else appears), say that remark, in one short sentence; ' +
+  'you may look first if you need to see more. ' +
   'Otherwise answer with nothing at all, not a word or a mark, and the call stays silent. ' +
   'Never repeat a remark you have already made in this call.</call_glance>';
 
@@ -228,8 +232,8 @@ export const LIVE_CALL_LIMITS = {
   disclosureLineChars: 1_000,
   /** The most `client.ui` may weigh, as UTF-8 JSON: the bound the page and the call service hold it to. */
   clientUiBytes: 64 * 1024,
-  /** The longest `client.vision.frame.data`, in base64 characters (`VISION_LIMITS.frameDataChars`). */
-  visionFrameChars: VISION_LIMITS.frameDataChars,
+  /** The longest `client.vision.observation` (`VISION_LIMITS.observationChars`). */
+  visionObservationChars: VISION_LIMITS.observationChars,
 } as const;
 
 /** An id: letters, digits and `.` `_` `:` `-`, starting with a letter or digit. */
@@ -285,13 +289,15 @@ export function readLiveCallTurnRequest(body: unknown): LiveCallRequestReading {
     return refuse(`disclosureLine must be a string of at most ${LIVE_CALL_LIMITS.disclosureLineChars} characters with no control characters`);
   }
 
-  const client = readClient(b.client);
-  if (typeof client === 'string') return refuse(client);
+  const read = readClient(b.client);
+  if (typeof read === 'string') return refuse(read);
   if (kind === 'glance') {
-    // A glance is a look at the picture: without one, or without leave to remark on it, there is nothing to run.
-    if (!client?.vision?.frame) return refuse('a glance turn needs client.vision.frame');
-    if (!client.vision.remarks) return refuse('a glance turn needs client.vision.remarks on');
+    // A glance offers a remark on what was noticed: without leave to remark, or with nothing noticed, there is nothing to run.
+    if (!read?.vision?.remarks) return refuse('a glance turn needs client.vision.remarks on');
+    if (!read.vision.observation) return refuse('a glance turn needs client.vision.observation');
   }
+  // What a look noticed belongs to its glance alone.
+  const client = read?.vision?.observation && kind !== 'glance' ? { ...read, vision: { ...read.vision, observation: null } } : read;
 
   return {
     ok: true,
@@ -319,7 +325,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 /**
  * The request's `client`, or why it is not one. Fields it does not know are
  * left out, so a newer call service is read past; a known field of the wrong
- * type is refused, naming it. A refusal never repeats a frame's data.
+ * type is refused, naming it. A refusal never repeats a look's token.
  */
 function readClient(value: unknown): LiveCallClient | null | string {
   if (value === undefined || value === null) return null;

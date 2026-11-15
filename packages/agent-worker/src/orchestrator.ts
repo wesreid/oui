@@ -53,7 +53,8 @@ import { stepMessages as forStep, STEP_NOTE_CLOSE, STEP_NOTE_OPEN } from './step
 import { clockText, readClientTimeZone } from './prompt/clock.js';
 import { readClientMessageInput, spokenInputText } from './prompt/spoken-input.js';
 import { readClientReplyOutput, spokenReplyText } from './prompt/spoken-reply.js';
-import { visionImagePart, visionText } from './prompt/vision.js';
+import { visionText } from './prompt/vision.js';
+import { lookTool } from './vision/look-tool.js';
 import { AttachmentGuard } from './attachments/guard.js';
 import { ATTACHMENT_DATA_NOTE, turnAttachmentParts, withReferenceLines, withTurnAttachments, withoutLeftOut } from './attachments/content.js';
 import { attachmentTools } from './attachments/tools.js';
@@ -285,6 +286,10 @@ export async function runAgentTurn(
     conversationUsed: conversationFileTokens,
   });
   const fileTools: RegisteredTool[] = fileArea ? attachmentTools({ store: fileArea.store, owner: fileOwner, guard: fileGuard }) : [];
+  // The caller's camera is looked at only when the model chooses to (vision/look-tool.ts): no turn carries a picture.
+  const visionTools: RegisteredTool[] = input.vision?.canLook && input.vision.look ? [lookTool(input.vision.look)] : [];
+  // The SDK's own tools: they take their names before the host's.
+  const sdkTools: RegisteredTool[] = [...fileTools, ...visionTools];
 
   log('info', 'agent:ui', 'UI surfaces for this turn', {
     turnId,
@@ -563,6 +568,8 @@ export async function runAgentTurn(
   ): Promise<CallOutcome> => {
     const startMs = Date.now();
     const isUI = t.kind === 'ui';
+    // A tool whose input speaks of the person (a look's question) is said to have been called, and no more.
+    const shownInput = (value: unknown): unknown => (t.inputPrivate ? {} : value);
 
     // A stopped turn starts nothing more.
     if (stopState.reason()) return { text: resultText(stoppedNotRun(t.name)), ran: false };
@@ -580,7 +587,7 @@ export async function runAgentTurn(
         turnId,
         toolUseId,
         name: t.name,
-        input: given,
+        input: shownInput(given),
         timestamp: now,
       });
       await emitAfterText(AGENT_SOCKET_EVENTS.TOOL_CALL_COMPLETE, {
@@ -893,7 +900,7 @@ export async function runAgentTurn(
       turnId,
       toolName: t.name,
       kind: t.kind ?? 'backend',
-      input: args,
+      ...(t.inputPrivate ? { inputPrivate: true } : { input: args }),
       ...(approved ? { approvalId: approved.approvalId } : {}),
     });
 
@@ -902,7 +909,7 @@ export async function runAgentTurn(
       turnId,
       toolUseId,
       name: t.name,
-      input: callArgs,
+      input: shownInput(callArgs),
       timestamp: startMs,
     });
 
@@ -1236,8 +1243,8 @@ export async function runAgentTurn(
   // with the id of an action of the page, is withheld: for a
   // UI-only agent, the page is the authority.
   function hostTools(ui: CurrentUI | null): RegisteredTool[] {
-    const sdkOwned = new Set(fileTools.map((t) => t.name));
-    if (!ui) return [...config.tools.tools.filter((t) => !sdkOwned.has(t.name)), ...fileTools];
+    const sdkOwned = new Set(sdkTools.map((t) => t.name));
+    if (!ui) return [...config.tools.tools.filter((t) => !sdkOwned.has(t.name)), ...sdkTools];
     const taken = (name: string) =>
       sdkOwned.has(name) || ui.actions.has(name) || UI_TOOL_NAMES.has(name);
     const withheld = config.tools.tools.filter((t) => taken(t.name)).map((t) => t.name);
@@ -1247,7 +1254,7 @@ export async function runAgentTurn(
         withheld,
       });
     }
-    return [...config.tools.tools.filter((t) => !taken(t.name)), ...fileTools];
+    return [...config.tools.tools.filter((t) => !taken(t.name)), ...sdkTools];
   }
 
   /** Every tool a call can name: the host's, and the page's actions. What an approved call is looked up in. */
@@ -1327,8 +1334,8 @@ export async function runAgentTurn(
   /** A tool the model is given, as a turn policy sees it: its name, kind and class. */
   function describeStepTool(name: string): StepTool {
     if (UI_TOOL_NAMES.has(name)) return { name, kind: 'ui' };
-    // The SDK's own file tools take their names before the host's (hostTools).
-    const registered = fileTools.find((t) => t.name === name) ?? config.tools.tools.find((t) => t.name === name);
+    // The SDK's own tools take their names before the host's (hostTools).
+    const registered = sdkTools.find((t) => t.name === name) ?? config.tools.tools.find((t) => t.name === name);
     if (!registered) return { name, kind: 'builtin' };
     return { name, kind: registered.kind === 'ui' ? 'ui' : 'backend', ...(registered.toolClass ? { toolClass: registered.toolClass } : {}) };
   }
@@ -1902,10 +1909,8 @@ export async function runAgentTurn(
   const turnSpoken = input.approval || input.resume ? null : readClientMessageInput(input.context ?? null);
   // The reply is spoken on every turn of a call, the turn an approval continues included.
   const turnSpokenReply = readClientReplyOutput(input.context ?? null);
-  // What the person's camera shows now (prompt/vision.ts): its picture and its line, after the conversation.
+  // Whether the model may look at the person, and how, or why it cannot (prompt/vision.ts): a line after the conversation.
   const turnVisionText = visionText(input.vision);
-  const turnVisionPicture = visionImagePart(input.vision);
-  const turnPictures = turnVisionPicture ? [turnVisionPicture] : [];
   const turnPageValues =
     client && client.page.length > 0
       ? [
@@ -1939,7 +1944,7 @@ export async function runAgentTurn(
     ...(turnSpoken ? [spokenInputText(turnSpoken)] : []),
     // A reply a voice will read out is written for the ear (prompt/spoken-reply.ts).
     ...(turnSpokenReply ? [spokenReplyText(turnSpokenReply)] : []),
-    // What the model may do with the picture of the person, or that it cannot see them and why.
+    // When the model may look at the person, or that it cannot see them and why.
     ...(turnVisionText ? [turnVisionText] : []),
     ...(expired.outcomes.length > 0 ? [expiredNote(expired)] : []),
     ...(input.stepContext?.trim() ? [input.stepContext.trim()] : []),
@@ -2126,7 +2131,7 @@ export async function runAgentTurn(
         const stepMessages = leftOut.length > 0 && messages ? withoutLeftOut(trimmed?.messages ?? messages, leftOut) : trimmed?.messages ?? messages;
         return {
           ...constraints,
-          ...(stepMessages ? { messages: forStep(stepMessages, stepTail(notes), cachePoint, turnPictures) } : {}),
+          ...(stepMessages ? { messages: forStep(stepMessages, stepTail(notes), cachePoint) } : {}),
           instructions,
         };
       },

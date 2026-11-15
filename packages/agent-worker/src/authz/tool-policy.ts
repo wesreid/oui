@@ -1,4 +1,4 @@
-import type { ToolEffect } from '../tools/types.js';
+import type { SdkToolClass, ToolEffect } from '../tools/types.js';
 
 /**
  * ToolPolicy — evaluated before every tool execution.
@@ -33,11 +33,11 @@ export interface ToolPolicyContext {
    */
   toolKind: 'ui' | 'backend';
   /**
-   * The SDK's class for a tool it owns: `attachment` for the attachment tools
-   *. A policy that admits by name should admit the class too,
-   * so a tool the SDK adds to it later needs no change.
+   * The SDK's class for a tool it owns: `attachment` for the attachment
+   * tools, `vision` for `look`. A policy that admits by name should admit the
+   * class too, so a tool the SDK adds to it later needs no change.
    */
-  toolClass?: 'attachment';
+  toolClass?: SdkToolClass;
   /** What the tool declares it does; undefined when it declares nothing, which counts as a write. */
   effect: ToolEffect | undefined;
   /** Whether the tool declares it removes or replaces something the person made. */

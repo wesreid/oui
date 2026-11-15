@@ -218,10 +218,10 @@ export interface AgentTurnInput {
    */
   attachments?: AttachmentRef[];
   /**
-   * What the person's camera shows for this turn (a live call's
-   * `client.vision`): its frame is given to the model as a picture after the
-   * conversation, with what it may do with it, or the model is told it
-   * cannot see them and why. Never stored or logged (prompt/vision.ts).
+   * Whether the model may look at the person's camera on this turn (a live
+   * call's `client.vision`): with `canLook` it has the `look` tool, answered
+   * in words (vision/look-tool.ts), and is told when to use it; otherwise it
+   * is told it cannot see them and why (prompt/vision.ts). No picture.
    */
   vision?: TurnVision;
   /**
