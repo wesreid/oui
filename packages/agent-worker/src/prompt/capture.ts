@@ -30,6 +30,61 @@
 import { readBearerRoute, type BearerRoute } from './bearer-route.js';
 import { escapeTagText } from './escape.js';
 
+// ─── The capture contract's names and values ────────────────────────────────
+// Closure's capture contract (`@closurestudio/realtime-contracts`, `live-capture`)
+// declares these. This package does not depend on it, so it keeps its own copy
+// under the same names with the same values, and a test pins them.
+
+/** A capture's status. */
+export const CAPTURE_STATUSES = ['starting', 'awaiting_consent', 'active', 'blocked', 'ending', 'ended'] as const;
+export type CaptureStatus = (typeof CAPTURE_STATUSES)[number];
+
+/** How a capture ended. */
+export const CAPTURE_OUTCOMES = ['completed', 'partial', 'declined', 'camera_unavailable', 'abandoned', 'failed'] as const;
+export type CaptureOutcome = (typeof CAPTURE_OUTCOMES)[number];
+
+/** Why a capture ended. */
+export const CAPTURE_END_REASONS = [
+  'all_steps_done',
+  'caller_stopped',
+  'brain_stopped',
+  'api_stopped',
+  'caller_declined',
+  'consent_timeout',
+  'camera_denied',
+  'no_camera',
+  'no_rear_camera',
+  'idle_timeout',
+  'max_duration',
+  'call_ended',
+  'call_unsupported',
+  'agent_unavailable',
+  'verifier_unavailable',
+] as const;
+export type CaptureEndReason = (typeof CAPTURE_END_REASONS)[number];
+
+/**
+ * What a brain update reports. The call service passes updates on as words
+ * (`client.capture.update`); the kinds are what those words can be about.
+ */
+export const CAPTURE_BRAIN_UPDATE_KINDS = [
+  'opened',
+  'consented',
+  'declined',
+  'camera',
+  'step',
+  'hint',
+  'accepted',
+  'rejected',
+  'skipped',
+  'failed',
+  'ended',
+] as const;
+export type CaptureBrainUpdateKind = (typeof CAPTURE_BRAIN_UPDATE_KINDS)[number];
+
+/** The longest text of one update. A turn's `update` joins the updates pending since the brain last heard. */
+export const CAPTURE_UPDATE_TEXT_MAX = 600;
+
 /** Limits on what a turn's capture may carry. */
 export const CAPTURE_LIMITS = {
   /** The most plans a session offers. */
@@ -48,7 +103,10 @@ export const CAPTURE_LIMITS = {
   captureIdChars: 128,
   /** The longest `active.step.label`. */
   stepLabelChars: 60,
-  /** The longest `update`: several updates joined, each at most 600 characters. */
+  /**
+   * The longest `update`: the updates pending since the brain last heard,
+   * joined in order, each at most `CAPTURE_UPDATE_TEXT_MAX` (600) characters.
+   */
   updateChars: 8_000,
 } as const;
 
@@ -86,8 +144,8 @@ export interface CaptureActive {
   captureId: string;
   /** The plan's key. */
   plan: string;
-  /** `starting`, `awaiting_consent`, `active`, `blocked` or `ending` (a status this version does not know is kept as sent). */
-  status: string;
+  /** `starting`, `awaiting_consent`, `active`, `blocked` or `ending` (`CAPTURE_STATUSES`). */
+  status: CaptureStatus;
   /** The step it is on; null before the first, and between steps. */
   step: CaptureActiveStep | null;
 }
@@ -102,7 +160,8 @@ export interface TurnCapture {
   active: CaptureActive | null;
   /**
    * What happened in the capture since the brain last heard, in Closure's
-   * words: on a `capture` turn, the reason it runs; on a `message` turn, what
+   * words: one or more updates (each at most `CAPTURE_UPDATE_TEXT_MAX`), joined
+   * in order. On a `capture` turn, the reason it runs; on a `message` turn, what
    * rode it. Null otherwise. Never logged or emitted.
    */
   update: string | null;
@@ -114,8 +173,6 @@ const PLAN_KEY = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const STEP_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /** A capture's id. */
 const CAPTURE_ID = new RegExp(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,${CAPTURE_LIMITS.captureIdChars - 1}}$`);
-/** A status word. */
-const STATUS = /^[a-z][a-z_]{0,31}$/;
 /** Any control character. */
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u001f\u007f]/;
@@ -185,7 +242,7 @@ function readActive(value: unknown, field: string): CaptureActive | null | strin
   if (!isPlainObject(value)) return `${field} must be an object or null`;
   if (typeof value.captureId !== 'string' || !CAPTURE_ID.test(value.captureId)) return `${field}.captureId must be a capture id`;
   if (typeof value.plan !== 'string' || !PLAN_KEY.test(value.plan)) return `${field}.plan must be a plan key`;
-  if (typeof value.status !== 'string' || !STATUS.test(value.status)) return `${field}.status must be a status word`;
+  if (!(CAPTURE_STATUSES as readonly unknown[]).includes(value.status)) return `${field}.status must be one of ${CAPTURE_STATUSES.join(', ')}`;
   const raw = value.step;
   let step: CaptureActiveStep | null = null;
   if (raw !== undefined && raw !== null) {
@@ -198,7 +255,7 @@ function readActive(value: unknown, field: string): CaptureActive | null | strin
     if (!(typeof index === 'number' && Number.isInteger(index) && index >= 1 && index <= of)) return `${field}.step.index must be a whole number from 1 to step.of`;
     step = { id: raw.id, label, index, of };
   }
-  return { captureId: value.captureId, plan: value.plan, status: value.status, step };
+  return { captureId: value.captureId, plan: value.plan, status: value.status as CaptureStatus, step };
 }
 
 /** Whether the turn can start, read and stop captures: there are plans, and a route to call. */
@@ -222,7 +279,7 @@ export const CAPTURE_NEVER =
   'You never see the photos: never claim to see, describe or judge one, and say only what the capture’s words tell you.';
 
 /** How a running capture's status is said. */
-const STATUS_WORDS: Readonly<Record<string, string>> = {
+const STATUS_WORDS: Readonly<Record<CaptureStatus, string>> = {
   starting: 'starting',
   awaiting_consent: 'waiting for the caller to agree on their screen',
   active: 'in progress',
@@ -262,7 +319,7 @@ export function captureText(capture: TurnCapture | null | undefined): string | n
     const a = capture.active;
     const step = a.step ? `, on step ${a.step.index} of ${a.step.of}, ${escapeTagText(a.step.label)}` : '';
     parts.push(
-      `A photo capture is running now: plan "${a.plan}", capture ${a.captureId}, ${STATUS_WORDS[a.status] ?? a.status}${step}. ` +
+      `A photo capture is running now: plan "${a.plan}", capture ${a.captureId}, ${STATUS_WORDS[a.status]}${step}. ` +
         (canCapture(capture) ? 'Use `capture_status` to ask where it stands; use `capture_stop` only when the caller wants to stop.' : ''),
     );
   } else if (canCapture(capture)) {

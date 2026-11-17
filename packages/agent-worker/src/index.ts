@@ -221,8 +221,31 @@ export type { TurnVision, VisionLook, VisionAbsence } from './prompt/vision.js';
 export { lookTool, LOOK_TOOL, LOOK_LIMITS, LOOK_ABSENCES, VISION_TOOL_CLASS } from './vision/look-tool.js';
 export type { LookAbsence } from './vision/look-tool.js';
 // A client's photo captures on a call: read, told to the model, and the tools that start, read and stop them.
-export { readTurnCapture, captureText, captureFacts, canCapture, CAPTURE_LIMITS, CAPTURE_WHEN, CAPTURE_NEVER } from './prompt/capture.js';
-export type { TurnCapture, CapturePlanOffer, CaptureControl, CaptureActive, CaptureActiveStep } from './prompt/capture.js';
+export {
+  readTurnCapture,
+  captureText,
+  captureFacts,
+  canCapture,
+  CAPTURE_LIMITS,
+  CAPTURE_WHEN,
+  CAPTURE_NEVER,
+  CAPTURE_STATUSES,
+  CAPTURE_OUTCOMES,
+  CAPTURE_END_REASONS,
+  CAPTURE_BRAIN_UPDATE_KINDS,
+  CAPTURE_UPDATE_TEXT_MAX,
+} from './prompt/capture.js';
+export type {
+  TurnCapture,
+  CapturePlanOffer,
+  CaptureControl,
+  CaptureActive,
+  CaptureActiveStep,
+  CaptureStatus,
+  CaptureOutcome,
+  CaptureEndReason,
+  CaptureBrainUpdateKind,
+} from './prompt/capture.js';
 export {
   captureTools,
   CAPTURE_START_TOOL,

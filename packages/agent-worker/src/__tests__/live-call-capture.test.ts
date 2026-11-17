@@ -23,7 +23,20 @@ import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { AGENT_SOCKET_EVENTS } from '@ouispec/agent-core';
 import { LIVE_CALL_TURN_KINDS, liveCallCaptureMessage, readLiveCallTurnRequest, type LiveCallRequestReading } from '../live-call/protocol.js';
 import { createLiveCallTurnHandler, liveCallTurnMessage, type LiveCallTurnHandlerConfig } from '../live-call/handler.js';
-import { CAPTURE_LIMITS, CAPTURE_NEVER, CAPTURE_WHEN, captureFacts, captureText, readTurnCapture, type TurnCapture } from '../prompt/capture.js';
+import {
+  CAPTURE_BRAIN_UPDATE_KINDS,
+  CAPTURE_END_REASONS,
+  CAPTURE_LIMITS,
+  CAPTURE_NEVER,
+  CAPTURE_OUTCOMES,
+  CAPTURE_STATUSES,
+  CAPTURE_UPDATE_TEXT_MAX,
+  CAPTURE_WHEN,
+  captureFacts,
+  captureText,
+  readTurnCapture,
+  type TurnCapture,
+} from '../prompt/capture.js';
 import {
   CAPTURE_START_TOOL,
   CAPTURE_STATUS_TOOL,
@@ -82,7 +95,7 @@ const UPDATE_WORDS: Readonly<Record<string, string>> = {
   failed: 'VIN could not be taken after 3 tries (glare); it will be missing. Moving on to Front corner.',
   ended: 'Photos done: all 4 accepted. Mileage 48,212 mi, VIN 1HGCM82633A004352. Thank them.',
 };
-const UPDATE_KINDS = ['opened', 'consented', 'declined', 'camera', 'step', 'hint', 'accepted', 'rejected', 'skipped', 'failed', 'ended'] as const;
+const UPDATE_KINDS = CAPTURE_BRAIN_UPDATE_KINDS;
 
 /** Every way a capture ends without completing, in the words the brain gets: each closes with the plan's offer. */
 const DEAD_ENDS: ReadonlyArray<[string, string]> = [
@@ -127,6 +140,47 @@ const captureRead = (capture: unknown) => {
 };
 const read = (capture: unknown) => readTurnCapture(capture) as TurnCapture;
 
+// ─── The capture contract ───────────────────────────────────────────────────
+
+describe('the capture contract’s names and values', () => {
+  // As `@closurestudio/realtime-contracts` 0.24.0 (`live-capture`) declares them, value for value.
+  it('match the contract exactly', () => {
+    expect(CAPTURE_STATUSES).toEqual(['starting', 'awaiting_consent', 'active', 'blocked', 'ending', 'ended']);
+    expect(CAPTURE_OUTCOMES).toEqual(['completed', 'partial', 'declined', 'camera_unavailable', 'abandoned', 'failed']);
+    expect(CAPTURE_END_REASONS).toEqual([
+      'all_steps_done',
+      'caller_stopped',
+      'brain_stopped',
+      'api_stopped',
+      'caller_declined',
+      'consent_timeout',
+      'camera_denied',
+      'no_camera',
+      'no_rear_camera',
+      'idle_timeout',
+      'max_duration',
+      'call_ended',
+      'call_unsupported',
+      'agent_unavailable',
+      'verifier_unavailable',
+    ]);
+    expect(CAPTURE_BRAIN_UPDATE_KINDS).toEqual(['opened', 'consented', 'declined', 'camera', 'step', 'hint', 'accepted', 'rejected', 'skipped', 'failed', 'ended']);
+    expect(CAPTURE_UPDATE_TEXT_MAX).toBe(600);
+  });
+
+  it('each update kind’s words fit one update, and a turn’s update holds a dozen of them joined', () => {
+    for (const kind of CAPTURE_BRAIN_UPDATE_KINDS) expect(UPDATE_WORDS[kind].length, kind).toBeLessThanOrEqual(CAPTURE_UPDATE_TEXT_MAX);
+    for (const [why, words] of DEAD_ENDS) expect(words.length, why).toBeLessThanOrEqual(CAPTURE_UPDATE_TEXT_MAX);
+    const joined = Array.from({ length: 12 }, () => 'x'.repeat(CAPTURE_UPDATE_TEXT_MAX)).join('\n');
+    expect(captureRead(captureOf(CONTROL_URL, { update: joined }))).toMatchObject({ update: joined });
+  });
+
+  it('every dead end is an outcome other than completed, with a contract end reason', () => {
+    expect(CAPTURE_OUTCOMES.filter((o) => o !== 'completed')).toEqual(['partial', 'declined', 'camera_unavailable', 'abandoned', 'failed']);
+    for (const [why] of DEAD_ENDS) expect(CAPTURE_END_REASONS, why).toContain(why.split(' ')[0]);
+  });
+});
+
 // ─── The protocol ───────────────────────────────────────────────────────────
 
 describe('client.capture on a live-call turn', () => {
@@ -139,14 +193,14 @@ describe('client.capture on a live-call turn', () => {
     });
   });
 
-  it('reads past fields it does not know, keeps a status it does not know, and makes a plan’s text one line', () => {
+  it('reads past fields it does not know, and makes a plan’s text one line', () => {
     const read = captureRead({
       ...captureOf(),
       plans: [{ ...TRADE_IN, offerWhen: 'The caller has a vehicle\nto trade in.', id: 'plan-uuid', version: 3 }],
-      active: { ...RUNNING, status: 'reconnecting', step: null, startedAt: 'x' },
+      active: { ...RUNNING, status: 'awaiting_consent', step: null, startedAt: 'x' },
       handoff: { url: 'https://x' },
     });
-    expect(read).toMatchObject({ plans: [{ key: TRADE_IN.key, offerWhen: 'The caller has a vehicle to trade in.' }], active: { status: 'reconnecting', step: null } });
+    expect(read).toMatchObject({ plans: [{ key: TRADE_IN.key, offerWhen: 'The caller has a vehicle to trade in.' }], active: { status: 'awaiting_consent', step: null } });
     expect(Object.keys((read as TurnCapture).plans[0])).toEqual(['key', 'title', 'offerWhen']);
     expect(read).not.toHaveProperty('handoff');
   });
@@ -184,7 +238,7 @@ describe('client.capture on a live-call turn', () => {
       [{ ...captureOf(), active: 'running' }, /^client\.capture\.active must be an object or null/],
       [{ ...captureOf(), active: { ...RUNNING, captureId: '' } }, /^client\.capture\.active\.captureId must be a capture id/],
       [{ ...captureOf(), active: { ...RUNNING, plan: 'Trade In' } }, /^client\.capture\.active\.plan must be a plan key/],
-      [{ ...captureOf(), active: { ...RUNNING, status: 'Active!' } }, /^client\.capture\.active\.status must be a status word/],
+      [{ ...captureOf(), active: { ...RUNNING, status: 'reconnecting' } }, /^client\.capture\.active\.status must be one of starting, awaiting_consent, active, blocked, ending, ended$/],
       [{ ...captureOf(), active: { ...RUNNING, step: { ...RUNNING.step, id: 'VIN plate' } } }, /^client\.capture\.active\.step\.id must be a step id/],
       [{ ...captureOf(), active: { ...RUNNING, step: { ...RUNNING.step, label: '' } } }, /^client\.capture\.active\.step\.label/],
       [{ ...captureOf(), active: { ...RUNNING, step: { ...RUNNING.step, index: 7 } } }, /^client\.capture\.active\.step\.index must be a whole number from 1 to step\.of/],
@@ -595,7 +649,14 @@ describe('the capture tools, calling studio-api', () => {
 
   it('fails an answer that is not a capture result the same way as a failure', async () => {
     const api = await studioApi();
-    for (const body of [{ captureId: CAPTURE_ID, status: 'starting' }, { captureId: CAPTURE_ID, status: 'starting', words: '  ' }, ['words'], null, 'ok']) {
+    for (const body of [
+      { captureId: CAPTURE_ID, status: 'starting' },
+      { captureId: CAPTURE_ID, status: 'starting', words: '  ' },
+      { captureId: CAPTURE_ID, status: 'queued', words: 'Photos are queued.' },
+      ['words'],
+      null,
+      'ok',
+    ]) {
       api.answer.start = { status: 201, body };
       expect((await toolsFor(captureOf(api.url)).start.execute({ plan: TRADE_IN.key }, toolCtx())).error).toContain('Starting the photos failed just now.');
     }
@@ -619,6 +680,16 @@ describe('the capture tools, calling studio-api', () => {
     const stop = new AbortController();
     stop.abort(new Error('turn stopped'));
     await expect(toolsFor(captureOf(api.url)).start.execute({ plan: TRADE_IN.key }, toolCtx(stop.signal))).rejects.toThrow();
+  });
+
+  it('reads an answer’s status and outcome by the contract’s values: an outcome it does not know reads as none', async () => {
+    const api = await studioApi();
+    api.answer.start = { status: 201, body: result({ status: 'ended', outcome: 'escalated', words: 'Photos ended.' }) };
+    expect((await toolsFor(captureOf(api.url)).start.execute({ plan: TRADE_IN.key }, toolCtx())).data).toEqual({ captureId: CAPTURE_ID, status: 'ended', words: 'Photos ended.' });
+    for (const outcome of CAPTURE_OUTCOMES) {
+      api.answer.start = { status: 201, body: result({ status: 'ended', outcome, endReason: 'caller_stopped', words: 'Photos ended.' }) };
+      expect((await toolsFor(captureOf(api.url)).start.execute({ plan: TRADE_IN.key }, toolCtx())).data, outcome).toMatchObject({ outcome });
+    }
   });
 
   it('never follows a redirect with the token', async () => {
