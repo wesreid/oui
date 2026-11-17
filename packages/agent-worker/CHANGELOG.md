@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.29.1
+
+### Patch Changes
+
+- The capture names and values are the capture contract's, exported without depending on it: `CAPTURE_STATUSES` / `CaptureStatus`, `CAPTURE_OUTCOMES` / `CaptureOutcome`, `CAPTURE_END_REASONS` / `CaptureEndReason`, `CAPTURE_BRAIN_UPDATE_KINDS` / `CaptureBrainUpdateKind`, and `CAPTURE_UPDATE_TEXT_MAX` (600, the longest text of one update; a turn's `client.capture.update` joins the pending ones, at most 8,000 characters). `client.capture.active.status` must be one of `CAPTURE_STATUSES` (a refusal names the field). A capture tool's result reads `status` by `CAPTURE_STATUSES` (an answer with another fails as a failed call) and `outcome` by `CAPTURE_OUTCOMES` (one it does not know is left out).
+
 ## 0.29.0
 
 ### Minor Changes

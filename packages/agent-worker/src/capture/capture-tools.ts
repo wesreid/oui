@@ -20,7 +20,15 @@
  * never logged or emitted.
  */
 import type { RegisteredTool, ToolExecutionContext, ToolExecutionResult } from '../tools/types.js';
-import { canCapture, type CaptureControl, type TurnCapture } from '../prompt/capture.js';
+import {
+  canCapture,
+  CAPTURE_OUTCOMES,
+  CAPTURE_STATUSES,
+  type CaptureControl,
+  type CaptureOutcome,
+  type CaptureStatus,
+  type TurnCapture,
+} from '../prompt/capture.js';
 
 export const CAPTURE_START_TOOL = 'capture_start';
 export const CAPTURE_STATUS_TOOL = 'capture_status';
@@ -44,11 +52,11 @@ export const CAPTURE_TOOL_LIMITS = {
   timeoutMs: 20_000,
 } as const;
 
-/** The route's answer (`LiveCaptureResult`), as far as the tools read it. */
+/** The route's answer (the contract's `LiveCaptureResult`), as far as the tools read it. */
 interface CaptureAnswer {
   captureId: string;
-  status: string;
-  outcome: string | null;
+  status: CaptureStatus;
+  outcome: CaptureOutcome | null;
   words: string;
 }
 
@@ -76,8 +84,11 @@ function wordsOf(value: unknown): string | null {
 function readAnswer(body: unknown): CaptureAnswer | null {
   if (!isPlainObject(body)) return null;
   const words = wordsOf(body.words);
-  if (typeof body.captureId !== 'string' || !CAPTURE_ID.test(body.captureId) || typeof body.status !== 'string' || !words) return null;
-  return { captureId: body.captureId, status: body.status, outcome: typeof body.outcome === 'string' ? body.outcome : null, words };
+  if (typeof body.captureId !== 'string' || !CAPTURE_ID.test(body.captureId) || !words) return null;
+  if (!(CAPTURE_STATUSES as readonly unknown[]).includes(body.status)) return null;
+  // An outcome is set once the capture has ended; one this version does not know reads as none.
+  const outcome = (CAPTURE_OUTCOMES as readonly unknown[]).includes(body.outcome) ? (body.outcome as CaptureOutcome) : null;
+  return { captureId: body.captureId, status: body.status as CaptureStatus, outcome, words };
 }
 
 function readRefusal(status: number, body: unknown): Refusal {
