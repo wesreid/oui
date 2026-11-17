@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.30.0
+
+### Minor Changes
+
+- A persona's replies can be plain text: `overrides.communicationStyle` takes `{ preset, format: 'markdown' | 'plain' }` as well as a preset. With `format: 'plain'`, the rich-markdown lines are replaced by plain-text ones (short natural sentences, no markdown syntax of any kind, items said in a sentence, no tables), the concise and formal presets' list and heading lines by sentence and paragraph ones, and the few-shot examples and workflows are labelled without bold. The default stays markdown, and a persona that names no format is told exactly what it was before. An unknown preset or format in the object form fails when the adapter is created. Exports `resolveCommunicationStyle`, `COMMUNICATION_STYLES`, `COMMUNICATION_FORMATS` and the types `CommunicationFormat`, `CommunicationStyleOptions`, `CommunicationStyleSetting` and `ResolvedCommunicationStyle`.
+
 ## 0.29.1
 
 ### Patch Changes

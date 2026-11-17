@@ -7,6 +7,8 @@
  * so platforms never re-invent the wheel.
  */
 
+import type { CommunicationStyleSetting } from './rules/communication.js';
+
 export interface AgentPersonaConfig {
   /** Display name of the agent (e.g. "PA", "Atlas", "Helper") */
   name: string;
@@ -92,12 +94,25 @@ export interface AgentPersonaOverrides {
   /** Disable options presentation rules. */
   disableOptionsPresentation?: boolean;
   /**
-   * Communication style preset. Affects tone and formatting rules.
-   * - 'conversational' (default): Friendly, collaborative, uses markdown liberally
+   * How replies are written: a preset (the tone), or a preset and a format.
+   *
+   * Presets:
+   * - 'conversational' (default): Friendly, collaborative
    * - 'concise': Minimal, direct answers, less personality
    * - 'formal': Professional, structured, no emojis
+   *
+   * Formats:
+   * - 'markdown' (default): rich markdown (bold, headings, bullet lists,
+   *   tables), for a panel that renders it
+   * - 'plain': short natural sentences and no markdown syntax of any kind,
+   *   lists said as sentences and no tables, for a channel that shows the
+   *   reply exactly as written (a web chat that renders no markdown, SMS)
+   *
+   * A preset alone (`'concise'`) is that preset in markdown, as it always
+   * was. `{ preset: 'concise', format: 'plain' }` sets both; either may be
+   * left out. An unknown preset or format in the object form throws.
    */
-  communicationStyle?: 'concise' | 'conversational' | 'formal';
+  communicationStyle?: CommunicationStyleSetting;
 }
 
 /**

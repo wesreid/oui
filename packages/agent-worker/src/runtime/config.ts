@@ -1,4 +1,5 @@
 import type { AgentRuntimeConfig } from './types.js';
+import { resolveCommunicationStyle } from '../prompt/rules/communication.js';
 
 /**
  * Every value the runtime cannot run without, and what it is for. A missing
@@ -30,4 +31,8 @@ export function assertAgentRuntimeConfig<TDb>(config: Partial<AgentRuntimeConfig
   if (missing.length > 0) {
     throw new Error(`[agent-sdk] Missing required configuration: ${missing.join('; ')}`);
   }
+  // A malformed communication style fails here, before any turn, rather than
+  // on the first turn's prompt: a channel that needs plain text is never sent
+  // a turn the worker cannot write a prompt for.
+  if (config.persona) resolveCommunicationStyle(config.persona.overrides?.communicationStyle);
 }

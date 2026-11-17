@@ -16,7 +16,13 @@ export type {
   PromptBuildContext,
 } from './types.js';
 export { getBaseRules } from './rules/base.js';
-export { getCommunicationRules } from './rules/communication.js';
-export type { CommunicationStyle } from './rules/communication.js';
+export { getCommunicationRules, resolveCommunicationStyle, COMMUNICATION_STYLES, COMMUNICATION_FORMATS } from './rules/communication.js';
+export type {
+  CommunicationStyle,
+  CommunicationFormat,
+  CommunicationStyleOptions,
+  CommunicationStyleSetting,
+  ResolvedCommunicationStyle,
+} from './rules/communication.js';
 export { getToolStrategyRules } from './rules/tool-strategy.js';
 export { getUIControlRules } from './rules/ui-control.js';

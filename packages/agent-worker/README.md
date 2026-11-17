@@ -27,6 +27,29 @@ Optional tuning, with its defaults:
 - `handBackReserveMs`: 30 s, at most a quarter of `turnDeadlineMs`. Before each step the worker checks that a step as long as the turn's longest so far, plus this reserve, still fits before the deadline. When it does not, that step is the turn's last: the model is told to say what is done and what is left and to offer to continue (with `present_options` when the host gives it, in words otherwise), the host's turn policy is not asked about it, and the turn ends with `stopReason: 'time_limit'`. The deadline itself still stops a step that runs longer than any before it.
 - `retries`: 3
 
+### How replies are written
+
+A persona's `overrides.communicationStyle` sets the tone and the format of its replies: a preset, or a preset and a format.
+
+```ts
+const persona: AgentPersonaConfig = {
+  name: 'Ava',
+  identity: 'You are Ava, the dealership’s assistant.',
+  overrides: { communicationStyle: { preset: 'concise', format: 'plain' } },
+};
+```
+
+| Field | Values | Default |
+|---|---|---|
+| `preset` | `conversational` (friendly, collaborative), `concise` (short, direct), `formal` (professional, structured) | `conversational` |
+| `format` | `markdown`: rich markdown (bold, headings, bullet lists, tables), for a panel that renders it. `plain`: plain text, for a channel that shows the reply exactly as written, such as a web chat that renders no markdown or a text message | `markdown` |
+
+`communicationStyle: 'concise'` is the concise preset in markdown, as it always was, and a persona that names no style gets the conversational preset in markdown: the prompt is unchanged for every persona that does not ask for `plain`.
+
+With `format: 'plain'`, the markdown lines are replaced. The model is told to write short, natural sentences; to use no markdown syntax of any kind (no bold or italics, headings, bullet or numbered lists, tables, code, block quotes, rules or link syntax); to say several items in a sentence and compare things in words; to say what matters in tool data in sentences; and that this holds whatever the formatting of the prompt or its examples. The concise preset's "bullet points over paragraphs" becomes one or two short sentences, and the formal preset's "numbered lists and clear headings" becomes a few short paragraphs in a clear order. The few-shot examples and workflows are labelled without bold (`User:`, `Assistant:`, `Trigger:`). No other part of the prompt the SDK writes, and no description of the SDK's own tools, asks for markdown; what your persona's own text says (its identity, instructions, knowledge and examples) is yours to keep plain.
+
+The format is part of the system prompt, so it stays the same on every turn of a runtime, as the prompt cache needs: a channel that needs plain text (SMS, a dealer's web chat) gets a runtime whose persona asks for it, rather than a format that changes turn by turn. A live call's turn is also told, after the conversation, that its reply will be spoken ("What a UI client sends with a turn", `output`); in plain text the two agree, and the system prompt is the same on the call as in the chat. A preset or format the worker does not know, in the object form, fails when the adapter is created, naming it. A `systemPrompt` callback writes its own prompt, so the option does not apply to it. `resolveCommunicationStyle`, `COMMUNICATION_STYLES` and `COMMUNICATION_FORMATS` are exported for a host that reads the setting itself.
+
 A host that fits its stored history loads `@ouispec/agent-worker/history` (`answerWithoutState`): a module with no runtime imports, which also answers a CommonJS resolver.
 
 Policy hooks: `turnPolicy`, `toolPolicy`, `uiActions`, `approvals`, `stops`, `logger`, and the hooks every turn passes through, `beforeTurn` and `filterEvent` ("Hooks on every turn").
