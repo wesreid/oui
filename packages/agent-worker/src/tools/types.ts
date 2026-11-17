@@ -14,8 +14,12 @@ import type { UISlot } from '../ui/ui-sequence.js';
  */
 export type ToolEffect = EffectOrKind;
 
-/** The classes of the tools the SDK owns: `attachment` (the attachment tools) and `vision` (`look`). */
-export type SdkToolClass = 'attachment' | 'vision';
+/**
+ * The classes of the tools the SDK owns: `attachment` (the attachment tools),
+ * `vision` (`look`) and `capture` (`capture_start`, `capture_status`,
+ * `capture_stop`).
+ */
+export type SdkToolClass = 'attachment' | 'vision' | 'capture';
 
 export interface RegisteredTool {
   name: string;
@@ -27,7 +31,8 @@ export interface RegisteredTool {
   kind?: 'ui' | 'backend';
   /**
    * The SDK's class for a tool it owns: `attachment` for the
-   * attachment tools, `vision` for `look`. A host's tool policy may admit a
+   * attachment tools, `vision` for `look`, `capture` for the capture tools.
+   * A host's tool policy may admit a
    * class as well as a name, so a tool the SDK adds later in that class needs
    * no change in the host.
    */

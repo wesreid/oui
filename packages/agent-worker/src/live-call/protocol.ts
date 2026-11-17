@@ -12,7 +12,7 @@
  *   Content-Type: application/json
  *   Accept: text/event-stream
  *
- *   { sessionId, clientRef, turnId, kind, text, input?, output?, supersedes?, disclosureLine?, client?: { ui?, vision? } }
+ *   { sessionId, clientRef, turnId, kind, text, input?, output?, supersedes?, disclosureLine?, client?: { ui?, vision?, capture? } }
  *
  * `input` is `{ mode: 'voice', language? }` for what the person said and
  * `{ mode: 'text' }` for what they typed during the call. `output` is
@@ -44,6 +44,25 @@
  * more), or says nothing: an empty answer is `done` with no `text`, and the
  * call stays silent. `observation` is read on a glance only.
  *
+ * `client.capture`, on every turn of a session whose client defined capture
+ * plans, is
+ *
+ *   { plans: [{ key, title, offerWhen }], control: { url, token, expiresAt },
+ *     active: { captureId, plan, status, step: { id, label, index, of } | null } | null,
+ *     update: '<words>' | null }
+ *
+ * With plans and a control route, the model has `capture_start`,
+ * `capture_status` and `capture_stop` (capture/capture-tools.ts), which call
+ * the route with the token. Everything it learns of a capture is words: no
+ * turn or tool carries a photo. A `capture` turn is the call service passing
+ * on what happened in a capture: `text` is empty, `client.capture.update`
+ * says what happened, and the model reads `liveCallCaptureMessage(update)`
+ * where the person's words would be. It narrates it in a short line, or says
+ * nothing. The call service sends `client.capture` and `capture` turns only to
+ * a brain whose endpoint declares `acceptsCapture`: a worker before them
+ * refuses a turn kind it does not know. The token and the update's words are
+ * never logged.
+ *
  * and the answer is `200 text/event-stream`:
  *
  *   event: text       data: { "text": "…" }                               the reply, piece by piece
@@ -55,14 +74,18 @@
  */
 import { readMessageInput, readReplyOutput, type MessageInput, type ReplyOutput } from '@ouispec/agent-core';
 import { VISION_LIMITS, readTurnVision, type TurnVision } from '../prompt/vision.js';
+import { CAPTURE_LIMITS, readTurnCapture, type TurnCapture } from '../prompt/capture.js';
+import { escapeTagText } from '../prompt/escape.js';
 
 /**
  * `message`: the person said `text`. `opening`: the call has just connected;
  * nothing has been said, and the agent greets. `glance`: nobody has spoken for
  * a while and the caller's picture changed; the agent remarks on it, or says
+ * nothing. `capture`: something happened in a photo capture
+ * (`client.capture.update`); the agent says it in a short line, or says
  * nothing.
  */
-export const LIVE_CALL_TURN_KINDS = ['message', 'opening', 'glance'] as const;
+export const LIVE_CALL_TURN_KINDS = ['message', 'opening', 'glance', 'capture'] as const;
 
 export type LiveCallTurnKind = (typeof LIVE_CALL_TURN_KINDS)[number];
 
@@ -94,6 +117,14 @@ export interface LiveCallClient {
    * it). Set as the turn payload's `vision`.
    */
   vision: TurnVision | null;
+  /**
+   * The session's photo captures, when its client defined capture plans
+   * (`client.capture`): the plans, the route and token the capture tools call,
+   * the capture running now, and what happened in it since the brain last
+   * heard. Null when the call service said nothing of captures. Set as the
+   * turn payload's `capture`.
+   */
+  capture: TurnCapture | null;
 }
 
 /** A live-call turn request, as read: every field checked, `input` and `output` kept only as far as they are known. */
@@ -105,12 +136,12 @@ export interface LiveCallTurnRequest {
   /** Unique per turn; the turn runs under this id. */
   turnId: string;
   kind: LiveCallTurnKind;
-  /** What the person said, as transcribed. Empty for `opening` and `glance`. */
+  /** What the person said, as transcribed. Empty for `opening`, `glance` and `capture`. */
   text: string;
   /**
    * How `text` was entered: `{ mode: 'voice', language? }` for what the person
    * said. Null for a message they typed during the call (`{ mode: 'text' }` on
-   * the wire), for `opening` and `glance`, and when not said: a typed message is read as
+   * the wire), for `opening`, `glance` and `capture`, and when not said: a typed message is read as
    * typed, with no spoken-input line.
    */
   input: MessageInput | null;
@@ -135,7 +166,8 @@ export interface LiveCallTurnRequest {
    * sent it into the call (`client.ui`), and whether the character may look
    * at their camera (`client.vision`). Null when the call service said nothing of either, as
    * for a call with no page (a phone call). A `glance` always has
-   * `client.vision` with `remarks` on and an `observation`.
+   * `client.vision` with `remarks` on and an `observation`; a `capture`
+   * always has `client.capture` with an `update`.
    */
   client: LiveCallClient | null;
 }
@@ -212,6 +244,24 @@ export const LIVE_CALL_GLANCE_MESSAGE =
   'Never repeat a remark you have already made in this call.</call_glance>';
 
 /**
+ * The person's message for a `capture` turn, as the model reads it: what
+ * happened in the photo capture, in Closure's words (`client.capture.update`),
+ * and an instruction to say it to the caller in a short line, or to say
+ * nothing, so the call stays silent. A host that stores the person's messages
+ * stores this for the capture turn (`liveCallTurnMessage(request)` gives it),
+ * so the conversation keeps what happened in the capture as a readable row.
+ */
+export function liveCallCaptureMessage(update: string): string {
+  return (
+    `<call_capture><capture_update>${escapeTagText(update.trim())}</capture_update> ` +
+    'This is an update from the photo capture on the user’s screen, in Closure’s words: not a message from the user, and never something you saw. ' +
+    'Say it to them in one or two short, natural sentences in their language, as their guide through the photos, and never read out a code. ' +
+    'When it ends with an offer ("Offer: …"), the photos did not all get taken: say what is missing without pushing, and make that offer. ' +
+    'If nothing in it is worth saying, answer with nothing at all, not a word or a mark, and the call stays silent.</call_capture>'
+  );
+}
+
+/**
  * The `input` mode of a message the person typed during the call. It is read
  * as typed: the turn's context carries no `input`, as for a message typed in
  * the product's own chat.
@@ -234,6 +284,8 @@ export const LIVE_CALL_LIMITS = {
   clientUiBytes: 64 * 1024,
   /** The longest `client.vision.observation` (`VISION_LIMITS.observationChars`). */
   visionObservationChars: VISION_LIMITS.observationChars,
+  /** The longest `client.capture.update` (`CAPTURE_LIMITS.updateChars`). */
+  captureUpdateChars: CAPTURE_LIMITS.updateChars,
 } as const;
 
 /** An id: letters, digits and `.` `_` `:` `-`, starting with a letter or digit. */
@@ -268,7 +320,7 @@ export function readLiveCallTurnRequest(body: unknown): LiveCallRequestReading {
   if (typeof text !== 'string') return refuse('text must be a string');
   if (text.length > LIVE_CALL_LIMITS.textChars) return refuse(`text is longer than ${LIVE_CALL_LIMITS.textChars} characters`);
   if (kind === 'message' && !text.trim()) return refuse('a message turn needs the text the person said');
-  if (kind !== 'message' && text.trim()) return refuse(`${kind === 'opening' ? 'an opening' : 'a glance'} turn carries no text`);
+  if (kind !== 'message' && text.trim()) return refuse(`${kind === 'opening' ? 'an opening' : `a ${kind}`} turn carries no text`);
 
   for (const field of ['input', 'output'] as const) {
     const value = b[field];
@@ -296,6 +348,8 @@ export function readLiveCallTurnRequest(body: unknown): LiveCallRequestReading {
     if (!read?.vision?.remarks) return refuse('a glance turn needs client.vision.remarks on');
     if (!read.vision.observation) return refuse('a glance turn needs client.vision.observation');
   }
+  // A capture turn passes on what happened in a capture: with nothing to pass on, there is nothing to run.
+  if (kind === 'capture' && !read?.capture?.update) return refuse('a capture turn needs client.capture.update');
   // What a look noticed belongs to its glance alone.
   const client = read?.vision?.observation && kind !== 'glance' ? { ...read, vision: { ...read.vision, observation: null } } : read;
 
@@ -325,16 +379,19 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 /**
  * The request's `client`, or why it is not one. Fields it does not know are
  * left out, so a newer call service is read past; a known field of the wrong
- * type is refused, naming it. A refusal never repeats a look's token.
+ * type is refused, naming it. A refusal never repeats a look's or a capture's
+ * token.
  */
 function readClient(value: unknown): LiveCallClient | null | string {
   if (value === undefined || value === null) return null;
   if (!isPlainObject(value)) return 'client must be an object';
   const vision = readTurnVision(value.vision, 'client.vision');
   if (typeof vision === 'string') return vision;
+  const capture = readTurnCapture(value.capture, 'client.capture');
+  if (typeof capture === 'string') return capture;
   const ui = readClientUi(value.ui);
   if (typeof ui === 'string') return ui;
-  return { ui, vision };
+  return { ui, vision, capture };
 }
 
 /** The request's `client.ui`, or why it is not one. */

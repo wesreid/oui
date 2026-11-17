@@ -115,7 +115,7 @@ describe('client.vision on a live-call turn', () => {
     const expected = { seeing: true, remarks: true, canLook: true, absent: null, look: lookOf(LOOK_URL, expect.any(String) as never), observation: null };
     for (const body of [{ ...SPOKEN, client: { vision: canSee(LOOK_URL) } }, { ...SPOKEN, kind: 'opening', text: '', client: { vision: canSee(LOOK_URL) } }]) {
       const reading = readLiveCallTurnRequest(body);
-      expect(reading.ok && reading.request.client).toEqual({ ui: null, vision: expected });
+      expect(reading.ok && reading.request.client).toEqual({ ui: null, vision: expected, capture: null });
     }
     const glance = readLiveCallTurnRequest(GLANCE);
     expect(glance.ok && glance.request.client?.vision).toEqual({ ...expected, observation: OBSERVATION });

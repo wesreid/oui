@@ -2,6 +2,7 @@ import type { ApprovalChannel, AttachmentRef, StaffSpeaker, TakeoverChange, Turn
 import type { AttachmentWorkerConfig } from './attachments/store.js';
 import type { AttachmentUsage } from './attachments/guard.js';
 import type { TurnVision } from './prompt/vision.js';
+import type { TurnCapture } from './prompt/capture.js';
 import type { TurnStopClient, TurnStopWatch } from './stop/turn-stop.js';
 import type { LanguageModel, ProviderOptions } from './model.js';
 import type { RealtimeEmitAdapter } from './emit/types.js';
@@ -224,6 +225,14 @@ export interface AgentTurnInput {
    * is told it cannot see them and why (prompt/vision.ts). No picture.
    */
   vision?: TurnVision;
+  /**
+   * The session's photo captures (a live call's `client.capture`): with plans
+   * and a control route, the `capture_start`, `capture_status` and
+   * `capture_stop` tools (capture/capture-tools.ts), and a line telling the
+   * model when to offer each plan and where a running capture stands
+   * (prompt/capture.ts). Words only: no photo.
+   */
+  capture?: TurnCapture;
   /**
    * How the turn reached the runtime, as the host's hooks are told
    * (`AgentTurnInfo.channel`). Default `direct`.

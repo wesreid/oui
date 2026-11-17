@@ -40,6 +40,16 @@
  * `done` with no `text`, and the call stays silent. The turn's log line
  * records facts only: never the look's token or the observation.
  *
+ * The character can ask the caller for photos when the client defined
+ * capture plans: the call service carries `client.capture` on
+ * every turn, and the handler sets it as the turn's `capture`. With plans and
+ * a control route, the model has `capture_start`, `capture_status` and
+ * `capture_stop` (capture/capture-tools.ts), and is told when to offer each
+ * plan (prompt/capture.ts). A `capture` turn passes on what happened in a
+ * capture: the model reads `liveCallCaptureMessage(update)` where the person's
+ * words would be, and says it in a short line or stays silent. The log line
+ * records facts only: never the capture token or the update's words.
+ *
  * A call is a voice: an approval is read back (the host's `spokenReadback`
  * when it wrote one) and the person's next words confirm it, as on any voice
  * channel. A UI action's too: its card is also on the person's
@@ -76,6 +86,7 @@ import type { TurnEventObserver } from '../emit/tee.js';
 import { DEFAULT_KEEP_ALIVE_MS, openLiveCallEventStream, type LiveCallEventStream } from './event-stream.js';
 import {
   LIVE_CALL_GLANCE_MESSAGE,
+  liveCallCaptureMessage,
   liveCallError,
   liveCallOpeningMessage,
   readLiveCallTurnRequest,
@@ -83,6 +94,7 @@ import {
   type LiveCallTurnRequest,
 } from './protocol.js';
 import { visionFacts } from '../prompt/vision.js';
+import { captureFacts, type TurnCapture } from '../prompt/capture.js';
 
 /** Who and where a live-call turn is, in the product: what the host resolves a call's `clientRef` to. */
 export interface LiveCallTurnTarget {
@@ -414,6 +426,8 @@ export function liveCallRoute(options: LiveCallTurnOptions, host: LiveCallRouteH
         ...(request.supersedes.length ? { supersedes: request.supersedes } : {}),
         // Facts only: the switches, whether it can look, why not. Never the look's token or the observation.
         ...(request.client?.vision ? { vision: visionFacts(request.client.vision) } : {}),
+        // Facts only: how many plans, whether it can start, where a capture stands. Never the token or the update's words.
+        ...(request.client?.capture ? { capture: captureFacts(request.client.capture) } : {}),
       });
 
       let outcome: TurnOutcome;
@@ -471,7 +485,7 @@ function turnPayload(request: LiveCallTurnRequest, target: LiveCallTurnTarget): 
     userId: target.userId,
     accountId: target.accountId,
     socketRoom: target.socketRoom,
-    // An opening's or a glance's blank content is no redaction: the model reads the instruction that stands for it.
+    // An opening's, a glance's or a capture's blank content is no redaction: the model reads the instruction that stands for it.
     content:
       request.kind !== 'message' && !(typeof target.content === 'string' && target.content.trim())
         ? turnMessage(request)
@@ -484,25 +498,41 @@ function turnPayload(request: LiveCallTurnRequest, target: LiveCallTurnTarget): 
     ...(request.supersedes.length > 0 ? { supersedes: request.supersedes } : {}),
     // What the caller's camera shows, for this turn only.
     ...(request.client?.vision ? { vision: request.client.vision } : {}),
+    // The session's photo captures. A capture turn's update is its message, so it is not said twice.
+    ...(request.client?.capture
+      ? { capture: request.kind === 'capture' ? { ...request.client.capture, update: null } : request.client.capture }
+      : {}),
   };
 }
 
+/** What of a request its turn's message is made from. */
+export type LiveCallTurnMessageSource = Pick<LiveCallTurnRequest, 'kind' | 'text' | 'disclosureLine'> & {
+  /** On a `capture` turn, its `client.capture.update` is the message. */
+  client?: { capture?: Pick<TurnCapture, 'update'> | null } | null;
+};
+
 /**
  * What the model reads as the person's message, unless the host's target
- * gives its own `content`: what they said, or for an `opening` and a `glance`
- * the instruction that stands in for it. A host that stores the person's
- * messages stores the same.
+ * gives its own `content`: what they said, or for an `opening`, a `glance` and
+ * a `capture` the instruction that stands in for it (a capture's carries what
+ * happened, `liveCallCaptureMessage(update)`). A host that stores the person's
+ * messages stores the same, so its history has a readable row for each turn.
  */
-export function liveCallTurnMessage(request: Pick<LiveCallTurnRequest, 'kind' | 'text' | 'disclosureLine'>): string {
+export function liveCallTurnMessage(request: LiveCallTurnMessageSource): string {
   return turnMessage(request);
 }
 
-function turnMessage(request: Pick<LiveCallTurnRequest, 'kind' | 'text' | 'disclosureLine'>): string {
+function turnMessage(request: LiveCallTurnMessageSource): string {
   switch (request.kind) {
     case 'opening':
       return liveCallOpeningMessage(request);
     case 'glance':
       return LIVE_CALL_GLANCE_MESSAGE;
+    case 'capture': {
+      const update = request.client?.capture?.update;
+      if (typeof update !== 'string' || !update.trim()) throw new Error('[agent-sdk] A capture turn’s message needs its client.capture.update');
+      return liveCallCaptureMessage(update);
+    }
     default:
       return request.text;
   }

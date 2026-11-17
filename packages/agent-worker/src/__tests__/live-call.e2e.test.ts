@@ -28,9 +28,18 @@ import { FixtureConversation } from './support/fixture-turn.js';
 import { chunk, sse, type ChatRequest, type ScriptedReply } from './support/replay.js';
 import { createAgentTurnRunner, type TurnOutcome } from '../runtime/turn-runner.js';
 import { startContainerAgentWorker, DEFAULT_LIVE_CALL_PATH } from '../container/server.js';
-import { createLiveCallTurnHandler, LIVE_CALL_MAX_BODY_BYTES, type LiveCallTurnHandler, type LiveCallTurnOptions, type LiveCallTurnTarget } from '../live-call/handler.js';
-import { LIVE_CALL_GLANCE_MESSAGE, LIVE_CALL_OPENING_MESSAGE, liveCallOpeningMessage, type LiveCallTurnRequest } from '../live-call/protocol.js';
+import {
+  createLiveCallTurnHandler,
+  LIVE_CALL_MAX_BODY_BYTES,
+  liveCallTurnMessage,
+  type LiveCallTurnHandler,
+  type LiveCallTurnOptions,
+  type LiveCallTurnTarget,
+} from '../live-call/handler.js';
+import { LIVE_CALL_GLANCE_MESSAGE, LIVE_CALL_OPENING_MESSAGE, liveCallCaptureMessage, liveCallOpeningMessage, type LiveCallTurnRequest } from '../live-call/protocol.js';
 import { LOOK_WHEN } from '../prompt/vision.js';
+import { CAPTURE_WHEN } from '../prompt/capture.js';
+import { CAPTURE_TOOLS } from '../capture/capture-tools.js';
 import { createHttpApprovalStoreClient } from '../approvals/client.js';
 import { createHttpConversationClient } from '../conversations/client.js';
 import { READBACK_APPROVAL_TOOL_NOTE } from '../approvals/requirement.js';
@@ -223,7 +232,8 @@ function resolver(state: Omit<CallProduct, 'url' | 'handler' | 'close' | 'outcom
     // What the product keeps is what the model reads: its redacted copy, when it redacts.
     const said = request.kind === 'message' && options.redact ? options.redact(request.text) : null;
     if (said !== null) target.content = said;
-    state.conversation.addUser(request.kind === 'opening' ? liveCallOpeningMessage(request) : (said ?? request.text));
+    // An opening's and a capture's readable row is the message the model reads; a glance is stored as the empty words it carried.
+    state.conversation.addUser(request.kind === 'opening' || request.kind === 'capture' ? liveCallTurnMessage(request) : (said ?? request.text));
     if (waiting && AFFIRMATIVE.test(request.text)) {
       const decided = await approvals.decide!(waiting, { userId: 'ana', decision: 'approve', channel: 'voice' });
       if (!decided.ok || decided.decision !== 'approve') throw new Error(`the store refused the decision: ${JSON.stringify(decided)}`);
@@ -1307,6 +1317,159 @@ describe('the caller seen when the character chooses to look', () => {
       expect(refused.status).toBe(400);
       expect(((await refused.json()) as { error: { message: string } }).error.message).toBe('a glance turn needs client.vision.remarks on');
       expect(m.requests).toHaveLength(2);
+      expect(route.received).toEqual([]);
+    } finally {
+      await call.close();
+      await route.close();
+    }
+  }, 30_000);
+});
+
+describe('photos a client’s capture plan asks for', () => {
+  const SESSION = '098a0789-5b1f-4c34-9e0a-2f1c7a0d55e1';
+  const CAPTURE = '5f0c7a1e-2b9d-4e63-9a7f-0d1c2b3a4e5f';
+  const TOKEN = 'lcb1.eyJzaWQiOiIwOThhMDc4OSIsImJybiI6ImNsaWVudCJ9.Y2FwdHVyZS1icmFpbi10b2tlbi1zaWduYXR1cmU';
+  const OFFER = 'They can finish the photos later on their phone from a link the dealership sends, or bring the vehicle in for an in-person appraisal.';
+  const PLAN = {
+    key: 'trade-in-appraisal',
+    title: 'Trade-in photos',
+    offerWhen: 'The caller has a vehicle to trade in and wants a value for it, or asks what their car is worth.',
+  };
+  const STARTED = 'Photo capture "Trade-in photos" is starting on the caller\'s screen.';
+  /** What happens in the capture, in the words studio-api and the capture agent compose, and what the character says to each. */
+  const UPDATES: Array<{ update: string; step: { id: string; label: string; index: number } | null; status: string; reply: string }> = [
+    {
+      update: 'Photo capture "Trade-in photos" is open on the caller\'s screen and waits for their consent. In one sentence, tell them what the photos are for and that they can stop at any time.',
+      step: null,
+      status: 'awaiting_consent',
+      reply: 'These photos let the dealership value your Civic, and you can stop any time.',
+    },
+    { update: 'They agreed. 6 photos to take: Odometer, VIN, Front corner, Rear corner, Interior, Damage.', step: null, status: 'active', reply: 'Great, six quick photos.' },
+    {
+      update: 'Step 1 of 6, Odometer: Turn the ignition on so the dashboard lights up, then photograph the odometer so the full mileage shows.',
+      step: { id: 'odometer', label: 'Odometer', index: 1 },
+      status: 'active',
+      reply: 'First, turn the ignition on and point the camera at the odometer.',
+    },
+    { update: 'Odometer accepted: 48,212 mi.', step: { id: 'odometer', label: 'Odometer', index: 1 }, status: 'active', reply: 'Got it: 48,212 miles.' },
+    {
+      update: `Photos ended (they stopped the photos). Accepted: Odometer. Missing: VIN, Front corner, Rear corner. Don't push. Offer: ${OFFER}`,
+      step: null,
+      status: 'ended',
+      reply: `No problem. ${OFFER}`,
+    },
+  ];
+
+  /** studio-api's captures route, answering as it does and recording what it was asked. */
+  async function capturesRoute(): Promise<{ url: string; received: Array<{ method: string; path: string; authorization?: string; body: unknown }>; close(): Promise<void> }> {
+    const received: Array<{ method: string; path: string; authorization?: string; body: unknown }> = [];
+    const server = http.createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        received.push({ method: req.method ?? '', path: req.url ?? '', authorization: req.headers.authorization, body: JSON.parse(Buffer.concat(chunks).toString('utf8') || 'null') as unknown });
+        if (req.headers.authorization !== `Bearer ${TOKEN}`) {
+          res.writeHead(403, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ code: 'CAPTURE_TOKEN_WRONG_SESSION', message: 'wrong session' }));
+          return;
+        }
+        res.writeHead(201, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ captureId: CAPTURE, sessionId: SESSION, status: 'starting', outcome: null, endReason: null, startedBy: 'client_brain', steps: [], missingRequired: [], words: STARTED }));
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    return {
+      url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/sessions/${SESSION}/captures`,
+      received,
+      close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    };
+  }
+  const captureOf = (url: string, extra: Record<string, unknown> = {}) => ({
+    capture: { plans: [PLAN], control: { url, token: TOKEN, expiresAt: new Date(Date.now() + 3_600_000).toISOString() }, active: null, update: null, ...extra },
+  });
+  const hasPicture = (request: ChatRequest) => JSON.stringify(request.messages).includes('image_url');
+
+  it('starts the plan when the caller has a trade-in, narrates every update, makes the offer when it ends incomplete, and keeps a readable history with no token anywhere', async () => {
+    const route = await capturesRoute();
+    const m = scriptedModel([
+      { text: 'I can get you a value for it. I’ll send a photo request to your screen now. ', toolCalls: [{ id: 'call_capture_1', name: 'capture_start', args: { plan: PLAN.key } }] },
+      { text: 'Your screen is asking for a few photos of the car.' },
+      ...UPDATES.map((u) => ({ text: u.reply })),
+    ]);
+    const lines: string[] = [];
+    const log = (...args: unknown[]) => lines.push(JSON.stringify(args));
+    const call = await startCallProduct({ model: m.model, runtime: { logger: { info: log, warn: log, error: log, debug: log } } });
+    try {
+      // The caller says they have a trade-in: the character says a holding line and starts the plan.
+      const asked = turnRequest(call, { text: 'I have a 2019 Civic to trade in. What could I get for it?', client: captureOf(route.url) });
+      const started = await streamOf(await post(call.url, asked));
+      expect(started.text()).toBe('I can get you a value for it. I’ll send a photo request to your screen now. \n\nYour screen is asking for a few photos of the car.');
+      expect(started.events.at(-1)).toEqual({ event: 'done', data: { stopReason: 'complete' } });
+      // studio-api's start route was called with the turn's token and the plan's key.
+      expect(route.received).toEqual([{ method: 'POST', path: `/api/v1/sessions/${SESSION}/captures`, authorization: `Bearer ${TOKEN}`, body: { plan: PLAN.key } }]);
+      // The model was offered the three tools with the plan, and told when to offer it.
+      expect(m.requests[0].tools?.map((t) => t.function.name)).toEqual(expect.arrayContaining([...CAPTURE_TOOLS]));
+      expect(JSON.stringify(m.requests[0].tools)).toContain(PLAN.offerWhen);
+      expect(textsOf(m.requests[0]).join('\n')).toContain(CAPTURE_WHEN);
+      expect(m.requests[1].messages.find((msg) => msg.role === 'tool')?.content).toContain('is starting on the caller');
+
+      // Each update is a capture turn: the model reads it where the caller's words would be, and narrates it.
+      for (const [i, u] of UPDATES.entries()) {
+        const active = u.status === 'ended' ? null : { captureId: CAPTURE, plan: PLAN.key, status: u.status, step: u.step ? { ...u.step, of: 6 } : null };
+        const turn = turnRequest(call, { kind: 'capture', text: '', input: undefined, client: captureOf(route.url, { active, update: u.update }) });
+        const said = await streamOf(await post(call.url, turn));
+        expect(said.text(), u.update).toBe(u.reply);
+        expect(said.events.at(-1)).toEqual({ event: 'done', data: { stopReason: 'complete' } });
+        const request = m.requests[2 + i];
+        const lastUser = request.messages.filter((msg) => msg.role === 'user').at(-2);
+        expect(lastUser?.content, u.update).toContain(liveCallCaptureMessage(u.update));
+        await call.tab.waitForTurn(AGENT_SOCKET_EVENTS.TURN_COMPLETE, turn.turnId);
+      }
+      // The end that did not complete reached the model with its offer, and the instruction to make it.
+      expect(JSON.stringify(m.requests.at(-1)!.messages)).toContain(`Offer: ${OFFER}`);
+      expect(JSON.stringify(m.requests.at(-1)!.messages)).toContain('say what is missing without pushing, and make that offer');
+      // Only the start called studio-api; no request carried a picture.
+      expect(route.received).toHaveLength(1);
+      expect(m.requests.some(hasPicture)).toBe(false);
+
+      // The artifact: the product's history, a readable row for every turn, in order.
+      const rows = call.conversation.history.filter((h) => h.role === 'user' || (h.role === 'assistant' && typeof h.content === 'string' && h.content));
+      expect(rows.map((h) => [h.role, h.content])).toEqual([
+        ['user', 'I have a 2019 Civic to trade in. What could I get for it?'],
+        ['assistant', 'I can get you a value for it. I’ll send a photo request to your screen now. '],
+        ['assistant', 'Your screen is asking for a few photos of the car.'],
+        ...UPDATES.flatMap((u) => [
+          ['user', liveCallCaptureMessage(u.update)],
+          ['assistant', u.reply],
+        ]),
+      ]);
+      const startResult = call.conversation.history.find((h) => h.role === 'tool');
+      expect(JSON.parse(startResult!.content as string)).toEqual({ captureId: CAPTURE, status: 'starting', words: STARTED });
+
+      // The token is in no page event, stored message, history or log line; the update's words are in no log line.
+      for (const where of [JSON.stringify(call.tab.events), JSON.stringify(call.persisted), JSON.stringify(call.conversation.history), lines.join('\n')]) {
+        expect(where).not.toContain(TOKEN);
+      }
+      expect(lines.join('\n')).not.toContain('48,212');
+      expect(lines.find((l) => l.includes('Live-call turn') && l.includes('"kind":"capture"'))).toMatch(/"capture":\{"plans":1,"canStart":true,"active":"awaiting_consent","update":true\}/);
+    } finally {
+      await call.close();
+      await route.close();
+    }
+  }, 60_000);
+
+  it('a worker before captures would refuse the turn kind; this one refuses a capture turn with nothing to pass on, and runs nothing', async () => {
+    const route = await capturesRoute();
+    const m = scriptedModel([]);
+    const call = await startCallProduct({ model: m.model });
+    try {
+      const refused = await post(call.url, turnRequest(call, { kind: 'capture', text: '', input: undefined, client: captureOf(route.url) }));
+      expect(refused.status).toBe(400);
+      expect(((await refused.json()) as { error: { message: string } }).error.message).toBe('a capture turn needs client.capture.update');
+      const unknown = await post(call.url, turnRequest(call, { kind: 'capture_v2', text: '' }));
+      expect(unknown.status).toBe(400);
+      expect(((await unknown.json()) as { error: { message: string } }).error.message).toBe('kind must be one of message, opening, glance, capture');
+      expect(m.requests).toEqual([]);
       expect(route.received).toEqual([]);
     } finally {
       await call.close();
