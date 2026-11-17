@@ -266,5 +266,17 @@ export type {
   AgentPersonaOverrides,
   PromptBuildContext,
   CommunicationStyle,
+  CommunicationFormat,
+  CommunicationStyleOptions,
+  CommunicationStyleSetting,
+  ResolvedCommunicationStyle,
 } from './prompt/index.js';
-export { getBaseRules, getCommunicationRules, getToolStrategyRules, getUIControlRules } from './prompt/index.js';
+export {
+  getBaseRules,
+  getCommunicationRules,
+  resolveCommunicationStyle,
+  COMMUNICATION_STYLES,
+  COMMUNICATION_FORMATS,
+  getToolStrategyRules,
+  getUIControlRules,
+} from './prompt/index.js';

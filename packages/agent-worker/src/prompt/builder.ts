@@ -9,7 +9,7 @@
 
 import type { AgentPersonaConfig, PromptBuildContext } from './types.js';
 import { getBaseRules } from './rules/base.js';
-import { getCommunicationRules } from './rules/communication.js';
+import { getCommunicationRules, resolveCommunicationStyle } from './rules/communication.js';
 import { getToolStrategyRules } from './rules/tool-strategy.js';
 import { getUIControlRules } from './rules/ui-control.js';
 import { withoutClientUI } from '../ui/snapshot.js';
@@ -21,7 +21,8 @@ import { withoutClientUI } from '../ui/snapshot.js';
  * Order of sections:
  * 1. Platform identity (who the agent is)
  * 2. SDK base rules (anti-hallucination, anti-repetition, identity boundaries)
- * 3. SDK communication rules (formatting, tone)
+ * 3. SDK communication rules (formatting, tone): `overrides.communicationStyle`,
+ *    a preset and a format (markdown, or plain text)
  * 4. SDK tool strategy rules (discovery-first, error handling, options)
  * 5. SDK UI control rules (navigation, forms, player, toasts)
  * 6. Platform capabilities
@@ -38,7 +39,10 @@ export function buildAgentSystemPrompt(
 ): string {
   const parts: string[] = [];
   const overrides = persona.overrides ?? {};
-  const style = overrides.communicationStyle ?? 'conversational';
+  const style = resolveCommunicationStyle(overrides.communicationStyle);
+  // In plain text, the prompt's own labels carry no markdown either, so no
+  // example shows the model a formatting symbol to copy.
+  const label = (name: string) => (style.format === 'plain' ? `${name}:` : `**${name}:**`);
 
   // 1. Platform identity
   parts.push(persona.identity);
@@ -94,7 +98,7 @@ export function buildAgentSystemPrompt(
     parts.push('\n\n## GUIDED WORKFLOWS\n');
     for (const wf of persona.workflows) {
       parts.push(`\n### ${wf.name}`);
-      parts.push(`**Trigger:** ${wf.trigger}`);
+      parts.push(`${label('Trigger')} ${wf.trigger}`);
       parts.push(wf.steps.map((s, i) => `${i + 1}. ${s}`).join('\n'));
     }
   }
@@ -118,13 +122,14 @@ export function buildAgentSystemPrompt(
   if (persona.fewShotExamples?.length) {
     parts.push('\n\n## EXAMPLE CONVERSATIONS\n');
     for (const example of persona.fewShotExamples) {
-      parts.push(`\n**User:** ${example.user}`);
+      parts.push(`\n${label('User')} ${example.user}`);
       if (example.toolCalls?.length) {
-        parts.push(`*[Uses tools: ${example.toolCalls.join(', ')}]*`);
+        const used = `[Uses tools: ${example.toolCalls.join(', ')}]`;
+        parts.push(style.format === 'plain' ? used : `*${used}*`);
       }
-      parts.push(`**Assistant:** ${example.assistant}`);
+      parts.push(`${label('Assistant')} ${example.assistant}`);
       if (example.followUp) {
-        parts.push(`**Follow-up:** ${example.followUp}`);
+        parts.push(`${label('Follow-up')} ${example.followUp}`);
       }
     }
   }
