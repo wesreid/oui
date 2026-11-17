@@ -55,6 +55,8 @@ import { readClientMessageInput, spokenInputText } from './prompt/spoken-input.j
 import { readClientReplyOutput, spokenReplyText } from './prompt/spoken-reply.js';
 import { visionText } from './prompt/vision.js';
 import { lookTool } from './vision/look-tool.js';
+import { captureText } from './prompt/capture.js';
+import { captureTools } from './capture/capture-tools.js';
 import { AttachmentGuard } from './attachments/guard.js';
 import { ATTACHMENT_DATA_NOTE, turnAttachmentParts, withReferenceLines, withTurnAttachments, withoutLeftOut } from './attachments/content.js';
 import { attachmentTools } from './attachments/tools.js';
@@ -289,7 +291,9 @@ export async function runAgentTurn(
   // The caller's camera is looked at only when the model chooses to (vision/look-tool.ts): no turn carries a picture.
   const visionTools: RegisteredTool[] = input.vision?.canLook && input.vision.look ? [lookTool(input.vision.look)] : [];
   // The SDK's own tools: they take their names before the host's.
-  const sdkTools: RegisteredTool[] = [...fileTools, ...visionTools];
+  // The caller is asked for photos only through the client's plans (capture/capture-tools.ts): words, never a photo.
+  const photoTools: RegisteredTool[] = captureTools(input.capture);
+  const sdkTools: RegisteredTool[] = [...fileTools, ...visionTools, ...photoTools];
 
   log('info', 'agent:ui', 'UI surfaces for this turn', {
     turnId,
@@ -1911,6 +1915,8 @@ export async function runAgentTurn(
   const turnSpokenReply = readClientReplyOutput(input.context ?? null);
   // Whether the model may look at the person, and how, or why it cannot (prompt/vision.ts): a line after the conversation.
   const turnVisionText = visionText(input.vision);
+  // When to offer each photo plan, where a running capture stands, and an update that rode this turn (prompt/capture.ts).
+  const turnCaptureText = captureText(input.capture);
   const turnPageValues =
     client && client.page.length > 0
       ? [
@@ -1946,6 +1952,8 @@ export async function runAgentTurn(
     ...(turnSpokenReply ? [spokenReplyText(turnSpokenReply)] : []),
     // When the model may look at the person, or that it cannot see them and why.
     ...(turnVisionText ? [turnVisionText] : []),
+    // When the model may ask for photos, and what has happened in a capture.
+    ...(turnCaptureText ? [turnCaptureText] : []),
     ...(expired.outcomes.length > 0 ? [expiredNote(expired)] : []),
     ...(input.stepContext?.trim() ? [input.stepContext.trim()] : []),
     ...(notes.length > 0 ? [[STEP_NOTE_OPEN, ...notes, STEP_NOTE_CLOSE].join('\n')] : []),

@@ -191,6 +191,7 @@ export type {
   LiveCallTurnOptions,
   LiveCallTurnTarget,
   LiveCallTurnCallContext,
+  LiveCallTurnMessageSource,
 } from './live-call/handler.js';
 export {
   readLiveCallTurnRequest,
@@ -198,6 +199,7 @@ export {
   LIVE_CALL_TURN_KINDS,
   LIVE_CALL_OPENING_MESSAGE,
   LIVE_CALL_GLANCE_MESSAGE,
+  liveCallCaptureMessage,
   liveCallOpeningMessage,
   LIVE_CALL_TYPED_INPUT_MODE,
   LIVE_CALL_LIMITS,
@@ -218,6 +220,18 @@ export { readTurnVision, visionText, visionFacts, VISION_ABSENCES, VISION_LIMITS
 export type { TurnVision, VisionLook, VisionAbsence } from './prompt/vision.js';
 export { lookTool, LOOK_TOOL, LOOK_LIMITS, LOOK_ABSENCES, VISION_TOOL_CLASS } from './vision/look-tool.js';
 export type { LookAbsence } from './vision/look-tool.js';
+// A client's photo captures on a call: read, told to the model, and the tools that start, read and stop them.
+export { readTurnCapture, captureText, captureFacts, canCapture, CAPTURE_LIMITS, CAPTURE_WHEN, CAPTURE_NEVER } from './prompt/capture.js';
+export type { TurnCapture, CapturePlanOffer, CaptureControl, CaptureActive, CaptureActiveStep } from './prompt/capture.js';
+export {
+  captureTools,
+  CAPTURE_START_TOOL,
+  CAPTURE_STATUS_TOOL,
+  CAPTURE_STOP_TOOL,
+  CAPTURE_TOOLS,
+  CAPTURE_TOOL_CLASS,
+  CAPTURE_TOOL_LIMITS,
+} from './capture/capture-tools.js';
 
 // Prompt Framework
 export { buildAgentSystemPrompt } from './prompt/index.js';

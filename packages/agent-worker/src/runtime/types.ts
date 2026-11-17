@@ -21,6 +21,7 @@ import type { ResumedTurn } from '../resume/resumed-calls.js';
 import type { AttachmentWorkerConfig } from '../attachments/store.js';
 import type { AttachmentUsage } from '../attachments/guard.js';
 import type { TurnVision } from '../prompt/vision.js';
+import type { TurnCapture } from '../prompt/capture.js';
 import type { TurnStopClient } from '../stop/turn-stop.js';
 import type { ApprovalPreviewHook, ValidateBeforeApproval } from '../approvals/hooks.js';
 import type { AgentTurnInfo } from './turn-info.js';
@@ -80,6 +81,15 @@ export interface AgentTurnPayload {
    * turn (`payloadRefusal`).
    */
   vision?: TurnVision;
+  /**
+   * The session's photo captures:
+   * `{ plans, control, active, update }` (`TurnCapture`; a live call's
+   * `client.capture`, which the live-call handler sets here). With plans and a
+   * control route the model has `capture_start`, `capture_status` and
+   * `capture_stop`; it never receives a photo. Its token and update are never
+   * emitted or logged. A malformed one refuses the turn (`payloadRefusal`).
+   */
+  capture?: TurnCapture;
   /**
    * Where the person is: `ui` (default) or a conversation
    * channel (`chat`, `sms`, `voice`, `phone`), where an approval is a readback

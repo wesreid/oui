@@ -34,7 +34,8 @@ export interface ToolPolicyContext {
   toolKind: 'ui' | 'backend';
   /**
    * The SDK's class for a tool it owns: `attachment` for the attachment
-   * tools, `vision` for `look`. A policy that admits by name should admit the
+   * tools, `vision` for `look`, `capture` for the capture tools. A policy that
+   * admits by name should admit the
    * class too, so a tool the SDK adds to it later needs no change.
    */
   toolClass?: SdkToolClass;
