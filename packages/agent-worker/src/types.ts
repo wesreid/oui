@@ -15,6 +15,7 @@ import type { ApprovalHooks } from './approvals/hooks.js';
 import type { AgentTurnChannel } from './runtime/turn-info.js';
 import type { ApprovalContinuation, ResumeContinuation } from '@ouispec/agent-core';
 import type { ResumedTurn } from './resume/resumed-calls.js';
+import type { TurnContextPlacement } from './step-messages.js';
 
 /**
  * Configuration for the agent worker.
@@ -74,6 +75,24 @@ export interface AgentWorkerConfig {
    * and told to call it, and no tool choice is sent.
    */
   forcedToolChoice?: boolean;
+  /**
+   * Where the turn's context goes: what is true for the whole turn (the clock,
+   * how the message was entered and how the reply is delivered, vision and
+   * capture lines, the host's `stepContext`).
+   *
+   * - `'with-message'` (the default): straight after the turn's own user
+   *   message, on every step, in the same words. Never after a tool result.
+   * - `'after-conversation'`: after the conversation's end on every step, as
+   *   0.30 and earlier sent it. After a tool result it reads as the person's
+   *   newest message, and a model can drop what the tool said (Claude Haiku
+   *   5.5 with thinking off answered a live call’s `look` correctly in 0–6 of
+   *   20). In return the next turn reads the whole of this one from the prompt
+   *   cache; with the default it writes this turn's tool calls and results to
+   *   the cache once more. Choose it only for a model that the turn-context
+   *   eval (`evals/turn-context.live-eval.ts`) shows answers from its tool
+   *   results with it.
+   */
+  turnContextPlacement?: TurnContextPlacement;
   /**
    * Whether a choice (`present_options`) waits for a reply. Default false.
    * `true`: a choice offered before the turn has written a word is sent back
@@ -180,10 +199,12 @@ export interface AgentTurnInput {
   context?: Record<string, unknown> | null;
   history?: TurnHistoryMessage[];
   /**
-   * What the model reads at the end of every step and nowhere else: memory the
-   * host keeps beside the conversation, such as an index of work notes. It is
-   * never stored as part of a message, so the messages before it are sent the
-   * same way every turn and read from the prompt cache.
+   * Memory the host keeps beside the conversation, such as an index of work
+   * notes: the last part of the turn's context, which every step sends straight
+   * after the turn's message, in the same words (`turnContextPlacement`; never
+   * after a tool result, where the model reads it as the person's newest
+   * message). It is never stored as part of a message, so the messages before
+   * it are sent the same way every turn and read from the prompt cache.
    */
   stepContext?: string;
   userToken?: string;

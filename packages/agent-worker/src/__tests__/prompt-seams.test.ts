@@ -74,7 +74,7 @@ describe('the voice’s direction tags on a spoken reply', () => {
     expect(spokenReplyText({ mode: 'voice' })).not.toContain('inline tags');
   });
 
-  it('reach the model after the conversation, never in the cached prefix', async () => {
+  it('reach the model in the turn’s context, never in the cached prefix', async () => {
     const m = respondingOpenAI(() => ({ text: 'Ha, yes we do.' }));
     await runAgentTurn(
       { tools: createToolRegistry([]), emit: { emit: async () => {} }, systemPrompt: 'You help.', model: m.model },

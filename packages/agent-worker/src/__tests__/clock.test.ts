@@ -57,12 +57,12 @@ type StreamOpts = {
   prepareStep: (o: { steps: unknown[]; messages: ModelMessage[] }) => Promise<{ messages?: ModelMessage[] }>;
 };
 
-/** What the first step sends after the conversation: what is true only now. */
+/** What the first step sends with the turn's message: the turn's context, what is true only now. */
 async function firstStepTail(): Promise<{ text: string; conversation: ModelMessage[] }> {
   const step = await seen!.prepareStep({ steps: [], messages: seen!.messages });
   const sent = step.messages!;
-  const tail = sent.at(-1)!;
-  return { text: JSON.stringify(tail.content), conversation: sent.slice(0, -1) };
+  const at = sent.findIndex((m) => JSON.stringify(m.providerOptions ?? {}).includes('"turnContext":true'));
+  return { text: JSON.stringify(sent[at].content), conversation: sent.slice(0, at) };
 }
 let seen: StreamOpts | null = null;
 
@@ -110,7 +110,7 @@ describe('a turn’s context names today’s date in the user’s zone', () => {
     vi.setSystemTime(NOW);
   });
 
-  it('after the conversation, never on the user’s message or in the cached system prompt', async () => {
+  it('with the turn’s message, never on it or in the cached system prompt', async () => {
     try {
       const { runAgentTurn } = await import('../orchestrator.js');
       await runAgentTurn(config, turn({ currentPath: '/vector', timeZone: 'Europe/Paris' }));

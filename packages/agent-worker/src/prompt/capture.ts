@@ -20,8 +20,8 @@
  *   `client.vision`; a refusal names the field and never repeats the token.
  *   Fields it does not know are read past.
  * - **Where it goes:** the tools (capture/capture-tools.ts) while there are
- *   plans and a control route, and one line after the conversation, with what
- *   else is true only for this turn (`captureText`): the clause, the plans,
+ *   plans and a control route, and one line in the turn's context, straight
+ *   after the turn's message (`captureText`): the clause, the plans,
  *   where the running capture stands, and an update that rode a message turn.
  * - **What is never done with it:** the control token is never logged or
  *   emitted, and neither are the update's words (a VIN, a mileage). Logs

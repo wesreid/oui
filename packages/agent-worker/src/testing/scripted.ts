@@ -121,15 +121,17 @@ export function messageText(message: ChatRequest['messages'][number]): string {
 }
 
 /**
- * Whether a message is the step's own tail: what the runtime sends after the
- * conversation on every step, true only for that step (the page's state, then
- * the clock). It is a user message that opens with one of those.
+ * Whether a message is one the runtime adds beside the conversation on every
+ * step (step-messages.ts): the turn's context, straight after the turn's
+ * message, which opens with the clock (`<now>`); and the step's tail, after the
+ * conversation, which opens with the page's state or the step's notes. It is a
+ * user message that opens with one of those.
  */
 export function isStepTail(message: ChatRequest['messages'][number]): boolean {
-  return message.role === 'user' && /^<(page_state|now)>/.test(messageText(message));
+  return message.role === 'user' && /^<(page_state|now|step_note)>/.test(messageText(message));
 }
 
-/** The conversation a request carries: its messages without the step's tail, which a script reads past. */
+/** The conversation a request carries: its messages without what the runtime adds beside it, which a script reads past. */
 export function conversationOf(request: ChatRequest): ChatRequest['messages'] {
   return request.messages.filter((m) => !isStepTail(m));
 }

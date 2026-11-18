@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.31.0
+
+### Minor Changes
+
+- A turn's context (the clock, how the message was entered and how the reply is delivered, the vision and capture lines, the host's `stepContext`) now goes straight after the turn's own message, on every step in the same words, never after a tool result. Sent after a result, it read as the person's newest message: Claude Haiku 5.5 with thinking off answered a live call's `look` "your message came through blank", or went back to an earlier question, in 14 to 20 of 20 runs; with the context beside the message it answered from the look in 20 of 20 (`evals/turn-context.live-eval.ts`). Only the page's state and the step's notes still follow the conversation. `turnContextPlacement: 'after-conversation'` keeps 0.30's placement for a model the eval shows handles it; the default is `'with-message'`. The next turn now writes this turn's tool calls and results to the prompt cache once more.
+
 ## 0.30.0
 
 ### Minor Changes

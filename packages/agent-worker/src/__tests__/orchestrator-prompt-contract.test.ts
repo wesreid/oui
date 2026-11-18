@@ -104,7 +104,7 @@ describe('the request survives the real ai prompt validation', () => {
     });
   });
 
-  it('keeps the cache breakpoint on the conversation’s last message, before what is true only for this step', async () => {
+  it('keeps the cache breakpoint on the turn’s message and on its context after it, before what is true only for this step', async () => {
     const { runAgentTurn } = await import('../orchestrator.js');
     await runAgentTurn(makeConfig(), makeInput());
     const prompt = lastCall!.prompt as Array<{ role: string; content: unknown; providerOptions?: unknown }>;
@@ -112,9 +112,10 @@ describe('the request survives the real ai prompt validation', () => {
     expect(nonSystem.at(-2)!.providerOptions).toEqual({
       amazonBedrock: { cachePoint: { type: 'default' } },
     });
-    // The step's tail (here, the clock) comes after it, unmarked.
+    // The turn's context (here, the clock) comes straight after the turn's message, marked as the
+    // conversation's end, so a later step reads it from the cache.
     expect(JSON.stringify(nonSystem.at(-1)!.content)).toContain('<now>');
-    expect(JSON.stringify(nonSystem.at(-1)!.providerOptions ?? {})).not.toContain('cachePoint');
+    expect(nonSystem.at(-1)!.providerOptions).toMatchObject({ amazonBedrock: { cachePoint: { type: 'default' } } });
   });
 
   it('delivers a turn policy’s note after the conversation, leaving the cached system prompt as it is', async () => {
@@ -136,6 +137,8 @@ describe('the request survives the real ai prompt validation', () => {
     expect(last.role).toBe('user');
     expect(JSON.stringify(last.content)).toContain(`<step_note>\\n${note}\\n</step_note>`);
     expect(JSON.stringify(last.providerOptions ?? {})).not.toContain('cachePoint');
-    expect(prompt.at(-2)!.providerOptions).toEqual({ amazonBedrock: { cachePoint: { type: 'default' } } });
+    // Before it, the conversation's end: the turn's context, after the turn's message.
+    expect(JSON.stringify(prompt.at(-2)!.content)).toContain('<now>');
+    expect(prompt.at(-2)!.providerOptions).toMatchObject({ amazonBedrock: { cachePoint: { type: 'default' } } });
   });
 });

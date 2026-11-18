@@ -6,7 +6,7 @@
  * provider sends the model: its system prompt, its tools' descriptions and
  * its messages.
  *
- * A live call's turn is told after the conversation that its reply will be
+ * A live call's turn is told in the turn's context that its reply will be
  * spoken (prompt/spoken-reply.ts). In plain text the two agree: neither asks
  * for markdown, and the system prompt is the same on the call as in the chat,
  * so the call reads the chat's cached prefix.
@@ -187,8 +187,9 @@ describe('the format, through a turn on a live call', () => {
 
     const spoken = plain.requests.at(-1)!;
     expect(spoken).not.toBe(chat);
-    // The call is told its reply is heard, after the conversation; the system prompt does not change.
-    expect(textOf(spoken.messages.at(-1)!.content)).toContain(spokenReplyText({ mode: 'voice' }));
+    // The call is told its reply is heard, in the turn's context after the caller's words; the system prompt does not change.
+    const context = spoken.messages.find((m) => textOf(m.content).includes('<now>'))!;
+    expect(textOf(context.content)).toContain(spokenReplyText({ mode: 'voice' }));
     expect(systemOf(spoken)).toBe(systemOf(chat));
     for (const line of PLAIN_LINES) expect(systemOf(spoken)).toContain(line);
     expect(markdownRequests(everything(spoken))).toEqual([]);
