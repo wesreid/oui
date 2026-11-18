@@ -1506,7 +1506,7 @@ describe('a call that moves to the caller’s phone', () => {
   const HANDOFF = '3c1d9e2a-7b40-4f6e-9a15-8d2c0b4e7f61';
   const TOKEN = 'lhb1.eyJzaWQiOiIwOThhMDc4OSIsImJybiI6ImNsaWVudCJ9.aGFuZG9mZi1icmFpbi10b2tlbi1zaWduYXR1cmU';
   const CAPTURE_TOKEN = 'lcb1.eyJzaWQiOiIwOThhMDc4OSIsImJybiI6ImNsaWVudCJ9.Y2FwdHVyZS1icmFpbi10b2tlbi1zaWduYXR1cmU';
-  const CODE = 'lhc1_Q2xvc3VyZUhhbmRvZmZDb2RlRm9yVGVzdHNPbmx5MDEyMzQ1Njc4OWFi';
+  const CODE = 'lhc1_Q2xvc3VyZUhhbmRvZmZGaXh0dXJlQ29kZS1Gb3JUc3Q';
   const PLAN = { key: 'trade-in-appraisal', title: 'Trade-in photos', offerWhen: 'The caller has a vehicle to trade in and wants a value for it.' };
   const NO_REAR_CAMERA =
     "This device has no rear camera, so Odometer, VIN, Front corner and Rear corner can't be taken on it. Offer to continue on their phone with call_handoff; the photos carry on there.";

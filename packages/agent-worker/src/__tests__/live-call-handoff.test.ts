@@ -62,7 +62,9 @@ const HANDOFF_ID = '3c1d9e2a-7b40-4f6e-9a15-8d2c0b4e7f61';
 /** A brain token as studio-api mints it: `lhb1.<claims>.<signature>`, for one session. */
 const TOKEN = 'lhb1.eyJzaWQiOiIwOThhMDc4OSIsImJybiI6ImNsaWVudCJ9.aGFuZG9mZi1icmFpbi10b2tlbi1zaWduYXR1cmU';
 /** A code and the link it rides in, as an API key's answer would carry them: never the model's. */
-const CODE = 'lhc1_Q2xvc3VyZUhhbmRvZmZDb2RlRm9yVGVzdHNPbmx5MDEyMzQ1Njc4OWFi';
+const CODE = 'lhc1_Q2xvc3VyZUhhbmRvZmZGaXh0dXJlQ29kZS1Gb3JUc3Q';
+/** The contract's `HANDOFF_CODE_PATTERN` (`isHandoffCode`): `lhc1_` and 32 random bytes as base64url, 43 characters. */
+const HANDOFF_CODE_PATTERN = /^lhc1_[A-Za-z0-9_-]{43}$/;
 const LINK = `https://chat.deos1.com/continue#${CODE}`;
 const CONTROL_URL = `https://api.closurestudio.ai/api/v1/sessions/${SESSION_ID}/handoffs`;
 const inAnHour = () => new Date(Date.now() + 3_600_000).toISOString();
@@ -137,6 +139,8 @@ describe('the hand-off contract’s names and values', () => {
     expect(CALL_HANDOFF_TOOL).toBe('call_handoff');
     expect(HANDOFF_TOOL_CLASS).toBe('handoff');
     expect(FORM_FACTOR_WORDS).toEqual({ phone: 'phone', tablet: 'tablet', desktop: 'computer', unknown: 'other device' });
+    // The fixture code is one the contract's isHandoffCode admits, so the checks that it never leaks test a real code's shape.
+    expect(CODE).toMatch(HANDOFF_CODE_PATTERN);
   });
 
   it('gives the clause Closure gives every brain, word for word', () => {
