@@ -97,9 +97,9 @@ function input(overrides: Partial<AgentTurnInput> = {}): AgentTurnInput {
   };
 }
 
-/** The person's newest message: the last user message that is not the step's own tail (step-messages.ts). */
+/** The person's newest message: the last user message the runtime did not add for the turn or the step (step-messages.ts). */
 const lastUser = (prompt: PromptMessage[]) =>
-  [...prompt].reverse().find((m) => m.role === 'user' && !JSON.stringify((m as { providerOptions?: unknown }).providerOptions ?? {}).includes('"stepTail":true'))!;
+  [...prompt].reverse().find((m) => m.role === 'user' && !/"(stepTail|turnContext)":true/.test(JSON.stringify((m as { providerOptions?: unknown }).providerOptions ?? {})))!;
 const userParts = (prompt: PromptMessage[]) => lastUser(prompt).content as PromptPart[];
 const hasPicture = (prompt: PromptMessage[]) => userParts(prompt).some((p) => p.type === 'file');
 

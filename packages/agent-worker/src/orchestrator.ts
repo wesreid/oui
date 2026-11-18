@@ -49,7 +49,7 @@ import { jsonBytes } from 'oui-spec/spec';
 import { CLIENT_SNAPSHOT_KEY, readClientPage, withoutClientUI } from './ui/snapshot.js';
 import { KNOWLEDGE_TOOL, knowledgeTool, readClientKnowledge, withClientKnowledge } from './ui/knowledge.js';
 import { answerWithoutState, withStatesAtEnd } from './ui/page-state-at-end.js';
-import { stepMessages as forStep, STEP_NOTE_CLOSE, STEP_NOTE_OPEN } from './step-messages.js';
+import { readTurnContextPlacement, stepMessages as forStep, STEP_NOTE_CLOSE, STEP_NOTE_OPEN } from './step-messages.js';
 import { clockText, readClientTimeZone } from './prompt/clock.js';
 import { readClientMessageInput, spokenInputText } from './prompt/spoken-input.js';
 import { readClientReplyOutput, spokenReplyText } from './prompt/spoken-reply.js';
@@ -1819,9 +1819,9 @@ export async function runAgentTurn(
   // cache reads it (step-messages.ts). What is true only now — the page's
   // index and values, the user's clock, a note on calls whose approval
   // expired, the host's step context — is not added to the user's message,
-  // where the next turn would send that message without it and write the
-  // conversation from there to the cache again: the index goes after the
-  // system prompt, the rest after the conversation (`stepTail`). An approved
+  // which the host stores as the person wrote it: the index goes after the
+  // system prompt, the page's values after the conversation (`stepTail`), and
+  // the rest in the turn's context, beside the message (`turnContext`). An approved
   // call that ran is the result of the call the model made (see
   // continueApproval).
   const turnFilesGiven = !!fileArea && (input.attachments?.length ?? 0) > 0;
@@ -1905,7 +1905,7 @@ export async function runAgentTurn(
       : null;
   const instructions = pageIndex ? [systemMessage, pageIndex] : systemMessage;
 
-  // ─── What is true now, after the conversation (step-messages.ts) ───────────
+  // ─── What is true now: with the turn's message, and after the conversation (step-messages.ts) ───
   // The turn's own message: answers after it are this turn's, and only those
   // are newer than the page the turn began on.
   const turnMessageAt = messages.map((m) => m.role).lastIndexOf('user');
@@ -1913,7 +1913,7 @@ export async function runAgentTurn(
   const turnSpoken = input.approval || input.resume ? null : readClientMessageInput(input.context ?? null);
   // The reply is spoken on every turn of a call, the turn an approval continues included.
   const turnSpokenReply = readClientReplyOutput(input.context ?? null);
-  // Whether the model may look at the person, and how, or why it cannot (prompt/vision.ts): a line after the conversation.
+  // Whether the model may look at the person, and how, or why it cannot (prompt/vision.ts): a line of the turn's context.
   const turnVisionText = visionText(input.vision);
   // When to offer each photo plan, where a running capture stands, and an update that rode this turn (prompt/capture.ts).
   const turnCaptureText = captureText(input.capture);
@@ -1926,8 +1926,30 @@ export async function runAgentTurn(
           client.fit?.observations?.length ? `Not shown: ${fitNotes(client.fit.observations).join(' ')}` : null,
         ]
       : null;
+  /**
+   * What is true for the whole turn, sent with the turn's own message on every
+   * step in the same words (step-messages.ts): never after a tool result, where
+   * the model reads it as the person's newest message and drops the result.
+   */
+  const turnContext: string[] = [
+    turnClock,
+    // A message the person spoke may hold a mis-heard word (prompt/spoken-input.ts). A click on an
+    // approval card, and a resume after work, are not messages, so they say nothing.
+    ...(turnSpoken ? [spokenInputText(turnSpoken)] : []),
+    // A reply a voice will read out is written for the ear (prompt/spoken-reply.ts).
+    ...(turnSpokenReply ? [spokenReplyText(turnSpokenReply)] : []),
+    // When the model may look at the person, or that it cannot see them and why.
+    ...(turnVisionText ? [turnVisionText] : []),
+    // When the model may ask for photos, and what has happened in a capture.
+    ...(turnCaptureText ? [turnCaptureText] : []),
+    ...(expired.outcomes.length > 0 ? [expiredNote(expired)] : []),
+    ...(input.stepContext?.trim() ? [input.stepContext.trim()] : []),
+  ];
   /** The page's state from this turn's newest answer that carried one; until then, as the user's screen sent it. */
   let newestAnswerState: unknown;
+  // Where it goes: with the turn's message (the default), or after the conversation, as 0.30 sent it.
+  const turnContextPlacement = readTurnContextPlacement(config.turnContextPlacement);
+  /** What is true for this step only, after the conversation: the page's state, and the step's notes. */
   const stepTail = (notes: readonly string[]): string[] => [
     ...(turnPageValues
       ? [
@@ -1944,18 +1966,8 @@ export async function runAgentTurn(
           ].join('\n'),
         ]
       : []),
-    turnClock,
-    // A message the person spoke may hold a mis-heard word (prompt/spoken-input.ts). A click on an
-    // approval card, and a resume after work, are not messages, so they say nothing.
-    ...(turnSpoken ? [spokenInputText(turnSpoken)] : []),
-    // A reply a voice will read out is written for the ear (prompt/spoken-reply.ts).
-    ...(turnSpokenReply ? [spokenReplyText(turnSpokenReply)] : []),
-    // When the model may look at the person, or that it cannot see them and why.
-    ...(turnVisionText ? [turnVisionText] : []),
-    // When the model may ask for photos, and what has happened in a capture.
-    ...(turnCaptureText ? [turnCaptureText] : []),
-    ...(expired.outcomes.length > 0 ? [expiredNote(expired)] : []),
-    ...(input.stepContext?.trim() ? [input.stepContext.trim()] : []),
+    // Placed after the conversation, the turn's context goes between the page and the notes, as it did in 0.30.
+    ...(turnContextPlacement === 'after-conversation' ? turnContext : []),
     ...(notes.length > 0 ? [[STEP_NOTE_OPEN, ...notes, STEP_NOTE_CLOSE].join('\n')] : []),
   ];
 
@@ -2139,7 +2151,7 @@ export async function runAgentTurn(
         const stepMessages = leftOut.length > 0 && messages ? withoutLeftOut(trimmed?.messages ?? messages, leftOut) : trimmed?.messages ?? messages;
         return {
           ...constraints,
-          ...(stepMessages ? { messages: forStep(stepMessages, stepTail(notes), cachePoint) } : {}),
+          ...(stepMessages ? { messages: forStep(stepMessages, { turnContext: turnContextPlacement === 'with-message' ? turnContext : [], tail: stepTail(notes) }, cachePoint) } : {}),
           instructions,
         };
       },

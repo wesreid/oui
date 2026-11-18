@@ -257,7 +257,7 @@ describe('a call still stored as waiting, at the start of a later turn', () => {
   ];
   const expired = { decided: 'expired', ran: false, summary: 'The approval expired before it was used. It was not run.' };
   const marker = (text: string | undefined) => (JSON.parse(text ?? '{}') as { approval?: Record<string, unknown> }).approval;
-  /** What the turn's first step reads after the conversation: what is true only for this turn. */
+  /** What the turn's first step reads after the turn's message: what is true only for this turn. */
   const tailText = async () => {
     const sent = (await seen!.prepareStep({ steps: [], messages: seen!.messages })).messages!;
     const last = sent[sent.length - 1];
@@ -298,7 +298,7 @@ describe('a call still stored as waiting, at the start of a later turn', () => {
     expect(marker(results()[0].output?.value)).not.toHaveProperty('expired');
     expect(JSON.parse(results()[0].output!.value!).message).toMatch(/Do not run it again unless the user asks for it again\.$/);
     expect(JSON.stringify(seen!.messages)).not.toContain('awaitingApproval');
-    // And said after the conversation, for this turn.
+    // And said in the turn's context, for this turn.
     expect(await tailText()).toMatch(/<approval>An approval asked for earlier in this conversation expired before the user decided it, so that action did not run\./);
 
     // Stored once, under the call's own id; the host confirms it after persisting.

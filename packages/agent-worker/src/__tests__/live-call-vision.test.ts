@@ -10,7 +10,7 @@
  *   words. The answer is the model's for that call only: it is in no event,
  *   stored message or log line, and neither are the question or the token.
  * - A `glance` is a turn with no words, run only with leave to remark and an
- *   `observation`, which reaches the model after the conversation, as data.
+ *   `observation`, which reaches the model in the turn's context, as data.
  * - Through the real `ai` loop, and on Anthropic's wire, no request carries a
  *   picture, and the look's answer reaches the model as its tool result.
  */
@@ -544,6 +544,8 @@ function input(vision: unknown, overrides: Partial<AgentTurnInput> = {}): AgentT
 }
 
 const isTail = (m: PromptMessage) => JSON.stringify(m.providerOptions ?? {}).includes('"stepTail":true');
+/** The turn's context: straight after the turn's message, on every step. */
+const isTurnContext = (m: PromptMessage) => JSON.stringify(m.providerOptions ?? {}).includes('"turnContext":true');
 const textOf = (m: PromptMessage) => (typeof m.content === 'string' ? m.content : m.content.map((p) => p.text ?? '').join('\n'));
 /** Every picture a prompt carries: a file part anywhere, or an image in a tool result. */
 const picturesIn = (prompt: PromptMessage[]) => JSON.stringify(prompt).match(/"type":"(file|image|image-data|media)"/g) ?? [];
@@ -577,12 +579,16 @@ describe('looking, through the real ai loop', () => {
     // The step after the look reads the answer as the look's result.
     const answered = prompts[1].find((m) => m.role === 'tool')!;
     expect(JSON.stringify(answered)).toContain(ANSWER);
-    // The vision clause after the conversation, and no picture in any step.
+    // The vision clause with the turn's message on every step, the same words each time, and no picture in any step.
     for (const prompt of prompts) {
-      expect(isTail(prompt.at(-1)!)).toBe(true);
-      expect(textOf(prompt.at(-1)!)).toContain(LOOK_WHEN);
+      const at = prompt.findIndex(isTurnContext);
+      expect(prompt[at - 1]).toMatchObject({ role: 'user', content: [{ type: 'text', text: 'What am I wearing?' }] });
+      expect(textOf(prompt[at])).toContain(LOOK_WHEN);
       expect(picturesIn(prompt)).toEqual([]);
     }
+    expect(textOf(prompts[1].find(isTurnContext)!)).toBe(textOf(prompts[0].find(isTurnContext)!));
+    // The step after the look ends with its result: nothing in the user's role follows it.
+    expect(prompts[1].map((m) => m.role).slice(-3)).toEqual(['user', 'assistant', 'tool']);
     expect(result.newMessages.at(-1)).toMatchObject({ role: 'assistant', content: 'You are wearing a bright yellow shirt.' });
 
     // Kept: that it looked. Not kept: what it saw. Never emitted or logged: the question, the answer, the token.
@@ -604,7 +610,7 @@ describe('looking, through the real ai loop', () => {
     const blind = scripted([]);
     await runAgentTurn(config(blind.model), input({ seeing: false, remarks: false, canLook: false, absent: 'turned_off', look: null }));
     expect(blind.tools[0].map((t) => t.name)).not.toContain(LOOK_TOOL);
-    expect(textOf(blind.prompts[0].at(-1)!)).toContain('The user has turned off your view of their camera, so you cannot see them right now.');
+    expect(textOf(blind.prompts[0].find(isTurnContext)!)).toContain('The user has turned off your view of their camera, so you cannot see them right now.');
 
     const none = scripted([]);
     await runAgentTurn(config(none.model), input(null));
@@ -630,7 +636,7 @@ describe('looking, through the real ai loop', () => {
     expect(seen).toEqual([expect.objectContaining({ toolName: LOOK_TOOL, toolClass: VISION_TOOL_CLASS, hasSideEffects: false, effect: 'view' })]);
   });
 
-  it('a glance reaches the model with what was noticed after the conversation, and a glance answered with nothing says and stores nothing', async () => {
+  it('a glance reaches the model with what was noticed in the turn’s context, and a glance answered with nothing says and stores nothing', async () => {
     const { model, prompts } = scripted([], '');
     const emit = vi.fn(async () => {});
     const { runAgentTurn } = await import('../orchestrator.js');
@@ -643,10 +649,11 @@ describe('looking, through the real ai loop', () => {
         history: [{ role: 'user', content: 'Hi there' }, { role: 'assistant', content: 'Hello! How can I help?' }, { role: 'user', content: '' }],
       }),
     );
-    const said = prompts[0].filter((m) => !isTail(m));
+    const said = prompts[0].filter((m) => !isTail(m) && !isTurnContext(m));
     expect(said.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'user']);
     expect(textOf(said.at(-1)!)).toBe(LIVE_CALL_GLANCE_MESSAGE);
-    // What was noticed is in this turn's tail only: never in the conversation the next turn sends.
+    // What was noticed is in this turn's context only, straight after the glance: never in the conversation the next turn sends.
+    expect(isTurnContext(prompts[0].at(-1)!)).toBe(true);
     expect(textOf(prompts[0].at(-1)!)).toContain(`<observation>${OBSERVATION}</observation>`);
     expect(said.map(textOf).join('\n')).not.toContain(OBSERVATION);
     expect(picturesIn(prompts[0])).toEqual([]);
@@ -706,6 +713,18 @@ describe('looking on Anthropic’s wire', () => {
     }
     const toolResult = bodies[1].messages.flatMap((m) => m.content).find((b) => b.type === 'tool_result')!;
     expect(JSON.stringify(toolResult)).toContain(ANSWER);
+    // On the wire, the request after the look ends with the look's result and nothing after it: the
+    // turn's context is in the turn's own user message, before the call, where it was on the first request.
+    const last = bodies[1].messages.at(-1)!;
+    expect(last.role).toBe('user');
+    expect(last.content.map((b) => b.type)).toEqual(['tool_result']);
+    const turnMessage = bodies[1].messages.at(-3)!;
+    expect(turnMessage.role).toBe('user');
+    expect(JSON.stringify(turnMessage.content)).toContain('What am I wearing?');
+    expect(JSON.stringify(turnMessage.content)).toContain('<vision>');
+    // The same blocks as the first request sent: only where the cache breakpoints are differs.
+    const blocks = (content: Array<Record<string, unknown>>) => content.map(({ cache_control: _breakpoint, ...block }) => block);
+    expect(blocks(turnMessage.content)).toEqual(blocks(bodies[0].messages.at(-1)!.content));
     expect(route.received[0]).toMatchObject({ authorization: `Bearer ${TOKEN}`, body: { question: QUESTION } });
   });
 });

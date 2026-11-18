@@ -1,7 +1,7 @@
 /**
  * A reply that will be spoken is written for the ear: short sentences, no
  * markdown, lists, links or emoji, numbers said as words, and what to look at
- * shown through the page. Said after the conversation, with what else is true
+ * shown through the page. Said in the turn's context, with what else is true
  * only for this turn, so the system prompt, the tools and every message are
  * the same for a call turn as for a chat turn.
  */
@@ -121,7 +121,7 @@ describe('a spoken reply, through a turn', () => {
     seen = null;
   });
 
-  it('is asked for after the conversation; everything before that is the chat turn’s, byte for byte', async () => {
+  it('is asked for in the turn’s context; everything before that is the chat turn’s, byte for byte', async () => {
     const { runAgentTurn } = await import('../orchestrator.js');
     const page = { currentPath: '/inventory', timeZone: 'America/Chicago' };
 

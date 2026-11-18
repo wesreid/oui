@@ -10,10 +10,10 @@
  *   (`context.timeZone`, an IANA name), so "today" and "yesterday" are the
  *   days their wall clock shows, not the server's. An unknown or missing zone
  *   is UTC, and the note says so.
- * - **Where it goes:** after the conversation, with what else is true only
- *   now (step-messages.ts). Never in the system prompt, where one changing
- *   minute would invalidate the cached prefix on every turn, and never on the
- *   user's message, which the next turn sends without it.
+ * - **Where it goes:** first in the turn's context, straight after the
+ *   turn's message (step-messages.ts). Never in the system prompt, where one
+ *   changing minute would invalidate the cached prefix on every turn, and
+ *   never in the user's message, which the host stores as they wrote it.
  */
 
 /** The key under a turn's context that carries the user's IANA time zone. */

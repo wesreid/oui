@@ -12,8 +12,8 @@
  * - **What is read:** `readReplyOutput` from `@ouispec/agent-core` keeps only
  *   a known mode; anything else is a reply shown as text, which is given
  *   nothing.
- * - **Where it goes:** after the conversation, with what else is true only
- *   for this turn (step-messages.ts), as the line for a spoken message does
+ * - **Where it goes:** in the turn's context, straight after the turn's
+ *   message (step-messages.ts), as the line for a spoken message does
  *   (spoken-input.ts), never in the system prompt or on the message. The system
  *   prompt and the tools are a cached prefix, shared by the conversation's
  *   chat turns and its call turns: the rule there would make every switch

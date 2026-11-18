@@ -9,6 +9,8 @@
 
 export type { AgentWorkerConfig, AgentTurnInput, AgentTurnResult, TurnMessage, TurnHistoryMessage, ToolCallRef, SystemPromptContext } from './types.js';
 export { historyOf } from './history.js';
+export { TURN_CONTEXT_PLACEMENTS } from './step-messages.js';
+export type { TurnContextPlacement } from './step-messages.js';
 export type { RealtimeEmitAdapter } from './emit/types.js';
 export { filterEmitAdapter } from './emit/filter.js';
 export type { TurnEventFilter } from './emit/filter.js';

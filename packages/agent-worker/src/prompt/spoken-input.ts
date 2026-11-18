@@ -11,8 +11,8 @@
  * - **What is read:** `readMessageInput` from `@ouispec/agent-core` keeps only
  *   a known mode and a well-formed language tag; anything else is read as
  *   typed, and a typed message is given nothing.
- * - **Where it goes:** after the conversation, with what else is true only
- *   for this turn (step-messages.ts), never in the system prompt or on the
+ * - **Where it goes:** in the turn's context, straight after the turn's
+ *   message (step-messages.ts), never in the system prompt or in the
  *   message itself. The system prompt and the tools are a cached prefix, and
  *   the next turn sends the message as the host stored it, without this line:
  *   on the message, it made that turn write the conversation from there to the

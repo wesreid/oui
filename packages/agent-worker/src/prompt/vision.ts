@@ -14,8 +14,8 @@
  *   person's page (`client.ui`); a refusal names the field and never repeats
  *   the token. Fields it does not know (an older call service's `frame`) are
  *   read past, so a picture is never given to the model.
- * - **Where it goes:** after the conversation, with what else is true only for
- *   this turn (step-messages.ts): one line saying the model may look with the
+ * - **Where it goes:** in the turn's context, straight after the turn's
+ *   message (step-messages.ts), never after the look's result: one line saying the model may look with the
  *   `look` tool (look.ts) when the conversation calls for it, or that it cannot
  *   see and why, and on a glance what was noticed, as data.
  * - **What is never done with it:** the token, a look's question and its
@@ -146,7 +146,7 @@ const ABSENT: Readonly<Record<VisionAbsence | 'unknown', string>> = {
 
 /**
  * What the model is told about seeing the caller (the vision clause), or that
- * it cannot see them and why: one line, after the conversation. On a glance,
+ * it cannot see them and why: one line of the turn's context. On a glance,
  * what was noticed comes with it, as data. Null when the turn says nothing of
  * vision.
  */

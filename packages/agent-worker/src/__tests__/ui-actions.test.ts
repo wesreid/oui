@@ -158,8 +158,9 @@ describe('UI tools from the client snapshot', () => {
     const tail = JSON.stringify(sent.at(-1)!.content);
     expect(tail).toContain('<page_state>');
     expect(tail).toContain('\\"characters\\":6');
-    // The user's message is their words alone.
-    expect(sent.at(-2)!.content).toBe('take me to create a video production');
+    // The user's message is their words alone, and the turn's context (the clock) follows it.
+    expect(sent.at(-3)!.content).toBe('take me to create a video production');
+    expect(JSON.stringify(sent.at(-2)!.content)).toContain('<now>');
   });
 
   it('refuses a turn that carries surfaces when there is no channel to answer them', async () => {

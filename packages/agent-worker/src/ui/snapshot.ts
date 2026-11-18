@@ -95,7 +95,7 @@ export function withoutClientSnapshot(
  * The turn's context without what the client's UI sent for the worker itself:
  * its snapshot (the turn's UI tools), its knowledge (rendered after the host's
  * prompt), how the message was entered and how the reply reaches the person
- * (each said after the conversation, prompt/spoken-input.ts and
+ * (each said in the turn's context, prompt/spoken-input.ts and
  * prompt/spoken-reply.ts). This is the context the host's prompt renders as
  * prose. How the message was entered, and whether the reply is spoken, change
  * from one turn to the next, so in the system prompt they would invalidate the

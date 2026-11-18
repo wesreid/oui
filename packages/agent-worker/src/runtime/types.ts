@@ -26,6 +26,7 @@ import type { TurnStopClient } from '../stop/turn-stop.js';
 import type { ApprovalPreviewHook, ValidateBeforeApproval } from '../approvals/hooks.js';
 import type { AgentTurnInfo } from './turn-info.js';
 import type { RealtimeEmitAdapter } from '../emit/types.js';
+import type { TurnContextPlacement } from '../step-messages.js';
 
 /**
  * Database handle — opaque to the SDK. The integrator's callbacks receive
@@ -99,11 +100,13 @@ export interface AgentTurnPayload {
 }
 
 /**
- * History with what goes beside it: `stepContext` is read by the model at the
- * end of every step (an index of work notes, say) and is not part of any
- * message. Put such memory there, not on the newest message: a message is sent
- * the same way every turn only if nothing is added to it for one turn, and a
- * changed message makes the prompt cache write the conversation from there on.
+ * History with what goes beside it: `stepContext` is part of the turn's
+ * context (an index of work notes, say), read on every step straight after the
+ * turn's message and stored in no message (`turnContextPlacement`). Put such
+ * memory there, not on the newest message: a message is sent the same way
+ * every turn only if nothing is added to it for one turn, and a changed message
+ * makes the prompt cache write the conversation from there on. Context for
+ * one step only goes in a turn policy's `note`.
  */
 export interface TurnHistory {
   messages: TurnHistoryMessage[];
@@ -218,6 +221,14 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
    * to a tool is given only that tool and told to call it.
    */
   forcedToolChoice?: boolean;
+
+  /**
+   * Where the turn's context goes (`AgentWorkerConfig.turnContextPlacement`).
+   * Default `'with-message'`: straight after the turn's own message, never
+   * after a tool result. `'after-conversation'` is 0.30's placement, for a
+   * model the turn-context eval shows answers from its tool results with it.
+   */
+  turnContextPlacement?: TurnContextPlacement;
 
   /**
    * Whether a choice (`present_options`) waits for a reply. Default false.

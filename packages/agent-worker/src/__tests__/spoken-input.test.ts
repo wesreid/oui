@@ -2,7 +2,7 @@
  * A message the person spoke says so to the model: it was
  * transcribed by speech recognition, it may hold a mis-heard word, the
  * language it was spoken in, and that an ambiguity a mis-hearing causes is
- * asked about rather than guessed at. Said after the conversation, with what
+ * asked about rather than guessed at. Said in the turn's context, with what
  * else is true only for this turn, so everything before it (system prompt,
  * tools, every message) is the same for a spoken message as for a typed one.
  */
@@ -136,7 +136,7 @@ describe('a spoken message, through a turn', () => {
     promptContexts.length = 0;
   });
 
-  it('is said to be spoken after the conversation; everything before that is the typed turn’s, byte for byte', async () => {
+  it('is said to be spoken in the turn’s context; everything before that is the typed turn’s, byte for byte', async () => {
     const { runAgentTurn } = await import('../orchestrator.js');
     const page = { currentPath: '/vector', timeZone: 'Europe/Paris' };
 

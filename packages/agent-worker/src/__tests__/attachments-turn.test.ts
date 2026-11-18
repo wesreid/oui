@@ -105,7 +105,7 @@ describe('a turn with files', () => {
     const turn = lastUser(seen!.messages);
     const parts = turn.content as Part[];
     // The message's text is the person's words, as the next turn will send it; the files come after, as parts.
-    // The clock is read after the conversation (step-messages.ts), never on the message.
+    // The clock is read in the turn's context (step-messages.ts), never on the message.
     expect(parts[0].type).toBe('text');
     expect(parts[0].text).toMatch(/^Use the logo and follow the notes/);
     expect(parts[0].text).not.toMatch(/Europe\/Paris|<now>/);

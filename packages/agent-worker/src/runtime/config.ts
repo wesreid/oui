@@ -1,5 +1,6 @@
 import type { AgentRuntimeConfig } from './types.js';
 import { resolveCommunicationStyle } from '../prompt/rules/communication.js';
+import { readTurnContextPlacement } from '../step-messages.js';
 
 /**
  * Every value the runtime cannot run without, and what it is for. A missing
@@ -35,4 +36,6 @@ export function assertAgentRuntimeConfig<TDb>(config: Partial<AgentRuntimeConfig
   // on the first turn's prompt: a channel that needs plain text is never sent
   // a turn the worker cannot write a prompt for.
   if (config.persona) resolveCommunicationStyle(config.persona.overrides?.communicationStyle);
+  // So does a turn context placement the worker does not know.
+  readTurnContextPlacement(config.turnContextPlacement);
 }

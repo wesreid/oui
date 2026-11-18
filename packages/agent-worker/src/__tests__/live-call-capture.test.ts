@@ -789,7 +789,7 @@ describe('the live-call handler with captures', () => {
     ]);
     expect(runner.payloads[0].content).toBe(liveCallCaptureMessage(UPDATE_WORDS.accepted));
     expect(stored).toEqual([liveCallCaptureMessage(UPDATE_WORDS.accepted)]);
-    // In the message, not again after the conversation.
+    // In the message, not again in the turn's context.
     expect(runner.payloads[0].capture).toMatchObject({ active: RUNNING, update: null });
     expect(lines.find((l) => l[0] === '[agent-sdk] Live-call turn')![1]).toMatchObject({ kind: 'capture', capture: { active: 'active', step: '2/6', update: true } });
     expect(JSON.stringify(lines)).not.toContain('1HGCM');
@@ -884,6 +884,10 @@ function input(capture: unknown, overrides: Partial<AgentTurnInput> = {}): Agent
 }
 
 const isTail = (m: PromptMessage) => JSON.stringify(m.providerOptions ?? {}).includes('"stepTail":true');
+/** The turn's context: straight after the turn's message, on every step. */
+const isTurnContext = (m: PromptMessage) => JSON.stringify(m.providerOptions ?? {}).includes('"turnContext":true');
+/** What the conversation says, without what the runtime added for the turn or the step. */
+const conversationOf = (prompt: PromptMessage[]) => prompt.filter((m) => !isTail(m) && !isTurnContext(m));
 const textOf = (m: PromptMessage) => (typeof m.content === 'string' ? m.content : m.content.map((p) => p.text ?? '').join('\n'));
 const picturesIn = (prompt: PromptMessage[]) => JSON.stringify(prompt).match(/"type":"(file|image|image-data|media)"/g) ?? [];
 
@@ -920,12 +924,14 @@ describe('captures, through the real ai loop', () => {
       expect(declared.map((t) => t.name)).toEqual(expect.arrayContaining([...CAPTURE_TOOLS, 'inventory_search']));
       expect(JSON.stringify(declared.find((t) => t.name === CAPTURE_START_TOOL)!.inputSchema)).toContain('"enum":["trade-in-appraisal","service-damage"]');
     }
-    // The capture clause after the conversation, and no picture in any step.
+    // The capture clause with the turn's message on every step, never after the start's result, and no picture in any step.
     for (const prompt of prompts) {
-      expect(isTail(prompt.at(-1)!)).toBe(true);
-      expect(textOf(prompt.at(-1)!)).toContain(CAPTURE_WHEN);
+      const at = prompt.findIndex(isTurnContext);
+      expect(textOf(prompt[at - 1])).toBe(SPOKEN.text);
+      expect(textOf(prompt[at])).toContain(CAPTURE_WHEN);
       expect(picturesIn(prompt)).toEqual([]);
     }
+    expect(prompts[1].map((m) => m.role).slice(-3)).toEqual(['user', 'assistant', 'tool']);
     // The step after the start reads its words as the result.
     expect(JSON.stringify(prompts[1].find((m) => m.role === 'tool'))).toContain('is starting on the caller');
     expect(result.newMessages.at(-1)).toMatchObject({ role: 'assistant', content: 'Your screen is asking for a few photos of the car; you can stop at any time.' });
@@ -950,7 +956,7 @@ describe('captures, through the real ai loop', () => {
     const noRoute = scripted([], 'Sure.');
     await runAgentTurn(config(noRoute.model), input({ ...captureOf(), control: null, active: RUNNING }));
     expect(noRoute.tools[0].map((t) => t.name).filter((n) => (CAPTURE_TOOLS as readonly string[]).includes(n))).toEqual([]);
-    expect(textOf(noRoute.prompts[0].at(-1)!)).toContain('Photos cannot be started, checked or stopped from this turn.');
+    expect(textOf(noRoute.prompts[0].find(isTurnContext)!)).toContain('Photos cannot be started, checked or stopped from this turn.');
   });
 
   it('a host’s tool of the same name gives way to the SDK’s, a policy sees the capture class, and no approval is asked', async () => {
@@ -981,9 +987,11 @@ describe('captures, through the real ai loop', () => {
           history: [{ role: 'user', content: SPOKEN.text }, { role: 'assistant', content: 'I’ll send a photo request to your screen now.' }],
         }),
       );
-      const said = prompts[0].filter((m) => !isTail(m));
+      const said = conversationOf(prompts[0]);
       expect(said.map((m) => m.role), kind).toEqual(['system', 'user', 'assistant', 'user']);
       expect(textOf(said.at(-1)!), kind).toBe(liveCallCaptureMessage(UPDATE_WORDS[kind]));
+      // The turn's context follows the capture turn's message.
+      expect(isTurnContext(prompts[0].at(-1)!), kind).toBe(true);
       expect(textOf(prompts[0].at(-1)!), kind).toContain('A photo capture is running now');
       expect(picturesIn(prompts[0]), kind).toEqual([]);
       expect(result.newMessages.at(-1), kind).toMatchObject({ role: 'assistant', content: `(${kind}) said in my own words.` });
@@ -1004,10 +1012,10 @@ describe('captures, through the real ai loop', () => {
           history: [{ role: 'user', content: SPOKEN.text }, { role: 'assistant', content: 'I’ll send a photo request to your screen now.' }],
         }),
       );
-      const message = textOf(prompts[0].filter((m) => !isTail(m)).at(-1)!);
+      const message = textOf(conversationOf(prompts[0]).at(-1)!);
       expect(message, why).toContain(`Offer: ${OFFER}</capture_update>`);
       expect(message, why).toContain('say what is missing without pushing, and make that offer');
-      expect(textOf(prompts[0].at(-1)!), why).toContain('When a capture ends without completing, offer what its update says to offer.');
+      expect(textOf(prompts[0].find(isTurnContext)!), why).toContain('When a capture ends without completing, offer what its update says to offer.');
     }
     const silent = scripted([], '');
     const emit = vi.fn(async () => {});
@@ -1023,13 +1031,13 @@ describe('captures, through the real ai loop', () => {
     expect(emit.mock.calls.filter(([, event]) => event === AGENT_SOCKET_EVENTS.TOKEN)).toEqual([]);
   });
 
-  it('an update that rode a message turn reaches the model after the conversation, for that turn only', async () => {
+  it('an update that rode a message turn reaches the model in that turn’s context, for that turn only', async () => {
     const { model, prompts } = scripted([], 'Your VIN is in. Now the front corner.');
     const { runAgentTurn } = await import('../orchestrator.js');
     await runAgentTurn(config(model), input(captureOf(CONTROL_URL, { active: RUNNING, update: UPDATE_WORDS.accepted }), { content: 'Did that one work?' }));
-    const tail = textOf(prompts[0].at(-1)!);
-    expect(tail).toContain(`<capture_update>${UPDATE_WORDS.accepted}</capture_update>`);
-    expect(prompts[0].filter((m) => !isTail(m)).map(textOf).join('\n')).not.toContain(UPDATE_WORDS.accepted);
+    const context = textOf(prompts[0].find(isTurnContext)!);
+    expect(context).toContain(`<capture_update>${UPDATE_WORDS.accepted}</capture_update>`);
+    expect(conversationOf(prompts[0]).map(textOf).join('\n')).not.toContain(UPDATE_WORDS.accepted);
   });
 
   it('the capture tools do not change look: both are declared when both are offered', async () => {

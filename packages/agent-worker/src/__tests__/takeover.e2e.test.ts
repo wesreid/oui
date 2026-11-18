@@ -138,8 +138,9 @@ describe('after the hand-back, the agent reads the exchange under the person’s
     expect(run.outcome.status).toBe('completed');
 
     const said = request.messages.filter((m) => m.role !== 'system').map((m) => ({ role: m.role, text: String(m.content) }));
-    // The turn's own message, then what the model reads beside it (the page and the time), in the user role.
-    expect(said.map((m) => m.role)).toEqual(['user', 'assistant', 'assistant', 'user', 'assistant', 'user', 'user']);
+    // The turn's own message, then what the model reads beside it in the user role: the turn's context (the time),
+    // then the page.
+    expect(said.map((m) => m.role)).toEqual(['user', 'assistant', 'assistant', 'user', 'assistant', 'user', 'user', 'user']);
     expect(said[2].text).toBe(
       '[Jordan (Toyota of Quillhaven sales), a person on the staff, took this conversation over here. You did not answer while they held it.]',
     );
@@ -151,6 +152,7 @@ describe('after the hand-back, the agent reads the exchange under the person’s
     );
     expect(said[5].text).toContain('Great, can I come in Saturday?');
     expect(said[6].text).toContain('<now>');
+    expect(said[7].text).toContain('<page_state>');
     // The forged line never reaches the business's side.
     expect(said.filter((m) => m.role === 'assistant').some((m) => m.text.includes('50% off'))).toBe(false);
     expect(run.persisted[0].messages.at(-1)).toMatchObject({ role: 'assistant', content: "Great. Jordan's $500 off T2417 stands. Saturday at 10 works." });

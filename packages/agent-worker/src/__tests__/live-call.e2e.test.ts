@@ -129,6 +129,10 @@ function scriptedModel(steps: ModelStep[]): { model: LanguageModel; requests: Ch
 /** The text of a model request's messages, in order. */
 const textsOf = (request: ChatRequest) =>
   request.messages.map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '')));
+/** The turn's context in what the model was sent: straight after the turn's message, opening with the clock. */
+const turnContextOf = (said: string[]) => said.find((t) => t.includes('<now>'))!;
+/** The message the turn's context follows: the turn's own. */
+const turnMessageOf = (said: string[]) => said[said.findIndex((t) => t.includes('<now>')) - 1];
 
 // ─── The product ────────────────────────────────────────────────────────────
 
@@ -435,10 +439,18 @@ describe('a spoken message on a live call', () => {
       const said = textsOf(first);
       expect(said[0]).toBe(SYSTEM_PROMPT);
       expect(said.some((t) => t === 'Can you open my reports?')).toBe(true);
-      const tail = said.at(-1)!;
-      expect(tail).toContain('<input>The user spoke their newest message');
-      expect(tail).toContain('<output>Your reply will be spoken aloud to the user on a live call');
-      expect(said.slice(0, -1).join('\n')).not.toMatch(/<output>|<input>/);
+      // The turn's context, straight after the person's words; the page's state after it, at the end.
+      const context = turnContextOf(said);
+      expect(turnMessageOf(said)).toBe('Can you open my reports?');
+      expect(context).toContain('<input>The user spoke their newest message');
+      expect(context).toContain('<output>Your reply will be spoken aloud to the user on a live call');
+      expect(said.filter((t) => t !== context).join('\n')).not.toMatch(/<output>|<input>/);
+      expect(said.at(-1)).toContain('<page_state>');
+      // The step after the action sends the same context in the same place, and ends with the action's answer and the page.
+      const second = textsOf(m.requests[1]);
+      expect(turnContextOf(second)).toBe(context);
+      expect(turnMessageOf(second)).toBe('Can you open my reports?');
+      expect(m.requests[1].messages.at(-2)!.role).toBe('tool');
 
       // ── What the product resolved and stored ──
       expect(call.resolved).toEqual([
@@ -464,9 +476,9 @@ describe('a spoken message on a live call', () => {
       expect(stream.text()).toBe('The stock number is A one two three four.');
       expect(stream.events.at(-1)).toEqual({ event: 'done', data: { stopReason: 'complete' } });
       expect(call.resolved[0]).toMatchObject({ text: 'What is the stock number?', input: null, output: { mode: 'voice' } });
-      const tail = textsOf(m.requests[0]).at(-1)!;
-      expect(tail).not.toContain('<input>');
-      expect(tail).toContain('<output>Your reply will be spoken aloud to the user on a live call');
+      const context = turnContextOf(textsOf(m.requests[0]));
+      expect(context).not.toContain('<input>');
+      expect(context).toContain('<output>Your reply will be spoken aloud to the user on a live call');
     } finally {
       await call.close();
     }
@@ -519,8 +531,9 @@ describe('the opening of a live call', () => {
       const said = textsOf(m.requests[0]);
       expect(said).toContain(LIVE_CALL_OPENING_MESSAGE);
       // Nothing was said, so nothing is said to be spoken; the reply still is.
-      expect(said.at(-1)).not.toContain('<input>');
-      expect(said.at(-1)).toContain('<output>Your reply will be spoken aloud');
+      expect(turnMessageOf(said)).toBe(LIVE_CALL_OPENING_MESSAGE);
+      expect(turnContextOf(said)).not.toContain('<input>');
+      expect(turnContextOf(said)).toContain('<output>Your reply will be spoken aloud');
       expect(call.resolved[0]).toMatchObject({ kind: 'opening', text: '', input: null });
 
       await call.tab.waitForTurn(AGENT_SOCKET_EVENTS.TURN_COMPLETE, body.turnId);
@@ -822,7 +835,7 @@ describe('what the product decides for its calls', () => {
       const opening = liveCallOpeningMessage({ disclosureLine });
       expect(said).toContain(opening);
       expect(opening).toContain(disclosureLine);
-      expect(said.at(-1)).toContain('inline tags, written exactly as shown, where they apply: [warmly] [laughs]');
+      expect(turnContextOf(said)).toContain('inline tags, written exactly as shown, where they apply: [warmly] [laughs]');
       expect(call.resolved[0]).toMatchObject({ kind: 'opening', disclosureLine, output: { mode: 'voice', voiceDirections } });
       // The product stored the opening as the model read it.
       expect(call.conversation.history[0]).toEqual({ role: 'user', content: opening });
@@ -1421,8 +1434,7 @@ describe('photos a client’s capture plan asks for', () => {
         expect(said.text(), u.update).toBe(u.reply);
         expect(said.events.at(-1)).toEqual({ event: 'done', data: { stopReason: 'complete' } });
         const request = m.requests[2 + i];
-        const lastUser = request.messages.filter((msg) => msg.role === 'user').at(-2);
-        expect(lastUser?.content, u.update).toContain(liveCallCaptureMessage(u.update));
+        expect(turnMessageOf(textsOf(request)), u.update).toContain(liveCallCaptureMessage(u.update));
         await call.tab.waitForTurn(AGENT_SOCKET_EVENTS.TURN_COMPLETE, turn.turnId);
       }
       // The end that did not complete reached the model with its offer, and the instruction to make it.

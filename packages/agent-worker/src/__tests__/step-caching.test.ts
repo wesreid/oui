@@ -51,8 +51,9 @@ const tool = (name: string, ok: boolean): RegisteredTool => ({
   execute: vi.fn(async () => (ok ? { success: true, data: { rows: 'x'.repeat(2_000) } } : { success: false, error: 'The layer is locked' })),
 });
 
-async function turn(model: unknown, overrides: Partial<AgentTurnInput> = {}) {
+async function turn(model: unknown, overrides: Partial<AgentTurnInput> = {}, configOverrides: Partial<AgentWorkerConfig> = {}) {
   const config: AgentWorkerConfig = {
+    ...configOverrides,
     tools: createToolRegistry([tool('layers_read', true), tool('layer_edit', false)]),
     emit: { emit: vi.fn(async () => {}) },
     model: model as AgentWorkerConfig['model'],
@@ -81,6 +82,8 @@ const marked = (m: PromptMessage) => JSON.stringify(m.providerOptions ?? {}).inc
 const isNote = (m: PromptMessage) => JSON.stringify(m.content).includes('<step_note>');
 /** What a step sends after the conversation, for itself alone. */
 const isTail = (m: PromptMessage) => JSON.stringify(m.providerOptions ?? {}).includes('"stepTail":true');
+/** The turn's context: with the turn's message, the same on every step. */
+const isTurnContext = (m: PromptMessage) => JSON.stringify(m.providerOptions ?? {}).includes('"turnContext":true');
 /** What a step sends of the conversation: no system prompt, no tail of its own. */
 const conversation = (prompt: PromptMessage[]) => prompt.filter((m) => m.role !== 'system' && !isTail(m));
 
@@ -114,9 +117,11 @@ describe('a turn’s steps and the prompt cache', () => {
     expect(prompts).toHaveLength(3);
     const systems = prompts.map((p) => JSON.stringify(p.filter((m) => m.role === 'system')));
     expect(new Set(systems).size).toBe(1);
+    // The first step ends with the turn's context, marked: it has no note, and no page, so no tail.
+    expect(isTail(prompts[0].at(-1)!)).toBe(false);
+    expect(isTurnContext(prompts[0].at(-1)!)).toBe(true);
+    expect(marked(prompts[0].at(-1)!)).toBe(true);
     // The call that failed is reported to the steps after it, as the last thing they read, unmarked.
-    expect(isTail(prompts[0].at(-1)!)).toBe(true);
-    expect(isNote(prompts[0].at(-1)!)).toBe(false);
     for (const prompt of prompts.slice(1)) {
       const last = prompt.at(-1)!;
       expect(isNote(last)).toBe(true);
@@ -130,10 +135,15 @@ describe('a turn’s steps and the prompt cache', () => {
 });
 
 describe('a turn and the next one', () => {
-  it('sends the next turn everything the last step of this one sent, byte for byte, so the cache reads it', async () => {
+  /** Turn one, two calls, spoken, with the host's notes; then turn two's first step, on the history the host stored. */
+  async function twoTurns(placement?: 'with-message' | 'after-conversation') {
     const first = scripted(['layers_read', 'layers_read']);
-    const spoken = { context: { timeZone: 'Europe/Paris', input: { mode: 'voice', language: 'en' } }, stepContext: '<work_notes>\n- the slide\n</work_notes>' };
-    const one = await turn(first.model, spoken);
+    const spoken = {
+      context: { timeZone: 'Europe/Paris', input: { mode: 'voice', language: 'en' } },
+      stepContext: '<work_notes>\n- the slide\n</work_notes>',
+    };
+    const config = placement ? { turnContextPlacement: placement } : {};
+    const one = await turn(first.model, spoken, config);
 
     // The next turn's history: what the host stored of this one, then the person's next message.
     const history: TurnHistoryMessage[] = [
@@ -154,17 +164,52 @@ describe('a turn and the next one', () => {
       { role: 'user', content: 'Now the other one' },
     ];
     const second = scripted([]);
-    await turn(second.model, { content: 'Now the other one', history, context: { timeZone: 'Europe/Paris' }, stepContext: '<work_notes>\n- the slide\n- the video\n</work_notes>' });
+    await turn(
+      second.model,
+      { content: 'Now the other one', history, context: { timeZone: 'Europe/Paris' }, stepContext: '<work_notes>\n- the slide\n- the video\n</work_notes>' },
+      config,
+    );
+    return { first, second };
+  }
 
+  it('sends the next turn the conversation up to this turn’s message as this turn sent it, and none of this turn’s context', async () => {
+    const { first, second } = await twoTurns();
+    const sentBefore = conversation(first.prompts.at(-1)!);
+    const sentNow = conversation(second.prompts[0]);
+    // Up to and including turn one's message, byte for byte: the cache reads it.
+    const turnOneMessageAt = sentBefore.findIndex((m) => JSON.stringify(m.content).includes('Read the layers, then edit one'));
+    expect(turnOneMessageAt).toBe(2);
+    expect(sentNow.slice(0, turnOneMessageAt + 1).map((m) => JSON.stringify(m.content))).toEqual(
+      sentBefore.slice(0, turnOneMessageAt + 1).map((m) => JSON.stringify(m.content)),
+    );
+    // Turn one's context went with its message, and the next turn never sends it: what was true only
+    // for turn one (the spoken line, the clock, the notes) is in no message the host stored.
+    expect(JSON.stringify(sentBefore[turnOneMessageAt + 1].content)).toMatch(/<now>[\s\S]*<input>[\s\S]*<work_notes>[\s\S]*- the slide/);
+    expect(isTurnContext(sentBefore[turnOneMessageAt + 1])).toBe(true);
+    const turnTwo = JSON.stringify(sentNow.filter((m) => !isTurnContext(m)).map((m) => m.content));
+    expect(turnTwo).not.toMatch(/<input>|<now>|<work_notes>/);
+    // Then turn one's calls and results, as it sent them: written to the cache once more.
+    expect(sentNow.slice(turnOneMessageAt + 1, turnOneMessageAt + 5).map((m) => JSON.stringify(m.content))).toEqual(
+      sentBefore.slice(turnOneMessageAt + 2).map((m) => JSON.stringify(m.content)),
+    );
+    // Turn two's own context is with its message, at the end of its first step.
+    expect(isTurnContext(sentNow.at(-1)!)).toBe(true);
+    expect(JSON.stringify(sentNow.at(-1)!.content)).toContain('- the video');
+    // And the system prompt is the same for both turns.
+    expect(JSON.stringify(second.prompts[0].filter((m) => m.role === 'system'))).toBe(JSON.stringify(first.prompts[0].filter((m) => m.role === 'system')));
+  });
+
+  it('after the conversation (turnContextPlacement), sends the next turn everything the last step of this one sent, byte for byte', async () => {
+    const { first, second } = await twoTurns('after-conversation');
     // The last step of turn one, without its tail: a prefix of turn two's first step.
     const sentBefore = conversation(first.prompts.at(-1)!).map((m) => JSON.stringify(m.content));
     const sentNow = conversation(second.prompts[0]).map((m) => JSON.stringify(m.content));
     expect(sentNow.slice(0, sentBefore.length)).toEqual(sentBefore);
-    // What was true only for turn one (the spoken line, the clock, the notes) was never part of it.
+    // What was true only for turn one was never part of it: it was the tail, after the last tool result.
     expect(JSON.stringify(sentBefore)).not.toMatch(/<input>|<now>|<work_notes>/);
+    expect(first.prompts.at(-1)!.filter(isTurnContext)).toHaveLength(0);
     expect(JSON.stringify(first.prompts.at(-1)!.at(-1)!.content)).toMatch(/<input>[\s\S]*<work_notes>/);
-    // And the system prompt is the same for both turns.
-    expect(JSON.stringify(second.prompts[0].filter((m) => m.role === 'system'))).toBe(JSON.stringify(first.prompts[0].filter((m) => m.role === 'system')));
+    expect(first.prompts.at(-1)!.at(-2)!.role).toBe('tool');
   });
 });
 
