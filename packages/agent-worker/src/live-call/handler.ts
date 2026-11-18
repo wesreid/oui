@@ -50,6 +50,17 @@
  * words would be, and says it in a short line or stays silent. The log line
  * records facts only: never the capture token or the update's words.
  *
+ * The character can move the call to the caller's phone when the session
+ * allows it: the call service carries `client.handoff` on every
+ * turn, and the handler sets it as the turn's `handoff`. With a control
+ * route, the model has `call_handoff` (handoff/handoff-tool.ts), and is told
+ * when to offer it (prompt/handoff.ts). A `device` turn passes on what
+ * happened to the caller's devices: the model reads
+ * `liveCallDeviceMessage(update)` where the person's words would be (with
+ * `liveCallCaptureMessage` after it when a capture update arrived with it),
+ * and answers in one short sentence or stays silent. The log line records
+ * facts only: never the hand-off token or the update's words.
+ *
  * A call is a voice: an approval is read back (the host's `spokenReadback`
  * when it wrote one) and the person's next words confirm it, as on any voice
  * channel. A UI action's too: its card is also on the person's
@@ -87,6 +98,7 @@ import { DEFAULT_KEEP_ALIVE_MS, openLiveCallEventStream, type LiveCallEventStrea
 import {
   LIVE_CALL_GLANCE_MESSAGE,
   liveCallCaptureMessage,
+  liveCallDeviceMessage,
   liveCallError,
   liveCallOpeningMessage,
   readLiveCallTurnRequest,
@@ -95,6 +107,7 @@ import {
 } from './protocol.js';
 import { visionFacts } from '../prompt/vision.js';
 import { captureFacts, type TurnCapture } from '../prompt/capture.js';
+import { handoffFacts, type TurnHandoff } from '../prompt/handoff.js';
 
 /** Who and where a live-call turn is, in the product: what the host resolves a call's `clientRef` to. */
 export interface LiveCallTurnTarget {
@@ -428,6 +441,8 @@ export function liveCallRoute(options: LiveCallTurnOptions, host: LiveCallRouteH
         ...(request.client?.vision ? { vision: visionFacts(request.client.vision) } : {}),
         // Facts only: how many plans, whether it can start, where a capture stands. Never the token or the update's words.
         ...(request.client?.capture ? { capture: captureFacts(request.client.capture) } : {}),
+        // Facts only: whether it can offer, the live device, an open offer. Never the token or the update's words.
+        ...(request.client?.handoff ? { handoff: handoffFacts(request.client.handoff) } : {}),
       });
 
       let outcome: TurnOutcome;
@@ -485,7 +500,7 @@ function turnPayload(request: LiveCallTurnRequest, target: LiveCallTurnTarget): 
     userId: target.userId,
     accountId: target.accountId,
     socketRoom: target.socketRoom,
-    // An opening's, a glance's or a capture's blank content is no redaction: the model reads the instruction that stands for it.
+    // An opening's, a glance's, a capture's or a device turn's blank content is no redaction: the model reads the instruction that stands for it.
     content:
       request.kind !== 'message' && !(typeof target.content === 'string' && target.content.trim())
         ? turnMessage(request)
@@ -498,24 +513,33 @@ function turnPayload(request: LiveCallTurnRequest, target: LiveCallTurnTarget): 
     ...(request.supersedes.length > 0 ? { supersedes: request.supersedes } : {}),
     // What the caller's camera shows, for this turn only.
     ...(request.client?.vision ? { vision: request.client.vision } : {}),
-    // The session's photo captures. A capture turn's update is its message, so it is not said twice.
+    // The session's photo captures. A capture or device turn's update is its message, so it is not said twice.
     ...(request.client?.capture
-      ? { capture: request.kind === 'capture' ? { ...request.client.capture, update: null } : request.client.capture }
+      ? { capture: request.kind === 'capture' || request.kind === 'device' ? { ...request.client.capture, update: null } : request.client.capture }
+      : {}),
+    // The call's devices. A device turn's update is its message, so it is not said twice.
+    ...(request.client?.handoff
+      ? { handoff: request.kind === 'device' ? { ...request.client.handoff, update: null } : request.client.handoff }
       : {}),
   };
 }
 
 /** What of a request its turn's message is made from. */
 export type LiveCallTurnMessageSource = Pick<LiveCallTurnRequest, 'kind' | 'text' | 'disclosureLine'> & {
-  /** On a `capture` turn, its `client.capture.update` is the message. */
-  client?: { capture?: Pick<TurnCapture, 'update'> | null } | null;
+  /**
+   * On a `capture` turn, its `client.capture.update` is the message. On a
+   * `device` turn, its `client.handoff.update` is, followed by a
+   * `client.capture.update` that arrived with it.
+   */
+  client?: { capture?: Pick<TurnCapture, 'update'> | null; handoff?: Pick<TurnHandoff, 'update'> | null } | null;
 };
 
 /**
  * What the model reads as the person's message, unless the host's target
- * gives its own `content`: what they said, or for an `opening`, a `glance` and
- * a `capture` the instruction that stands in for it (a capture's carries what
- * happened, `liveCallCaptureMessage(update)`). A host that stores the person's
+ * gives its own `content`: what they said, or for an `opening`, a `glance`, a
+ * `capture` and a `device` turn the instruction that stands in for it (a
+ * capture's carries what happened, `liveCallCaptureMessage(update)`; a device
+ * turn's, `liveCallDeviceMessage(update)`). A host that stores the person's
  * messages stores the same, so its history has a readable row for each turn.
  */
 export function liveCallTurnMessage(request: LiveCallTurnMessageSource): string {
@@ -532,6 +556,13 @@ function turnMessage(request: LiveCallTurnMessageSource): string {
       const update = request.client?.capture?.update;
       if (typeof update !== 'string' || !update.trim()) throw new Error('[agent-sdk] A capture turn’s message needs its client.capture.update');
       return liveCallCaptureMessage(update);
+    }
+    case 'device': {
+      const update = request.client?.handoff?.update;
+      if (typeof update !== 'string' || !update.trim()) throw new Error('[agent-sdk] A device turn’s message needs its client.handoff.update');
+      // Device and capture updates that arrived together are one turn: both are its message.
+      const capture = request.client?.capture?.update;
+      return typeof capture === 'string' && capture.trim() ? `${liveCallDeviceMessage(update)} ${liveCallCaptureMessage(capture)}` : liveCallDeviceMessage(update);
     }
     default:
       return request.text;

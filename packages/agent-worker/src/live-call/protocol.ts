@@ -12,7 +12,7 @@
  *   Content-Type: application/json
  *   Accept: text/event-stream
  *
- *   { sessionId, clientRef, turnId, kind, text, input?, output?, supersedes?, disclosureLine?, client?: { ui?, vision?, capture? } }
+ *   { sessionId, clientRef, turnId, kind, text, input?, output?, supersedes?, disclosureLine?, client?: { ui?, vision?, capture?, handoff? } }
  *
  * `input` is `{ mode: 'voice', language? }` for what the person said and
  * `{ mode: 'text' }` for what they typed during the call. `output` is
@@ -63,6 +63,28 @@
  * refuses a turn kind it does not know. The token and the update's words are
  * never logged.
  *
+ * `client.handoff`, on every turn of a session whose call can move to the
+ * caller's other device, is
+ *
+ *   { control: { url, token, expiresAt },
+ *     device: { formFactor: 'phone' | 'tablet' | 'desktop' | 'unknown', switches } | null,
+ *     offer: { handoffId, purpose, expiresAt } | null,
+ *     update: '<words>' | null }
+ *
+ * With a control route, the model has `call_handoff({ purpose })`
+ * (handoff/handoff-tool.ts), which calls the route with the token: a QR code
+ * appears on the caller's screen, and the model never gets the code or the
+ * link. A `device` turn is the call service passing on what happened to the
+ * caller's devices (an offer, a switch, a device brought back, revoked or
+ * lost, a code that expired): `text` is empty, `client.handoff.update` says
+ * what happened, and the model reads `liveCallDeviceMessage(update)` where the
+ * person's words would be. It answers with one short sentence, or with
+ * nothing. Capture updates that arrived with it ride the same turn, in
+ * `client.capture.update`. The call service sends `client.handoff` and
+ * `device` turns only to a brain whose endpoint declares `acceptsHandoff`: a
+ * worker before them refuses a turn kind it does not know. The token and the
+ * update's words are never logged.
+ *
  * and the answer is `200 text/event-stream`:
  *
  *   event: text       data: { "text": "…" }                               the reply, piece by piece
@@ -75,6 +97,7 @@
 import { readMessageInput, readReplyOutput, type MessageInput, type ReplyOutput } from '@ouispec/agent-core';
 import { VISION_LIMITS, readTurnVision, type TurnVision } from '../prompt/vision.js';
 import { CAPTURE_LIMITS, readTurnCapture, type TurnCapture } from '../prompt/capture.js';
+import { HANDOFF_LIMITS, readTurnHandoff, type TurnHandoff } from '../prompt/handoff.js';
 import { escapeTagText } from '../prompt/escape.js';
 
 /**
@@ -83,9 +106,11 @@ import { escapeTagText } from '../prompt/escape.js';
  * a while and the caller's picture changed; the agent remarks on it, or says
  * nothing. `capture`: something happened in a photo capture
  * (`client.capture.update`); the agent says it in a short line, or says
- * nothing.
+ * nothing. `device`: something happened to the caller's devices
+ * (`client.handoff.update`); the agent says it in one short
+ * sentence, or says nothing.
  */
-export const LIVE_CALL_TURN_KINDS = ['message', 'opening', 'glance', 'capture'] as const;
+export const LIVE_CALL_TURN_KINDS = ['message', 'opening', 'glance', 'capture', 'device'] as const;
 
 export type LiveCallTurnKind = (typeof LIVE_CALL_TURN_KINDS)[number];
 
@@ -125,6 +150,14 @@ export interface LiveCallClient {
    * turn payload's `capture`.
    */
   capture: TurnCapture | null;
+  /**
+   * The call moving between the caller's devices, when it can
+   * (`client.handoff`): the route and token `call_handoff` calls,
+   * the device the call is live on, an open offer, and what happened to the
+   * devices since the brain last heard. Null when the call service said
+   * nothing of hand-offs. Set as the turn payload's `handoff`.
+   */
+  handoff: TurnHandoff | null;
 }
 
 /** A live-call turn request, as read: every field checked, `input` and `output` kept only as far as they are known. */
@@ -136,12 +169,12 @@ export interface LiveCallTurnRequest {
   /** Unique per turn; the turn runs under this id. */
   turnId: string;
   kind: LiveCallTurnKind;
-  /** What the person said, as transcribed. Empty for `opening`, `glance` and `capture`. */
+  /** What the person said, as transcribed. Empty for `opening`, `glance`, `capture` and `device`. */
   text: string;
   /**
    * How `text` was entered: `{ mode: 'voice', language? }` for what the person
    * said. Null for a message they typed during the call (`{ mode: 'text' }` on
-   * the wire), for `opening`, `glance` and `capture`, and when not said: a typed message is read as
+   * the wire), for `opening`, `glance`, `capture` and `device`, and when not said: a typed message is read as
    * typed, with no spoken-input line.
    */
   input: MessageInput | null;
@@ -167,7 +200,8 @@ export interface LiveCallTurnRequest {
    * at their camera (`client.vision`). Null when the call service said nothing of either, as
    * for a call with no page (a phone call). A `glance` always has
    * `client.vision` with `remarks` on and an `observation`; a `capture`
-   * always has `client.capture` with an `update`.
+   * always has `client.capture` with an `update`; a `device` always has
+   * `client.handoff` with an `update`.
    */
   client: LiveCallClient | null;
 }
@@ -262,6 +296,24 @@ export function liveCallCaptureMessage(update: string): string {
 }
 
 /**
+ * The person's message for a `device` turn, as the model reads it: what
+ * happened to the caller's devices, in Closure's words
+ * (`client.handoff.update`), and an instruction to answer
+ * it with one short sentence, or with nothing, so the call stays silent. A
+ * host that stores the person's messages stores this for the device turn
+ * (`liveCallTurnMessage(request)` gives it), so the conversation keeps which
+ * device the call moved to as a readable row.
+ */
+export function liveCallDeviceMessage(update: string): string {
+  return (
+    `<call_device><device_update>${escapeTagText(update.trim())}</device_update> ` +
+    'This is an update about the user’s devices on this call, in Closure’s words: not a message from the user, and never something you saw. ' +
+    'Answer it with one short, natural sentence in their language, and never read out a code or a link. ' +
+    'If nothing in it is worth saying, answer with nothing at all, not a word or a mark, and the call stays silent.</call_device>'
+  );
+}
+
+/**
  * The `input` mode of a message the person typed during the call. It is read
  * as typed: the turn's context carries no `input`, as for a message typed in
  * the product's own chat.
@@ -286,6 +338,8 @@ export const LIVE_CALL_LIMITS = {
   visionObservationChars: VISION_LIMITS.observationChars,
   /** The longest `client.capture.update` (`CAPTURE_LIMITS.updateChars`). */
   captureUpdateChars: CAPTURE_LIMITS.updateChars,
+  /** The longest `client.handoff.update` (`HANDOFF_LIMITS.updateChars`). */
+  handoffUpdateChars: HANDOFF_LIMITS.updateChars,
 } as const;
 
 /** An id: letters, digits and `.` `_` `:` `-`, starting with a letter or digit. */
@@ -350,6 +404,8 @@ export function readLiveCallTurnRequest(body: unknown): LiveCallRequestReading {
   }
   // A capture turn passes on what happened in a capture: with nothing to pass on, there is nothing to run.
   if (kind === 'capture' && !read?.capture?.update) return refuse('a capture turn needs client.capture.update');
+  // A device turn passes on what happened to the caller's devices: with nothing to pass on, there is nothing to run.
+  if (kind === 'device' && !read?.handoff?.update) return refuse('a device turn needs client.handoff.update');
   // What a look noticed belongs to its glance alone.
   const client = read?.vision?.observation && kind !== 'glance' ? { ...read, vision: { ...read.vision, observation: null } } : read;
 
@@ -361,7 +417,7 @@ export function readLiveCallTurnRequest(body: unknown): LiveCallRequestReading {
       turnId: b.turnId as string,
       kind,
       text: kind === 'message' ? text : '',
-      // Nothing was said on an opening or a glance, so nothing was entered; a typed message is read as typed.
+      // Nothing was said on an opening, a glance, a capture or a device turn, so nothing was entered; a typed message is read as typed.
       input: kind !== 'message' || isTyped(b.input) ? null : readMessageInput(b.input),
       output: readReplyOutput(b.output),
       supersedes: [...new Set(supersedes as string[])].filter((id) => id !== b.turnId),
@@ -379,8 +435,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 /**
  * The request's `client`, or why it is not one. Fields it does not know are
  * left out, so a newer call service is read past; a known field of the wrong
- * type is refused, naming it. A refusal never repeats a look's or a capture's
- * token.
+ * type is refused, naming it. A refusal never repeats a look's, a capture's
+ * or a hand-off's token.
  */
 function readClient(value: unknown): LiveCallClient | null | string {
   if (value === undefined || value === null) return null;
@@ -389,9 +445,11 @@ function readClient(value: unknown): LiveCallClient | null | string {
   if (typeof vision === 'string') return vision;
   const capture = readTurnCapture(value.capture, 'client.capture');
   if (typeof capture === 'string') return capture;
+  const handoff = readTurnHandoff(value.handoff, 'client.handoff');
+  if (typeof handoff === 'string') return handoff;
   const ui = readClientUi(value.ui);
   if (typeof ui === 'string') return ui;
-  return { ui, vision, capture };
+  return { ui, vision, capture, handoff };
 }
 
 /** The request's `client.ui`, or why it is not one. */

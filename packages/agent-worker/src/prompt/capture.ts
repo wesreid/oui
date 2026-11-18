@@ -63,6 +63,10 @@ export const CAPTURE_END_REASONS = [
 ] as const;
 export type CaptureEndReason = (typeof CAPTURE_END_REASONS)[number];
 
+/** Why a capture is `blocked` (Closure's capture contract). */
+export const CAPTURE_BLOCKED_REASONS = ['camera_denied', 'no_rear_camera'] as const;
+export type CaptureBlockedReason = (typeof CAPTURE_BLOCKED_REASONS)[number];
+
 /**
  * What a brain update reports. The call service passes updates on as words
  * (`client.capture.update`); the kinds are what those words can be about.
@@ -148,6 +152,12 @@ export interface CaptureActive {
   status: CaptureStatus;
   /** The step it is on; null before the first, and between steps. */
   step: CaptureActiveStep | null;
+  /**
+   * Why it is `blocked`, when the call service says: the browser refused the
+   * camera, or this device has no rear camera for the step (it carries on once the call moves to their
+   * phone).
+   */
+  blockedReason?: CaptureBlockedReason;
 }
 
 /** What the turn carries of the session's photo captures. */
@@ -255,7 +265,17 @@ function readActive(value: unknown, field: string): CaptureActive | null | strin
     if (!(typeof index === 'number' && Number.isInteger(index) && index >= 1 && index <= of)) return `${field}.step.index must be a whole number from 1 to step.of`;
     step = { id: raw.id, label, index, of };
   }
-  return { captureId: value.captureId, plan: value.plan, status: value.status as CaptureStatus, step };
+  const blockedReason = value.blockedReason;
+  if (blockedReason !== undefined && blockedReason !== null && !(CAPTURE_BLOCKED_REASONS as readonly unknown[]).includes(blockedReason)) {
+    return `${field}.blockedReason must be one of ${CAPTURE_BLOCKED_REASONS.join(', ')}`;
+  }
+  return {
+    captureId: value.captureId,
+    plan: value.plan,
+    status: value.status as CaptureStatus,
+    step,
+    ...(typeof blockedReason === 'string' && value.status === 'blocked' ? { blockedReason: blockedReason as CaptureBlockedReason } : {}),
+  };
 }
 
 /** Whether the turn can start, read and stop captures: there are plans, and a route to call. */
@@ -283,9 +303,16 @@ const STATUS_WORDS: Readonly<Record<CaptureStatus, string>> = {
   starting: 'starting',
   awaiting_consent: 'waiting for the caller to agree on their screen',
   active: 'in progress',
+  // Before call hand-offs a capture was blocked for the camera permission alone.
   blocked: 'blocked: their browser has not allowed the camera',
   ending: 'finishing',
   ended: 'over',
+};
+
+/** How a blocked capture's reason is said. */
+const BLOCKED_WORDS: Readonly<Record<CaptureBlockedReason, string>> = {
+  camera_denied: 'blocked: their browser has not allowed the camera',
+  no_rear_camera: 'blocked: this device has no rear camera for the next photo, so it waits for the call to move to their phone',
 };
 
 /**
@@ -319,7 +346,7 @@ export function captureText(capture: TurnCapture | null | undefined): string | n
     const a = capture.active;
     const step = a.step ? `, on step ${a.step.index} of ${a.step.of}, ${escapeTagText(a.step.label)}` : '';
     parts.push(
-      `A photo capture is running now: plan "${a.plan}", capture ${a.captureId}, ${STATUS_WORDS[a.status]}${step}. ` +
+      `A photo capture is running now: plan "${a.plan}", capture ${a.captureId}, ${a.blockedReason ? BLOCKED_WORDS[a.blockedReason] : STATUS_WORDS[a.status]}${step}. ` +
         (canCapture(capture) ? 'Use `capture_status` to ask where it stands; use `capture_stop` only when the caller wants to stop.' : ''),
     );
   } else if (canCapture(capture)) {

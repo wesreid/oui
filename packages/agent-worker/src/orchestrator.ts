@@ -57,6 +57,8 @@ import { visionText } from './prompt/vision.js';
 import { lookTool } from './vision/look-tool.js';
 import { captureText } from './prompt/capture.js';
 import { captureTools } from './capture/capture-tools.js';
+import { handoffText } from './prompt/handoff.js';
+import { handoffTool } from './handoff/handoff-tool.js';
 import { AttachmentGuard } from './attachments/guard.js';
 import { ATTACHMENT_DATA_NOTE, turnAttachmentParts, withReferenceLines, withTurnAttachments, withoutLeftOut } from './attachments/content.js';
 import { attachmentTools } from './attachments/tools.js';
@@ -293,7 +295,9 @@ export async function runAgentTurn(
   // The SDK's own tools: they take their names before the host's.
   // The caller is asked for photos only through the client's plans (capture/capture-tools.ts): words, never a photo.
   const photoTools: RegisteredTool[] = captureTools(input.capture);
-  const sdkTools: RegisteredTool[] = [...fileTools, ...visionTools, ...photoTools];
+  // The call moves to the caller's phone only by a code on their screen (handoff/handoff-tool.ts): never the code or link.
+  const deviceTools: RegisteredTool[] = handoffTool(input.handoff);
+  const sdkTools: RegisteredTool[] = [...fileTools, ...visionTools, ...photoTools, ...deviceTools];
 
   log('info', 'agent:ui', 'UI surfaces for this turn', {
     turnId,
@@ -1917,6 +1921,8 @@ export async function runAgentTurn(
   const turnVisionText = visionText(input.vision);
   // When to offer each photo plan, where a running capture stands, and an update that rode this turn (prompt/capture.ts).
   const turnCaptureText = captureText(input.capture);
+  // When to move the call to the caller's phone, which device it is on, and an update that rode this turn (prompt/handoff.ts).
+  const turnHandoffText = handoffText(input.handoff);
   const turnPageValues =
     client && client.page.length > 0
       ? [
@@ -1942,6 +1948,8 @@ export async function runAgentTurn(
     ...(turnVisionText ? [turnVisionText] : []),
     // When the model may ask for photos, and what has happened in a capture.
     ...(turnCaptureText ? [turnCaptureText] : []),
+    // When the model may move the call to the caller's phone, and what has happened to their devices.
+    ...(turnHandoffText ? [turnHandoffText] : []),
     ...(expired.outcomes.length > 0 ? [expiredNote(expired)] : []),
     ...(input.stepContext?.trim() ? [input.stepContext.trim()] : []),
   ];

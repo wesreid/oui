@@ -202,6 +202,7 @@ export {
   LIVE_CALL_OPENING_MESSAGE,
   LIVE_CALL_GLANCE_MESSAGE,
   liveCallCaptureMessage,
+  liveCallDeviceMessage,
   liveCallOpeningMessage,
   LIVE_CALL_TYPED_INPUT_MODE,
   LIVE_CALL_LIMITS,
@@ -236,6 +237,7 @@ export {
   CAPTURE_END_REASONS,
   CAPTURE_BRAIN_UPDATE_KINDS,
   CAPTURE_UPDATE_TEXT_MAX,
+  CAPTURE_BLOCKED_REASONS,
 } from './prompt/capture.js';
 export type {
   TurnCapture,
@@ -247,6 +249,7 @@ export type {
   CaptureOutcome,
   CaptureEndReason,
   CaptureBrainUpdateKind,
+  CaptureBlockedReason,
 } from './prompt/capture.js';
 export {
   captureTools,
@@ -257,6 +260,41 @@ export {
   CAPTURE_TOOL_CLASS,
   CAPTURE_TOOL_LIMITS,
 } from './capture/capture-tools.js';
+// The call moving between the caller's devices: read, told to the model, and the tool that offers the move.
+export {
+  readTurnHandoff,
+  handoffText,
+  handoffFacts,
+  canHandoff,
+  HANDOFF_LIMITS,
+  HANDOFF_WHEN,
+  HANDOFF_NEVER,
+  HANDOFF_CODE_TTL_S,
+  CALL_HANDOFF_PURPOSES,
+  CALL_HANDOFF_STATUSES,
+  CALL_FORM_FACTORS,
+  DEVICE_UPDATE_KINDS,
+  DEVICE_UPDATE_TEXT_MAX,
+  FORM_FACTOR_WORDS,
+} from './prompt/handoff.js';
+export type {
+  TurnHandoff,
+  HandoffControl,
+  HandoffDevice,
+  HandoffOffer,
+  CallHandoffPurpose,
+  CallHandoffStatus,
+  CallFormFactor,
+  DeviceUpdateKind,
+} from './prompt/handoff.js';
+export {
+  handoffTool,
+  CALL_HANDOFF_TOOL,
+  CALL_HANDOFF_DESCRIPTION,
+  HANDOFF_TOOL_CLASS,
+  HANDOFF_TOOL_LIMITS,
+  HANDOFF_REFUSALS,
+} from './handoff/handoff-tool.js';
 
 // Prompt Framework
 export { buildAgentSystemPrompt } from './prompt/index.js';
