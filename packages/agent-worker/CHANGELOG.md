@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.32.2
+
+### Patch Changes
+
+- A caller's earlier photo capture that did not complete can be picked up where it left off. `client.capture.resumable` (`[{ captureId, planKey, outcome, endedAt, missingSteps }]`, `CaptureResumable`, newest first) is read as strictly as the rest of `client.capture`: `outcome` is one of `CAPTURE_RESUMABLE_OUTCOMES` (`partial`, `camera_unavailable`, `abandoned`, `failed`; the capture contract's outcomes less `completed` and `declined`), `endedAt` is ISO 8601 or null, `missingSteps` are step ids; absent reads as `[]`; a malformed entry answers `400` naming it, and one of a plan the session does not offer, or missing nothing, is left out. While the turn can start photos, `capture_start`'s description lists each in the lines Closure's own brain is shown (`resumableLines`), and the capture line adds Closure's sentence `CAPTURE_RESUME_WHEN`: offer to finish it with `capture_start({ plan, resumeCaptureId })`, so only the missing photos are asked for. `TurnCapture.resumable` is optional, so a host that builds a capture by hand is unchanged. Log lines count them (`capture.resumable`), never name them.
+
 ## 0.32.1
 
 ### Patch Changes

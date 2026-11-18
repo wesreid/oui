@@ -22,6 +22,7 @@
 import type { RegisteredTool, ToolExecutionContext, ToolExecutionResult } from '../tools/types.js';
 import {
   canCapture,
+  resumableLines,
   CAPTURE_OUTCOMES,
   CAPTURE_STATUSES,
   type CaptureControl,
@@ -223,6 +224,11 @@ export function captureTools(capture: TurnCapture | null | undefined, options: {
   });
 
   const plans = capture.plans.map((p) => `- "${p.key}" (${p.title}): offer it when ${p.offerWhen}`).join('\n');
+  // Earlier captures of this caller that can be continued, in the lines Closure's brain is shown.
+  const continued = capture.resumable?.length
+    ? '\nEarlier photo captures for this caller that were not completed, which can be continued ' +
+      `(pass its plan and its id as resumeCaptureId):${resumableLines(capture.resumable)}`
+    : '';
 
   const start: RegisteredTool = {
     name: CAPTURE_START_TOOL,
@@ -235,7 +241,7 @@ export function captureTools(capture: TurnCapture | null | undefined, options: {
       'Offer a plan only when its “offer it when” applies, and call this once the caller agrees to take photos. Before you call it, say one short ' +
       'line so they know a request is coming to their screen ("I’ll send a photo request to your screen now."). ' +
       '`resumeCaptureId` continues an earlier capture of the same plan that did not complete: only the photos it is missing are asked for.\n' +
-      `Plans:\n${plans}`,
+      `Plans:\n${plans}${continued}`,
     inputSchema: {
       type: 'object',
       properties: {

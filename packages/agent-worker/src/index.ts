@@ -238,6 +238,10 @@ export {
   CAPTURE_BRAIN_UPDATE_KINDS,
   CAPTURE_UPDATE_TEXT_MAX,
   CAPTURE_BLOCKED_REASONS,
+  CAPTURE_RESUMABLE_OUTCOMES,
+  CAPTURE_RESUMABLE_MAX,
+  CAPTURE_RESUME_WHEN,
+  resumableLines,
 } from './prompt/capture.js';
 export type {
   TurnCapture,
@@ -250,6 +254,8 @@ export type {
   CaptureEndReason,
   CaptureBrainUpdateKind,
   CaptureBlockedReason,
+  CaptureResumable,
+  CaptureResumableOutcome,
 } from './prompt/capture.js';
 export {
   captureTools,
