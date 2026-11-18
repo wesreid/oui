@@ -33,7 +33,7 @@ import {
   CALL_FORM_FACTORS,
   CALL_HANDOFF_PURPOSES,
   CALL_HANDOFF_STATUSES,
-  DEVICE_UPDATE_KINDS,
+  CALL_DEVICE_UPDATE_KINDS,
   DEVICE_UPDATE_TEXT_MAX,
   FORM_FACTOR_WORDS,
   HANDOFF_CODE_TTL_S,
@@ -81,7 +81,7 @@ const handoffOf = (url = CONTROL_URL, extra: Record<string, unknown> = {}) => ({
 const OPEN_OFFER = () => ({ handoffId: HANDOFF_ID, purpose: 'photos', expiresAt: inTenMinutes() });
 
 /** The words studio-api composes for each device update kind, as the gateway passes them on. */
-const UPDATE_WORDS: Readonly<Record<(typeof DEVICE_UPDATE_KINDS)[number], string>> = {
+const UPDATE_WORDS: Readonly<Record<(typeof CALL_DEVICE_UPDATE_KINDS)[number], string>> = {
   offered: 'They opened a QR code to continue on their phone.',
   switched: 'The caller moved the call to their phone. Their computer is paused. Carry on where you left off.',
   brought_back: 'The caller moved the call back to their computer.',
@@ -126,12 +126,12 @@ const read = (handoff: unknown) => readTurnHandoff(handoff) as TurnHandoff;
 // ─── The hand-off contract ──────────────────────────────────────────────────
 
 describe('the hand-off contract’s names and values', () => {
-  // As `@closurestudio/realtime-contracts` (`live-call-devices`) pins them, value for value.
+  // As `@closurestudio/realtime-contracts` 0.28.0 (`live-call-devices`) declares them, name for name and value for value.
   it('match the contract exactly', () => {
     expect(CALL_HANDOFF_PURPOSES).toEqual(['photos', 'caller_asked', 'other']);
     expect(CALL_FORM_FACTORS).toEqual(['phone', 'tablet', 'desktop', 'unknown']);
     expect(CALL_HANDOFF_STATUSES).toEqual(['offered', 'redeemed', 'expired', 'cancelled']);
-    expect(DEVICE_UPDATE_KINDS).toEqual(['offered', 'switched', 'brought_back', 'revoked', 'expired', 'active_lost']);
+    expect(CALL_DEVICE_UPDATE_KINDS).toEqual(['offered', 'switched', 'brought_back', 'revoked', 'expired', 'active_lost']);
     expect(DEVICE_UPDATE_TEXT_MAX).toBe(600);
     expect(HANDOFF_CODE_TTL_S).toBe(600);
     expect(CALL_HANDOFF_TOOL).toBe('call_handoff');
@@ -148,7 +148,7 @@ describe('the hand-off contract’s names and values', () => {
   });
 
   it('each update kind’s words fit one update, and a turn’s update holds a dozen of them joined', () => {
-    for (const kind of DEVICE_UPDATE_KINDS) expect(UPDATE_WORDS[kind].length, kind).toBeLessThanOrEqual(DEVICE_UPDATE_TEXT_MAX);
+    for (const kind of CALL_DEVICE_UPDATE_KINDS) expect(UPDATE_WORDS[kind].length, kind).toBeLessThanOrEqual(DEVICE_UPDATE_TEXT_MAX);
     const joined = Array.from({ length: 12 }, () => 'x'.repeat(DEVICE_UPDATE_TEXT_MAX)).join('\n');
     expect(handoffRead(handoffOf(CONTROL_URL, { update: joined }))).toMatchObject({ update: joined });
   });
@@ -253,7 +253,7 @@ describe('a device turn', () => {
   });
 
   it('carries every update kind’s words to the turn, as Closure composed them', () => {
-    for (const kind of DEVICE_UPDATE_KINDS) {
+    for (const kind of CALL_DEVICE_UPDATE_KINDS) {
       const reading = readLiveCallTurnRequest(DEVICE_TURN(UPDATE_WORDS[kind]));
       expect(reading.ok && reading.request.client?.handoff?.update, kind).toBe(UPDATE_WORDS[kind]);
     }
@@ -279,7 +279,7 @@ describe('the device turn’s message', () => {
   });
 
   it('is readable for every update kind, and keeps each one’s words whole', () => {
-    for (const kind of DEVICE_UPDATE_KINDS) {
+    for (const kind of CALL_DEVICE_UPDATE_KINDS) {
       const message = liveCallTurnMessage({ kind: 'device', text: '', disclosureLine: null, client: { handoff: { update: UPDATE_WORDS[kind] } } });
       expect(message.startsWith('<call_device><device_update>'), kind).toBe(true);
       expect(message, kind).toContain(`<device_update>${UPDATE_WORDS[kind]}</device_update>`);
@@ -887,7 +887,7 @@ describe('hand-offs, through the real ai loop', () => {
 
   it('a device turn reaches the model as its message for every update kind, and the model narrates it', async () => {
     const { runAgentTurn } = await import('../orchestrator.js');
-    for (const kind of DEVICE_UPDATE_KINDS) {
+    for (const kind of CALL_DEVICE_UPDATE_KINDS) {
       const { model, prompts } = scripted([], `(${kind}) said in one short sentence.`);
       const result = await runAgentTurn(
         config(model),

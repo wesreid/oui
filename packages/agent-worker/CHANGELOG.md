@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.32.1
+
+### Patch Changes
+
+- The device update kinds take the hand-off contract's names: `CALL_DEVICE_UPDATE_KINDS` / `CallDeviceUpdateKind`, as `@closurestudio/realtime-contracts` 0.28.0 (`live-call-devices`) declares them, with the same values (`offered`, `switched`, `brought_back`, `revoked`, `expired`, `active_lost`). 0.32.0 was never published, so nothing that installed it is affected. A test pins every hand-off name and value to the contract's.
+
 ## 0.32.0
 
 ### Minor Changes
