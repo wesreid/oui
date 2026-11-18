@@ -190,6 +190,7 @@ describe('client.capture on a live-call turn', () => {
       ui: null,
       vision: null,
       capture: { plans: [TRADE_IN, SERVICE], control: { url: CONTROL_URL, token: TOKEN, expiresAt: expect.any(String) }, active: RUNNING, update: 'They skipped Interior.' },
+      handoff: null,
     });
   });
 
@@ -262,7 +263,7 @@ describe('client.capture on a live-call turn', () => {
 
 describe('a capture turn', () => {
   it('is a turn kind of its own: no words, nothing entered, the update its reason to run', () => {
-    expect(LIVE_CALL_TURN_KINDS).toEqual(['message', 'opening', 'glance', 'capture']);
+    expect(LIVE_CALL_TURN_KINDS).toEqual(['message', 'opening', 'glance', 'capture', 'device']);
     const reading = readLiveCallTurnRequest(CAPTURE_TURN(UPDATE_WORDS.accepted));
     expect(reading.ok && reading.request).toMatchObject({
       kind: 'capture',

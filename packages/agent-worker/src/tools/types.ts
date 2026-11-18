@@ -16,10 +16,10 @@ export type ToolEffect = EffectOrKind;
 
 /**
  * The classes of the tools the SDK owns: `attachment` (the attachment tools),
- * `vision` (`look`) and `capture` (`capture_start`, `capture_status`,
- * `capture_stop`).
+ * `vision` (`look`), `capture` (`capture_start`, `capture_status`,
+ * `capture_stop`) and `handoff` (`call_handoff`).
  */
-export type SdkToolClass = 'attachment' | 'vision' | 'capture';
+export type SdkToolClass = 'attachment' | 'vision' | 'capture' | 'handoff';
 
 export interface RegisteredTool {
   name: string;
@@ -31,7 +31,8 @@ export interface RegisteredTool {
   kind?: 'ui' | 'backend';
   /**
    * The SDK's class for a tool it owns: `attachment` for the
-   * attachment tools, `vision` for `look`, `capture` for the capture tools.
+   * attachment tools, `vision` for `look`, `capture` for the capture tools,
+   * `handoff` for `call_handoff`.
    * A host's tool policy may admit a
    * class as well as a name, so a tool the SDK adds later in that class needs
    * no change in the host.

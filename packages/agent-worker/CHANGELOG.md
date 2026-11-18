@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.32.0
+
+### Minor Changes
+
+- A live call can move to the caller's phone, and the character learns what happens only in words. A live-call turn reads `client.handoff` (`{ control: { url, token, expiresAt } | null, device: { formFactor, switches } | null, offer: { handoffId, purpose, expiresAt } | null, update }`) as strictly as `client.capture`, and the handler sets it as the turn payload's new `handoff` (`TurnHandoff`, checked by `payloadRefusal`). While there is a control route, the model has `call_handoff({ purpose })` (`handoffTool`, SDK tool class `handoff`, `kind: 'backend'`), which calls the call service's hand-offs route (`POST {url}` with `{ purpose }`, `purpose` one of `photos`, `caller_asked`, `other`) with `Authorization: Bearer <lhb1 token>`: the result is the route's `words` with the hand-off's id and status, never the code or the link, and a refusal is the contract's line for its code (`HANDOFF_UNAVAILABLE`, `HANDOFF_UNSUPPORTED_CALL`, `RATE_LIMITED`, `SESSION_NOT_LIVE`, `NO_ACTIVE_DEVICE`, `HANDOFF_TOKEN_WRONG_SESSION`, `401`/`403`), never the route's own message. A line in the turn's context gives the clause Closure's own brain has (`HANDOFF_WHEN`), that the model never sees the caller's devices, screen or code (`HANDOFF_NEVER`), the device the call is live on, how often it has moved, and an open offer. A new turn kind, `device` (`text` empty, `client.handoff.update` set), reads `liveCallDeviceMessage(update)` where the person's words would be: the update as data, answered in one short sentence or with silence (`done` with no `text`); capture updates that arrived with it follow it in the same message. `liveCallTurnMessage(request)` gives it as the row to store. `client.capture.active.blockedReason` (`camera_denied` or `no_rear_camera`, `CAPTURE_BLOCKED_REASONS`) says why a capture is blocked. The contract's names are exported without depending on it: `CALL_HANDOFF_PURPOSES`, `CALL_FORM_FACTORS`, `CALL_HANDOFF_STATUSES`, `DEVICE_UPDATE_KINDS`, `DEVICE_UPDATE_TEXT_MAX`, `HANDOFF_CODE_TTL_S`. The token and the update's words are never logged or emitted; log lines carry `handoff: { canOffer, device, switches?, offer?, update? }`. Set `acceptsHandoff: true` on the brain endpoint once this version runs: an older worker refuses the `device` turn kind.
+
 ## 0.31.0
 
 ### Minor Changes

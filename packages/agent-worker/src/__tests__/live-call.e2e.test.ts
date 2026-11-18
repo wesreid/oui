@@ -36,10 +36,19 @@ import {
   type LiveCallTurnOptions,
   type LiveCallTurnTarget,
 } from '../live-call/handler.js';
-import { LIVE_CALL_GLANCE_MESSAGE, LIVE_CALL_OPENING_MESSAGE, liveCallCaptureMessage, liveCallOpeningMessage, type LiveCallTurnRequest } from '../live-call/protocol.js';
+import {
+  LIVE_CALL_GLANCE_MESSAGE,
+  LIVE_CALL_OPENING_MESSAGE,
+  liveCallCaptureMessage,
+  liveCallDeviceMessage,
+  liveCallOpeningMessage,
+  type LiveCallTurnRequest,
+} from '../live-call/protocol.js';
 import { LOOK_WHEN } from '../prompt/vision.js';
 import { CAPTURE_WHEN } from '../prompt/capture.js';
 import { CAPTURE_TOOLS } from '../capture/capture-tools.js';
+import { HANDOFF_WHEN } from '../prompt/handoff.js';
+import { CALL_HANDOFF_TOOL } from '../handoff/handoff-tool.js';
 import { createHttpApprovalStoreClient } from '../approvals/client.js';
 import { createHttpConversationClient } from '../conversations/client.js';
 import { READBACK_APPROVAL_TOOL_NOTE } from '../approvals/requirement.js';
@@ -236,8 +245,10 @@ function resolver(state: Omit<CallProduct, 'url' | 'handler' | 'close' | 'outcom
     // What the product keeps is what the model reads: its redacted copy, when it redacts.
     const said = request.kind === 'message' && options.redact ? options.redact(request.text) : null;
     if (said !== null) target.content = said;
-    // An opening's and a capture's readable row is the message the model reads; a glance is stored as the empty words it carried.
-    state.conversation.addUser(request.kind === 'opening' || request.kind === 'capture' ? liveCallTurnMessage(request) : (said ?? request.text));
+    // An opening's, a capture's and a device turn's readable row is the message the model reads; a glance is stored as the empty words it carried.
+    state.conversation.addUser(
+      request.kind === 'opening' || request.kind === 'capture' || request.kind === 'device' ? liveCallTurnMessage(request) : (said ?? request.text),
+    );
     if (waiting && AFFIRMATIVE.test(request.text)) {
       const decided = await approvals.decide!(waiting, { userId: 'ana', decision: 'approve', channel: 'voice' });
       if (!decided.ok || decided.decision !== 'approve') throw new Error(`the store refused the decision: ${JSON.stringify(decided)}`);
@@ -1480,7 +1491,168 @@ describe('photos a client’s capture plan asks for', () => {
       expect(((await refused.json()) as { error: { message: string } }).error.message).toBe('a capture turn needs client.capture.update');
       const unknown = await post(call.url, turnRequest(call, { kind: 'capture_v2', text: '' }));
       expect(unknown.status).toBe(400);
-      expect(((await unknown.json()) as { error: { message: string } }).error.message).toBe('kind must be one of message, opening, glance, capture');
+      expect(((await unknown.json()) as { error: { message: string } }).error.message).toBe('kind must be one of message, opening, glance, capture, device');
+      expect(m.requests).toEqual([]);
+      expect(route.received).toEqual([]);
+    } finally {
+      await call.close();
+      await route.close();
+    }
+  }, 30_000);
+});
+
+describe('a call that moves to the caller’s phone', () => {
+  const SESSION = '098a0789-5b1f-4c34-9e0a-2f1c7a0d55e1';
+  const HANDOFF = '3c1d9e2a-7b40-4f6e-9a15-8d2c0b4e7f61';
+  const TOKEN = 'lhb1.eyJzaWQiOiIwOThhMDc4OSIsImJybiI6ImNsaWVudCJ9.aGFuZG9mZi1icmFpbi10b2tlbi1zaWduYXR1cmU';
+  const CAPTURE_TOKEN = 'lcb1.eyJzaWQiOiIwOThhMDc4OSIsImJybiI6ImNsaWVudCJ9.Y2FwdHVyZS1icmFpbi10b2tlbi1zaWduYXR1cmU';
+  const CODE = 'lhc1_Q2xvc3VyZUhhbmRvZmZDb2RlRm9yVGVzdHNPbmx5MDEyMzQ1Njc4OWFi';
+  const PLAN = { key: 'trade-in-appraisal', title: 'Trade-in photos', offerWhen: 'The caller has a vehicle to trade in and wants a value for it.' };
+  const NO_REAR_CAMERA =
+    "This device has no rear camera, so Odometer, VIN, Front corner and Rear corner can't be taken on it. Offer to continue on their phone with call_handoff; the photos carry on there.";
+  const OFFERED =
+    "A QR code is on their screen. Tell them to scan it with their phone's camera to carry on the call there; the photos continue there. This screen will pause. Never read out a code or link.";
+  const SWITCHED = 'The caller moved the call to their phone. Their computer is paused. Carry on where you left off.';
+  const BROUGHT_BACK = 'The caller moved the call back to their computer.';
+
+  /** studio-api's H1, answering as it does and recording what it was asked. It sends a link it should not, to prove it never reaches the model. */
+  async function handoffsRoute(): Promise<{ url: string; received: Array<{ method: string; path: string; authorization?: string; body: unknown }>; close(): Promise<void> }> {
+    const received: Array<{ method: string; path: string; authorization?: string; body: unknown }> = [];
+    const server = http.createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        received.push({ method: req.method ?? '', path: req.url ?? '', authorization: req.headers.authorization, body: JSON.parse(Buffer.concat(chunks).toString('utf8') || 'null') as unknown });
+        if (req.headers.authorization !== `Bearer ${TOKEN}`) {
+          res.writeHead(403, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ code: 'HANDOFF_TOKEN_WRONG_SESSION', message: 'wrong session' }));
+          return;
+        }
+        res.writeHead(201, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            handoffId: HANDOFF,
+            sessionId: SESSION,
+            status: 'offered',
+            offeredBy: 'client_brain',
+            purpose: 'photos',
+            urlOrigin: 'https://chat.deos1.com',
+            expiresAt: new Date(Date.now() + 600_000).toISOString(),
+            url: `https://chat.deos1.com/continue#${CODE}`,
+            words: OFFERED,
+          }),
+        );
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    return {
+      url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/sessions/${SESSION}/handoffs`,
+      received,
+      close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    };
+  }
+  /** `client` as the call service sends it: the session's plan, a capture blocked on the computer, and the call's devices. */
+  const clientOf = (url: string, handoff: Record<string, unknown> = {}, capture: Record<string, unknown> = {}) => ({
+    capture: {
+      plans: [PLAN],
+      control: { url: `https://api.closurestudio.ai/api/v1/sessions/${SESSION}/captures`, token: CAPTURE_TOKEN, expiresAt: new Date(Date.now() + 3_600_000).toISOString() },
+      active: { captureId: '5f0c7a1e-2b9d-4e63-9a7f-0d1c2b3a4e5f', plan: PLAN.key, status: 'blocked', blockedReason: 'no_rear_camera', step: { id: 'odometer', label: 'Odometer', index: 1, of: 6 } },
+      update: null,
+      ...capture,
+    },
+    handoff: { control: { url, token: TOKEN, expiresAt: new Date(Date.now() + 3_600_000).toISOString() }, device: { formFactor: 'desktop', switches: 0 }, offer: null, update: null, ...handoff },
+  });
+
+  it('offers the phone when the computer has no rear camera, moves the call once the caller agrees, narrates each switch, and keeps a readable history with no token, code or link anywhere', async () => {
+    const route = await handoffsRoute();
+    const m = scriptedModel([
+      { text: 'This computer has no rear camera. Shall we carry on with the photos on your phone?' },
+      { text: 'Great. ', toolCalls: [{ id: 'call_handoff_1', name: 'call_handoff', args: { purpose: 'photos' } }] },
+      { text: 'Scan the code on your screen with your phone’s camera, and we’ll carry on there.' },
+      { text: 'You’re on your phone now. Let’s start with the odometer.' },
+      { text: 'Welcome back to your computer.' },
+    ]);
+    const lines: string[] = [];
+    const log = (...args: unknown[]) => lines.push(JSON.stringify(args));
+    const call = await startCallProduct({ model: m.model, runtime: { logger: { info: log, warn: log, error: log, debug: log } } });
+    try {
+      // The capture is blocked on the computer: the character offers the phone, and does not move the call yet.
+      const blocked = turnRequest(call, { kind: 'capture', text: '', input: undefined, client: clientOf(route.url, {}, { update: NO_REAR_CAMERA }) });
+      const offered = await streamOf(await post(call.url, blocked));
+      expect(offered.text()).toBe('This computer has no rear camera. Shall we carry on with the photos on your phone?');
+      expect(m.requests[0].tools?.map((t) => t.function.name)).toEqual(expect.arrayContaining([CALL_HANDOFF_TOOL, ...CAPTURE_TOOLS]));
+      expect(textsOf(m.requests[0]).join('\n')).toContain(HANDOFF_WHEN);
+      expect(turnMessageOf(textsOf(m.requests[0]))).toContain(liveCallCaptureMessage(NO_REAR_CAMERA));
+      expect(route.received).toEqual([]);
+      await call.tab.waitForTurn(AGENT_SOCKET_EVENTS.TURN_COMPLETE, blocked.turnId);
+
+      // The caller agrees: the character offers the move with the turn's token, and tells them to scan the code.
+      const agreed = turnRequest(call, { text: 'Yes, let’s do that.', client: clientOf(route.url) });
+      const moving = await streamOf(await post(call.url, agreed));
+      expect(moving.text()).toBe('Great. \n\nScan the code on your screen with your phone’s camera, and we’ll carry on there.');
+      expect(route.received).toEqual([{ method: 'POST', path: `/api/v1/sessions/${SESSION}/handoffs`, authorization: `Bearer ${TOKEN}`, body: { purpose: 'photos' } }]);
+      expect(m.requests[2].messages.find((msg) => msg.role === 'tool')?.content).toContain('A QR code is on their screen');
+      await call.tab.waitForTurn(AGENT_SOCKET_EVENTS.TURN_COMPLETE, agreed.turnId);
+
+      // The phone joined: a device turn, which the model reads where the caller's words would be.
+      const switched = turnRequest(call, {
+        kind: 'device',
+        text: '',
+        input: undefined,
+        client: clientOf(route.url, { device: { formFactor: 'phone', switches: 1 }, update: SWITCHED }, { active: { captureId: '5f0c7a1e-2b9d-4e63-9a7f-0d1c2b3a4e5f', plan: PLAN.key, status: 'active', step: null } }),
+      });
+      expect((await streamOf(await post(call.url, switched))).text()).toBe('You’re on your phone now. Let’s start with the odometer.');
+      expect(turnMessageOf(textsOf(m.requests[3]))).toContain(liveCallDeviceMessage(SWITCHED));
+      expect(turnContextOf(textsOf(m.requests[3]))).toContain('The call is live on their phone now; it has moved between their devices once.');
+      await call.tab.waitForTurn(AGENT_SOCKET_EVENTS.TURN_COMPLETE, switched.turnId);
+
+      // Brought back on the computer.
+      const back = turnRequest(call, { kind: 'device', text: '', input: undefined, client: clientOf(route.url, { device: { formFactor: 'desktop', switches: 2 }, update: BROUGHT_BACK }) });
+      expect((await streamOf(await post(call.url, back))).text()).toBe('Welcome back to your computer.');
+      await call.tab.waitForTurn(AGENT_SOCKET_EVENTS.TURN_COMPLETE, back.turnId);
+      expect(route.received).toHaveLength(1);
+
+      // The artifact: the product's history, a readable row for every turn, in order.
+      const rows = call.conversation.history.filter((h) => h.role === 'user' || (h.role === 'assistant' && typeof h.content === 'string' && h.content));
+      expect(rows.map((h) => [h.role, h.content])).toEqual([
+        ['user', liveCallCaptureMessage(NO_REAR_CAMERA)],
+        ['assistant', 'This computer has no rear camera. Shall we carry on with the photos on your phone?'],
+        ['user', 'Yes, let’s do that.'],
+        ['assistant', 'Great. '],
+        ['assistant', 'Scan the code on your screen with your phone’s camera, and we’ll carry on there.'],
+        ['user', liveCallDeviceMessage(SWITCHED)],
+        ['assistant', 'You’re on your phone now. Let’s start with the odometer.'],
+        ['user', liveCallDeviceMessage(BROUGHT_BACK)],
+        ['assistant', 'Welcome back to your computer.'],
+      ]);
+      const offerResult = call.conversation.history.find((h) => h.role === 'tool');
+      expect(JSON.parse(offerResult!.content as string)).toEqual({ handoffId: HANDOFF, status: 'offered', words: OFFERED });
+
+      // The token, the code and the link are in no model request, page event, stored message, history or log line; the update's words are in no log line.
+      for (const where of [JSON.stringify(m.requests), JSON.stringify(call.tab.events), JSON.stringify(call.persisted), JSON.stringify(call.conversation.history), lines.join('\n')]) {
+        expect(where).not.toContain(TOKEN);
+        expect(where).not.toContain(CODE);
+        expect(where).not.toContain('chat.deos1.com');
+      }
+      expect(lines.join('\n')).not.toContain('Carry on where you left off');
+      expect(lines.find((l) => l.includes('Live-call turn') && l.includes('"kind":"device"'))).toMatch(/"handoff":\{"canOffer":true,"device":"phone","switches":1,"update":true\}/);
+    } finally {
+      await call.close();
+      await route.close();
+    }
+  }, 60_000);
+
+  it('a worker before hand-offs would refuse the turn kind; this one refuses a device turn with nothing to pass on, and runs nothing', async () => {
+    const route = await handoffsRoute();
+    const m = scriptedModel([]);
+    const call = await startCallProduct({ model: m.model });
+    try {
+      const refused = await post(call.url, turnRequest(call, { kind: 'device', text: '', input: undefined, client: clientOf(route.url) }));
+      expect(refused.status).toBe(400);
+      expect(((await refused.json()) as { error: { message: string } }).error.message).toBe('a device turn needs client.handoff.update');
+      const unknown = await post(call.url, turnRequest(call, { kind: 'device_v2', text: '' }));
+      expect(unknown.status).toBe(400);
+      expect(((await unknown.json()) as { error: { message: string } }).error.message).toBe('kind must be one of message, opening, glance, capture, device');
       expect(m.requests).toEqual([]);
       expect(route.received).toEqual([]);
     } finally {

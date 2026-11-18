@@ -3,6 +3,7 @@ import type { AttachmentWorkerConfig } from './attachments/store.js';
 import type { AttachmentUsage } from './attachments/guard.js';
 import type { TurnVision } from './prompt/vision.js';
 import type { TurnCapture } from './prompt/capture.js';
+import type { TurnHandoff } from './prompt/handoff.js';
 import type { TurnStopClient, TurnStopWatch } from './stop/turn-stop.js';
 import type { LanguageModel, ProviderOptions } from './model.js';
 import type { RealtimeEmitAdapter } from './emit/types.js';
@@ -254,6 +255,14 @@ export interface AgentTurnInput {
    * (prompt/capture.ts). Words only: no photo.
    */
   capture?: TurnCapture;
+  /**
+   * The call moving between the caller's devices (a live call's
+   * `client.handoff`): with a control route, the `call_handoff`
+   * tool (handoff/handoff-tool.ts), and a line telling the model when to
+   * offer it, which device the call is on and what just happened to the
+   * devices (prompt/handoff.ts). Words only: never the code or the link.
+   */
+  handoff?: TurnHandoff;
   /**
    * How the turn reached the runtime, as the host's hooks are told
    * (`AgentTurnInfo.channel`). Default `direct`.

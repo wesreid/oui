@@ -22,6 +22,7 @@ import type { AttachmentWorkerConfig } from '../attachments/store.js';
 import type { AttachmentUsage } from '../attachments/guard.js';
 import type { TurnVision } from '../prompt/vision.js';
 import type { TurnCapture } from '../prompt/capture.js';
+import type { TurnHandoff } from '../prompt/handoff.js';
 import type { TurnStopClient } from '../stop/turn-stop.js';
 import type { ApprovalPreviewHook, ValidateBeforeApproval } from '../approvals/hooks.js';
 import type { AgentTurnInfo } from './turn-info.js';
@@ -91,6 +92,15 @@ export interface AgentTurnPayload {
    * emitted or logged. A malformed one refuses the turn (`payloadRefusal`).
    */
   capture?: TurnCapture;
+  /**
+   * The call moving between the caller's devices:
+   * `{ control, device, offer, update }` (`TurnHandoff`; a live call's
+   * `client.handoff`, which the live-call handler sets here). With a control
+   * route the model has `call_handoff`; it never receives the code or the
+   * link. Its token and update are never emitted or logged. A malformed one
+   * refuses the turn (`payloadRefusal`).
+   */
+  handoff?: TurnHandoff;
   /**
    * Where the person is: `ui` (default) or a conversation
    * channel (`chat`, `sms`, `voice`, `phone`), where an approval is a readback

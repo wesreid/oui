@@ -22,6 +22,7 @@ import { buildAgentSystemPrompt } from '../prompt/index.js';
 import { describeModel } from '../model.js';
 import { readTurnVision, visionFacts } from '../prompt/vision.js';
 import { captureFacts, readTurnCapture } from '../prompt/capture.js';
+import { handoffFacts, readTurnHandoff } from '../prompt/handoff.js';
 import type { AgentTurnInput, AgentTurnResult, TurnMessage } from '../types.js';
 import type { AgentRuntimeConfig, AgentTurnPayload } from './types.js';
 import { assertAgentRuntimeConfig } from './config.js';
@@ -138,6 +139,10 @@ export function payloadRefusal(payload: unknown): string | null {
   if (p.capture !== undefined && p.capture !== null) {
     const capture = readTurnCapture(p.capture, 'capture');
     if (typeof capture === 'string') return capture;
+  }
+  if (p.handoff !== undefined && p.handoff !== null) {
+    const handoff = readTurnHandoff(p.handoff, 'handoff');
+    if (typeof handoff === 'string') return handoff;
   }
   if (p.supersedes !== undefined && !(Array.isArray(p.supersedes) && p.supersedes.every((id) => typeof id === 'string' && id))) {
     return 'supersedes must be a list of turn ids';
@@ -296,12 +301,17 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
       const readCapture = readTurnCapture(payload.capture, 'capture');
       const capture = readCapture && typeof readCapture === 'object' ? readCapture : null;
       if (typeof readCapture === 'string') logger.warn('[agent-sdk] The turn’s capture is not one; the turn runs without it', { turnId, error: readCapture });
+      // The call's devices, as read the same way: only their facts are logged, never the token or the update.
+      const readHandoff = readTurnHandoff(payload.handoff, 'handoff');
+      const handoff = readHandoff && typeof readHandoff === 'object' ? readHandoff : null;
+      if (typeof readHandoff === 'string') logger.warn('[agent-sdk] The turn’s handoff is not one; the turn runs without it', { turnId, error: readHandoff });
       logger.info('[agent-sdk] Processing turn', {
         turnId,
         conversationId,
         userId,
         ...(vision ? { vision: visionFacts(vision) } : {}),
         ...(capture ? { capture: captureFacts(capture) } : {}),
+        ...(handoff ? { handoff: handoffFacts(handoff) } : {}),
         ...(supersedes.length ? { supersedes } : {}),
         ...(resume ? { resumed: { requestIds: resume.requestIds } } : {}),
       });
@@ -357,6 +367,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
           ...(attachments.length > 0 ? { attachments } : {}),
           ...(vision ? { vision } : {}),
           ...(capture ? { capture } : {}),
+          ...(handoff ? { handoff } : {}),
           ...(payload.channel ? { approvalChannel: payload.channel } : {}),
           stopWatch,
           ...(host.remainingMs ? { remainingMs: host.remainingMs } : {}),
