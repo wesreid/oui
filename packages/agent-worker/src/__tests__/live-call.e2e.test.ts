@@ -45,7 +45,7 @@ import {
   type LiveCallTurnRequest,
 } from '../live-call/protocol.js';
 import { LOOK_WHEN } from '../prompt/vision.js';
-import { CAPTURE_WHEN } from '../prompt/capture.js';
+import { CAPTURE_RESUME_WHEN, CAPTURE_WHEN } from '../prompt/capture.js';
 import { CAPTURE_TOOLS } from '../capture/capture-tools.js';
 import { HANDOFF_WHEN } from '../prompt/handoff.js';
 import { CALL_HANDOFF_TOOL } from '../handoff/handoff-tool.js';
@@ -1475,6 +1475,38 @@ describe('photos a client’s capture plan asks for', () => {
       }
       expect(lines.join('\n')).not.toContain('48,212');
       expect(lines.find((l) => l.includes('Live-call turn') && l.includes('"kind":"capture"'))).toMatch(/"capture":\{"plans":1,"canStart":true,"active":"awaiting_consent","update":true\}/);
+    } finally {
+      await call.close();
+      await route.close();
+    }
+  }, 60_000);
+
+  it('picks up the caller’s earlier capture where it left off: the model is told of it and resumes it, and only that is asked of studio-api', async () => {
+    const EARLIER = '7a2d4c1b-0e9f-4a8b-b6c5-3d2e1f0a9b8c';
+    // As studio-gateway sends it: the captures this caller can continue, newest first.
+    const resumable = [{ captureId: EARLIER, planKey: PLAN.key, outcome: 'partial', endedAt: '2026-11-17T10:00:00.000Z', missingSteps: ['vin', 'front_three_quarter'] }];
+    const route = await capturesRoute();
+    const m = scriptedModel([
+      { text: 'Of course, let’s pick up where you left off. ', toolCalls: [{ id: 'call_resume_1', name: 'capture_start', args: { plan: PLAN.key, resumeCaptureId: EARLIER } }] },
+      { text: 'Just the VIN and one front corner to go.' },
+    ]);
+    const lines: string[] = [];
+    const log = (...args: unknown[]) => lines.push(JSON.stringify(args));
+    const call = await startCallProduct({ model: m.model, runtime: { logger: { info: log, warn: log, error: log, debug: log } } });
+    try {
+      const asked = turnRequest(call, { text: 'I started the photos yesterday but had to go. Can I finish them?', client: captureOf(route.url, { resumable }) });
+      const said = await streamOf(await post(call.url, asked));
+      expect(said.text()).toBe('Of course, let’s pick up where you left off. \n\nJust the VIN and one front corner to go.');
+      // The model was shown the capture it could continue, and told to offer it.
+      const start = m.requests[0].tools?.find((t) => t.function.name === 'capture_start');
+      expect(start?.function.description).toContain(`- ${EARLIER} (plan ${PLAN.key}): partial, ended 2026-11-17T10:00:00.000Z; missing: vin, front_three_quarter`);
+      expect(textsOf(m.requests[0]).join('\n')).toContain(CAPTURE_RESUME_WHEN);
+      // The artifact: studio-api was asked to continue that capture, with the turn's token.
+      expect(route.received).toEqual([
+        { method: 'POST', path: `/api/v1/sessions/${SESSION}/captures`, authorization: `Bearer ${TOKEN}`, body: { plan: PLAN.key, resumeCaptureId: EARLIER } },
+      ]);
+      expect(lines.find((l) => l.includes('Live-call turn'))).toMatch(/"resumable":1/);
+      expect(lines.join('\n')).not.toContain(TOKEN);
     } finally {
       await call.close();
       await route.close();

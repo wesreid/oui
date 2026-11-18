@@ -189,7 +189,7 @@ describe('client.capture on a live-call turn', () => {
     expect(reading.ok && reading.request.client).toEqual({
       ui: null,
       vision: null,
-      capture: { plans: [TRADE_IN, SERVICE], control: { url: CONTROL_URL, token: TOKEN, expiresAt: expect.any(String) }, active: RUNNING, update: 'They skipped Interior.' },
+      capture: { plans: [TRADE_IN, SERVICE], control: { url: CONTROL_URL, token: TOKEN, expiresAt: expect.any(String) }, active: RUNNING, update: 'They skipped Interior.', resumable: [] },
       handoff: null,
     });
   });
@@ -209,8 +209,8 @@ describe('client.capture on a live-call turn', () => {
   it('is null when the call says nothing of captures, and has no tools route when it gives none', () => {
     const silent = readLiveCallTurnRequest(SPOKEN);
     expect(silent.ok && silent.request.client).toBeNull();
-    expect(captureRead({ plans: [TRADE_IN] })).toEqual({ plans: [TRADE_IN], control: null, active: null, update: null });
-    expect(captureRead({})).toEqual({ plans: [], control: null, active: null, update: null });
+    expect(captureRead({ plans: [TRADE_IN] })).toEqual({ plans: [TRADE_IN], control: null, active: null, update: null, resumable: [] });
+    expect(captureRead({})).toEqual({ plans: [], control: null, active: null, update: null, resumable: [] });
   });
 
   it('takes the control route without a trailing slash, on this machine without TLS, and nowhere else', () => {
@@ -766,7 +766,7 @@ describe('the live-call handler with captures', () => {
     const runner = stubRunner(says('Sure, I can get you a value for it.'), lines);
     await call(await mount(runner), { ...SPOKEN, client: { capture: captureOf(CONTROL_URL, { update: UPDATE_WORDS.skipped }) } });
     expect(runner.payloads[0].content).toBe(SPOKEN.text);
-    expect(runner.payloads[0].capture).toEqual({ plans: [TRADE_IN, SERVICE], control: { url: CONTROL_URL, token: TOKEN, expiresAt: expect.any(String) }, active: null, update: UPDATE_WORDS.skipped });
+    expect(runner.payloads[0].capture).toEqual({ plans: [TRADE_IN, SERVICE], control: { url: CONTROL_URL, token: TOKEN, expiresAt: expect.any(String) }, active: null, update: UPDATE_WORDS.skipped, resumable: [] });
     expect(lines.find((l) => l[0] === '[agent-sdk] Live-call turn')![1]).toMatchObject({ capture: { plans: 2, canStart: true, update: true } });
     expect(JSON.stringify(lines)).not.toContain(TOKEN);
     expect(JSON.stringify(lines)).not.toContain('Interior');

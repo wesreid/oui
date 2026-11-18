@@ -14,7 +14,12 @@
  *   { plans: [{ key, title, offerWhen }],
  *     control: { url, token, expiresAt },
  *     active: { captureId, plan, status, step: { id, label, index, of } | null } | null,
- *     update: '<words>' | null }
+ *     update: '<words>' | null,
+ *     resumable: [{ captureId, planKey, outcome, endedAt, missingSteps }] }
+ *
+ * `resumable` is the caller's earlier captures of the session's plans that
+ * ended without completing and can be continued: `capture_start` with the plan
+ * and `resumeCaptureId` asks only for the photos each is missing.
  *
  * - **What is read:** `readTurnCapture` checks every field, as strictly as
  *   `client.vision`; a refusal names the field and never repeats the token.
@@ -62,6 +67,17 @@ export const CAPTURE_END_REASONS = [
   'verifier_unavailable',
 ] as const;
 export type CaptureEndReason = (typeof CAPTURE_END_REASONS)[number];
+
+/**
+ * How an earlier capture that can be continued ended: every outcome but
+ * `completed` (nothing is missing) and `declined` (a decline is never offered
+ * back). Closure lists a capture as resumable only with one of these.
+ */
+export const CAPTURE_RESUMABLE_OUTCOMES = ['partial', 'camera_unavailable', 'abandoned', 'failed'] as const satisfies readonly CaptureOutcome[];
+export type CaptureResumableOutcome = (typeof CAPTURE_RESUMABLE_OUTCOMES)[number];
+
+/** The most resumable captures Closure lists for a session: the newest, at most this many. */
+export const CAPTURE_RESUMABLE_MAX = 5;
 
 /** Why a capture is `blocked` (Closure's capture contract). */
 export const CAPTURE_BLOCKED_REASONS = ['camera_denied', 'no_rear_camera'] as const;
@@ -112,6 +128,13 @@ export const CAPTURE_LIMITS = {
    * joined in order, each at most `CAPTURE_UPDATE_TEXT_MAX` (600) characters.
    */
   updateChars: 8_000,
+  /**
+   * The most `resumable` entries a turn may carry. Closure lists at most
+   * `CAPTURE_RESUMABLE_MAX` (5); the bound leaves it room to list more.
+   */
+  resumable: 20,
+  /** The most `missingSteps` an entry may name. */
+  missingSteps: 50,
 } as const;
 
 /** A plan the session offers: the key the tools take, its title, and when to offer it. */
@@ -160,6 +183,24 @@ export interface CaptureActive {
   blockedReason?: CaptureBlockedReason;
 }
 
+/**
+ * An earlier capture of one of the session's plans that ended without
+ * completing, which `capture_start({ plan, resumeCaptureId })` continues:
+ * only the photos it is missing are asked for.
+ */
+export interface CaptureResumable {
+  /** What `capture_start` takes as `resumeCaptureId`. */
+  captureId: string;
+  /** The key this session offers its plan under: what `capture_start` takes as `plan`. */
+  planKey: string;
+  /** How it ended (`CAPTURE_RESUMABLE_OUTCOMES`). */
+  outcome: CaptureResumableOutcome;
+  /** When it ended: ISO 8601, as sent; null when the call service did not say. */
+  endedAt: string | null;
+  /** The plan's required steps it has no accepted photo for, in plan order (step ids). */
+  missingSteps: string[];
+}
+
 /** What the turn carries of the session's photo captures. */
 export interface TurnCapture {
   /** The plans the session offers, fixed when it started. */
@@ -175,6 +216,12 @@ export interface TurnCapture {
    * rode it. Null otherwise. Never logged or emitted.
    */
   update: string | null;
+  /**
+   * The caller's earlier captures that can be continued, newest first
+   * (`[]` when there are none, and when the call service did not say). Each
+   * names a plan the session offers.
+   */
+  resumable?: CaptureResumable[];
 }
 
 /** A plan's key. */
@@ -239,12 +286,59 @@ export function readTurnCapture(value: unknown, field = 'capture'): TurnCapture 
   if (update !== undefined && update !== null && typeof update !== 'string') return `${field}.update must be a string or null`;
   if (typeof update === 'string' && update.length > CAPTURE_LIMITS.updateChars) return `${field}.update is longer than ${CAPTURE_LIMITS.updateChars} characters`;
 
+  const resumable = readResumable(value.resumable, `${field}.resumable`, plans);
+  if (typeof resumable === 'string') return resumable;
+
   return {
     plans,
     control: control ? { ...control, url: control.url.replace(/\/+$/, '') } : null,
     active,
     update: typeof update === 'string' && update.trim() ? update.trim() : null,
+    resumable,
   };
+}
+
+/** An ISO 8601 date and time, with a zone. */
+const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:?\d{2})$/;
+
+/**
+ * The turn's resumable captures, or why they are not, naming the entry. A
+ * malformed entry is refused. An entry that names a plan the session does not
+ * offer, or misses no step, could never be continued from this call, so it is
+ * left out rather than failing the turn; each capture is kept once.
+ */
+function readResumable(value: unknown, field: string, plans: readonly CapturePlanOffer[]): CaptureResumable[] | string {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) return `${field} must be a list`;
+  if (value.length > CAPTURE_LIMITS.resumable) return `${field} lists more than ${CAPTURE_LIMITS.resumable} captures`;
+  const offered = new Set(plans.map((p) => p.key));
+  const listed: CaptureResumable[] = [];
+  for (const [i, raw] of value.entries()) {
+    const at = `${field}[${i}]`;
+    if (!isPlainObject(raw)) return `${at} must be an object`;
+    if (typeof raw.captureId !== 'string' || !CAPTURE_ID.test(raw.captureId)) return `${at}.captureId must be a capture id`;
+    if (typeof raw.planKey !== 'string' || !PLAN_KEY.test(raw.planKey)) return `${at}.planKey must be a plan key`;
+    if (!(CAPTURE_RESUMABLE_OUTCOMES as readonly unknown[]).includes(raw.outcome)) {
+      return `${at}.outcome must be one of ${CAPTURE_RESUMABLE_OUTCOMES.join(', ')}`;
+    }
+    const endedAt = raw.endedAt ?? null;
+    if (endedAt !== null && !(typeof endedAt === 'string' && endedAt.length <= CAPTURE_LIMITS.expiresAtChars && ISO_DATE_TIME.test(endedAt) && Number.isFinite(Date.parse(endedAt)))) {
+      return `${at}.endedAt must be an ISO 8601 date and time or null`;
+    }
+    const missing = raw.missingSteps ?? [];
+    if (!Array.isArray(missing) || missing.length > CAPTURE_LIMITS.missingSteps || !missing.every((id) => typeof id === 'string' && STEP_ID.test(id))) {
+      return `${at}.missingSteps must be a list of at most ${CAPTURE_LIMITS.missingSteps} step ids`;
+    }
+    if (!offered.has(raw.planKey) || missing.length === 0 || listed.some((r) => r.captureId === raw.captureId)) continue;
+    listed.push({
+      captureId: raw.captureId,
+      planKey: raw.planKey,
+      outcome: raw.outcome as CaptureResumableOutcome,
+      endedAt: endedAt as string | null,
+      missingSteps: [...new Set(missing as string[])],
+    });
+  }
+  return listed;
 }
 
 function readActive(value: unknown, field: string): CaptureActive | null | string {
@@ -294,6 +388,27 @@ export const CAPTURE_WHEN =
   'While a capture runs you receive capture updates: turn each into one or two short, natural sentences in the caller’s language, and never read out a code. ' +
   'When a capture ends without completing, offer what its update says to offer.';
 
+/**
+ * The sentence every brain that takes captures is given when the caller has
+ * an earlier capture to continue, word for word: Closure's brain in its
+ * spoken-reply contract, and a client's brain here. The captures themselves are
+ * listed in `capture_start`'s description.
+ */
+export const CAPTURE_RESUME_WHEN =
+  'This caller has an earlier photo capture that was not completed (listed in `capture_start`). ' +
+  'When photos fit, offer to finish it: call `capture_start` with its plan and its `resumeCaptureId`, so only the missing photos are asked for.';
+
+/**
+ * The earlier captures that can be continued, as `capture_start`'s description
+ * lists them, one line each, as Closure's brain is shown them:
+ * `- {captureId} (plan {planKey}): {outcome}, ended {endedAt}; missing: {steps}`.
+ */
+export function resumableLines(resumable: readonly CaptureResumable[]): string {
+  return resumable
+    .map((r) => `\n- ${r.captureId} (plan ${r.planKey}): ${r.outcome}${r.endedAt ? `, ended ${r.endedAt}` : ''}; missing: ${r.missingSteps.join(', ')}`)
+    .join('');
+}
+
 /** What the model is told never to do with a capture's photos. */
 export const CAPTURE_NEVER =
   'You never see the photos: never claim to see, describe or judge one, and say only what the capture’s words tell you.';
@@ -333,6 +448,8 @@ export function captureText(capture: TurnCapture | null | undefined): string | n
         'before you call `capture_start`, say one short line so they know a request for photos is coming to their screen.',
       CAPTURE_NEVER,
       `Plans: ${plans.join('; ')}.`,
+      // An earlier capture to continue: offered when photos fit, so only what it is missing is asked.
+      ...(capture.resumable?.length ? [CAPTURE_RESUME_WHEN] : []),
     );
   } else if (capture.plans.length > 0 || capture.active || capture.update) {
     parts.push(
@@ -372,5 +489,6 @@ export function captureFacts(capture: TurnCapture | null | undefined): Record<st
       ? { active: capture.active.status, ...(capture.active.step ? { step: `${capture.active.step.index}/${capture.active.step.of}` } : {}) }
       : {}),
     ...(capture.update ? { update: true } : {}),
+    ...(capture.resumable?.length ? { resumable: capture.resumable.length } : {}),
   };
 }
