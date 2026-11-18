@@ -273,7 +273,7 @@ export {
   CALL_HANDOFF_PURPOSES,
   CALL_HANDOFF_STATUSES,
   CALL_FORM_FACTORS,
-  DEVICE_UPDATE_KINDS,
+  CALL_DEVICE_UPDATE_KINDS,
   DEVICE_UPDATE_TEXT_MAX,
   FORM_FACTOR_WORDS,
 } from './prompt/handoff.js';
@@ -285,7 +285,7 @@ export type {
   CallHandoffPurpose,
   CallHandoffStatus,
   CallFormFactor,
-  DeviceUpdateKind,
+  CallDeviceUpdateKind,
 } from './prompt/handoff.js';
 export {
   handoffTool,

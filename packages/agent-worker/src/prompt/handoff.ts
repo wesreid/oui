@@ -31,7 +31,7 @@ import { readBearerRoute, type BearerRoute } from './bearer-route.js';
 import { escapeTagText } from './escape.js';
 
 // ─── The hand-off contract's names and values ───────────────────────────────
-// Closure's hand-off contract (`@closurestudio/realtime-contracts`, `live-call-devices`)
+// Closure's hand-off contract (`@closurestudio/realtime-contracts` 0.28.0, `live-call-devices`)
 // declares these. This package does not depend on it, so it keeps its own copy
 // under the same names with the same values, and a test pins them.
 
@@ -51,10 +51,14 @@ export type CallHandoffStatus = (typeof CALL_HANDOFF_STATUSES)[number];
  * What a device update reports. The call service passes updates on as words
  * (`client.handoff.update`); the kinds are what those words can be about.
  */
-export const DEVICE_UPDATE_KINDS = ['offered', 'switched', 'brought_back', 'revoked', 'expired', 'active_lost'] as const;
-export type DeviceUpdateKind = (typeof DEVICE_UPDATE_KINDS)[number];
+export const CALL_DEVICE_UPDATE_KINDS = ['offered', 'switched', 'brought_back', 'revoked', 'expired', 'active_lost'] as const;
+export type CallDeviceUpdateKind = (typeof CALL_DEVICE_UPDATE_KINDS)[number];
 
-/** The longest text of one device update (`device_update` frame). A turn's `update` joins the updates pending since the brain last heard. */
+/**
+ * The longest text of one device update: the contract's `device_update` frame
+ * and `device.update` message hold `text` to 600 characters. A turn's `update`
+ * joins the updates pending since the brain last heard.
+ */
 export const DEVICE_UPDATE_TEXT_MAX = 600;
 
 /** A code's life, in seconds (`HANDOFF_CODE_TTL_S`). */
