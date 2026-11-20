@@ -8,6 +8,7 @@
  */
 import { isTurnStopReason, type TurnStoppedReason, type TurnStopRecord } from '@ouispec/agent-core';
 import { requireRealtime } from '../emit/http-adapter.js';
+import { createRealtimeKeySource, isKeyRefusal, type RealtimeApiKey } from '../realtime/api-key.js';
 
 /**
  * Why a turn's work was aborted, as its abort signal's reason. The stop path
@@ -83,8 +84,8 @@ export interface TurnStopClient {
 export interface HttpTurnStopClientConfig {
   /** The realtime server's base URL. */
   url: string;
-  /** Its internal key. */
-  apiKey: string;
+  /** Its internal key: a string, a getter, or a shared `RealtimeKeySource`. */
+  apiKey: RealtimeApiKey;
   /** Longest single wait the realtime server is asked to hold open. Default 25 s. */
   maxPollMs?: number;
   /** The longest pause between attempts while the server cannot be reached. Default 5 s. */
@@ -116,8 +117,9 @@ const UNHELD_ANSWER_MS = 50;
  * it is a server that keeps no stops, said once, and the watch ends.
  */
 export function createHttpTurnStopClient(config: HttpTurnStopClientConfig): TurnStopClient {
-  const { url, apiKey } = config;
-  requireRealtime(url, apiKey);
+  const { url } = config;
+  requireRealtime(url, config.apiKey);
+  const apiKey = createRealtimeKeySource(config.apiKey);
   const maxPollMs = config.maxPollMs ?? 25_000;
   const maxBackoffMs = config.maxBackoffMs ?? 5_000;
 
@@ -138,8 +140,9 @@ export function createHttpTurnStopClient(config: HttpTurnStopClientConfig): Turn
         const waitMs = checked ? maxPollMs : 0;
         try {
           const query = new URLSearchParams({ userId, waitMs: String(waitMs), ...(conversationId ? { conversationId } : {}) });
+          const key = await apiKey.get();
           const res = await fetch(`${url}/internal/turns/${encodeURIComponent(turnId)}/stop?${query}`, {
-            headers: { 'X-Api-Key': apiKey },
+            headers: { 'X-Api-Key': key },
             signal: AbortSignal.any([signal, AbortSignal.timeout(waitMs + 5_000)]),
           });
           if (res.status === 200) return (await res.json()) as TurnStopRecord;
@@ -157,6 +160,8 @@ export function createHttpTurnStopClient(config: HttpTurnStopClientConfig): Turn
             config.onUnsupported?.();
             return null;
           }
+          // A refused key: the next attempt, after the pause, presents the key read again now (a rotation).
+          if (isKeyRefusal(res.status)) await apiKey.refused(key);
           throw new Error(`HTTP ${res.status}`);
         } catch (err) {
           firstAnswered();

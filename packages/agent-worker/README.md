@@ -10,7 +10,7 @@ A missing value fails when the adapter is created, and the error names it. Nothi
 |---|---|---|
 | Model | `model` | Any `ai` library model: `bedrock(...)`, `openai(...)`, `anthropic(...)`, or a gateway id. The worker imports no provider itself. |
 | Prompt cache | `promptCacheBreakpoint`, optional | Provider options that mark a cache breakpoint. `PROMPT_CACHE_BREAKPOINTS.bedrock` and `.anthropic` are provided. Omit it for a provider that caches on its own. |
-| Realtime server | `realtime: { url, apiKey }` | The `agent-sdk-realtime` server and its internal key. Turn events go to `POST {url}/api/emit`, and UI action answers are collected from `GET {url}/internal/oui/action-results/:id`. |
+| Realtime server | `realtime: { url, apiKey }` | The `agent-sdk-realtime` server and its internal key. Turn events go to `POST {url}/api/emit`, and UI action answers are collected from `GET {url}/internal/oui/action-results/:id`. The key is a string, or a getter that reads it from your secret store (see "The realtime key from a secret store"). |
 | Persona | `persona` or `systemPrompt`, exactly one | The assistant's identity comes only from here. The shipped rules name no product. |
 | Tools | `tools` | A list, or a per-turn resolver. Pass `[]` when the only tools are the tab's UI actions. |
 | Persistence | `getDb`, `getHistory`, `persistMessages` | `getDb`'s handle is passed to every callback. `recordTurnStart`, `recordTurnComplete` and `recordTurnFailure` are optional. See "Stopping a turn" for what each is told of a stopped or superseding turn. |
@@ -26,6 +26,25 @@ Optional tuning, with its defaults:
 - `turnDeadlineMs`: 14 min (keep it below your host's own limit)
 - `handBackReserveMs`: 30 s, at most a quarter of `turnDeadlineMs`. Before each step the worker checks that a step as long as the turn's longest so far, plus this reserve, still fits before the deadline. When it does not, that step is the turn's last: the model is told to say what is done and what is left and to offer to continue (with `present_options` when the host gives it, in words otherwise), the host's turn policy is not asked about it, and the turn ends with `stopReason: 'time_limit'`. The deadline itself still stops a step that runs longer than any before it.
 - `retries`: 3
+
+### The realtime key from a secret store
+
+`realtime.apiKey` can be a getter instead of a string, so the key never sits in your function's configuration or your deploy template, and a rotated key reaches a running worker without a restart:
+
+```ts
+realtime: {
+  url: env.REALTIME_URL,
+  apiKey: () => readSecretField('closure/dev/internal-service-keys', 'REALTIME_API_KEY'),
+  apiKeyMaxAgeMs: 30_000, // the default
+},
+```
+
+- The getter (`() => string | Promise<string>`) is called on the first request, not at start-up, and its answer is kept for `apiKeyMaxAgeMs`. Every client the runtime builds (the turn's events, UI actions and their answers, approvals, the stop watch) shares that one cache.
+- When the realtime server refuses the key (401 or 403), the getter is called again at once; if it answers a different key, the request is sent once more with it. A request the server refused did nothing, so this is safe for every route.
+- A getter that throws, or answers an empty string, while a key is held leaves that key in use (logged as a warning, never with the key) and is called again on the next request. With no key held yet, the request fails.
+- A string works exactly as before and is never re-read.
+
+The clients you build yourself (`createHttpConversationClient`, `createHttpApprovalStoreClient`, `createHttpEventWaiter`, `createHttpUIActionChannel`, `createHttpTurnStopClient`, `createHttpEmitAdapter`) take the same three forms for `apiKey`: a string, a getter, or a `RealtimeKeySource` from `createRealtimeKeySource(getter, { maxAgeMs })` to share one cache between several of them.
 
 ### How replies are written
 

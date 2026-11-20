@@ -17,6 +17,7 @@ import type { TurnHistoryMessage, TurnMessage } from '../../types.js';
 import type { RegisteredTool } from '../../tools/types.js';
 import type { ToolPolicy } from '../../authz/tool-policy.js';
 import type { AgentTurnPayload } from '../../runtime/types.js';
+import type { RealtimeApiKey } from '../../realtime/api-key.js';
 import type { AgentApiSurface, StaffSpeaker, TakeoverChange, TurnStoppedMarker } from '@ouispec/agent-core';
 import { FIXTURE_TURN, INTERNAL_KEY, type FixtureProduct, type FixtureTab } from './fixture-product.js';
 
@@ -84,12 +85,17 @@ export interface FixtureTurnOptions {
   onUIDispatch?: (requestId: string) => void;
   /** The runtime's hooks around the turn: what it runs with, and what of it leaves the runtime. */
   hooks?: Pick<AgentRuntimeConfig<object>, 'beforeTurn' | 'filterEvent'>;
+  /**
+   * The realtime key as the host gives it (`realtime.apiKey`): the product's key by default. It
+   * reaches the runtime as given, so the runtime's own clients read it (with `onUIDispatch`, the
+   * test's observed UI channel reads it too).
+   */
+  apiKey?: RealtimeApiKey;
 }
 
 /** The realtime server's UI action channel, as the worker builds it, telling the test of each request sent. */
-function observedChannel(product: FixtureProduct, onDispatch: ((requestId: string) => void) | undefined) {
-  const channel = createHttpUIActionChannel({ url: product.realtimeUrl, apiKey: INTERNAL_KEY });
-  if (!onDispatch) return channel;
+function observedChannel(product: FixtureProduct, onDispatch: (requestId: string) => void, apiKey: RealtimeApiKey) {
+  const channel = createHttpUIActionChannel({ url: product.realtimeUrl, apiKey });
   return {
     ...channel,
     dispatch: async (...args: Parameters<typeof channel.dispatch>) => {
@@ -120,17 +126,19 @@ export async function runFixtureTurn(product: FixtureProduct, options: FixtureTu
 
   const persisted: FixtureTurnRun['persisted'] = [];
   const startedWithModel: string[] = [];
+  const apiKey = options.apiKey ?? INTERNAL_KEY;
   const config: AgentRuntimeConfig<object> = {
     model: options.model,
     promptCacheBreakpoint: options.promptCacheBreakpoint,
-    realtime: { url: product.realtimeUrl, apiKey: INTERNAL_KEY },
+    realtime: { url: product.realtimeUrl, apiKey },
     systemPrompt: () => FIXTURE_SYSTEM_PROMPT,
     tools: options.tools ?? [],
     toolPolicy: options.toolPolicy,
     ...(options.apiSurface ? { apiSurface: options.apiSurface } : {}),
     uiActions: {
       resultTimeoutMs: 10_000,
-      channel: observedChannel(product, options.onUIDispatch),
+      // Without an observer, the runtime's own channel: the same realtime routes, with its key.
+      ...(options.onUIDispatch ? { channel: observedChannel(product, options.onUIDispatch, apiKey) } : {}),
       ...(options.jobWaitMs !== undefined ? { jobWaitMs: options.jobWaitMs } : {}),
     },
     getDb: async () => ({}),

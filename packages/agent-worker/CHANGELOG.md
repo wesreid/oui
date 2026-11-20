@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.32.4
+
+### Patch Changes
+
+- The realtime key can come from your secret store: `realtime.apiKey` takes a getter (`() => string | Promise<string>`) as well as a string. The runtime reads it on the first request, keeps it for `realtime.apiKeyMaxAgeMs` (30 s by default), reads it again at once when the realtime server refuses it and sends that request once more with a newer key, and keeps a key that worked while a re-read fails. Every client the runtime builds shares one cache. The HTTP clients a product builds itself take a string, a getter or a shared `createRealtimeKeySource(...)`. A string works exactly as before.
+
 ## 0.32.3
 
 ### Patch Changes

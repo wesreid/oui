@@ -27,6 +27,7 @@ import type { TurnStopClient } from '../stop/turn-stop.js';
 import type { ApprovalPreviewHook, ValidateBeforeApproval } from '../approvals/hooks.js';
 import type { AgentTurnInfo } from './turn-info.js';
 import type { RealtimeEmitAdapter } from '../emit/types.js';
+import type { RealtimeApiKey } from '../realtime/api-key.js';
 import type { TurnContextPlacement } from '../step-messages.js';
 
 /**
@@ -290,7 +291,18 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
    */
   realtime: {
     url: string;
-    apiKey: string;
+    /**
+     * The internal key: a fixed string, or a getter that reads it from the
+     * host's secret store, so the key need not sit in the host's configuration
+     * and a rotation reaches a running worker. The runtime calls a getter on
+     * its first request, keeps the answer for `apiKeyMaxAgeMs`, reads it again
+     * at once when the realtime server refuses it, and keeps a key that worked
+     * while a re-read fails. Every one of the runtime's clients shares one
+     * cache.
+     */
+    apiKey: RealtimeApiKey;
+    /** How long a key read by the `apiKey` getter is used before it is read again (ms). Default 30 s. */
+    apiKeyMaxAgeMs?: number;
     /**
      * How turn events reach the client. Defaults to the realtime server's
      * `POST {url}/api/emit`. An eval harness, or a host that emits through

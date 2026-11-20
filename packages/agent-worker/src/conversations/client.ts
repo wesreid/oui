@@ -17,6 +17,7 @@ import type {
   TakeOverResult,
 } from '@ouispec/agent-core';
 import { requireRealtime } from '../emit/http-adapter.js';
+import { createRealtimeKeySource, fetchWithRealtimeKey, type RealtimeApiKey } from '../realtime/api-key.js';
 
 export interface ConversationClient {
   /** Who holds the conversation, or null when the agent answers it. */
@@ -45,25 +46,28 @@ export interface ConversationClient {
 export interface HttpConversationClientConfig {
   /** The realtime server's base URL. */
   url: string;
-  /** Its internal key. */
-  apiKey: string;
+  /** Its internal key: a string, a getter, or a shared `RealtimeKeySource`. */
+  apiKey: RealtimeApiKey;
   /** Per request. Default 5 s. */
   timeoutMs?: number;
 }
 
 /** The conversation routes over the realtime server's internal HTTP API. Throws on anything but an answer. */
 export function createHttpConversationClient(config: HttpConversationClientConfig): ConversationClient {
-  const { url, apiKey } = config;
-  requireRealtime(url, apiKey);
+  const { url } = config;
+  requireRealtime(url, config.apiKey);
+  const key = createRealtimeKeySource(config.apiKey);
   const timeoutMs = config.timeoutMs ?? 5_000;
 
   const call = async (conversationId: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> => {
-    const res = await fetch(`${url}/internal/conversations/${encodeURIComponent(conversationId)}${path}`, {
-      method: body === undefined ? 'GET' : 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    const res = await fetchWithRealtimeKey(key, (apiKey) =>
+      fetch(`${url}/internal/conversations/${encodeURIComponent(conversationId)}${path}`, {
+        method: body === undefined ? 'GET' : 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      }),
+    );
     const text = await res.text();
     let json: unknown = null;
     try {

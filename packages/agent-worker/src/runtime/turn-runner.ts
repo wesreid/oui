@@ -9,6 +9,7 @@ import { APICallError, RetryError } from 'ai';
 import { AGENT_SOCKET_EVENTS, APPROVAL_CHANNELS, isAttachmentId, resumeRefusal, type TurnStoppedReason, type TurnStoppedMarker } from '@ouispec/agent-core';
 import { runAgentTurn } from '../orchestrator.js';
 import { createHttpEmitAdapter } from '../emit/http-adapter.js';
+import { createRealtimeKeySource } from '../realtime/api-key.js';
 import { createHttpUIActionChannel } from '../ui/channel.js';
 import { createHttpApprovalStoreClient } from '../approvals/client.js';
 import { createHttpTurnStopClient, watchTurnStop, withLocalStop } from '../stop/turn-stop.js';
@@ -192,7 +193,13 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
   const turnDeadlineMs = config.turnDeadlineMs ?? 840_000;
   const retries = config.retries ?? 3;
 
-  const roomEmit = config.realtime.emit ?? createHttpEmitAdapter({ url: config.realtime.url, apiKey: config.realtime.apiKey });
+  // One cache of the realtime key for every client below: a getter is read once per max age, not once per client.
+  const realtimeKey = createRealtimeKeySource(config.realtime.apiKey, {
+    ...(config.realtime.apiKeyMaxAgeMs !== undefined ? { maxAgeMs: config.realtime.apiKeyMaxAgeMs } : {}),
+    onRefreshError: (error) =>
+      logger.warn('[agent-sdk] Could not read the realtime key again; the key held is still used', { error: messageOf(error) }),
+  });
+  const roomEmit = config.realtime.emit ?? createHttpEmitAdapter({ url: config.realtime.url, apiKey: realtimeKey });
   /**
    * The turn's emits: through the host's filter first when it has one, then to
    * the host observing the turn, then to the room. What the filter drops
@@ -244,11 +251,11 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
   // UI actions reach the client through the same realtime server, and its
   // answers come back through it.
   const uiChannel =
-    config.uiActions?.channel ?? createHttpUIActionChannel({ url: config.realtime.url, apiKey: config.realtime.apiKey });
+    config.uiActions?.channel ?? createHttpUIActionChannel({ url: config.realtime.url, apiKey: realtimeKey });
 
   // Approvals are kept by the same realtime server.
   const approvals =
-    config.approvals?.store ?? createHttpApprovalStoreClient({ url: config.realtime.url, apiKey: config.realtime.apiKey });
+    config.approvals?.store ?? createHttpApprovalStoreClient({ url: config.realtime.url, apiKey: realtimeKey });
 
   // A stop is kept by the same realtime server.
   /** Said once for the life of the process, not once a turn. */
@@ -257,7 +264,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
     config.stops?.client ??
     createHttpTurnStopClient({
       url: config.realtime.url,
-      apiKey: config.realtime.apiKey,
+      apiKey: realtimeKey,
       onError: (error, attempt) => logger.warn('[agent-sdk] Could not ask whether the turn was stopped; asking again', { attempt, error: messageOf(error) }),
       onUnsupported: () => {
         if (stopsUnsupported) return;
