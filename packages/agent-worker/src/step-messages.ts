@@ -119,3 +119,25 @@ export function stepMessages(messages: readonly ModelMessage[], additions: StepA
   if (additions.tail.length === 0) return marked;
   return [...marked, added(additions.tail.join('\n\n'), 'stepTail')];
 }
+
+/**
+ * The conversation with each of these calls answered by the result given for
+ * it, in place of the one it holds: a call `ai` answered with its own error,
+ * because no tool of the step could run it, reads the SDK's result instead
+ * (the orchestrator's `callNoToolRan`). `ai` carries a step's messages into
+ * the next, so the result stays what every later step reads.
+ */
+export function withCallResults(messages: readonly ModelMessage[], results: ReadonlyMap<string, string>): ModelMessage[] {
+  return messages.map((m) => {
+    if (m.role !== 'tool' || !m.content.some((part) => part.type === 'tool-result' && results.has(part.toolCallId))) return m;
+    return {
+      ...m,
+      content: m.content.map((part) => {
+        const value = part.type === 'tool-result' ? results.get(part.toolCallId) : undefined;
+        if (part.type !== 'tool-result' || value === undefined) return part;
+        if (part.output.type === 'error-text' && part.output.value === value) return part;
+        return { ...part, output: { type: 'error-text' as const, value } };
+      }),
+    };
+  });
+}

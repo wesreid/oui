@@ -75,7 +75,7 @@ Every other key is the page's context, which a persona prompt shows as the curre
 
 Each step of a turn (each call to the model: the first, and one after every round of tool calls) sends, in this order:
 
-1. **The system prompt**, with a cache breakpoint, then the page's index (`<page_index>`) when the client has a page, with its own. The same on every step, and on every turn on the same page.
+1. **The system prompt**, with a cache breakpoint, then the page's index (`<page_index>`) when the client has a page, with its own. The same on every step that offers the same tools, and on every turn on the same page.
 2. **The conversation** as the host stored it, ending with the turn's own message: the person's words, or the instruction that stands for them (a call's opening, glance, capture update or device update).
 3. **The turn's context**, straight after the turn's message: what is true for the whole turn and for no other. In this order: the clock (`<now>`), how the message was entered (`<input>`), how the reply is delivered (`<output>`), whether the model can look at the caller (`<vision>`, a glance's observation included), the photo plans and the running capture (`<capture>`), the device the call is on and whether it can move (`<handoff>`), calls whose approval expired, and the host's `stepContext` (what `getHistory` returns beside the messages: an index of work notes, a dealer's notes on what the customer needs). Every step sends it in the same place, in the same words.
 4. **The turn's rounds so far**: each round's text and tool calls, then their results. A cache breakpoint moves with the end of the conversation: on the turn's context on the first step, then on the newest result, so each step reads all of the step before it from the cache.
@@ -94,6 +94,14 @@ What is stored is only the person's message and the model's rounds, so the next 
 
 A placement the worker does not know fails when the adapter is created, naming the ones there are (`TURN_CONTEXT_PLACEMENTS`). Context that should reach the model on one step only goes in a turn policy's `note`, never in `stepContext`.
 
+### What a step is told about tools
+
+A turn policy can hold a step to some of the turn's tools (`activeTools`), to none (`toolChoice: 'none'`), or make it call one (a forced `toolChoice`). Everything the SDK tells that step names only the tools it offers: its rules in the system prompt (the tool strategy's choice rules name `present_options`, the UI rules name `ui_act`, `ui_describe` and `ui_read`), the page index's line on running actions, the files note (`attachment_*`), the client's knowledge (`ui_guide`), the turn's context lines (`look`, `capture_*`, `call_handoff`) and the hand-back note. A rule that names a tool the step does not offer is left out, or said without the tool: a step held to a search is told it cannot look at the caller, start photos or move the call at this step, and is not told how to offer choices. Nova, 2026-11-19: a step held to one tool still read "offer it with present_options", called it beside that tool, and the turn ended with no reply.
+
+The rules a persona's prompt carries (`buildAgentSystemPrompt`) are written once a turn with every tool; the worker takes the ones a step does not offer out of the host's prompt for that step (`systemPromptForTools`), so the host passes nothing. Your persona's own words are yours: an instruction that names a tool is sent as you wrote it on every step. Each piece of the SDK's prompt that names a tool is a `ToolRule` (`prompt/step-tools.ts`), and what a step offers is one value worked out once per step from the turn's tools and the policy's limits. A limited step already sends the provider fewer tools, and the tools come first in the cached prefix, so it costs no cache the limit had not already cost; steps that offer the same tools are told the same words.
+
+A call the model makes all the same, to a tool its step does not offer or to one the turn never had (`AI_NoSuchToolError`), or with input that cannot be read, runs nothing. It goes into the turn's calls that did not run, so it asks the person nothing and ends no turn; the model reads as its result that the tool is not one it can use now (`{ success: false, notRun: true, unavailable: true, error }`, or `invalidInput: true` with the parse error), and answers in words in the same turn; the client is sent a refused call (`agent:tool_call_complete` with `success: false`), and the conversation stores the same result.
+
 ## Hooks on every turn
 
 Every turn reaches the runtime one of four ways: the Lambda adapter, the container's `/turns`, the live-call handler, or your own code calling `runner.run`. Each hook below runs for all of them, and is told which turn it is called for (`AgentTurnInfo`):
@@ -109,7 +117,7 @@ Every turn reaches the runtime one of four ways: the Lambda adapter, the contain
 
 **`filterEvent(event, data, turn)`**, on the runtime config, decides what of each turn event leaves the runtime: return the payload to send (it is given a copy, so change it freely), or null to send nothing. It runs before the room, before a host that observes the turn, and so before the live-call handler speaks anything: one filter covers the page, the call and the room alike. Mask a phone number in a tool call's `input`, in a readback, or in the reply's text; drop `agent:reasoning_*`. It is synchronous, so events keep their order. It fails closed: a throw, or a return that is neither a payload nor null, drops that event and logs `The host’s event filter failed; the event was not sent`. A tool still runs with the arguments the model gave it: the filter governs what is sent, not what runs. The UI action requests the worker sends the user's own tab are not turn events, and do not pass through it.
 
-**The turn policy** is told the turn too: `classifyTurn(content, history, turn)`, and `turn` on the context of `prepareStep` and `onTurnClassified`.
+**The turn policy** is told the turn too: `classifyTurn(content, history, turn)`, and `turn` on the context of `prepareStep` and `onTurnClassified`. Each call in `prepareStep`'s `steps` says whether its tool ran (`ran`), and when it did not, why (`notRun`: refused, invalid, denied, waiting for approval, or a tool the step did not offer). Decide on what ran: a step that asked for a tool and was refused has not used it.
 
 ### The rounds of a turn
 

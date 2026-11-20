@@ -20,11 +20,13 @@
  */
 import type { ResolvedKnowledge } from '@ouispec/bindings';
 import type { RegisteredTool } from '../tools/types.js';
+import { KNOWLEDGE_TOOL } from '../tools/sdk-tool-names.js';
+import { EVERY_TOOL, renderRule, type OfferedTools } from '../prompt/step-tools.js';
 
 /** The context key a UI client uses for its knowledge. */
 export const CLIENT_KNOWLEDGE_KEY = 'uiKnowledge';
 /** The tool that reads the rest of the knowledge. */
-export const KNOWLEDGE_TOOL = 'ui_guide';
+export { KNOWLEDGE_TOOL };
 /** The knowledge the system prompt carries at most, in characters. One constant. */
 export const KNOWLEDGE_PROMPT_CHARS = 12_000;
 /** An entry this size or smaller is never cut: a map, a frame, a neighbouring page's summary. */
@@ -75,9 +77,10 @@ function cutAt(text: string, max: number): string {
  * all of it fits, and every workflow with its steps. Over that, small entries
  * stay whole, a large one is cut at a line with a note saying how much is left
  * and how to read it, and the workflows are listed by name to be read one at a
- * time.
+ * time. `ui_guide` is named only to a step that offers it (`offered`): a step
+ * that does not is told what is not shown, and not how to read it.
  */
-export function renderClientKnowledge(knowledge: ClientKnowledge, maxChars = KNOWLEDGE_PROMPT_CHARS): string {
+export function renderClientKnowledge(knowledge: ClientKnowledge, maxChars = KNOWLEDGE_PROMPT_CHARS, offered: OfferedTools = EVERY_TOOL): string {
   const entryHead = '## Platform Knowledge (Context-Aware)\n\n';
   const workflowHead = '## Active Workflows\n\n';
   const whole = (e: ClientKnowledge['entries'][number]) => `### ${e.title}\n${e.content}`;
@@ -92,8 +95,14 @@ export function renderClientKnowledge(knowledge: ClientKnowledge, maxChars = KNO
 
   // The workflows by name: each read whole with the tool.
   const named = knowledge.workflows.length
-    ? `Each is read in full, with its steps, by \`${KNOWLEDGE_TOOL}\` with \`workflow\` set to its name.\n` +
-      knowledge.workflows.map((w) => `- ${w.name}`).join('\n')
+    ? renderRule(
+        {
+          tools: [KNOWLEDGE_TOOL],
+          text: `Each is read in full, with its steps, by \`${KNOWLEDGE_TOOL}\` with \`workflow\` set to its name.\n`,
+          otherwise: 'Their steps are not shown here.\n',
+        },
+        offered,
+      ) + knowledge.workflows.map((w) => `- ${w.name}`).join('\n')
     : '';
   const workflowsSize = named ? workflowHead.length + named.length + 2 : 0;
 
@@ -109,7 +118,9 @@ export function renderClientKnowledge(knowledge: ClientKnowledge, maxChars = KNO
     return (
       `### ${e.title}\n${shown}` +
       (rest > 0
-        ? `\n(${rest} more characters of "${e.title}" are not shown: \`${KNOWLEDGE_TOOL}\` with \`entry\` set to this title and \`from: ${shown.length}\` reads them.)`
+        ? `\n(${rest} more characters of "${e.title}" are not shown` +
+          renderRule({ tools: [KNOWLEDGE_TOOL], text: `: \`${KNOWLEDGE_TOOL}\` with \`entry\` set to this title and \`from: ${shown.length}\` reads them` }, offered) +
+          '.)'
         : '')
     );
   });
@@ -194,10 +205,14 @@ export function knowledgeTool(knowledge: ClientKnowledge): RegisteredTool {
   };
 }
 
-/** The host's system prompt, followed by the knowledge the turn's client sent, if any. */
-export function withClientKnowledge(systemPrompt: string, context: Record<string, unknown> | null | undefined): string {
+/** The host's system prompt, followed by the knowledge the turn's client sent, if any, as a step offering `offered` is told it. */
+export function withClientKnowledge(
+  systemPrompt: string,
+  context: Record<string, unknown> | null | undefined,
+  offered: OfferedTools = EVERY_TOOL,
+): string {
   const knowledge = readClientKnowledge(context);
-  const rendered = knowledge ? renderClientKnowledge(knowledge) : '';
+  const rendered = knowledge ? renderClientKnowledge(knowledge, KNOWLEDGE_PROMPT_CHARS, offered) : '';
   return rendered ? `${systemPrompt}\n\n${rendered}` : systemPrompt;
 }
 

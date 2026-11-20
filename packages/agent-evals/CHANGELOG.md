@@ -1,5 +1,19 @@
 # @ouispec/agent-evals
 
+## 0.32.3
+
+### Patch Changes
+
+- A step is told only about the tools it offers, and a call to a tool it does not offer ends no turn. Nova, 0.32.2: a step its turn policy held to one tool (`activeTools`) still read the SDK's "offer it with present_options", called `present_options` beside the tool it was given, and the call failed (`AI_NoSuchToolError`) without running; it never went into the turn's calls that did not run, so the turn counted it as a question to the user, ended after that round with no reply, and the host fell back.
+
+  - **What a step is told.** Every piece of the SDK's prompt that names a tool is a `ToolRule` (`prompt/step-tools.ts`), said only when the step offers every tool it names, or said without it. What a step offers is one value, worked out once per step from the turn's tools and the policy's limits (`stepOfferedTools`: none with `toolChoice: 'none'`, the forced tool, else the active tools), and every writer of the step's prompt is given it: the tool strategy's choice rules (`present_options`) and the UI rules (`ui_act`, `ui_describe`, `ui_read`), which a persona's prompt carries from `buildAgentSystemPrompt` and the worker takes out of the host's prompt for that step (`systemPromptForTools`, so the host passes nothing); the page index's line on running actions; the files note (`attachmentDataNote`); the client's knowledge (`ui_guide`); the turn's context lines (`look`, `capture_*`, `call_handoff`: a step held to other tools is told it cannot look, start photos or move the call at this step); and the hand-back note. With every tool offered the words are byte for byte what they were. A limited step already sends the provider fewer tools, so it costs no cache the limit had not; steps that offer the same tools are told the same words. Text a host writes itself is sent as written.
+  - **A call no tool ran.** A call to a tool its step does not offer, or that the turn never had, or whose input cannot be read, goes into the turn's calls that did not run with its reason: it asks the user nothing and ends no turn. The model reads as its result `{ success: false, notRun: true, unavailable: true, error }` (`unavailableToolError`: the tool is not one it can use now, nothing was shown, carry on or answer in words), or `invalidInput: true` with the parse error, in place of `ai`'s own error, and answers in words in the same turn. The turn's record lists it, the client is sent it as a refused call, and the conversation stores the same result.
+  - **The turn policy** sees, on each call in `prepareStep`'s `steps`, whether its tool ran (`ran`) and why not (`notRun`), so a policy can decide on what ran. A `ui_act` call that names no action of the page is counted as not run too.
+  - **agent-evals** counts a call to a tool that was not offered (`unavailable`) as an invalid tool call, as it counted `ai`'s error before.
+
+- Updated dependencies
+  - @ouispec/agent-worker@0.32.3
+
 ## 0.32.0
 
 ### Patch Changes

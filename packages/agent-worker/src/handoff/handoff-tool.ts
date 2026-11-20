@@ -15,6 +15,7 @@
  * own message. The token is never logged or emitted.
  */
 import type { RegisteredTool, ToolExecutionResult } from '../tools/types.js';
+import { CALL_HANDOFF_TOOL } from '../tools/sdk-tool-names.js';
 import {
   CALL_HANDOFF_PURPOSES,
   CALL_HANDOFF_STATUSES,
@@ -25,7 +26,7 @@ import {
   type TurnHandoff,
 } from '../prompt/handoff.js';
 
-export const CALL_HANDOFF_TOOL = 'call_handoff';
+export { CALL_HANDOFF_TOOL };
 
 /** The SDK's class for the hand-off tool, as a host's tool policy sees it. */
 export const HANDOFF_TOOL_CLASS = 'handoff';

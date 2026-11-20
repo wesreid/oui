@@ -43,8 +43,14 @@ export interface TurnPolicy {
    * Returns overrides for toolChoice and activeTools, or empty object for no constraint.
    */
   prepareStep(ctx: {
-    /** The turn's steps so far: the tools each called, and the text each wrote. */
-    steps: Array<{ toolCalls?: Array<{ toolName: string }>; text?: string }>;
+    /**
+     * The turn's steps so far: the tools each called, and the text each wrote.
+     * Each call says whether its tool ran (`ran`); one that did not (refused,
+     * invalid input, denied by policy, waiting for approval, or a tool the
+     * step did not offer) did nothing, and `notRun` says why. Decide on what
+     * ran: a step that asked for a tool and was refused has not used it.
+     */
+    steps: Array<{ toolCalls?: Array<{ toolName: string; ran?: boolean; notRun?: string }>; text?: string }>;
     turnClass: string;
     allToolNames: string[];
     /** The same tools with their kind and class, in the same order. */
