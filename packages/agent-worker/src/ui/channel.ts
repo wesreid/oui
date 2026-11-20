@@ -11,6 +11,7 @@ import type { OUIActionRequest, OUIActionResult } from 'oui-spec/spec';
 import { createWebSocketTransport, type SocketLike } from 'oui-spec/transport';
 import { requireRealtime } from '../emit/http-adapter.js';
 import { longPoll } from '../realtime/long-poll.js';
+import { createRealtimeKeySource, fetchWithRealtimeKey, type RealtimeApiKey } from '../realtime/api-key.js';
 
 /**
  * Who received a request: how many of the room's tabs acknowledged it, and how
@@ -45,8 +46,8 @@ export interface UIActionChannel {
 export interface HttpUIActionChannelConfig {
   /** The realtime service's base URL. */
   url: string;
-  /** Its internal API key (the same key the emit adapter uses). */
-  apiKey: string;
+  /** Its internal API key (the same key the emit adapter uses): a string, a getter, or a shared `RealtimeKeySource`. */
+  apiKey: RealtimeApiKey;
   /** Longest single wait the realtime service is asked to hold open. Default 20 s. */
   maxPollMs?: number;
   /** Timeout for delivering a request. Default 5 s. */
@@ -90,8 +91,9 @@ function ouiDispatchEvent(request: OUIActionRequest): { event: string; data: unk
  *   with `&final=1`, for the final answer of an async action.
  */
 export function createHttpUIActionChannel(config: HttpUIActionChannelConfig): UIActionChannel {
-  const { url, apiKey } = config;
-  requireRealtime(url, apiKey);
+  const { url } = config;
+  requireRealtime(url, config.apiKey);
+  const apiKey = createRealtimeKeySource(config.apiKey);
   const maxPollMs = config.maxPollMs ?? 20_000;
   const dispatchTimeoutMs = config.dispatchTimeoutMs ?? 5_000;
   const receiptTimeoutMs = config.receiptTimeoutMs ?? 1_500;
@@ -99,17 +101,20 @@ export function createHttpUIActionChannel(config: HttpUIActionChannelConfig): UI
   return {
     async dispatch(room, request) {
       const { event, data } = ouiDispatchEvent(request);
-      const res = await fetch(`${url}/api/emit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
-        body: JSON.stringify({
-          event,
-          data,
-          rooms: [room],
-          ...(receiptTimeoutMs > 0 ? { ackTimeoutMs: receiptTimeoutMs } : {}),
-        }),
-        signal: AbortSignal.timeout(dispatchTimeoutMs + receiptTimeoutMs),
+      const body = JSON.stringify({
+        event,
+        data,
+        rooms: [room],
+        ...(receiptTimeoutMs > 0 ? { ackTimeoutMs: receiptTimeoutMs } : {}),
       });
+      const res = await fetchWithRealtimeKey(apiKey, (key) =>
+        fetch(`${url}/api/emit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Api-Key': key },
+          body,
+          signal: AbortSignal.timeout(dispatchTimeoutMs + receiptTimeoutMs),
+        }),
+      );
       if (!res.ok) {
         throw new Error(`[agent-sdk] Delivering UI action ${request.actionId} failed: HTTP ${res.status}`);
       }

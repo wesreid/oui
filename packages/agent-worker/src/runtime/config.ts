@@ -1,6 +1,7 @@
 import type { AgentRuntimeConfig } from './types.js';
 import { resolveCommunicationStyle } from '../prompt/rules/communication.js';
 import { readTurnContextPlacement } from '../step-messages.js';
+import { isRealtimeApiKey } from '../realtime/api-key.js';
 
 /**
  * Every value the runtime cannot run without, and what it is for. A missing
@@ -12,7 +13,7 @@ import { readTurnContextPlacement } from '../step-messages.js';
 const REQUIRED: ReadonlyArray<[string, (c: Partial<AgentRuntimeConfig<unknown>>) => boolean, string]> = [
   ['model', (c) => !!c.model, 'an `ai` library model'],
   ['realtime.url', (c) => typeof c.realtime?.url === 'string' && /^https?:\/\//.test(c.realtime.url), 'the realtime server URL (http or https)'],
-  ['realtime.apiKey', (c) => typeof c.realtime?.apiKey === 'string' && c.realtime.apiKey.length > 0, "the realtime server's internal key"],
+  ['realtime.apiKey', (c) => isRealtimeApiKey(c.realtime?.apiKey), "the realtime server's internal key: a string, or a getter that reads it"],
   [
     'persona or systemPrompt',
     (c) => !!c.persona !== (typeof c.systemPrompt === 'function'),

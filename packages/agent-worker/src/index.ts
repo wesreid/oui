@@ -107,6 +107,9 @@ export type { RecordedStep, RecordedCall } from './stop/partial.js';
 // UI actions: the client's surfaces become the turn's UI tools,
 // and every UI action is answered by the client.
 export type { UIActionChannel, HttpUIActionChannelConfig } from './ui/channel.js';
+// The realtime server's internal key: fixed, or read by the host's getter, cached and refreshed.
+export { createRealtimeKeySource, isRealtimeKeySource, DEFAULT_REALTIME_KEY_MAX_AGE_MS } from './realtime/api-key.js';
+export type { RealtimeApiKey, RealtimeApiKeyGetter, RealtimeKeySource, RealtimeKeySourceOptions } from './realtime/api-key.js';
 export { createHttpUIActionChannel } from './ui/channel.js';
 export { readClientPage, withoutClientSnapshot, withoutClientUI, capabilityFingerprint, CLIENT_SNAPSHOT_KEY, type ClientPage } from './ui/snapshot.js';
 export {

@@ -19,6 +19,7 @@ import type {
   PendingApprovalInput,
 } from '@ouispec/agent-core';
 import { requireRealtime } from '../emit/http-adapter.js';
+import { createRealtimeKeySource, fetchWithRealtimeKey, type RealtimeApiKey } from '../realtime/api-key.js';
 
 export interface ApprovalStoreClient {
   /** Store a pending approval. Rejects when it was not stored: the call must then not wait on it. */
@@ -64,25 +65,28 @@ export interface ApprovalStoreClient {
 export interface HttpApprovalStoreClientConfig {
   /** The realtime server's base URL. */
   url: string;
-  /** Its internal key. */
-  apiKey: string;
+  /** Its internal key: a string, a getter, or a shared `RealtimeKeySource`. */
+  apiKey: RealtimeApiKey;
   /** Per request. Default 5 s. */
   timeoutMs?: number;
 }
 
 /** The store over the realtime server's internal HTTP API. */
 export function createHttpApprovalStoreClient(config: HttpApprovalStoreClientConfig): ApprovalStoreClient {
-  const { url, apiKey } = config;
-  requireRealtime(url, apiKey);
+  const { url } = config;
+  requireRealtime(url, config.apiKey);
+  const key = createRealtimeKeySource(config.apiKey);
   const timeoutMs = config.timeoutMs ?? 5_000;
 
   const call = async (path: string, body?: unknown) => {
-    const res = await fetch(`${url}${path}`, {
-      method: body === undefined ? 'GET' : 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    const res = await fetchWithRealtimeKey(key, (apiKey) =>
+      fetch(`${url}${path}`, {
+        method: body === undefined ? 'GET' : 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      }),
+    );
     const text = await res.text();
     let json: Record<string, unknown> = {};
     try {

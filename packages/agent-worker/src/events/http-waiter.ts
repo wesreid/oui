@@ -9,19 +9,21 @@
 import type { EventWaiter, Settlement } from '@ouispec/agent-events';
 import { requireRealtime } from '../emit/http-adapter.js';
 import { longPoll } from '../realtime/long-poll.js';
+import { createRealtimeKeySource, type RealtimeApiKey } from '../realtime/api-key.js';
 
 export interface HttpEventWaiterConfig {
   /** The realtime server's base URL. */
   url: string;
-  /** Its internal API key (the same key the emit adapter uses). */
-  apiKey: string;
+  /** Its internal API key (the same key the emit adapter uses): a string, a getter, or a shared `RealtimeKeySource`. */
+  apiKey: RealtimeApiKey;
   /** Longest single wait the server is asked to hold open. Default 20 s. */
   maxPollMs?: number;
 }
 
 export function createHttpEventWaiter(config: HttpEventWaiterConfig): EventWaiter {
-  const { url, apiKey } = config;
-  requireRealtime(url, apiKey);
+  const { url } = config;
+  requireRealtime(url, config.apiKey);
+  const apiKey = createRealtimeKeySource(config.apiKey);
   const maxPollMs = config.maxPollMs ?? 20_000;
 
   return {
