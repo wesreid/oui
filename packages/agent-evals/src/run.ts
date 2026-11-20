@@ -334,13 +334,21 @@ const replyOf = (messages: readonly TurnMessage[]) =>
     .map((m) => m.content!.trim())
     .join('\n\n');
 
-/** Whether a stored tool result says the model wrote the call wrong: input the tool's schema refused, input that would not parse, or no such tool. */
+/**
+ * Whether a stored tool result says the model wrote the call wrong: input the
+ * tool's schema refused, input that would not parse, or a tool its step did
+ * not offer (`unavailable`, agent-worker 0.32.3; earlier workers stored `ai`'s
+ * own "Model tried to call unavailable tool" error).
+ */
 const INVALID_CALL_ERROR = /^(?:Invalid input for tool |Model tried to call unavailable tool )/;
-const invalidCall = (content: string | null | undefined): boolean => {
+export const invalidCall = (content: string | null | undefined): boolean => {
   if (!content) return false;
   try {
-    const parsed = JSON.parse(content) as { invalidInput?: unknown; notRun?: unknown; error?: unknown };
-    return parsed?.invalidInput === true || (parsed?.notRun === true && typeof parsed.error === 'string' && INVALID_CALL_ERROR.test(parsed.error));
+    const parsed = JSON.parse(content) as { invalidInput?: unknown; unavailable?: unknown; notRun?: unknown; error?: unknown };
+    return (
+      parsed?.invalidInput === true ||
+      (parsed?.notRun === true && (parsed.unavailable === true || (typeof parsed.error === 'string' && INVALID_CALL_ERROR.test(parsed.error))))
+    );
   } catch {
     return false;
   }

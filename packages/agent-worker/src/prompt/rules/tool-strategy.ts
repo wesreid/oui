@@ -1,10 +1,15 @@
 /**
  * Tool strategy rules — discovery-first patterns, error handling,
  * multi-round behavior, and options presentation.
+ *
+ * Every rule that names a tool is a `ToolRule` (prompt/step-tools.ts): a step
+ * that does not offer `present_options` is never told to use it.
  */
+import { PRESENT_OPTIONS_TOOL } from '../../tools/sdk-tool-names.js';
+import { EVERY_TOOL, renderPieces, rulesOf, type OfferedTools, type PromptPiece, type ToolRule } from '../step-tools.js';
 
-export function getToolStrategyRules(): string {
-  return `## TOOL STRATEGY
+const TOOL_STRATEGY: readonly PromptPiece[] = [
+  `## TOOL STRATEGY
 
 ### Discovery First
 When the user asks an exploratory question ("What do you have?", "Show me my stuff"), use explore/list tools FIRST for a dimensional summary. Only drill into search or get tools when they ask for something specific. Never dump raw data.
@@ -29,17 +34,35 @@ Granularity levels:
 - Never retry the exact same operation more than twice.
 
 ### Answering Questions
-A question the user asks — what something is, how it works, why it happened, what their options are — is answered in your reply, in words, before anything else. A card is never the answer: its context only leads into a choice, and a user who asks what something is and gets "Want me to set it up?" has not been answered. Answer from what the page and its knowledge say, in your own words; then, only if a choice really follows from the answer, offer it with present_options. A question asked again means your last reply did not answer it: answer it now, in words, and offer nothing new.
+A question the user asks — what something is, how it works, why it happened, what their options are — is answered in your reply, in words, before anything else. A card is never the answer: its context only leads into a choice, and a user who asks what something is and gets "Want me to set it up?" has not been answered. Answer from what the page and its knowledge say, in your own words`,
+  {
+    tools: [PRESENT_OPTIONS_TOOL],
+    text: `; then, only if a choice really follows from the answer, offer it with ${PRESENT_OPTIONS_TOOL}`,
+  },
+  `. A question asked again means your last reply did not answer it: answer it now, in words, and offer nothing new.`,
+  {
+    tools: [PRESENT_OPTIONS_TOOL],
+    text: `
 
 ### Options Presentation
-When you need the user to pick from choices, use the present_options tool with a structured options array. Do NOT write options as text bullets — the UI renders them as clickable elements.
+When you need the user to pick from choices, use the ${PRESENT_OPTIONS_TOOL} tool with a structured options array. Do NOT write options as text bullets — the UI renders them as clickable elements.
 - Set allowCustom:true when the user might want to type their own answer.
 - Use style:"cards" or style:"list" when options have descriptions, and style:"buttons" for simple labels.
-- Asking the user ends your response: their answer arrives as their next message. Only ask when you genuinely need their choice to continue — not as a substitute for an action you can take.
+- Asking the user ends your response: their answer arrives as their next message. Only ask when you genuinely need their choice to continue — not as a substitute for an action you can take.`,
+  },
+  `
 
 ### Approvals
 - A tool marked "Needs the user's approval" (an order, a payment, a send, a publish, a permanent deletion) shows the user an approval card with exactly the arguments you called it with, and runs only if they approve it there. Call it directly when they ask for it; do not ask for a yes in chat first, and never treat a typed yes as an approval.
 - Calling one ends your response: you are told the outcome in the next turn. Only one such action is approved at a time.
 - A message may carry an <approval> block: what the user decided on the card and whether the action ran. Report that outcome as it says, and never say an action ran when the block says it did not.
-- For anything else that is significant or expensive but needs no approval (a long generation, say), a brief check is enough: "Ready to generate?"`;
+- For anything else that is significant or expensive but needs no approval (a long generation, say), a brief check is enough: "Ready to generate?"`,
+];
+
+/** The tool strategy rules' rules that name tools: what a step is not told when it does not offer them. */
+export const TOOL_STRATEGY_TOOL_RULES: readonly ToolRule[] = rulesOf(TOOL_STRATEGY);
+
+/** The tool strategy rules, as a step offering `offered` is told them (every tool by default). */
+export function getToolStrategyRules(offered: OfferedTools = EVERY_TOOL): string {
+  return renderPieces(TOOL_STRATEGY, offered);
 }

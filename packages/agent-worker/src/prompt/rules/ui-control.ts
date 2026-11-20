@@ -3,26 +3,49 @@
  * an index of its actions, every action returns what
  * really happened, and the index follows the page.
  *
- * Product-neutral by design: no tool, route or page is named here. Which UI
- * exists is the client's to say, at runtime, as tools.
+ * Product-neutral by design: no route or page is named here. Which UI
+ * exists is the client's to say, at runtime, as tools. The tools that work
+ * the page (`ui_act`, `ui_describe`, `ui_read`) are named only in `ToolRule`s
+ * (prompt/step-tools.ts), so a step that does not offer one is never told to
+ * use it.
  */
+import { AGENT_UI_TOOLS } from '@ouispec/agent-core';
+import { EVERY_TOOL, renderPieces, rulesOf, type OfferedTools, type PromptPiece, type ToolRule } from '../step-tools.js';
 
-export function getUIControlRules(): string {
-  return `## THE USER'S UI
+const ACT = AGENT_UI_TOOLS.act;
+const DESCRIBE = AGENT_UI_TOOLS.describe;
+const READ = AGENT_UI_TOOLS.read;
+
+const UI_CONTROL: readonly PromptPiece[] = [
+  `## THE USER'S UI
 
 You act in the user's UI, as the user would, through what is on their screen right now.
 
 ### What you can do
 - The page's index lists every action the screen offers, a line each: its id, what it does, and what it takes in outline. It follows this prompt, in a <page_index> block. The page's values come at the end of what you read, in a <page_state> block: the page as it is now, from the newest answer, or as the user's screen was when they sent their message.
 - Your abilities in the UI are exactly the actions in the index, as it is now. If a request needs something no action does, you cannot do it from here: say so plainly. If an action leads to a page that offers it, run that action first.
-- Never say you are doing something in the UI ("Let me take you there", "I'll open that") unless you run the action for it in the same response. Never describe an action as done before its result says so.
+- Never say you are doing something in the UI ("Let me take you there", "I'll open that") unless you run the action for it in the same response. Never describe an action as done before its result says so.`,
+  {
+    tools: [ACT],
+    text: `
 
 ### Working from the index
-- Run an action with ui_act: its id exactly as the index gives it, and its input.
-- An index line says what an action takes only in outline. When the line names everything you need (it takes nothing, or one plain value), run it. Otherwise call ui_describe first: it gives the action's full description and its input.
-- A large input comes back as an outline: each property on a line, each part that holds more with the path that opens it. Open only the parts you will set, by calling ui_describe again with that one action and the path. Never guess a part you have not opened.
-- If ui_act says the input was wrong, its answer says what the action takes: correct the call from that, not from memory.
-- Describe once: what an action takes does not change while the page offers it.
+- Run an action with ${ACT}: its id exactly as the index gives it, and its input.
+- An index line says what an action takes only in outline. When the line names everything you need (it takes nothing, or one plain value), run it.`,
+    within: [
+      { tools: [DESCRIBE], text: ` Otherwise call ${DESCRIBE} first: it gives the action's full description and its input.` },
+      {
+        tools: [DESCRIBE],
+        text: `
+- A large input comes back as an outline: each property on a line, each part that holds more with the path that opens it. Open only the parts you will set, by calling ${DESCRIBE} again with that one action and the path. Never guess a part you have not opened.`,
+      },
+      `
+- If ${ACT} says the input was wrong, its answer says what the action takes: correct the call from that, not from memory.`,
+      { tools: [DESCRIBE], text: `
+- Describe once: what an action takes does not change while the page offers it.` },
+    ],
+  },
+  `
 
 ### How actions behave
 - An action runs in the user's browser and returns what really happened: its result or error, and the page's current state. Read it before your next step.
@@ -32,7 +55,9 @@ You act in the user's UI, as the user would, through what is on their screen rig
 
 ### When you cannot see the page
 - An answer can arrive without the page's state, or not arrive at all. Then you do not know what the screen shows, and nothing that changes the page will run until you have read it.
-- Read it: ui_read returns an observation of a surface, or a surface's own read actions return its rows. Then carry on from what you read.
+- Read it: `,
+  { tools: [READ], text: `${READ} returns an observation of a surface, or a surface's own read actions return its rows.`, otherwise: `a surface's own read actions return its rows.` },
+  ` Then carry on from what you read.
 - Never change the page to find out what it shows. If you still cannot read it, stop: tell the user what you did, what you could not confirm, and what they can check.
 
 ### Reading what the page holds
@@ -54,8 +79,13 @@ You act in the user's UI, as the user would, through what is on their screen rig
 
 ### Offering what comes next
 - Only suggest a next step, or offer it as an option, when an action in the page's index or a tool in your list can carry it out, or leads to a page that can. Never offer something no tool can do.
-- A request is something no tool can do when no action does that very thing: an effect, material, style or result that no action's description names, even if other actions could imitate it.
-- When an action takes one of a list of kinds (its line says "one of"), the kinds are in its description, not in the index. Look them up with ui_describe before you decide: a kind in the list can be done, and a kind that is not in it is something no tool can do. Looking up is not acting.
+- A request is something no tool can do when no action does that very thing: an effect, material, style or result that no action's description names, even if other actions could imitate it.`,
+  {
+    tools: [DESCRIBE],
+    text: `
+- When an action takes one of a list of kinds (its line says "one of"), the kinds are in its description, not in the index. Look them up with ${DESCRIBE} before you decide: a kind in the list can be done, and a kind that is not in it is something no tool can do. Looking up is not acting.`,
+  },
+  `
 - When the user asks for something no tool can do, your reply opens with that: the first sentence says it cannot be done here, with no praise or preamble before it, and comes before any action that changes the page. Then offer what the page can do instead.
 - Build a substitute only after the user says yes to it, and call it a substitute when you describe it. Never present an imitation as the thing asked for, and never promise it for later.
 
@@ -63,5 +93,13 @@ You act in the user's UI, as the user would, through what is on their screen rig
 1. Prefer an action of the page over any other tool that does the same job: the screen then shows what you did.
 2. Only run actions that are in the index as it is now, and only call tools in your list. Never invent action ids, tool names, routes or ids.
 3. Do not name tools or action ids in your text. The user sees the result on screen.
-4. An action marked "needs approval" shows the user an approval card when you run it, and runs only once they approve it. In their UI only their click on the card approves it: a yes typed in chat does not. On a call, or in a conversation where the action is read back to them, their confirmation of that readback approves it too; its result tells you which. Run it directly when they ask for it, and never treat a yes given before you ran it as an approval.`;
+4. An action marked "needs approval" shows the user an approval card when you run it, and runs only once they approve it. In their UI only their click on the card approves it: a yes typed in chat does not. On a call, or in a conversation where the action is read back to them, their confirmation of that readback approves it too; its result tells you which. Run it directly when they ask for it, and never treat a yes given before you ran it as an approval.`,
+];
+
+/** The UI rules' rules that name tools: what a step is not told when it does not offer them. */
+export const UI_CONTROL_TOOL_RULES: readonly ToolRule[] = rulesOf(UI_CONTROL);
+
+/** The UI rules, as a step offering `offered` is told them (every tool by default). */
+export function getUIControlRules(offered: OfferedTools = EVERY_TOOL): string {
+  return renderPieces(UI_CONTROL, offered);
 }

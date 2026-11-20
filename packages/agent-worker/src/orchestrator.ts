@@ -18,7 +18,7 @@
  *   - ApiSurface binding for tool execution
  *   - Configurable TurnPolicy for product-specific step control
  */
-import { streamText, dynamicTool, jsonSchema, isStepCount, wrapLanguageModel } from 'ai';
+import { streamText, dynamicTool, jsonSchema, isStepCount, wrapLanguageModel, NoSuchToolError } from 'ai';
 import type { ModelMessage, AssistantModelMessage, ToolModelMessage, TextPart, ToolCallPart } from 'ai';
 import {
   AGENT_SOCKET_EVENTS,
@@ -49,7 +49,10 @@ import { jsonBytes } from 'oui-spec/spec';
 import { CLIENT_SNAPSHOT_KEY, readClientPage, withoutClientUI } from './ui/snapshot.js';
 import { KNOWLEDGE_TOOL, knowledgeTool, readClientKnowledge, withClientKnowledge } from './ui/knowledge.js';
 import { answerWithoutState, withStatesAtEnd } from './ui/page-state-at-end.js';
-import { readTurnContextPlacement, stepMessages as forStep, STEP_NOTE_CLOSE, STEP_NOTE_OPEN } from './step-messages.js';
+import { readTurnContextPlacement, stepMessages as forStep, STEP_NOTE_CLOSE, STEP_NOTE_OPEN, withCallResults } from './step-messages.js';
+import { EVERY_TOOL, offeredTools, renderRule, type OfferedTools, type ToolRule } from './prompt/step-tools.js';
+import { systemPromptForTools } from './prompt/builder.js';
+import { PRESENT_OPTIONS_TOOL } from './tools/sdk-tool-names.js';
 import { clockText, readClientTimeZone } from './prompt/clock.js';
 import { readClientMessageInput, spokenInputText } from './prompt/spoken-input.js';
 import { readClientReplyOutput, spokenReplyText } from './prompt/spoken-reply.js';
@@ -60,7 +63,7 @@ import { captureTools } from './capture/capture-tools.js';
 import { handoffText } from './prompt/handoff.js';
 import { handoffTool } from './handoff/handoff-tool.js';
 import { AttachmentGuard } from './attachments/guard.js';
-import { ATTACHMENT_DATA_NOTE, turnAttachmentParts, withReferenceLines, withTurnAttachments, withoutLeftOut } from './attachments/content.js';
+import { attachmentDataNote, turnAttachmentParts, withReferenceLines, withTurnAttachments, withoutLeftOut } from './attachments/content.js';
 import { attachmentTools } from './attachments/tools.js';
 import { acceptsMediaType, attachmentIdsIn, attachmentNameForModel, misplacedAttachmentInputs, type AttachmentRef } from '@ouispec/agent-core';
 
@@ -140,12 +143,52 @@ const UI_TOOL_NAMES: ReadonlySet<string> = new Set([UI_ACT_TOOL, UI_DESCRIBE_TOO
 export const USER_INPUT_TOOLS = ['present_options', 'confirm_action', 'request_user_decision'] as const;
 
 /** The choice built-in, which `requireReplyBeforeChoice` holds to a reply. */
-export const PRESENT_OPTIONS_TOOL = 'present_options';
+export { PRESENT_OPTIONS_TOOL };
+
+/**
+ * What the model is told of a call to a tool its step does not offer (or one
+ * that does not exist): it did not run, nothing reached the user, and the
+ * step goes on. `ai` answers such a call with its own error (`AI_NoSuchToolError`)
+ * and runs nothing; this is the result the model reads in its place.
+ */
+export function unavailableToolError(toolName: string): string {
+  return (
+    `"${toolName}" is not one of the tools you can use now, so the call did not run and nothing was shown to the user. ` +
+    'Carry on with the tools you have, or answer in words.'
+  );
+}
 
 /** What the model is told when `requireReplyBeforeChoice` sends a choice back. */
 export const REPLY_BEFORE_CHOICE_ERROR =
   'Not shown. Your reply is the plain text you write outside any tool call, and you have written none: the card, its context included, is not the reply. ' +
   'Write one or two sentences now, as text (what you found or did), then call present_options again.';
+
+/**
+ * How the page's index says its actions are run. The tools that work the page
+ * are named only to a step that offers them (prompt/step-tools.ts).
+ */
+const RUN_AN_ACTION: ToolRule = {
+  tools: [UI_ACT_TOOL],
+  text: ` Run an action with ${UI_ACT_TOOL}`,
+  within: [{ tools: [UI_DESCRIBE_TOOL], text: `; ${UI_DESCRIBE_TOOL} says what one takes` }, '.'],
+};
+
+/**
+ * The tools a step offers the model, by the names it calls them, from the
+ * turn's tools and what the step is held to: none with `toolChoice: 'none'`,
+ * the one it must call with a forced choice, else its active tools (all the
+ * turn's when none are named). Everything that writes the step's prompt is
+ * told this one value.
+ */
+export function stepOfferedTools(
+  turnTools: readonly string[],
+  held: { toolChoice?: 'auto' | 'none' | 'required' | { type: 'tool'; toolName: string }; activeTools?: readonly string[] },
+): OfferedTools {
+  const { toolChoice, activeTools } = held;
+  if (toolChoice === 'none') return offeredTools([]);
+  if (typeof toolChoice === 'object') return offeredTools(turnTools.filter((name) => name === toolChoice.toolName));
+  return offeredTools(activeTools ? turnTools.filter((name) => activeTools.includes(name)) : turnTools);
+}
 
 /** What a step is held to: the host's policy, or the hand-back for time. */
 type StepPolicy = Awaited<ReturnType<TurnPolicy['prepareStep']>>;
@@ -337,10 +380,19 @@ export async function runAgentTurn(
   const hostPrompt = typeof config.systemPrompt === 'function'
     ? config.systemPrompt({ userId: input.userId, accountId: input.accountId, context: withoutClientUI(input.context) })
     : config.systemPrompt;
-  // With a file area, the model is told a file's name and content are data, never instructions.
-  const systemPrompt = withClientKnowledge(fileArea ? `${hostPrompt}\n\n${ATTACHMENT_DATA_NOTE}` : hostPrompt, input.context);
+  /**
+   * The system prompt as a step offering `offered` is told it: the host's,
+   * whose SDK rules name only the tools the step offers (prompt/step-tools.ts),
+   * then, with a file area, that a file's name and content are data, never
+   * instructions, then the client's knowledge. Every SDK word in it about a
+   * tool is said only to a step that offers the tool.
+   */
+  const systemPromptFor = (offered: OfferedTools): string => {
+    const host = systemPromptForTools(hostPrompt, offered);
+    return withClientKnowledge(fileArea ? `${host}\n\n${attachmentDataNote(offered)}` : host, input.context, offered);
+  };
 
-  log('debug', 'agent:prompt', 'System prompt built', { turnId, promptLength: systemPrompt.length, hostPromptLength: hostPrompt.length });
+  log('debug', 'agent:prompt', 'System prompt built', { turnId, promptLength: systemPromptFor(EVERY_TOOL).length, hostPromptLength: hostPrompt.length });
 
   // Wall-clock deadline: abort the entire streamText call if it exceeds turnDeadlineMs.
   const turnStartedAt = Date.now();
@@ -436,8 +488,30 @@ export async function runAgentTurn(
    * as it is coalesced, and can trail a tool call the model makes after it.
    */
   let replyText = '';
-  /** The calls of this turn that did not run: refused, invalid, or denied. A choice that did not run ends no turn. */
-  const callsNotRun = new Set<string>();
+  /**
+   * The calls of this turn that did not run, by call id, with why: refused,
+   * invalid, denied, or a call to a tool its step did not offer. Every check
+   * that ends a turn because of a call reads the calls that ran: a choice that
+   * did not run asked the user nothing, and ends no turn.
+   */
+  const callsNotRun = new Map<string, string>();
+  /**
+   * The result the model reads for a call `ai` answered with its own error,
+   * because no tool of the step could run it (`callNoToolRan`): put in place
+   * of that error in every step's messages, and stored as the call's result.
+   */
+  const resultsOfCallsNoToolRan = new Map<string, string>();
+  /** Why a call that did not run did not, from the result the model was given. */
+  const notRunReason = (text: string): string => {
+    try {
+      const parsed = JSON.parse(text) as { error?: unknown; message?: unknown };
+      if (typeof parsed.error === 'string') return parsed.error;
+      if (typeof parsed.message === 'string') return parsed.message;
+    } catch {
+      // A result that is not JSON is said as it is.
+    }
+    return text;
+  };
   /** Whether `requireReplyBeforeChoice` has already sent a choice back this turn: it does so once. */
   let choiceSentBackForReply = false;
   /** The reply a choice's card said, by call, when it was offered twice with none (`requireReplyBeforeChoice`). */
@@ -563,6 +637,63 @@ export async function runAgentTurn(
   };
 
   /**
+   * A call refused before any tool ran, as the client is told of it: a call
+   * that started and failed, so a session's record holds every call the model
+   * made with its arguments.
+   */
+  const emitRefusedCall = async (toolUseId: string, name: string, input: unknown, error: string): Promise<void> => {
+    const now = Date.now();
+    await emitAfterText(AGENT_SOCKET_EVENTS.TOOL_CALL_STARTED, { turnId, toolUseId, name, input, timestamp: now });
+    await emitAfterText(AGENT_SOCKET_EVENTS.TOOL_CALL_COMPLETE, {
+      turnId,
+      toolUseId,
+      name,
+      result: { error, refused: true },
+      success: false,
+      durationMs: 0,
+      timestamp: now,
+    });
+  };
+
+  /**
+   * A call no tool of its step could run, which `ai` answers with an error of
+   * its own and never executes: the model named a tool the step does not
+   * offer, or none of the turn's (`AI_NoSuchToolError`), or wrote input that
+   * could not be read (an invalid tool call). Nova, 2026-11-19: a step held to
+   * one tool still called `present_options` beside it; the call never ran, but
+   * the turn counted it as a question to the user and ended with no reply.
+   *
+   * It did not run, so it goes into `callsNotRun`: it asks the user nothing and
+   * ends no turn. The model reads, as its result, that the tool is not one it
+   * can use now (`unavailableToolError`), in place of `ai`'s error, so it
+   * answers in words in the same turn; the turn's record and the stored
+   * conversation hold the same result, and the client hears of a refused call.
+   */
+  const callNoToolRan = async (call: { toolCallId: string; toolName: string; input: unknown; error: unknown }): Promise<void> => {
+    if (callsNotRun.has(call.toolCallId)) return;
+    const unavailable = NoSuchToolError.isInstance(call.error);
+    const error = unavailable
+      ? unavailableToolError(call.toolName)
+      : call.error instanceof Error
+        ? call.error.message
+        : `The call to "${call.toolName}" could not be read, so it did not run.`;
+    const text = JSON.stringify({ success: false, notRun: true, ...(unavailable ? { unavailable: true } : { invalidInput: true }), error });
+    callsNotRun.set(call.toolCallId, error);
+    resultsOfCallsNoToolRan.set(call.toolCallId, text);
+    executedToolResults.push({ toolCallId: call.toolCallId, toolName: call.toolName, result: text });
+    recordedCalls.set(call.toolCallId, { toolCallId: call.toolCallId, toolName: call.toolName, input: call.input, text, settled: Promise.resolve() });
+    ledger.record({ tool: call.toolName, ok: false, error });
+    log('warn', 'agent:tool', unavailable ? 'Tool call not run: its step does not offer that tool' : 'Tool call not run: its input could not be read', {
+      turnId,
+      toolName: call.toolName,
+      toolCallId: call.toolCallId,
+    });
+    // A tool whose input speaks of the person is said to have been called, and no more.
+    const known = callableTools().find((t) => t.name === call.toolName);
+    await emitRefusedCall(call.toolCallId, call.toolName, known?.inputPrivate ? {} : call.input, error);
+  };
+
+  /**
    * Runs one call of a tool: validation, quota, policy, approval, then the
    * tool. `approved` is set only for the call a redeemed approval token names,
    * in the turn after the user's decision.
@@ -590,23 +721,7 @@ export async function runAgentTurn(
      */
     const refused = async (payload: { error: string } & Record<string, unknown>, given: unknown): Promise<CallOutcome> => {
       ledger.record({ tool: t.name, ok: false, error: payload.error });
-      const now = Date.now();
-      await emitAfterText(AGENT_SOCKET_EVENTS.TOOL_CALL_STARTED, {
-        turnId,
-        toolUseId,
-        name: t.name,
-        input: shownInput(given),
-        timestamp: now,
-      });
-      await emitAfterText(AGENT_SOCKET_EVENTS.TOOL_CALL_COMPLETE, {
-        turnId,
-        toolUseId,
-        name: t.name,
-        result: { error: payload.error, refused: true },
-        success: false,
-        durationMs: 0,
-        timestamp: now,
-      });
+      await emitRefusedCall(toolUseId, t.name, shownInput(given), payload.error);
       return notRun({ success: false, ...payload });
     };
     // A UI tool waits for the client's answer, which has its own deadline, and
@@ -1172,7 +1287,7 @@ export async function runAgentTurn(
       const uiSlot = isUI ? uiSequence.reserve() : undefined;
       return tracked(toolUseId, t.name, rawArgs, async () => {
         const { text, ran } = await executeCall(t, rawArgs, toolUseId, uiSlot).finally(() => uiSlot?.release());
-        if (!ran) callsNotRun.add(toolUseId);
+        if (!ran) callsNotRun.set(toolUseId, notRunReason(text));
         executedToolResults.push({ toolCallId: toolUseId, toolName: t.name, result: text });
         return text;
       });
@@ -1312,6 +1427,7 @@ export async function runAgentTurn(
           uiSlot.release();
           ledger.record({ tool: typeof action === 'string' && action ? action : UI_ACT_TOOL, ok: false, error });
           const text = JSON.stringify({ success: false, notRun: true, error });
+          callsNotRun.set(toolUseId, error);
           executedToolResults.push({ toolCallId: toolUseId, toolName: UI_ACT_TOOL, result: text });
           return text;
         };
@@ -1333,7 +1449,8 @@ export async function runAgentTurn(
               (near.length ? ` Did you mean: ${near.join(', ')}?` : ' Read the page’s index for what it offers; an action is named by its id there.'),
           );
         }
-        const { text } = await executeCall(tool, actionInput ?? {}, toolUseId, uiSlot).finally(() => uiSlot.release());
+        const { text, ran } = await executeCall(tool, actionInput ?? {}, toolUseId, uiSlot).finally(() => uiSlot.release());
+        if (!ran) callsNotRun.set(toolUseId, notRunReason(text));
         executedToolResults.push({ toolCallId: toolUseId, toolName: UI_ACT_TOOL, result: text });
         return text;
     }
@@ -1884,30 +2001,47 @@ export async function runAgentTurn(
   // `instructions` takes `string | SystemModelMessage | SystemModelMessage[]`,
   // and the message form carries `providerOptions`, so the breakpoint travels
   // with it. (`system` is the deprecated alias for the same type.)
-  const systemMessage = {
-    role: 'system' as const,
-    content: systemPrompt,
-    ...(cachePoint ? { providerOptions: cachePoint } : {}),
-  };
   // What the page offers, after the system prompt with a breakpoint of its own:
   // it is the same for every step and every turn on the same page, so it is
   // read from the cache, and when the page changes only it and what follows are
   // written again. A change during the turn reaches the model in the answer
   // that made it (ui-tools.ts `forModel`).
-  const pageIndex =
-    client && client.page.length > 0
-      ? {
-          role: 'system' as const,
-          content: [
-            '<page_index>',
-            `The user's screen offers these surfaces and actions. In brackets after an action: what it takes ("?" marks an optional one, and a name alone takes text) and what calling it involves; no brackets means it takes nothing. Run an action with ${UI_ACT_TOOL}; ${UI_DESCRIBE_TOOL} says what one takes.`,
-            indexText(client.page, config.ui?.maxIndexChars ?? DEFAULT_INDEX_CHARS),
-            '</page_index>',
-          ].join('\n'),
-          ...(cachePoint ? { providerOptions: cachePoint } : {}),
-        }
-      : null;
-  const instructions = pageIndex ? [systemMessage, pageIndex] : systemMessage;
+  const pageIndexText = client && client.page.length > 0 ? indexText(client.page, config.ui?.maxIndexChars ?? DEFAULT_INDEX_CHARS) : null;
+  type Instructions = { role: 'system'; content: string; providerOptions?: typeof cachePoint } | Array<{ role: 'system'; content: string; providerOptions?: typeof cachePoint }>;
+  /**
+   * What a step is told before the conversation, for the tools it offers: the
+   * system prompt and the page's index. Steps told the same words are given
+   * the same instructions, so the cache reads one from the other.
+   */
+  const instructionsByTools = new Map<string, Instructions>();
+  const instructionsByWords = new Map<string, Instructions>();
+  const instructionsFor = (offered: OfferedTools): Instructions => {
+    const held = instructionsByTools.get(offered.key);
+    if (held) return held;
+    const systemMessage = {
+      role: 'system' as const,
+      content: systemPromptFor(offered),
+      ...(cachePoint ? { providerOptions: cachePoint } : {}),
+    };
+    const pageIndex =
+      pageIndexText !== null
+        ? {
+            role: 'system' as const,
+            content: [
+              '<page_index>',
+              `The user's screen offers these surfaces and actions. In brackets after an action: what it takes ("?" marks an optional one, and a name alone takes text) and what calling it involves; no brackets means it takes nothing.${renderRule(RUN_AN_ACTION, offered)}`,
+              pageIndexText,
+              '</page_index>',
+            ].join('\n'),
+            ...(cachePoint ? { providerOptions: cachePoint } : {}),
+          }
+        : null;
+    const words = [systemMessage.content, pageIndex?.content ?? ''].join('\u0000');
+    const made: Instructions = instructionsByWords.get(words) ?? (pageIndex ? [systemMessage, pageIndex] : systemMessage);
+    instructionsByWords.set(words, made);
+    instructionsByTools.set(offered.key, made);
+    return made;
+  };
 
   // ─── What is true now: with the turn's message, and after the conversation (step-messages.ts) ───
   // The turn's own message: answers after it are this turn's, and only those
@@ -1917,12 +2051,6 @@ export async function runAgentTurn(
   const turnSpoken = input.approval || input.resume ? null : readClientMessageInput(input.context ?? null);
   // The reply is spoken on every turn of a call, the turn an approval continues included.
   const turnSpokenReply = readClientReplyOutput(input.context ?? null);
-  // Whether the model may look at the person, and how, or why it cannot (prompt/vision.ts): a line of the turn's context.
-  const turnVisionText = visionText(input.vision);
-  // When to offer each photo plan, where a running capture stands, and an update that rode this turn (prompt/capture.ts).
-  const turnCaptureText = captureText(input.capture);
-  // When to move the call to the caller's phone, which device it is on, and an update that rode this turn (prompt/handoff.ts).
-  const turnHandoffText = handoffText(input.handoff);
   const turnPageValues =
     client && client.page.length > 0
       ? [
@@ -1934,31 +2062,41 @@ export async function runAgentTurn(
       : null;
   /**
    * What is true for the whole turn, sent with the turn's own message on every
-   * step in the same words (step-messages.ts): never after a tool result, where
-   * the model reads it as the person's newest message and drops the result.
+   * step (step-messages.ts): never after a tool result, where the model reads
+   * it as the person's newest message and drops the result. Its lines about
+   * tools (looking, photos, moving the call) are written for the tools the step
+   * offers, so steps that offer the same tools are told the same words.
    */
-  const turnContext: string[] = [
-    turnClock,
-    // A message the person spoke may hold a mis-heard word (prompt/spoken-input.ts). A click on an
-    // approval card, and a resume after work, are not messages, so they say nothing.
-    ...(turnSpoken ? [spokenInputText(turnSpoken)] : []),
-    // A reply a voice will read out is written for the ear (prompt/spoken-reply.ts).
-    ...(turnSpokenReply ? [spokenReplyText(turnSpokenReply)] : []),
-    // When the model may look at the person, or that it cannot see them and why.
-    ...(turnVisionText ? [turnVisionText] : []),
-    // When the model may ask for photos, and what has happened in a capture.
-    ...(turnCaptureText ? [turnCaptureText] : []),
-    // When the model may move the call to the caller's phone, and what has happened to their devices.
-    ...(turnHandoffText ? [turnHandoffText] : []),
-    ...(expired.outcomes.length > 0 ? [expiredNote(expired)] : []),
-    ...(input.stepContext?.trim() ? [input.stepContext.trim()] : []),
-  ];
+  const turnContextFor = (offered: OfferedTools): string[] => {
+    // Whether the model may look at the person, and how, or why it cannot (prompt/vision.ts).
+    const turnVisionText = visionText(input.vision, offered);
+    // When to offer each photo plan, where a running capture stands, and an update that rode this turn (prompt/capture.ts).
+    const turnCaptureText = captureText(input.capture, offered);
+    // When to move the call to the caller's phone, which device it is on, and an update that rode this turn (prompt/handoff.ts).
+    const turnHandoffText = handoffText(input.handoff, offered);
+    return [
+      turnClock,
+      // A message the person spoke may hold a mis-heard word (prompt/spoken-input.ts). A click on an
+      // approval card, and a resume after work, are not messages, so they say nothing.
+      ...(turnSpoken ? [spokenInputText(turnSpoken)] : []),
+      // A reply a voice will read out is written for the ear (prompt/spoken-reply.ts).
+      ...(turnSpokenReply ? [spokenReplyText(turnSpokenReply)] : []),
+      // When the model may look at the person, or that it cannot see them and why.
+      ...(turnVisionText ? [turnVisionText] : []),
+      // When the model may ask for photos, and what has happened in a capture.
+      ...(turnCaptureText ? [turnCaptureText] : []),
+      // When the model may move the call to the caller's phone, and what has happened to their devices.
+      ...(turnHandoffText ? [turnHandoffText] : []),
+      ...(expired.outcomes.length > 0 ? [expiredNote(expired)] : []),
+      ...(input.stepContext?.trim() ? [input.stepContext.trim()] : []),
+    ];
+  };
   /** The page's state from this turn's newest answer that carried one; until then, as the user's screen sent it. */
   let newestAnswerState: unknown;
   // Where it goes: with the turn's message (the default), or after the conversation, as 0.30 sent it.
   const turnContextPlacement = readTurnContextPlacement(config.turnContextPlacement);
   /** What is true for this step only, after the conversation: the page's state, and the step's notes. */
-  const stepTail = (notes: readonly string[]): string[] => [
+  const stepTail = (notes: readonly string[], turnContext: readonly string[]): string[] => [
     ...(turnPageValues
       ? [
           [
@@ -2004,6 +2142,8 @@ export async function runAgentTurn(
   while (modelCalled) {
     segments++;
     const aiTools = assembleTools();
+    // The turn's tools, as the model calls them: what a step offers when nothing holds it to fewer.
+    const turnTools = Object.keys(aiTools);
     const previousSteps = [...allSteps];
 
     log('info', 'agent:llm', 'Messages prepared', {
@@ -2015,7 +2155,7 @@ export async function runAgentTurn(
 
     const result = streamText({
       model: replyRecorder,
-      instructions,
+      instructions: instructionsFor(offeredTools(turnTools)),
       messages: withCachePoint(conversation),
       tools: aiTools,
       maxOutputTokens: maxTokens,
@@ -2023,10 +2163,16 @@ export async function runAgentTurn(
       abortSignal: abortController.signal,
       // The host's, the same for every call (a thinking setting that changes invalidates the cache).
       ...(config.modelProviderOptions ? { providerOptions: config.modelProviderOptions } : {}),
-      onChunk: ({ chunk }) => {
+      onChunk: async ({ chunk }) => {
         // A model named by its id is not wrapped: its text is recorded here instead.
         if (typeof config.model === 'string') recordReply(chunk as { type: string; text?: unknown });
         reasoningRelay.onPart(chunk);
+        // A call no tool of the step can run (a tool the step does not offer, input that would not parse) never
+        // reaches `execute`: it is known here, as it arrives, before the step ends or the turn decides to.
+        if (chunk.type === 'tool-call' && (chunk as { invalid?: boolean }).invalid) {
+          const call = chunk as { toolCallId: string; toolName: string; input: unknown; error?: unknown };
+          await callNoToolRan({ toolCallId: call.toolCallId, toolName: call.toolName, input: call.input, error: call.error });
+        }
       },
       // An action of the page called as a tool of its own is the `ui_act` call it
       // means, run once (ui/action-as-tool.ts): never refused, then called again.
@@ -2069,21 +2215,28 @@ export async function runAgentTurn(
           });
         }
         handedBackForTime ||= timing.handBack;
-        const canOfferChoices = 'present_options' in aiTools;
+        const canOfferChoices = PRESENT_OPTIONS_TOOL in aiTools;
         const stepPolicy: StepPolicy = handedBackForTime
           ? {
-              note: timeHandBackNote(canOfferChoices),
-              toolChoice: canOfferChoices ? { type: 'tool', toolName: 'present_options' } : 'none',
+              // The hand-back step is held to the choice, or to no tool: it is told of exactly that.
+              note: timeHandBackNote(offeredTools(canOfferChoices ? [PRESENT_OPTIONS_TOOL] : [])),
+              toolChoice: canOfferChoices ? { type: 'tool', toolName: PRESENT_OPTIONS_TOOL } : 'none',
             }
           : await turnPolicy.prepareStep({
-              // The policy counts steps across the whole turn, not per segment.
+              // The policy counts steps across the whole turn, not per segment. Each call says whether it
+              // ran: one that did not (refused, invalid, a tool the step did not offer) did nothing.
               steps: [...previousSteps, ...steps].map((step) => ({
-                toolCalls: (step.toolCalls as Array<{ toolName: string; input?: unknown }> | undefined)?.map((tc) => ({
-                  toolName:
-                    tc.toolName === UI_ACT_TOOL && typeof (tc.input as { action?: unknown } | undefined)?.action === 'string'
-                      ? (tc.input as { action: string }).action
-                      : tc.toolName,
-                })),
+                toolCalls: (step.toolCalls as Array<{ toolCallId: string; toolName: string; input?: unknown }> | undefined)?.map((tc) => {
+                  const notRun = callsNotRun.get(tc.toolCallId);
+                  return {
+                    toolName:
+                      tc.toolName === UI_ACT_TOOL && typeof (tc.input as { action?: unknown } | undefined)?.action === 'string'
+                        ? (tc.input as { action: string }).action
+                        : tc.toolName,
+                    ran: notRun === undefined,
+                    ...(notRun !== undefined ? { notRun } : {}),
+                  };
+                }),
                 text: typeof step.text === 'string' ? step.text : '',
               })),
               turnClass,
@@ -2141,8 +2294,13 @@ export async function runAgentTurn(
         const notes = [note, stepCall, ledger.note(), outputLimitNote].filter(
           (n): n is string => !!n,
         );
+        // What this step offers the model: everything the SDK tells it about a tool names only these.
+        const offered = stepOfferedTools(turnTools, constraints);
+        const turnContext = turnContextFor(offered);
+        // A call no tool ran reads the SDK's result for it, never `ai`'s error (callNoToolRan).
+        const answered = messages && resultsOfCallsNoToolRan.size > 0 ? withCallResults(messages, resultsOfCallsNoToolRan) : messages;
         // Every answer gives its page state up the same way; the newest of this turn's is read at the end.
-        const trimmed = messages ? withStatesAtEnd(messages, turnMessageAt) : null;
+        const trimmed = answered ? withStatesAtEnd(answered, turnMessageAt) : null;
         if (trimmed) {
           pageStatesMoved += trimmed.moved;
           if (trimmed.newest !== undefined) newestAnswerState = trimmed.newest;
@@ -2156,11 +2314,19 @@ export async function runAgentTurn(
           });
         }
         const leftOut = fileGuard.leftOutParts();
-        const stepMessages = leftOut.length > 0 && messages ? withoutLeftOut(trimmed?.messages ?? messages, leftOut) : trimmed?.messages ?? messages;
+        const stepMessages = leftOut.length > 0 && answered ? withoutLeftOut(trimmed?.messages ?? answered, leftOut) : trimmed?.messages ?? answered;
         return {
           ...constraints,
-          ...(stepMessages ? { messages: forStep(stepMessages, { turnContext: turnContextPlacement === 'with-message' ? turnContext : [], tail: stepTail(notes) }, cachePoint) } : {}),
-          instructions,
+          ...(stepMessages
+            ? {
+                messages: forStep(
+                  stepMessages,
+                  { turnContext: turnContextPlacement === 'with-message' ? turnContext : [], tail: stepTail(notes, turnContext) },
+                  cachePoint,
+                ),
+              }
+            : {}),
+          instructions: instructionsFor(offered),
         };
       },
       onStepEnd: async ({ text, toolCalls, usage: stepUsage, finishReason }) => {

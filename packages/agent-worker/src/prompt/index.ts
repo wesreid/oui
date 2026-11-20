@@ -6,7 +6,7 @@
  * tool strategy, UI control protocol).
  */
 
-export { buildAgentSystemPrompt } from './builder.js';
+export { buildAgentSystemPrompt, systemPromptForTools } from './builder.js';
 export type {
   AgentPersonaConfig,
   AgentKnowledgeEntry,

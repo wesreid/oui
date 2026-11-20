@@ -19,8 +19,9 @@
  */
 import type { RegisteredTool, ToolExecutionResult } from '../tools/types.js';
 import type { VisionLook } from '../prompt/vision.js';
+import { LOOK_TOOL } from '../tools/sdk-tool-names.js';
 
-export const LOOK_TOOL = 'look';
+export { LOOK_TOOL };
 
 /** The SDK's class for the vision tools, as a host's tool policy sees it. */
 export const VISION_TOOL_CLASS = 'vision';

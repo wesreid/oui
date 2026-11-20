@@ -13,6 +13,7 @@ import { createToolRegistry, type RegisteredTool } from '../tools/types.js';
 import { loadBuiltinTools } from '../tools/builtin-tools.js';
 import type { TurnPolicy } from '../turn-policy.js';
 import { createStepClock, DEFAULT_HAND_BACK_RESERVE_MS, timeHandBackNote } from '../time-hand-back.js';
+import { offeredTools } from '../prompt/step-tools.js';
 
 describe('the step clock', () => {
   it('lets a step run while a step as long as the longest, and the hand-back, still fit', () => {
@@ -41,9 +42,9 @@ describe('the step clock', () => {
   });
 
   it('tells the model to say what is done and how to continue', () => {
-    expect(timeHandBackNote(true)).toMatch(/last step.*what is done and what is left.*present_options/s);
-    expect(timeHandBackNote(false)).toMatch(/ask you to continue/);
-    expect(timeHandBackNote(false)).not.toMatch(/present_options/);
+    expect(timeHandBackNote(offeredTools(['present_options', 'ui_act']))).toMatch(/last step.*what is done and what is left.*present_options/s);
+    expect(timeHandBackNote(offeredTools(['ui_act']))).toMatch(/ask you to continue/);
+    expect(timeHandBackNote(offeredTools(['ui_act']))).not.toMatch(/present_options/);
   });
 });
 

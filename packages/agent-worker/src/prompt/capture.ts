@@ -34,6 +34,8 @@
  */
 import { readBearerRoute, type BearerRoute } from './bearer-route.js';
 import { escapeTagText } from './escape.js';
+import { EVERY_TOOL, renderPieces, renderRule, type OfferedTools, type PromptPiece, type ToolRule } from './step-tools.js';
+import { CAPTURE_START_TOOL, CAPTURE_STATUS_TOOL, CAPTURE_STOP_TOOL, LOOK_TOOL } from '../tools/sdk-tool-names.js';
 
 // ─── The capture contract's names and values ────────────────────────────────
 // Closure's capture contract (`@closurestudio/realtime-contracts`, `live-capture`)
@@ -377,16 +379,31 @@ export function canCapture(capture: TurnCapture | null | undefined): capture is 
   return !!capture && capture.plans.length > 0 && capture.control !== null;
 }
 
+/** The capture clause, in pieces: its words about `look` are said only to a step that offers it (prompt/step-tools.ts). */
+const CAPTURE_WHEN_PIECES: readonly PromptPiece[] = [
+  'You can ask the caller for photos with `capture_start` when a plan below fits. ' +
+    'Closure’s checker accepts or rejects every photo; you never judge a photo',
+  { tools: [LOOK_TOOL], text: ', and you never use `look` for one' },
+  '. While a capture runs you receive capture updates: turn each into one or two short, natural sentences in the caller’s language, and never read out a code. ' +
+    'When a capture ends without completing, offer what its update says to offer.',
+];
 /**
  * The clause every brain that takes captures is given, word for word:
  * Closure's brain in its spoken-reply contract, and a
- * client's brain here.
+ * client's brain here, when its step offers `look` too.
  */
-export const CAPTURE_WHEN =
-  'You can ask the caller for photos with `capture_start` when a plan below fits. ' +
-  'Closure’s checker accepts or rejects every photo; you never judge a photo, and you never use `look` for one. ' +
-  'While a capture runs you receive capture updates: turn each into one or two short, natural sentences in the caller’s language, and never read out a code. ' +
-  'When a capture ends without completing, offer what its update says to offer.';
+export const CAPTURE_WHEN = captureWhen(EVERY_TOOL);
+
+/** The capture clause as a step offering `offered` is told it: `look` is named only when the step offers it. */
+export function captureWhen(offered: OfferedTools): string {
+  return renderPieces(CAPTURE_WHEN_PIECES, offered);
+}
+
+/** How the running capture is checked and stopped: said only to a step that offers both tools. */
+const CAPTURE_STATUS_AND_STOP: ToolRule = {
+  tools: [CAPTURE_STATUS_TOOL, CAPTURE_STOP_TOOL],
+  text: 'Use `capture_status` to ask where it stands; use `capture_stop` only when the caller wants to stop.',
+};
 
 /**
  * The sentence every brain that takes captures is given when the caller has
@@ -435,15 +452,18 @@ const BLOCKED_WORDS: Readonly<Record<CaptureBlockedReason, string>> = {
  * the conversation. With plans and a route, the clause (`CAPTURE_WHEN`), when
  * to offer each plan, and that it never sees a photo; where the running
  * capture stands; and an update that rode this turn, as data. Null when the
- * turn says nothing of captures, or nothing the model can use.
+ * turn says nothing of captures, or nothing the model can use. Written for
+ * the tools the step offers (`offered`): a step a host's policy holds to
+ * other tools is told photos cannot be started at that step, and is never
+ * told to call a capture tool, or `look`, it was not given.
  */
-export function captureText(capture: TurnCapture | null | undefined): string | null {
+export function captureText(capture: TurnCapture | null | undefined, offered: OfferedTools = EVERY_TOOL): string | null {
   if (!capture) return null;
   const parts: string[] = [];
-  if (canCapture(capture)) {
+  if (canCapture(capture) && offered.has(CAPTURE_START_TOOL)) {
     const plans = capture.plans.map((p) => `"${p.key}" (${escapeTagText(p.title)}): offer it when ${escapeTagText(p.offerWhen)}`);
     parts.push(
-      CAPTURE_WHEN,
+      captureWhen(offered),
       'Offer a plan only when its “offer it when” applies, and start it once the caller agrees to take the photos; ' +
         'before you call `capture_start`, say one short line so they know a request for photos is coming to their screen.',
       CAPTURE_NEVER,
@@ -453,7 +473,8 @@ export function captureText(capture: TurnCapture | null | undefined): string | n
     );
   } else if (capture.plans.length > 0 || capture.active || capture.update) {
     parts.push(
-      'Photos cannot be started, checked or stopped from this turn. ' +
+      // The turn can take photos, and this step cannot start them: a later step may.
+      (canCapture(capture) ? 'Photos cannot be started at this step. ' : 'Photos cannot be started, checked or stopped from this turn. ') +
         'While a capture runs, turn each capture update into one or two short, natural sentences in the caller’s language, and never read out a code; ' +
         'when one ends without completing, offer what its update says to offer.',
       CAPTURE_NEVER,
@@ -464,7 +485,7 @@ export function captureText(capture: TurnCapture | null | undefined): string | n
     const step = a.step ? `, on step ${a.step.index} of ${a.step.of}, ${escapeTagText(a.step.label)}` : '';
     parts.push(
       `A photo capture is running now: plan "${a.plan}", capture ${a.captureId}, ${a.blockedReason ? BLOCKED_WORDS[a.blockedReason] : STATUS_WORDS[a.status]}${step}. ` +
-        (canCapture(capture) ? 'Use `capture_status` to ask where it stands; use `capture_stop` only when the caller wants to stop.' : ''),
+        (canCapture(capture) ? renderRule(CAPTURE_STATUS_AND_STOP, offered) : ''),
     );
   } else if (canCapture(capture)) {
     parts.push('No photo capture is running now.');

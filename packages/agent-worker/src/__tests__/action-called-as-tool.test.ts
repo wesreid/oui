@@ -141,7 +141,7 @@ describe('an action called as a tool', () => {
     expect(page.went).toEqual([]);
     const answer = JSON.stringify(prompts[1]);
     expect(answer).toContain('service_lane_open');
-    expect(answer).toMatch(/unavailable tool|no such tool/i);
+    expect(answer).toContain('is not one of the tools you can use now, so the call did not run');
   });
 });
 

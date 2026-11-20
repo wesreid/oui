@@ -20,6 +20,7 @@
  * never logged or emitted.
  */
 import type { RegisteredTool, ToolExecutionContext, ToolExecutionResult } from '../tools/types.js';
+import { CAPTURE_START_TOOL, CAPTURE_STATUS_TOOL, CAPTURE_STOP_TOOL } from '../tools/sdk-tool-names.js';
 import {
   canCapture,
   resumableLines,
@@ -31,9 +32,7 @@ import {
   type TurnCapture,
 } from '../prompt/capture.js';
 
-export const CAPTURE_START_TOOL = 'capture_start';
-export const CAPTURE_STATUS_TOOL = 'capture_status';
-export const CAPTURE_STOP_TOOL = 'capture_stop';
+export { CAPTURE_START_TOOL, CAPTURE_STATUS_TOOL, CAPTURE_STOP_TOOL };
 
 /** The capture tools' names, in the order they are declared. */
 export const CAPTURE_TOOLS = [CAPTURE_START_TOOL, CAPTURE_STATUS_TOOL, CAPTURE_STOP_TOOL] as const;

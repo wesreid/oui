@@ -17,18 +17,30 @@
  * runs longer than any before it.
  */
 
+import { renderRule, type OfferedTools, type ToolRule } from './prompt/step-tools.js';
+import { PRESENT_OPTIONS_TOOL } from './tools/sdk-tool-names.js';
+
 /** Kept back for the step that hands the turn back: reading the turn and saying what is done. */
 export const DEFAULT_HAND_BACK_RESERVE_MS = 30_000;
 
-/** What the model is told at the step that hands the turn back for time. */
-export function timeHandBackNote(canOfferChoices: boolean): string {
+/**
+ * What the model is told at the step that hands the turn back for time, for
+ * the tools that step offers: the choice built-in is named only when it is one.
+ */
+export function timeHandBackNote(offered: OfferedTools): string {
   return (
     'This turn is almost out of time, so this is its last step. Tell the user plainly what is done and what is ' +
     'left, from what the page state confirms, then ' +
-    (canOfferChoices ? 'offer to continue with present_options.' : 'say they can ask you to continue.') +
+    renderRule(OFFER_TO_CONTINUE, offered) +
     ' Do not give any other reason for stopping.'
   );
 }
+
+const OFFER_TO_CONTINUE: ToolRule = {
+  tools: [PRESENT_OPTIONS_TOOL],
+  text: `offer to continue with ${PRESENT_OPTIONS_TOOL}.`,
+  otherwise: 'say they can ask you to continue.',
+};
 
 export interface StepTiming {
   /** Time left before the turn's deadline, in ms. */

@@ -29,6 +29,8 @@
  */
 import { readBearerRoute, type BearerRoute } from './bearer-route.js';
 import { escapeTagText } from './escape.js';
+import { EVERY_TOOL, type OfferedTools } from './step-tools.js';
+import { CALL_HANDOFF_TOOL } from '../tools/sdk-tool-names.js';
 
 // ─── The hand-off contract's names and values ───────────────────────────────
 // Closure's hand-off contract (`@closurestudio/realtime-contracts` 0.28.0, `live-call-devices`)
@@ -237,16 +239,21 @@ const PURPOSE_WORDS: Readonly<Record<CallHandoffPurpose, string>> = {
  * the turn's message. With a route, the clause (`HANDOFF_WHEN`), and that it
  * never sees a device or a code; the device the call is on and how often it
  * has moved; an open offer; and an update that rode this turn, as data. Null
- * when the turn says nothing of hand-offs.
+ * when the turn says nothing of hand-offs. Written for the tools the step
+ * offers (`offered`): a step a host's policy holds to other tools is told the
+ * call cannot be moved at that step, and is never told to call `call_handoff`.
  */
-export function handoffText(handoff: TurnHandoff | null | undefined): string | null {
+export function handoffText(handoff: TurnHandoff | null | undefined, offered: OfferedTools = EVERY_TOOL): string | null {
   if (!handoff) return null;
   const parts: string[] = [];
-  if (canHandoff(handoff)) {
+  // The turn can move the call, and this step offers the tool that does.
+  const moves = canHandoff(handoff) && offered.has(CALL_HANDOFF_TOOL);
+  if (moves) {
     parts.push(HANDOFF_WHEN, HANDOFF_NEVER);
   } else {
     parts.push(
-      'The call cannot be moved to another device from this turn. ' +
+      // The turn can move the call, and this step cannot: a later step may.
+      `The call cannot be moved to another device ${canHandoff(handoff) ? 'at this step' : 'from this turn'}. ` +
         'While the call moves you receive device updates: answer each with one short sentence, or with nothing, and never read out a code or a link.',
       HANDOFF_NEVER,
     );
@@ -261,7 +268,7 @@ export function handoffText(handoff: TurnHandoff | null | undefined): string | n
   if (handoff.offer) {
     parts.push(
       `A QR code to continue on their phone ${PURPOSE_WORDS[handoff.offer.purpose]} is on their screen now, until ${handoff.offer.expiresAt}. ` +
-        (canHandoff(handoff) ? 'Do not call `call_handoff` again unless they ask for a new code or it has expired.' : ''),
+        (moves ? 'Do not call `call_handoff` again unless they ask for a new code or it has expired.' : ''),
     );
   }
   if (handoff.update) {

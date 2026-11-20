@@ -12,6 +12,9 @@
  * registered by the client app at runtime.
  */
 import type { RegisteredTool } from './types.js';
+import { PRESENT_OPTIONS_TOOL } from './sdk-tool-names.js';
+
+export { PRESENT_OPTIONS_TOOL };
 
 /**
  * Generate the built-in interaction tools.
@@ -24,7 +27,7 @@ export function loadBuiltinTools(): RegisteredTool[] {
 function loadInteractionTools(): RegisteredTool[] {
   return [
     {
-      name: 'present_options',
+      name: PRESENT_OPTIONS_TOOL,
       description:
         'Present a set of options to the user as clickable choices. Use when the user needs to pick from a discrete set (e.g. which item to use, a style, a name). Returns the selected value. ' +
         'Never call it in place of answering a question the user asked: answer it in your reply first, then offer a choice only if one follows.',

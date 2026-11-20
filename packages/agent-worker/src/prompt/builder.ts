@@ -10,9 +10,23 @@
 import type { AgentPersonaConfig, PromptBuildContext } from './types.js';
 import { getBaseRules } from './rules/base.js';
 import { getCommunicationRules, resolveCommunicationStyle } from './rules/communication.js';
-import { getToolStrategyRules } from './rules/tool-strategy.js';
-import { getUIControlRules } from './rules/ui-control.js';
+import { getToolStrategyRules, TOOL_STRATEGY_TOOL_RULES } from './rules/tool-strategy.js';
+import { getUIControlRules, UI_CONTROL_TOOL_RULES } from './rules/ui-control.js';
+import { promptForTools, type OfferedTools, type ToolRule } from './step-tools.js';
 import { withoutClientUI } from '../ui/snapshot.js';
+
+/** Every rule naming a tool that `buildAgentSystemPrompt` writes: the tool strategy's and the UI rules'. */
+export const SDK_PROMPT_TOOL_RULES: readonly ToolRule[] = [...TOOL_STRATEGY_TOOL_RULES, ...UI_CONTROL_TOOL_RULES];
+
+/**
+ * A host's system prompt as a step offering `offered` is told it: each of the
+ * SDK's rules it carries names only tools the step offers. A host builds its
+ * prompt once a turn, with every rule (`buildAgentSystemPrompt`); the worker
+ * calls this for each step. The host's own words are left as they are.
+ */
+export function systemPromptForTools(prompt: string, offered: OfferedTools): string {
+  return promptForTools(prompt, SDK_PROMPT_TOOL_RULES, offered);
+}
 
 /**
  * Build a complete system prompt by combining SDK behavioral rules

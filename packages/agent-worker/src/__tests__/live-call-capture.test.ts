@@ -19,6 +19,7 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { offeredTools } from '../prompt/step-tools.js';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { AGENT_SOCKET_EVENTS } from '@ouispec/agent-core';
 import { LIVE_CALL_TURN_KINDS, liveCallCaptureMessage, readLiveCallTurnRequest, type LiveCallRequestReading } from '../live-call/protocol.js';
@@ -32,6 +33,7 @@ import {
   CAPTURE_STATUSES,
   CAPTURE_UPDATE_TEXT_MAX,
   CAPTURE_WHEN,
+  captureWhen,
   captureFacts,
   captureText,
   readTurnCapture,
@@ -929,7 +931,9 @@ describe('captures, through the real ai loop', () => {
     for (const prompt of prompts) {
       const at = prompt.findIndex(isTurnContext);
       expect(textOf(prompt[at - 1])).toBe(SPOKEN.text);
-      expect(textOf(prompt[at])).toContain(CAPTURE_WHEN);
+      // The turn offers no `look`, so the clause names none (prompt/step-tools.ts).
+      expect(textOf(prompt[at])).toContain(captureWhen(offeredTools(CAPTURE_TOOLS)));
+      expect(textOf(prompt[at])).not.toContain('`look`');
       expect(picturesIn(prompt)).toEqual([]);
     }
     expect(prompts[1].map((m) => m.role).slice(-3)).toEqual(['user', 'assistant', 'tool']);

@@ -98,6 +98,7 @@ export {
   READ_TOOL as ATTACHMENT_READ_TOOL,
   LIST_TOOL as ATTACHMENT_LIST_TOOL,
   ATTACHMENT_DATA_NOTE,
+  attachmentDataNote,
   escapeAttachmentText,
 } from './attachments/content.js';
 export * as attachmentLimits from './attachments/limits.js';
@@ -150,7 +151,7 @@ export type {
   SessionApiSurface,
   LearningApiSurface,
 } from '@ouispec/agent-core';
-export { runAgentTurn } from './orchestrator.js';
+export { runAgentTurn, unavailableToolError } from './orchestrator.js';
 
 // The model seam: any `ai` library model; the worker imports no provider.
 export { PROMPT_CACHE_BREAKPOINTS, describeModel } from './model.js';
@@ -231,6 +232,7 @@ export {
   canCapture,
   CAPTURE_LIMITS,
   CAPTURE_WHEN,
+  captureWhen,
   CAPTURE_NEVER,
   CAPTURE_STATUSES,
   CAPTURE_OUTCOMES,
@@ -303,7 +305,9 @@ export {
 } from './handoff/handoff-tool.js';
 
 // Prompt Framework
-export { buildAgentSystemPrompt } from './prompt/index.js';
+export { buildAgentSystemPrompt, systemPromptForTools } from './prompt/index.js';
+// What a step is told about tools: only the ones it offers (prompt/step-tools.ts).
+export { offeredTools, EVERY_TOOL, type OfferedTools, type ToolRule } from './prompt/step-tools.js';
 export type {
   AgentPersonaConfig,
   AgentKnowledgeEntry,

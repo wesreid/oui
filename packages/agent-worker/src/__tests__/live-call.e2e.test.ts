@@ -45,7 +45,8 @@ import {
   type LiveCallTurnRequest,
 } from '../live-call/protocol.js';
 import { LOOK_WHEN } from '../prompt/vision.js';
-import { CAPTURE_RESUME_WHEN, CAPTURE_WHEN } from '../prompt/capture.js';
+import { CAPTURE_RESUME_WHEN, captureWhen } from '../prompt/capture.js';
+import { offeredTools } from '../prompt/step-tools.js';
 import { CAPTURE_TOOLS } from '../capture/capture-tools.js';
 import { HANDOFF_WHEN } from '../prompt/handoff.js';
 import { CALL_HANDOFF_TOOL } from '../handoff/handoff-tool.js';
@@ -1434,7 +1435,9 @@ describe('photos a client’s capture plan asks for', () => {
       // The model was offered the three tools with the plan, and told when to offer it.
       expect(m.requests[0].tools?.map((t) => t.function.name)).toEqual(expect.arrayContaining([...CAPTURE_TOOLS]));
       expect(JSON.stringify(m.requests[0].tools)).toContain(PLAN.offerWhen);
-      expect(textsOf(m.requests[0]).join('\n')).toContain(CAPTURE_WHEN);
+      // The call offers no `look`, so the clause names none (prompt/step-tools.ts).
+      expect(textsOf(m.requests[0]).join('\n')).toContain(captureWhen(offeredTools(CAPTURE_TOOLS)));
+      expect(textsOf(m.requests[0]).join('\n')).not.toContain('`look`');
       expect(m.requests[1].messages.find((msg) => msg.role === 'tool')?.content).toContain('is starting on the caller');
 
       // Each update is a capture turn: the model reads it where the caller's words would be, and narrates it.
