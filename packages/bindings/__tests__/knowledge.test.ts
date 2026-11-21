@@ -60,6 +60,29 @@ describe('resolveKnowledge', () => {
     expect(resolved.workflows.map(w => w.name)).toEqual(['Open a voice']);
   });
 
+  it('puts the frame first, with the recipes of the rooms it holds open, on every page it frames', () => {
+    const framed: GeneratedKnowledge = {
+      ...knowledge,
+      frames: [
+        {
+          surface: 'shell:Shell',
+          routes: ['*'],
+          summary: { title: 'Shell', content: 'The frame' },
+          detail: { title: 'Shell', content: 'Site capture (in the app’s frame, whatever page is open)' },
+          relationships: null,
+          recipes: [{ name: 'Fix what the Site capture reports', trigger: 'problems', steps: ['a'] }],
+          adjacent: [],
+        },
+      ],
+    };
+    const resolved = resolveKnowledge(framed, '/voices');
+    expect(resolved.entries.map(e => e.title)).toEqual(['Pages', 'Shell', 'Voices (/voices)', 'Create Voice']);
+    expect(resolved.workflows.map(w => w.name)).toEqual(['Fix what the Site capture reports', 'Open a voice']);
+    expect(resolveKnowledge(framed, '/nowhere').workflows.map(w => w.name)).toEqual([
+      'Fix what the Site capture reports',
+    ]);
+  });
+
   it('gives only the map on a page the build does not know', () => {
     expect(resolveKnowledge(knowledge, '/nowhere').entries.map(e => e.title)).toEqual(['Pages']);
   });
