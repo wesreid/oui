@@ -16,7 +16,7 @@ import { PLATFORM_EVENTS, createEventCatalog, type EventDeclarationDocument } fr
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createBindingRegistry, type OuiManifest } from '../src/index.js';
-import { connectBindings, createDeclaredJobTracker } from '../src/oui.js';
+import { connectBindings, createDeclaredJobTracker, jobOutcomePolling, startedAnswer } from '../src/oui.js';
 
 const studioEvents: EventDeclarationDocument = {
   version: 1,
@@ -149,11 +149,16 @@ describe('a room action that starts a job', () => {
       params: { prompt: 'a red fox' },
       timestamp: 0,
     });
-    // One tick: the run returned the job's id and the page answered started.
+    // One tick: the run returned the job's id and the page answered started, with what the run returned beside it.
     await act(async () => vi.advanceTimersByTimeAsync(0));
     expect(run).toHaveBeenCalledTimes(1);
     expect(tab.answers()).toEqual([
-      expect.objectContaining({ requestId: 'call-gen', success: true, interim: true, data: { status: 'started', jobId: 'pic-1' } }),
+      expect.objectContaining({
+        requestId: 'call-gen',
+        success: true,
+        interim: true,
+        data: { prompt: 'a red fox', status: 'started', jobId: 'pic-1' },
+      }),
     ]);
     // Followed in the room the declared completion names for one job.
     expect(tab.joined).toEqual(['picture:pic-1']);
@@ -209,5 +214,34 @@ describe('a room action that starts a job', () => {
       error: { code: 'JOB_FAILED', message: 'Cancelled by the person' },
       data: { status: 'failed', jobId: 'pic-2', error: 'Cancelled by the person' },
     });
+  });
+});
+
+describe('what a host that builds a job action itself answers (startedAnswer, jobOutcomePolling)', () => {
+  it('starts with the handler’s data beside the settlement’s own status and job id, which win over its fields', () => {
+    expect(startedAnswer({ ok: true, data: { captureId: 'c-1', status: 'running', jobId: 'other' }, pending: { jobId: 'c-1' } })).toEqual({
+      success: true,
+      data: { captureId: 'c-1', status: 'started', jobId: 'c-1' },
+    });
+    expect(startedAnswer({ ok: true })).toEqual({ success: true, data: { status: 'started' } });
+    expect(startedAnswer({ ok: false, code: 'URL_REQUIRED', message: 'Name the page' })).toEqual({
+      success: false,
+      error: { code: 'URL_REQUIRED', message: 'Name the page' },
+    });
+  });
+
+  it('settles on the tracker’s outcome, tells who ended it, and reports work with no job id unverified', async () => {
+    let outcome: { status: 'complete'; jobId: string; url: string } | null = null;
+    const tracker = { track: vi.fn(), outcome: vi.fn(() => outcome), forget: vi.fn() };
+    const ended = vi.fn();
+    const polling = jobOutcomePolling(tracker, 60_000, ended);
+    expect(polling.maxDurationMs).toBe(60_000);
+    expect(await polling.resolve!({ status: 'started', jobId: 'c-1' }, null)).toEqual({ done: false, data: { status: 'running', jobId: 'c-1' } });
+    expect(tracker.track).toHaveBeenCalledWith('c-1');
+    outcome = { status: 'complete', jobId: 'c-1', url: 'https://example.com/' };
+    expect(await polling.resolve!({ status: 'started', jobId: 'c-1' }, null)).toEqual({ done: true, data: outcome });
+    expect(tracker.forget).toHaveBeenCalledWith('c-1');
+    expect(ended).toHaveBeenCalledWith('c-1');
+    expect(await polling.resolve!({ status: 'started' }, null)).toMatchObject({ done: true, data: { status: 'unverified' } });
   });
 });

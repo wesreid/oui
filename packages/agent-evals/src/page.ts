@@ -25,9 +25,18 @@
  * query parameter (`query`) shows the address's value, read with the page's
  * declared query (`readQuery`), and writes the value it is given back to the
  * address (`writeQuery`), as a page that keeps its filters in its address does.
+ *
+ * Work an action starts that outlives its call (`job`) is the product's too:
+ * the call answers started, with the job's id, and the action settles on the
+ * job's outcome through the runtime's own polling of a job tracker
+ * (`jobOutcomePolling`), which the fixture scripts. Requests arrive, and both
+ * answers leave, on the tab's socket, in memory, as the product's tab sends
+ * them, so the agent waits for the outcome as it does for the product's: in
+ * the call, then with `ui_wait`.
  */
 import { createSurfaceRuntime, defineSurface, type ActionHandlerResult, type MountedSurface } from 'oui-spec/core';
 import type { JSONSchema, OUIActionRequest, OUIActionResult, OUIApprovalGrant } from 'oui-spec/spec';
+import { createWebSocketTransport, type SocketLike } from 'oui-spec/transport';
 import {
   createBindingRegistry,
   generatedNavigationSurface,
@@ -55,9 +64,19 @@ import {
   type RoomProblem,
   type ShownFacts,
 } from '@ouispec/bindings';
-import { connectBindings, PAGE_STATE_OBSERVATION_ID, type AppNavigation } from '@ouispec/bindings/oui';
+import {
+  connectBindings,
+  DEFAULT_JOB_TIMEOUT_MS,
+  jobOutcomePolling,
+  PAGE_STATE_OBSERVATION_ID,
+  startedAnswer,
+  type AppNavigation,
+  type JobOutcome,
+  type JobTracker,
+} from '@ouispec/bindings/oui';
 import { CLIENT_KNOWLEDGE_KEY, CLIENT_SNAPSHOT_KEY, type UIActionChannel } from '@ouispec/agent-worker';
 import type {
+  AgentEvalJob,
   AgentEvalPage,
   AgentEvalPageAction,
   AgentEvalPageControl,
@@ -155,12 +174,92 @@ function shownFacts(entry: AgentEvalShown, title: string): ShownFacts {
   return { id: entry.id, title, facts, ...(entry.item ? { item: { ...entry.item } } : {}) };
 }
 
-type Outcome = Pick<AgentEvalPageAction, 'result' | 'state' | 'navigate'>;
+type Outcome = Pick<AgentEvalPageAction, 'result' | 'state' | 'navigate' | 'job'>;
 
 /** What a call does: the first case whose `when` its input holds, else the action's own defaults. */
 function outcomeOf(declared: Outcome & { cases?: ReadonlyArray<Outcome & { when?: Readonly<Record<string, unknown>> }> }, input: Record<string, unknown>): Outcome {
   const hit = declared.cases?.find((c) => c.when === undefined || holdsSubset(input, c.when));
   return hit ?? declared;
+}
+
+/** Whether a fixture's action or control starts a job: itself, or one of its cases. */
+const startsJobs = (declared: { job?: AgentEvalJob; cases?: ReadonlyArray<{ job?: AgentEvalJob }> }): boolean =>
+  !!declared.job || !!declared.cases?.some((c) => c.job);
+
+/** What a call's data is beside a started job's status and id: an object's fields. */
+const startedData = (data: unknown): Readonly<Record<string, unknown>> | undefined =>
+  data !== null && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>) : undefined;
+
+/** Whether an effect settles on a job's outcome (`job`, `transaction`), as the bindings decide it. */
+const settles = (effect: unknown): boolean => {
+  const kind = typeof effect === 'string' ? effect : (effect as { kind?: unknown } | null | undefined)?.kind;
+  return kind === 'job' || kind === 'transaction';
+};
+
+/**
+ * The product's job tracker, scripted: each job the page's actions started,
+ * and its outcome once its `settlesAfterMs` have passed. A job started again
+ * under the same id (a capture continued) starts over.
+ */
+function createFixtureJobs(): JobTracker & { start(job: AgentEvalJob): void } {
+  const started = new Map<string, { at: number; job: AgentEvalJob }>();
+  return {
+    start(job) {
+      started.set(job.jobId, { at: Date.now(), job });
+    },
+    track() {},
+    outcome(jobId): JobOutcome | null {
+      const run = started.get(jobId);
+      if (!run?.job.outcome || Date.now() - run.at < (run.job.settlesAfterMs ?? 0)) return null;
+      const { outcome } = run.job;
+      // As the product's declared tracker reports it: the completion's result fields beside the job id.
+      return outcome.status === 'complete'
+        ? { status: 'complete', jobId, ...(outcome.result ?? {}) }
+        : { status: 'failed', jobId, error: outcome.error };
+    },
+    forget(jobId) {
+      started.delete(jobId);
+    },
+  };
+}
+
+/**
+ * The tab's socket and the relay's end of it, in memory: what one emits, the
+ * other's handlers receive, with its acknowledgment callback. The relay
+ * acknowledges what the tab sends it as received, as the realtime service
+ * acknowledges a tab's answer.
+ */
+function memorySocketPair(): { tab: SocketLike; relay: SocketLike } {
+  type Handler = (...args: unknown[]) => void;
+  const end = (deliver: (event: string, args: unknown[]) => void, acknowledges: boolean) => {
+    const handlers = new Map<string, Set<Handler>>();
+    const socket: SocketLike = {
+      connected: true,
+      emit: (event: string, ...args: unknown[]) => deliver(event, args),
+      on: (event: string, handler: Handler) => {
+        if (!handlers.has(event)) handlers.set(event, new Set());
+        handlers.get(event)!.add(handler);
+      },
+      off: (event: string, handler: Handler) => void handlers.get(event)?.delete(handler),
+      once: (event: string, handler: Handler) => {
+        const once: Handler = (...args) => {
+          handlers.get(event)?.delete(once);
+          handler(...args);
+        };
+        socket.on(event, once);
+      },
+    };
+    const receive = (event: string, args: unknown[]) => {
+      for (const handler of [...(handlers.get(event) ?? [])]) handler(...args);
+      const ack = args.at(-1);
+      if (acknowledges && typeof ack === 'function') ack({ ok: true });
+    };
+    return { socket, receive };
+  };
+  // Each end delivers to the other, read when a message is sent.
+  const tab = end((event, args) => relay.receive(event, args), false);
+  const relay = end((event, args) => tab.receive(event, args), true);
+  return { tab: tab.socket, relay: relay.socket };
 }
 
 const handlerResult = (result: Outcome['result']): ActionHandlerResult =>
@@ -223,8 +322,20 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
     for (const action of surface.actions) if (action.source === 'control') controlActions.set(action.id, { surface, action });
   }
   if (manifest) {
-    for (const id of Object.keys(fixture.controls ?? {})) {
-      if (!controlActions.has(id)) problems.push(`the manifest declares no control "${id}"`);
+    for (const [id, spec] of Object.entries(fixture.controls ?? {})) {
+      const declared = controlActions.get(id);
+      if (!declared) problems.push(`the manifest declares no control "${id}"`);
+      // Only a binding that declares a job settles on one; any other reports its run done at once.
+      else if (startsJobs(spec) && !settles(declared.action.effect)) {
+        problems.push(`the control "${id}" starts a job, and its binding’s effect is not \`job\` or \`transaction\``);
+      }
+    }
+  }
+  for (const surface of fixture.surfaces ?? []) {
+    for (const action of surface.actions) {
+      if (startsJobs(action) && !settles(action.effect)) {
+        problems.push(`the action "${action.id}" of "${surface.id}" starts a job, and its effect is not \`job\` or \`transaction\``);
+      }
     }
   }
   const surfaceIds = new Set<string>();
@@ -284,6 +395,8 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
   if (problems.length > 0) throw new EvalPageError(problems);
 
   const runtime = createSurfaceRuntime({ form: 'index', announce: false, settle: { quietMs: 5, timeoutMs: 500 } });
+  /** The jobs the page's actions and controls started. */
+  const jobs = createFixtureJobs();
   const ran: EvalPageRun[] = [];
   const requests: OUIActionRequest[] = [];
   let location = fixture.at;
@@ -312,7 +425,7 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
     surfaces: [...(manifest?.surfaces ?? []), ...(navigationSurface && !manifestNavigation ? [navigationSurface] : [])],
   };
   const registry = createBindingRegistry();
-  const disconnect = connectBindings({ registry, runtime, manifest: connected, ...(offersNavigation ? { navigation } : {}) });
+  const disconnect = connectBindings({ registry, runtime, manifest: connected, jobs, ...(offersNavigation ? { navigation } : {}) });
   /** A control's value as the page last showed it, kept while the page is elsewhere, as an app's state is. */
   const values = new Map<string, unknown>();
   const registered = new Map<string, { spec: AgentEvalPageControl; handles: ControlHandle[] }>();
@@ -364,7 +477,13 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
             }
           }
           if (outcome.navigate) queueMicrotask(() => go(outcome.navigate!));
-          return { ok: true, ...(outcome.result?.data !== undefined ? { data: outcome.result.data as Record<string, unknown> } : {}) };
+          // Work that outlives the call: its job's id, which the bindings follow through the tracker.
+          if (outcome.job) jobs.start(outcome.job);
+          return {
+            ok: true,
+            ...(outcome.result?.data !== undefined ? { data: outcome.result.data as Record<string, unknown> } : {}),
+            ...(outcome.job ? { pending: { jobId: outcome.job.jobId } } : {}),
+          };
         },
       });
       handles.push(handle);
@@ -500,6 +619,8 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
           ...(action.effect ? { effect: action.effect } : {}),
           ...(action.confirm ? { confirm: true } : {}),
           input: (action.input as JSONSchema | undefined) ?? NOTHING,
+          // An action that starts a job settles on its outcome, polled as the bindings poll a bound one.
+          ...(startsJobs(action) ? { async: true, polling: jobOutcomePolling(jobs, DEFAULT_JOB_TIMEOUT_MS) } : {}),
           handler: async (params: Record<string, unknown>) => {
             ran.push({ action: action.id, id: action.id, surface: surface.id, input: params, at: location });
             const outcome = outcomeOf(action, params);
@@ -507,6 +628,11 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
               if (outcome.state) states.set(surface.id, { ...states.get(surface.id), ...outcome.state });
               push(surface);
               if (outcome.navigate) queueMicrotask(() => go(outcome.navigate!));
+              if (outcome.job) {
+                jobs.start(outcome.job);
+                const data = startedData(outcome.result?.data);
+                return startedAnswer({ ok: true, ...(data ? { data } : {}), pending: { jobId: outcome.job.jobId } });
+              }
             }
             return handlerResult(outcome.result);
           },
@@ -553,15 +679,53 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
   /** The registry tells the connection what mounted once the current task ends; the runtime then settles. */
   const settled = () => new Promise<void>((resolve) => setTimeout(resolve, 10));
 
-  const answers = new Map<string, Promise<OUIActionResult>>();
+  // Each request's answers as the tab sent them: its first, and its final (the same one, unless it
+  // started work that outlived the call), and who is waiting for either.
+  const answers = new Map<string, { first?: OUIActionResult; final?: OUIActionResult; waiting: Set<() => void> }>();
+  const answersOf = (requestId: string) => {
+    let entry = answers.get(requestId);
+    if (!entry) answers.set(requestId, (entry = { waiting: new Set() }));
+    return entry;
+  };
+  // The tab's socket: requests arrive on it, and its answers leave on it, first and final, through
+  // OUI's own transport, whose event names are OUI's.
+  const sockets = memorySocketPair();
+  runtime.attach(sockets.tab);
+  const wire = createWebSocketTransport(sockets.relay);
+  wire.onResult((result) => {
+    const entry = answersOf(result.requestId);
+    entry.first ??= result;
+    if (!result.interim) entry.final ??= result;
+    for (const wake of [...entry.waiting]) wake();
+  });
   const channel: UIActionChannel = {
     async dispatch(_room, request) {
       requests.push(request);
-      if (!answers.has(request.requestId)) answers.set(request.requestId, settled().then(() => runtime.execute(request)));
+      await settled();
+      wire.dispatch(request);
       return { acknowledged: 1, accepted: 1 };
     },
-    async awaitResult(requestId) {
-      return (await answers.get(requestId)) ?? null;
+    awaitResult(requestId, { timeoutMs, signal, final }) {
+      const pick = () => (final ? answers.get(requestId)?.final : answers.get(requestId)?.first) ?? null;
+      const now = pick();
+      if (now || signal?.aborted) return Promise.resolve(now);
+      return new Promise<OUIActionResult | null>((resolve) => {
+        const entry = answersOf(requestId);
+        const done = (result: OUIActionResult | null) => {
+          clearTimeout(timer);
+          entry.waiting.delete(wake);
+          signal?.removeEventListener('abort', aborted);
+          resolve(result);
+        };
+        const wake = () => {
+          const got = pick();
+          if (got) done(got);
+        };
+        const aborted = () => done(null);
+        const timer = setTimeout(() => done(null), Math.max(0, timeoutMs));
+        entry.waiting.add(wake);
+        signal?.addEventListener('abort', aborted, { once: true });
+      });
     },
   };
 
@@ -587,6 +751,7 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
       registered.clear();
       for (const handle of factsShown.handles) handle.unregister();
       for (const handle of problemsShown.handles) handle.unregister();
+      wire.dispose();
       runtime.dispose();
     },
   };

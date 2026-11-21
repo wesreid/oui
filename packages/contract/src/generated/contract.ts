@@ -2395,7 +2395,39 @@ export interface AgentEvalPageAction {
     state?: Readonly<Record<string, unknown>>;
     /** The address the page goes to once it has run. */
     navigate?: string;
+    job?: AgentEvalJob;
   }[];
+  job?: AgentEvalJob;
+}
+
+/**
+ * Work a call starts that outlives it, as a product's handler that returns `{ ok: true,
+ * pending: { jobId } }` starts it: an action whose effect is `job` or `transaction`, or a
+ * control whose binding declares one. The call answers `started`, with `jobId` beside what
+ * `result.data` gives, and the action settles on the job's outcome as the product's job tracker
+ * reports it, through the runtime's own polling (`@ouispec/bindings`' `jobOutcomePolling`):
+ * once `settlesAfterMs` have passed since the call, `complete` with `result`'s fields beside
+ * the job id, or `failed` with `error` as the action's error. With no `outcome` it never
+ * settles, and the runtime reports it not finished once its time limit passes. The agent waits
+ * for it as for the product's: in the call for its job wait, then with `ui_wait`.
+ */
+export interface AgentEvalJob {
+  /** Its id, as the handler returns it (`pending.jobId`). */
+  jobId: string;
+  /**
+   * How long after the call its outcome arrives, in ms. Default 0: by the runtime's first poll.
+   */
+  settlesAfterMs?: number;
+  /** How it ends: the product's job tracker's outcome. */
+  outcome?: {
+    status: 'complete';
+    /** The result fields its declared completion carries. */
+    result?: Readonly<Record<string, unknown>>;
+  } | {
+    status: 'failed';
+    /** Its declared failure's reason. */
+    error: string;
+  };
 }
 
 /**
@@ -2452,7 +2484,9 @@ export interface AgentEvalPageControl {
     };
     /** The address the page goes to once it has run. */
     navigate?: string;
+    job?: AgentEvalJob;
   }[];
+  job?: AgentEvalJob;
 }
 
 /** A number at least `min` and at most `max`. */

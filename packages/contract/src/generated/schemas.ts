@@ -5113,16 +5113,82 @@ export const CONTRACT_SCHEMAS = {
                   "description": "The address the page goes to once it has run.",
                   "type": "string",
                   "pattern": "^/"
+                },
+                "job": {
+                  "$ref": "#/$defs/AgentEvalJob"
                 }
               },
               "additionalProperties": false
             },
             "minItems": 1
+          },
+          "job": {
+            "$ref": "#/$defs/AgentEvalJob"
           }
         },
         "required": [
           "id",
           "description"
+        ],
+        "additionalProperties": false
+      },
+      "AgentEvalJob": {
+        "description": "Work a call starts that outlives it, as a product's handler that returns `{ ok: true, pending: { jobId } }` starts it: an action whose effect is `job` or `transaction`, or a control whose binding declares one. The call answers `started`, with `jobId` beside what `result.data` gives, and the action settles on the job's outcome as the product's job tracker reports it, through the runtime's own polling (`@ouispec/bindings`' `jobOutcomePolling`): once `settlesAfterMs` have passed since the call, `complete` with `result`'s fields beside the job id, or `failed` with `error` as the action's error. With no `outcome` it never settles, and the runtime reports it not finished once its time limit passes. The agent waits for it as for the product's: in the call for its job wait, then with `ui_wait`.",
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "description": "Its id, as the handler returns it (`pending.jobId`).",
+            "type": "string",
+            "minLength": 1
+          },
+          "settlesAfterMs": {
+            "description": "How long after the call its outcome arrives, in ms. Default 0: by the runtime's first poll.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "outcome": {
+            "description": "How it ends: the product's job tracker's outcome.",
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "const": "complete"
+                  },
+                  "result": {
+                    "description": "The result fields its declared completion carries.",
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                },
+                "required": [
+                  "status"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "const": "failed"
+                  },
+                  "error": {
+                    "description": "Its declared failure's reason.",
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "status",
+                  "error"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "jobId"
         ],
         "additionalProperties": false
       },
@@ -5240,11 +5306,17 @@ export const CONTRACT_SCHEMAS = {
                   "description": "The address the page goes to once it has run.",
                   "type": "string",
                   "pattern": "^/"
+                },
+                "job": {
+                  "$ref": "#/$defs/AgentEvalJob"
                 }
               },
               "additionalProperties": false
             },
             "minItems": 1
+          },
+          "job": {
+            "$ref": "#/$defs/AgentEvalJob"
           }
         },
         "additionalProperties": false
@@ -5597,6 +5669,7 @@ export const CONTRACT_TYPES = {
   AgentEvalShownQuery: 'agent-evals.json#/$defs/AgentEvalShownQuery',
   AgentEvalPageSurface: 'agent-evals.json#/$defs/AgentEvalPageSurface',
   AgentEvalPageAction: 'agent-evals.json#/$defs/AgentEvalPageAction',
+  AgentEvalJob: 'agent-evals.json#/$defs/AgentEvalJob',
   AgentEvalPageControl: 'agent-evals.json#/$defs/AgentEvalPageControl',
   AgentEvalBound: 'agent-evals.json#/$defs/AgentEvalBound',
   AgentEvalShareBound: 'agent-evals.json#/$defs/AgentEvalShareBound',
