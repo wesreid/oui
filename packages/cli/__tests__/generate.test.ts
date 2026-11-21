@@ -396,6 +396,51 @@ describe('the app\'s frame', () => {
     expect(allowed.errors).toEqual([]);
   });
 
+  describe('with rooms of its own', () => {
+    const roomShell = () =>
+      config({
+        shell: [{ module: 'src/RoomShell.tsx', export: 'RoomShell' }],
+        appCatalogs: [
+          { module: 'src/board-actions.ts', export: 'BOARD_CATALOG', hosts: [] },
+          { module: 'src/site-actions.ts', export: 'SITE_CATALOG', hosts: [] },
+        ],
+      });
+
+    it('offers a room it registers on every page', async () => {
+      const r = await generate(roomShell());
+      expect(r.errors).toEqual([]);
+      const site = surface(r.manifest.surfaces, 'room:demo-site');
+      expect(site.routes).toEqual(['*']);
+      expect(site.actions.map(a => a.name)).toEqual(['demo_site_capture']);
+    });
+
+    it('describes the room, and gives its recipes, on every page it frames', async () => {
+      const r = await generate(roomShell());
+      const frame = r.knowledge.frames!.find(f => f.surface === 'shell:RoomShell')!;
+      expect(frame.detail.content).toContain(
+        'Site capture (in the app’s frame, whatever page is open): Opens a site the person named.',
+      );
+      expect(frame.detail.content).toContain('- Capture a site [demo_site_capture]: Brand › From your website');
+      expect(frame.recipes.map(w => w.name)).toEqual(['Fix what the Board reports', 'Fix what the Site capture reports']);
+      for (const path of ['/voices', '/studio']) {
+        const resolved = resolveKnowledge(r.knowledge, path);
+        expect(resolved.entries.map(e => e.content).join('\n')).toContain('[demo_site_capture]');
+        expect(resolved.workflows.map(w => w.name)).toContain('Fix what the Site capture reports');
+      }
+    });
+
+    it('describes a room a page also registers once, as the frame’s', async () => {
+      const r = await generate(roomShell());
+      const resolved = resolveKnowledge(r.knowledge, '/studio');
+      const text = resolved.entries.map(e => e.content).join('\n');
+      expect(text.match(/\[demo_board_save_png\]/g)).toHaveLength(1);
+      expect(text).not.toContain('Board (on this page)');
+      expect(resolved.workflows.filter(w => w.name === 'Fix what the Board reports')).toHaveLength(1);
+      // The page's own room is still the page's.
+      expect(text).toContain('Demo Room (on this page)');
+    });
+  });
+
   it('frames only the routes it names', async () => {
     const r = await generate(config({ shell: [{ module: 'src/Shell.tsx', export: 'Shell', routes: ['/voices'] }] }));
     expect(surface(r.manifest.surfaces, 'shell:Shell').routes).toEqual(['/voices']);

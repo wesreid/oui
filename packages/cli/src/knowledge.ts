@@ -63,13 +63,22 @@ export function generateKnowledge(
     }
   }
 
+  const roomsOf = (ids: readonly string[]) =>
+    ids.map(id => ({ surface: byId.get(id)!, catalog: byRoom.get(id)! })).filter(r => r.surface && r.catalog);
+  // A room the frame registers is open on every page the frame is on: the frame describes it, once.
+  const framedRooms = (page: PageMeta) =>
+    new Set(
+      frames
+        .filter(f => f.routes.includes('*') || f.routes.some(r => page.routes.includes(r)))
+        .flatMap(f => f.rooms),
+    );
+
   const overview = overviewEntry(pages, nav, outside);
   const out: PageKnowledge[] = pages.map(page => {
     const own = byId.get(page.surface)!;
     const shared = page.shared.map(id => byId.get(id)!).filter(Boolean);
-    const rooms = page.rooms
-      .map(id => ({ surface: byId.get(id)!, catalog: byRoom.get(id)! }))
-      .filter(r => r.surface && r.catalog);
+    const framed = framedRooms(page);
+    const rooms = roomsOf(page.rooms.filter(id => !framed.has(id)));
     // A shared control is where this page puts it: its tab and opener here.
     const controls = [own, ...shared].flatMap(s =>
       s.actions.map(a => (page.sharedReach[a.name] ? { ...a, reach: page.sharedReach[a.name] } : a)),
@@ -95,18 +104,21 @@ export function generateKnowledge(
       adjacent: [...adjacent].sort(),
     };
   });
-  // The frame: what it offers and where, on every page it frames. No recipes of
-  // its own: its controls take part in the pages' tasks.
+  // The frame: what it offers and where, on every page it frames. Its controls
+  // take part in the pages' tasks, so they make no recipes of their own; a room
+  // it registers is open on all of those pages, so its knowledge and recipes
+  // are the frame's.
   const frameKnowledge: PageKnowledge[] = frames.map(frame => {
     const own = byId.get(frame.surface);
     const controls = own ? [...own.actions] : [];
+    const rooms = roomsOf(frame.rooms);
     return {
       surface: frame.surface,
       routes: frame.routes,
       summary: { title: frame.title, content: `${frame.title}: ${firstSentence(frame.description)}` },
-      detail: { title: frame.title, content: detail(frame, controls, [], api) },
+      detail: { title: frame.title, content: detail(frame, controls, rooms, api) },
       relationships: null,
-      recipes: [],
+      recipes: recipes(frame, [], rooms),
       adjacent: [],
     };
   });
@@ -214,7 +226,8 @@ function detail(
   }
 
   for (const { surface, catalog } of rooms) {
-    lines.push('', `${catalog.title} (on this page): ${catalog.description}`);
+    const where = page.surface.startsWith('shell:') ? 'in the app’s frame, whatever page is open' : 'on this page';
+    lines.push('', `${catalog.title} (${where}): ${catalog.description}`);
     const actions = catalog.actions.filter(
       a => a.id !== ROOM_SET_PROPERTIES_ID && a.id !== ROOM_RUN_COMMAND_ID,
     );

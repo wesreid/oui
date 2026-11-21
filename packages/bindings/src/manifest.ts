@@ -68,10 +68,13 @@ export function pageForPath(knowledge: GeneratedKnowledge, path: string): PageKn
 export function resolveKnowledge(knowledge: GeneratedKnowledge, path: string): ResolvedKnowledge {
   const entries: KnowledgeEntry[] = [knowledge.overview];
   const workflows: KnowledgeRecipe[] = [];
-  // The frame is on the page too: what it offers comes first, as it is always there.
+  // The frame is on the page too: what it offers comes first, as it is always
+  // there, and so do the recipes of the rooms it holds open.
   const clean = path.split(/[?#]/)[0] || '/';
   for (const frame of knowledge.frames ?? []) {
-    if (frame.routes.some(route => routeMatcher(route).test(clean))) entries.push(frame.detail);
+    if (!frame.routes.some(route => routeMatcher(route).test(clean))) continue;
+    entries.push(frame.detail);
+    workflows.push(...frame.recipes);
   }
   const page = pageForPath(knowledge, path);
   if (page) {

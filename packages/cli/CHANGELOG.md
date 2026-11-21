@@ -1,5 +1,13 @@
 # @ouispec/cli
 
+## 0.14.1
+
+### Patch Changes
+
+- A room the app's frame registers is described in the knowledge. `oui generate` gave a `shell` entry's rooms a surface on every page (`routes: ['*']`) but left them out of the knowledge: the frame's detail and recipes skipped them, so the assistant held the room's tools with nothing saying what they were for. The frame's knowledge now describes each room it registers ("in the app’s frame, whatever page is open") with its actions, fields and commands, and carries the room's recipes; a page that registers the same room no longer repeats it. `resolveKnowledge` gives a frame's recipes, first, on every page the frame is on.
+- Updated dependencies
+  - @ouispec/bindings@0.14.1
+
 ## 0.14.0
 
 ### Patch Changes
