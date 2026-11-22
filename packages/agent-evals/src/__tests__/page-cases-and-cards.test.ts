@@ -1,6 +1,6 @@
 /**
  * Three things a product's flow needs of the harness that it got wrong
- * (studio-api's promo-from-website screen, ADR-0326):
+ * (a product promo flow's eval, made from a website):
  *
  * - a list's control (one per row) matched its cases without the row, so a
  *   case for one row (`when: { item: … }`) never held: choosing a Storyboard's
