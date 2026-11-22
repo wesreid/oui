@@ -1,5 +1,15 @@
 # @ouispec/contract
 
+## 0.14.3
+
+### Patch Changes
+
+- What a turn showed the person, a list's control's cases, and reads after the page's work.
+
+  - `says` and `mustNotSay` hold against what the turn showed the person: its reply, then each choice card's question and options (`shownToCustomer`). An agent asks on a card; a rubric that wants a question asked failed when the question was on the card alone.
+  - A list's control matches its cases with the row it ran for (`item`): a case for one row (`when: { item: … }`) never held, so choosing a row never went where the case said.
+  - A stub case can wait for a page action (`afterRan`: its id or index name, and a subset of its input): a read of what the page's work changed answers as the backend then would, where it answered the same before and after (a capture continued through its links read back as never continued).
+
 ## 0.14.2
 
 ### Patch Changes

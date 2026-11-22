@@ -528,8 +528,14 @@ export async function runEvalCase(config: AgentEvalConfig, target: EvalCaseTarge
   // Each tool runs only as its stub says: an eval never reaches a real backend.
   let currentTurn = -1;
   const stubbed = async (tool: RegisteredTool, args: Record<string, unknown>, call: Parameters<RegisteredTool['execute']>[1]) => {
+    // A case that waits for a page action (`afterRan`) holds once that action has run in the case: a read of
+    // what the page's work changed (a capture continued, an export made) answers as the backend then would.
+    const ranOnPage = (after: { action: string; input?: Readonly<Record<string, unknown>> }) =>
+      !!page?.ran.some(
+        (r) => (sameAction(r.action, after.action) || sameAction(r.id, after.action)) && (after.input === undefined || holdsSubset(r.input, after.input)),
+      );
     for (const cases of [scenario.stubs?.[tool.name], suite.stubs?.[tool.name]]) {
-      const hit = cases?.find((c) => c.when === undefined || holdsSubset(args, c.when));
+      const hit = cases?.find((c) => (c.when === undefined || holdsSubset(args, c.when)) && (c.afterRan === undefined || ranOnPage(c.afterRan)));
       if (hit) return hit.result as ToolExecutionResult;
     }
     return (await config.stubs?.[tool.name]?.(args, { channel, scenario, tool: tool.name, call })) ?? null;
@@ -774,6 +780,18 @@ function addressOf(address: string): { path: string; query: Record<string, strin
   return { path: url.pathname.replace(/\/+$/, '') || '/', query: Object.fromEntries(url.searchParams) };
 }
 
+/**
+ * What a turn showed the customer: its reply, then each choice card it offered,
+ * as the card shows it (what it says first and its question, then its options,
+ * each with its description).
+ */
+export function shownToCustomer(record: Pick<EvalTurnRecord, 'reply' | 'choices'>): string {
+  const cards = record.choices.map((c) =>
+    [c.question, ...c.options.map((o) => `- ${o.label}${o.description ? `: ${o.description}` : ''}`)].filter((line) => line.trim() !== '').join('\n'),
+  );
+  return [record.reply, ...cards].filter((part) => part.trim() !== '').join('\n\n');
+}
+
 /** Every way a turn breaks its expectation. */
 export async function check(
   expect: AgentEvalExpectation,
@@ -797,8 +815,11 @@ export async function check(
     }
   };
 
-  for (const matcher of expect.says ?? []) await textAssertion('says', matcher, reply, true, 'the reply');
-  for (const matcher of expect.mustNotSay ?? []) await textAssertion('mustNotSay', matcher, reply, false, 'the reply');
+  // What the person was shown: the reply, and the question and options of each choice card it offered, since a
+  // card is how an agent asks (a rubric that wants a question asked is met by one asked on its card).
+  const shown = shownToCustomer(record);
+  for (const matcher of expect.says ?? []) await textAssertion('says', matcher, shown, true, 'the reply');
+  for (const matcher of expect.mustNotSay ?? []) await textAssertion('mustNotSay', matcher, shown, false, 'the reply');
   if (expect.refusal !== undefined) {
     await textAssertion('refusal', expect.refusal === true ? DEFAULT_REFUSAL : expect.refusal, reply, true, 'the reply, as a refusal,');
   }
