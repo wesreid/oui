@@ -570,7 +570,31 @@ function settlingResult(actionId: string, result: RoomResult, timeoutMs: number,
   if (!result.ok) return toHandlerResult(result);
   // Tracked now, not at the first poll, so an outcome that arrives first is kept.
   if (result.pending && runs.tracker) runs.started(actionId, result.pending.jobId, timeoutMs);
-  return { success: true, data: { status: 'started', ...(result.pending ? { jobId: result.pending.jobId } : {}) } };
+  return startedAnswer(result);
+}
+
+/**
+ * The first answer of an action that settles on a job (`job`, `transaction`):
+ * `started`, with the job's id when the handler gave one (`pending`), beside
+ * what the handler returned, so the assistant knows what it started while the
+ * work runs (a capture's address and the links it found, say). `status` and
+ * `jobId` are the settlement's own (`JobSettlement`) and win over a field of
+ * the same name. A failure is answered as any action's is.
+ *
+ * Exported for a host that builds such an action itself, as an eval's
+ * scripted page does, so it answers exactly as a bound one.
+ */
+export function startedAnswer(result: RoomResult): ActionHandlerResult {
+  if (!result.ok) return toHandlerResult(result);
+  return {
+    success: true,
+    data: {
+      ...result.data,
+      ...(result.changed?.length ? { changed: result.changed } : {}),
+      status: 'started',
+      ...(result.pending ? { jobId: result.pending.jobId } : {}),
+    },
+  };
 }
 
 /**
@@ -583,13 +607,27 @@ function declared(action: ManifestAction): { title: string; effect?: ActionEffec
   return { title: action.title, ...(action.effect ? { effect: effectKind(action.effect) } : {}) };
 }
 
+/** The polling for a bound action's job: the tab's tracker, and the control offered again once the job ends. */
+function jobPolling(timeoutMs: number, runs: JobRuns): NonNullable<ActionDefinition<null>['polling']> {
+  return jobOutcomePolling(runs.tracker, timeoutMs, runs.ended);
+}
+
 /**
  * The runtime's polling for a job: done when the job's outcome arrives, as the
  * outcome says; still running until then; and, past `timeoutMs`, reported by
- * the runtime as not finished (a failure, never a success).
+ * the runtime as not finished (a failure, never a success). With no tracker,
+ * or no job id in the first answer, the work is reported `unverified`.
+ * `onEnded` is told of each job once its outcome has been read.
+ *
+ * Exported for a host that builds an action settling on a job itself, as an
+ * eval's scripted page does, so its outcome reaches the assistant exactly as
+ * a bound action's does.
  */
-function jobPolling(timeoutMs: number, runs: JobRuns): NonNullable<ActionDefinition<null>['polling']> {
-  const jobs = runs.tracker;
+export function jobOutcomePolling(
+  jobs: JobTracker | undefined,
+  timeoutMs: number = DEFAULT_JOB_TIMEOUT_MS,
+  onEnded?: (jobId: string) => void,
+): NonNullable<ActionDefinition<null>['polling']> {
   return {
     intervalMs: JOB_POLL_INTERVAL_MS,
     maxDurationMs: timeoutMs,
@@ -610,7 +648,7 @@ function jobPolling(timeoutMs: number, runs: JobRuns): NonNullable<ActionDefinit
       const outcome = jobs.outcome(jobId);
       if (!outcome) return { done: false, data: { status: 'running', jobId } };
       jobs.forget(jobId);
-      runs.ended(jobId);
+      onEnded?.(jobId);
       // A failed job ends its action as a failure, with the declared reason: the
       // assistant's record of the call, and anyone reading the chat later, see
       // that it failed (verify-after-act reads that record).

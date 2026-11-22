@@ -1,5 +1,18 @@
 # @ouispec/bindings
 
+## 0.14.2
+
+### Patch Changes
+
+- An eval's page runs work that outlives its call as the product's tab does.
+
+  - `@ouispec/contract`: a page's declared action, and a product control, can start a job (`job`: its id, when it settles, and its outcome, `complete` with the result fields or `failed` with the reason), in `AgentEvalPageAction`, `AgentEvalPageControl` and their cases.
+  - `@ouispec/bindings`: an action that settles on a job answers `started` with what its handler returned beside `status` and `jobId`, where it dropped the handler's data (a capture's address and the links it found, an export's settings), so the assistant knows what it started while it runs; `startedAnswer` and `jobOutcomePolling` are exported, for a host that builds such an action itself.
+  - `@ouispec/agent-evals`: such an action answers started, and settles on the scripted outcome through the runtime's own polling (`jobOutcomePolling`) of a scripted job tracker; a control's job is followed through `connectBindings`' tracker. Requests arrive, and both answers leave, on the tab's socket in memory through OUI's own transport, so the agent waits for the outcome as for the product's: in the call for its job wait, then with `ui_wait`. Before, a fixture's action answered once and never settled, so a capture an agent waited for was reported as nothing running. A job on an action or control whose effect does not settle on one is refused.
+
+- Updated dependencies
+  - @ouispec/contract@0.14.2
+
 ## 0.14.1
 
 ### Patch Changes

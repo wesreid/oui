@@ -122,7 +122,7 @@ let requests = 0;
 async function execute(page: EvalPage, surfaceId: string, actionId: string, params: Record<string, unknown>): Promise<OUIActionResult> {
   const requestId = `t${++requests}`;
   await page.channel.dispatch('eval-room', { requestId, surfaceId, actionId, params, timestamp: 0 });
-  return (await page.channel.awaitResult(requestId, 1_000))!;
+  return (await page.channel.awaitResult(requestId, { userId: 'u-1', timeoutMs: 1_000 }))!;
 }
 const read = async (page: EvalPage, surface: string, observation: string, at?: { path: string; offset?: number; limit?: number }) =>
   (await execute(page, OUI_RUNTIME_SURFACE, OUI_READ_ACTION, { surface, observation, ...at })).data as { value?: unknown; rows?: unknown[]; total?: number };

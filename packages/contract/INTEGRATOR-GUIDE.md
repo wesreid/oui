@@ -1254,7 +1254,8 @@ The package ships an example: a fake dealer tool set, with scenarios for disclos
 > | `result` | { success: boolean, data?: any, error?: string } |  | What it answers. |
 > | `state` | object |  | Its surface's observations once it has run, by observation id: each given replaces the one before. |
 > | `navigate` | string |  | The address the page goes to once it has run. |
-> | `cases` | { when?: object, result?: { success: boolean, data?: any, error?: string }, state?: object, navigate?: string }[] |  | What it does for a call whose input holds `when`, the first that matches; a call none matches gets the defaults beside them. |
+> | `cases` | { when?: object, result?: { success: boolean, data?: any, error?: string }, state?: object, navigate?: string, job?: AgentEvalJob }[] |  | What it does for a call whose input holds `when`, the first that matches; a call none matches gets the defaults beside them. |
+> | `job` | AgentEvalJob |  |  |
 
 > **Schema:** [`agent-evals.json#/$defs/AgentEvalPageControl`](schemas/agent-evals.json) · `https://schemas.closurestudio.ai/oui/v1/agent-evals.json#/$defs/AgentEvalPageControl` · TypeScript: `AgentEvalPageControl` from `@ouispec/contract`
 >
@@ -1269,7 +1270,8 @@ The package ships an example: a fake dealer tool set, with scenarios for disclos
 > | `routes` | string[] |  | Where it is mounted, when not wherever its surface is. |
 > | `result` | { success: boolean, data?: any, error?: string } |  | What it answers. |
 > | `navigate` | string |  | The address the page goes to once it has run. |
-> | `cases` | { when?: object, result?: { success: boolean, data?: any, error?: string }, navigate?: string }[] |  | What it does for a call whose input holds `when`, the first that matches; a call none matches gets the defaults beside them. |
+> | `cases` | { when?: object, result?: { success: boolean, data?: any, error?: string }, navigate?: string, job?: AgentEvalJob }[] |  | What it does for a call whose input holds `when`, the first that matches; a call none matches gets the defaults beside them. |
+> | `job` | AgentEvalJob |  |  |
 
 > **Schema:** [`agent-evals.json#/$defs/AgentEvalShown`](schemas/agent-evals.json) · `https://schemas.closurestudio.ai/oui/v1/agent-evals.json#/$defs/AgentEvalShown` · TypeScript: `AgentEvalShown` from `@ouispec/contract`
 >
