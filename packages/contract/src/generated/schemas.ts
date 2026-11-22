@@ -4652,14 +4652,14 @@ export const CONTRACT_SCHEMAS = {
         "type": "object",
         "properties": {
           "says": {
-            "description": "Each must match the reply.",
+            "description": "Each must match what the turn showed the customer: the reply, and the question and options of each choice card it offered (a question asked on a card is asked).",
             "type": "array",
             "items": {
               "$ref": "#/$defs/AgentEvalTextMatcher"
             }
           },
           "mustNotSay": {
-            "description": "None may match the reply.",
+            "description": "None may match what the turn showed the customer: the reply, and the question and options of each choice card it offered.",
             "type": "array",
             "items": {
               "$ref": "#/$defs/AgentEvalTextMatcher"
@@ -4750,12 +4750,30 @@ export const CONTRACT_SCHEMAS = {
         }
       },
       "AgentEvalStubCase": {
-        "description": "What a tool returns when it is called with arguments that hold `when` (a subset; absent: any call).",
+        "description": "What a tool returns when it is called with arguments that hold `when` (a subset; absent: any call), and, with `afterRan`, only once that page action has run in the case.",
         "type": "object",
         "properties": {
           "when": {
             "type": "object",
             "additionalProperties": true
+          },
+          "afterRan": {
+            "description": "Only once this action of the page has run in the case (by its id or its name in the index), with input that holds `input` when given: a read of what the page's work changed answers as the backend then would (a capture continued through its links, say). Put it before the case that answers until then.",
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "minLength": 1
+              },
+              "input": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "additionalProperties": false
           },
           "result": {
             "type": "object",

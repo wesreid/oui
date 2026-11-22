@@ -2159,9 +2159,15 @@ export interface AgentEvalApprovalExpectation {
 
 /** What must hold after a turn. Every field given must hold. */
 export interface AgentEvalExpectation {
-  /** Each must match the reply. */
+  /**
+   * Each must match what the turn showed the customer: the reply, and the question and options
+   * of each choice card it offered (a question asked on a card is asked).
+   */
   says?: readonly AgentEvalTextMatcher[];
-  /** None may match the reply. */
+  /**
+   * None may match what the turn showed the customer: the reply, and the question and options
+   * of each choice card it offered.
+   */
   mustNotSay?: readonly AgentEvalTextMatcher[];
   /** Each was called, with these arguments. */
   toolCalled?: readonly AgentEvalToolCall[];
@@ -2202,10 +2208,20 @@ export type AgentEvalExpectationsByChannel = Readonly<Record<string, AgentEvalEx
 
 /**
  * What a tool returns when it is called with arguments that hold `when` (a subset; absent: any
- * call).
+ * call), and, with `afterRan`, only once that page action has run in the case.
  */
 export interface AgentEvalStubCase {
   when?: Readonly<Record<string, unknown>>;
+  /**
+   * Only once this action of the page has run in the case (by its id or its name in the index),
+   * with input that holds `input` when given: a read of what the page's work changed answers as
+   * the backend then would (a capture continued through its links, say). Put it before the case
+   * that answers until then.
+   */
+  afterRan?: {
+    action: string;
+    input?: Readonly<Record<string, unknown>>;
+  };
   result: {
     success: boolean;
     data?: unknown;

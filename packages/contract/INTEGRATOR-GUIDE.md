@@ -1208,8 +1208,8 @@ The package ships an example: a fake dealer tool set, with scenarios for disclos
 >
 > | Field | Type | Required | What it is |
 > |---|---|---|---|
-> | `says` | AgentEvalTextMatcher[] |  | Each must match the reply. |
-> | `mustNotSay` | AgentEvalTextMatcher[] |  | None may match the reply. |
+> | `says` | AgentEvalTextMatcher[] |  | Each must match what the turn showed the customer: the reply, and the question and options of each choice card it offered (a question asked on a card is asked). |
+> | `mustNotSay` | AgentEvalTextMatcher[] |  | None may match what the turn showed the customer: the reply, and the question and options of each choice card it offered. |
 > | `toolCalled` | AgentEvalToolCall[] |  | Each was called, with these arguments. |
 > | `toolNotCalled` | string[] |  | None of these was called; `*` means no tool at all. |
 > | `approvalRequested` | false \| AgentEvalApprovalExpectation |  | The turn stopped for the customer's approval of this call; `false`: it did not stop for any. |
@@ -1226,6 +1226,7 @@ The package ships an example: a fake dealer tool set, with scenarios for disclos
 > | Field | Type | Required | What it is |
 > |---|---|---|---|
 > | `when` | object |  |  |
+> | `afterRan` | { action: string, input?: object } |  | Only once this action of the page has run in the case (by its id or its name in the index), with input that holds `input` when given: a read of what the page's work changed answers as the backend then would (a capture continued through its links, say). |
 > | `result` | { success: boolean, data?: any, error?: string } | yes |  |
 
 > **Schema:** [`agent-evals.json#/$defs/AgentEvalPage`](schemas/agent-evals.json) · `https://schemas.closurestudio.ai/oui/v1/agent-evals.json#/$defs/AgentEvalPage` · TypeScript: `AgentEvalPage` from `@ouispec/contract`

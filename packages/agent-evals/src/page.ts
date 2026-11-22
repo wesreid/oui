@@ -462,8 +462,10 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
         ...(row ? { item: { key: row.key, title: row.title, ...(row.description ? { description: row.description } : {}) } } : {}),
         run: (input) => {
           const given = (input ?? {}) as Record<string, unknown>;
-          ran.push({ action: action.name, id, surface: surface.id, input: row ? { ...given, item: row.key } : given, at: location });
-          const outcome = outcomeOf(spec, given);
+          // A list's control runs for one row: its call names the row as `item`, which its cases match.
+          const called = row ? { ...given, item: row.key } : given;
+          ran.push({ action: action.name, id, surface: surface.id, input: called, at: location });
+          const outcome = outcomeOf(spec, called);
           if (outcome.result && !outcome.result.success) return { ok: false, code: 'FAILED', message: outcome.result.error ?? 'It failed.' };
           // A field takes the value it is given, as the person's typing would.
           if ('value' in given) {
