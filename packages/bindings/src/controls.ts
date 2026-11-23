@@ -349,7 +349,7 @@ export function deriveValueSchema(kind: AnyControlKind, props: SchemaProps = {})
           items: { ...attachment, description: `The id of a file the person attached to the conversation${types}` },
           description:
             `The ids of the files the person attached to the conversation${types}: every one this control should ` +
-            'take, in one call (at most ${ATTACHMENT_LIST_MAX}). The page uses them as if the person had chosen them together',
+            `take, in one call (at most ${ATTACHMENT_LIST_MAX}). The page uses them as if the person had chosen them together`,
         };
       }
       return {
