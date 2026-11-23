@@ -10,7 +10,7 @@ npm install @ouispec/bindings
 |---|---|
 | `@ouispec/bindings` | The binding and control-table types, action effects (`effectKind`, `effectAccess`, `requiresApproval`), the room catalog contract, the generated manifest and knowledge and how they're read, and the registry of what is mounted. No dependencies on React, so the build-time generator reads it in plain Node. |
 | `@ouispec/bindings/react` | `AgentBindingProvider`, `useAgentBinding`, `useAgentBindings`, `useRoomRegistration`, `useAgentProblems`, `useAgentFacts`. |
-| `@ouispec/bindings/oui` | `connectBindings`, which turns what is mounted into the tab's OUI surfaces, and `createDeclaredJobTracker`, which follows a job on the product's declared events. |
+| `@ouispec/bindings/oui` | `connectBindings`, which turns what is mounted into the tab's OUI surfaces (given the build's `knowledge`, it also answers the assistant's app-wide search and page guide, `oui.find` and `oui.guide`, in the tab), and `createDeclaredJobTracker`, which follows a job on the product's declared events. |
 
 A design system declares its control table in `package.json` under `oui.agentControls`; a room names its catalog under `oui.agentCatalog`. `@ouispec/cli` generates an app's surfaces and knowledge from them, and `@ouispec/testing` checks that a design system keeps the contract.
 

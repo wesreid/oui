@@ -7,7 +7,7 @@
   "properties": {
     "version": { "description": "The contract major (`MANIFEST_VERSION`).", "const": 1 },
     "buildId": { "description": "The manifest's build id: the two are one build.", "type": "string", "minLength": 1 },
-    "overview": { "description": "Every page, one line each: the map of the app.", "$ref": "#/$defs/KnowledgeEntry" },
+    "overview": { "description": "The app's map: every page and room, how to reach it (its sidebar group, or the page and the controls that lead to it), and what it offers, as capability groups from its bound actions and its rooms' menus. Fitted to the config's mapChars, and the same for every page of a build, so the assistant always has it.", "$ref": "#/$defs/KnowledgeEntry" },
     "pages": { "type": "array", "items": { "$ref": "#/$defs/PageKnowledge" } },
     "frames": {
       "description": "The app's frame around the pages (`shell` surfaces), each part with the route patterns it frames.",

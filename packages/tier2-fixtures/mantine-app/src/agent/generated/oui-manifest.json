@@ -1,5 +1,5 @@
 {
-  "buildId": "e7b930afd50c6a2c",
+  "buildId": "21edb0412d128cda",
   "surfaces": [
     {
       "actions": [
@@ -399,7 +399,7 @@
           "title": "View"
         }
       ],
-      "description": "The Screener page (/screener).",
+      "description": "Offers Run screen, Sectors, Alerts, Live prices and Market, among 13 actions.",
       "id": "page:ScreenerPage",
       "kind": "page",
       "observations": [

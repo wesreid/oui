@@ -10,8 +10,18 @@
  */
 
 import {
+  actionsOfPage,
+  capabilitiesOf,
   isKeyframeable,
   NAVIGATE_ACTION_ID,
+  pageForRoute,
+  pageLinks,
+  pictureSources,
+  takesAttachment,
+  takesPicture,
+  type AppPage,
+  type Capability,
+  type PageLink,
   pageQuerySchema,
   PROBLEMS_OBSERVATION_ID,
   ROOM_RUN_COMMAND_ID,
@@ -28,6 +38,7 @@ import {
 } from '@ouispec/bindings';
 
 import { describeStep, type PageMeta } from './assemble.js';
+import { DEFAULT_MAP_CHARS } from './config.js';
 import type { ApiOperation, NavEntry } from './inputs.js';
 import type { OutsidePage } from './outside.js';
 import { resolveRecipe, roomToolName } from './recipes.js';
@@ -43,25 +54,15 @@ export function generateKnowledge(
   api: ReadonlyMap<string, ApiOperation>,
   /** Pages the assistant is never on: the overview says so. */
   outside: readonly OutsidePage[] = [],
+  /** The most characters the app's map takes (`mapChars`). */
+  mapChars = DEFAULT_MAP_CHARS,
 ): { overview: KnowledgeEntry; pages: PageKnowledge[]; frames?: PageKnowledge[] } {
   const byId = new Map(surfaces.map(s => [s.id, s]));
   const byRoom = new Map(catalogs.map(c => [`room:${c.room}`, c]));
 
-  // Which pages lead to which, from navigate effects.
-  const leadsTo = new Map<string, Set<string>>();
-  for (const page of pages) {
-    const actions = [page.surface, ...page.shared].flatMap(id => byId.get(id)?.actions ?? []);
-    for (const a of actions) {
-      if (a.effect && typeof a.effect === 'object' && a.effect.kind === 'navigate') {
-        const target = pageForRoute(pages, a.effect.to);
-        if (target && target.surface !== page.surface) {
-          const set = leadsTo.get(page.surface) ?? new Set();
-          set.add(target.surface);
-          leadsTo.set(page.surface, set);
-        }
-      }
-    }
-  }
+  // Which pages lead to which, from navigate effects: one reading, the app-wide readers' (`pageLinks`).
+  const links = pageLinks(pages, surfaces);
+  const leadsTo = new Map([...links].map(([from, to]) => [from, new Set(to.keys())]));
 
   const roomsOf = (ids: readonly string[]) =>
     ids.map(id => ({ surface: byId.get(id)!, catalog: byRoom.get(id)! })).filter(r => r.surface && r.catalog);
@@ -73,7 +74,7 @@ export function generateKnowledge(
         .flatMap(f => f.rooms),
     );
 
-  const overview = overviewEntry(pages, nav, outside);
+  const overview = appMap(pages, frames, surfaces, links, nav, outside, mapChars);
   const out: PageKnowledge[] = pages.map(page => {
     const own = byId.get(page.surface)!;
     const shared = page.shared.map(id => byId.get(id)!).filter(Boolean);
@@ -125,51 +126,6 @@ export function generateKnowledge(
   return frameKnowledge.length ? { overview, pages: out, frames: frameKnowledge } : { overview, pages: out };
 }
 
-function pageForRoute(pages: readonly PageMeta[], to: string): PageMeta | undefined {
-  return (
-    pages.find(p => p.routes.includes(to)) ?? pages.find(p => p.routes.some(r => routeRegex(r).test(to)))
-  );
-}
-
-function routeRegex(pattern: string): RegExp {
-  return new RegExp(
-    `^${pattern
-      .split('/')
-      .map(s => (s.startsWith(':') ? '[^/]+' : s))
-      .join('/')}$`,
-  );
-}
-
-function overviewEntry(pages: readonly PageMeta[], nav: readonly NavEntry[], outside: readonly OutsidePage[]): KnowledgeEntry {
-  const lines: string[] = [];
-  const groups = [...new Set(nav.map(n => n.group))];
-  for (const group of groups) {
-    const entries = nav.filter(n => n.group === group);
-    lines.push(group ? `${group}:` : 'Main:');
-    for (const n of entries) {
-      const page = pages.find(p => p.routes.includes(n.route));
-      lines.push(`- ${n.label} (${n.route})${page ? ` — ${firstSentence(page.description)}` : ''}`);
-    }
-  }
-  const unlisted = pages.filter(p => !nav.some(n => p.routes.includes(n.route))).length;
-  lines.push(
-    `${unlisted} more pages are reached from these or by address; the page you are on is described in full below, and moving to another page gives you its tools.`,
-    pages.some(p => p.query)
-      ? `Go to any page by its address with [${toolName(NAVIGATE_ACTION_ID)}]; its path lists every page. A page whose address takes a query (its ?parameters are listed beside it) opens already filtered with its query, in one call.`
-      : `Go to any page by its address with [${toolName(NAVIGATE_ACTION_ID)}]; its path lists every page.`,
-  );
-  if (outside.length) {
-    lines.push(
-      `You are not on these pages, so you cannot act on them or take the person to them: ${outside
-        .flatMap(o => o.routes.map(route => ({ route, reason: o.reason })))
-        .sort((a, b) => a.route.localeCompare(b.route))
-        .map(o => `${o.route} (${o.reason})`)
-        .join(', ')}.`,
-    );
-  }
-  return { title: 'The app’s pages', content: lines.join('\n') };
-}
-
 function detail(
   page: PageMeta,
   controls: readonly ManifestAction[],
@@ -208,9 +164,9 @@ function detail(
       for (const a of actions) {
         const hidden = a.reach.some(step => step.kind !== 'route');
         lines.push(
-          hidden
+          (hidden
             ? `- ${a.title} [${a.name}]: ${bindingDescription(a)}${params(a.input)}${effectNote(a, api)}`
-            : `- ${a.title} [${a.name}]${effectNote(a, api)}`,
+            : `- ${a.title} [${a.name}]${effectNote(a, api)}`) + pictureNote(a, controls),
         );
       }
     }
@@ -277,6 +233,30 @@ function detail(
     `What the page reports: state (its fields, lists and unavailable controls) and ${PROBLEMS_OBSERVATION_ID}.`,
   );
   return lines.join('\n');
+}
+
+/**
+ * What a control that takes a picture takes, said where it is listed: any
+ * picture the assistant can reach, the sources its own input declares, and
+ * the file slot beside it through which a file the person attached arrives.
+ */
+function pictureNote(a: ManifestAction, controls: readonly ManifestAction[]): string {
+  if (!takesPicture(a)) return '';
+  const dialog = a.reach.find(step => step.kind === 'dialog');
+  const slot = takesAttachment(a.input)
+    ? null
+    : controls.find(
+        o =>
+          o !== a &&
+          takesAttachment(o.input) &&
+          (dialog ? o.reach.some(step => step.kind === 'dialog' && step.title === dialog.title) : !o.reach.some(step => step.kind === 'dialog')),
+      );
+  const sources = [
+    ...pictureSources(a).map(s => s.split(':')[0]),
+    takesAttachment(a.input) ? 'a file the person attached to the conversation, by its id' : '',
+    slot ? `a file the person attached, through ${slot.title} [${slot.name}]` : '',
+  ].filter(Boolean);
+  return ` Takes any picture you can reach${sources.length ? `: ${sources.join('; ')}` : ''}.`;
 }
 
 function bindingDescription(a: ManifestAction): string {
@@ -508,4 +488,217 @@ function recipes(
 function firstSentence(text: string): string {
   const m = /^(.+?[.!?])(\s|$)/.exec(text.trim());
   return m ? m[1] : text.trim();
+}
+
+// ─── The app's map ───────────────────────────────────────────────────────────
+
+/** One page's line on the map before it is fitted: where it sits, how it is reached, and what it offers. */
+interface MapLine {
+  page: PageMeta;
+  depth: number;
+  /** The controls on its parent that lead to it; none for a sidebar page or one reached by address. */
+  via: readonly PageLink[];
+  capabilities: Capability[];
+  /** The line without what it offers. */
+  head: string;
+}
+
+/** The longest run of route segments two routes start with. */
+function sharedSegments(a: string, b: string): number {
+  const x = a.split('/');
+  const y = b.split('/');
+  let n = 0;
+  while (n < x.length && n < y.length && x[n] === y[n]) n++;
+  return n;
+}
+
+/** What a page offers, grouped by where it is: "Edit: Remove, Expand; Select: Object", and "…" when it offers more. */
+function capabilityText(capabilities: readonly Capability[], taken: number): string {
+  const groups = new Map<string, string[]>();
+  for (const c of capabilities.slice(0, taken)) groups.set(c.group, [...(groups.get(c.group) ?? []), c.title]);
+  const text = [...groups.entries()].map(([group, titles]) => (group ? `${group}: ${titles.join(', ')}` : titles.join(', '))).join('; ');
+  return taken < capabilities.length ? (text ? `${text} …` : '…') : text;
+}
+
+/**
+ * The app's map: every page under its sidebar group, a page opened from
+ * another indented under it with the controls that open it, the pages reached
+ * only by address after them, and the app's frame. Each says what it offers,
+ * fitted to `budget` characters: every page keeps its line, and what is left is
+ * shared by how much each offers. The same for every page of a build.
+ */
+export function appMap(
+  pages: readonly PageMeta[],
+  frames: readonly PageMeta[],
+  surfaces: readonly ManifestSurface[],
+  links: ReturnType<typeof pageLinks>,
+  nav: readonly NavEntry[],
+  outside: readonly OutsidePage[],
+  budget: number,
+): KnowledgeEntry {
+  const bySurface = new Map(pages.map(p => [p.surface, p]));
+  const route = (p: PageMeta) => p.routes[0];
+
+  // The sidebar's pages, in its order, under its groups.
+  const groups: { group: string; roots: PageMeta[] }[] = [];
+  const rooted = new Set<string>();
+  for (const n of nav) {
+    const page = pageForRoute(pages, n.route);
+    const group = n.group || 'Main';
+    let entry = groups.find(g => g.group === group);
+    if (!entry) groups.push((entry = { group, roots: [] }));
+    if (page && !rooted.has(page.surface)) {
+      rooted.add(page.surface);
+      entry.roots.push(page);
+    }
+  }
+
+  // Every other page under the page nearest the sidebar that leads to it:
+  // fewest steps, then the one whose route it continues, then the sidebar's order.
+  const order = new Map<string, number>();
+  const depth = new Map<string, number>();
+  let frontier = groups.flatMap(g => g.roots.map(p => p.surface));
+  frontier.forEach((s, i) => {
+    depth.set(s, 0);
+    order.set(s, i);
+  });
+  const parent = new Map<string, { from: string; via: PageLink[] }>();
+  while (frontier.length) {
+    const reached = new Map<string, { from: string; via: PageLink[] }[]>();
+    for (const from of frontier) {
+      for (const [to, via] of links.get(from) ?? []) {
+        if (depth.has(to) || !bySurface.has(to)) continue;
+        reached.set(to, [...(reached.get(to) ?? []), { from, via }]);
+      }
+    }
+    const next: string[] = [];
+    for (const [to, candidates] of [...reached.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+      const target = bySurface.get(to)!;
+      const best = [...candidates].sort((a, b) => {
+        const pa = bySurface.get(a.from)!;
+        const pb = bySurface.get(b.from)!;
+        const sa = Math.max(...pa.routes.flatMap(r => target.routes.map(t => sharedSegments(r, t))));
+        const sb = Math.max(...pb.routes.flatMap(r => target.routes.map(t => sharedSegments(r, t))));
+        return sb - sa || order.get(a.from)! - order.get(b.from)!;
+      })[0];
+      parent.set(to, best);
+      depth.set(to, depth.get(best.from)! + 1);
+      next.push(to);
+    }
+    next.forEach((s, i) => order.set(s, order.size + i));
+    frontier = next;
+  }
+
+  const capabilitiesFor = (p: PageMeta, frame = false) => capabilitiesOf(actionsOfPage(p as AppPage, surfaces, { frame }));
+  const lines: MapLine[] = [];
+  const childrenOf = (surface: string) =>
+    [...parent.entries()]
+      .filter(([, edge]) => edge.from === surface)
+      .map(([to]) => bySurface.get(to)!)
+      .sort((a, b) => a.title.localeCompare(b.title) || a.surface.localeCompare(b.surface));
+  const place = (page: PageMeta, d: number, via: readonly PageLink[]) => {
+    const indent = '  '.repeat(d);
+    lines.push({
+      page,
+      depth: d,
+      via,
+      capabilities: capabilitiesFor(page),
+      head: `${indent}- ${page.title} ${route(page)}${via.length ? ` (from ${via[0].title})` : ''}`,
+    });
+    for (const child of childrenOf(page.surface)) place(child, d + 1, parent.get(child.surface)!.via);
+  };
+  const out: (string | MapLine)[] = [
+    'Every page: sidebar groups, then their pages; a page opened from another is indented under it (from the control that opens it). After each, what it offers, by where it is (a menu, a tab), most telling first; "…": more.',
+  ];
+  for (const { group, roots } of groups) {
+    if (!roots.length) continue;
+    out.push(`${group}:`);
+    const start = lines.length;
+    for (const root of roots) place(root, 0, []);
+    out.push(...lines.slice(start));
+  }
+  const unplaced = pages.filter(p => !depth.has(p.surface)).sort((a, b) => a.title.localeCompare(b.title) || a.surface.localeCompare(b.surface));
+  if (unplaced.length) {
+    out.push('Opened by address only:');
+    for (const page of unplaced) {
+      const line: MapLine = { page, depth: 0, via: [], capabilities: capabilitiesFor(page), head: `- ${page.title} ${route(page)}` };
+      lines.push(line);
+      out.push(line);
+    }
+  }
+  // The frame: what is on every page, once, whichever frame component holds it; a frame around some pages, by those pages.
+  const everywhere = frames.filter(f => f.routes.includes('*'));
+  if (everywhere.length) {
+    const actions = surfaces.filter(s => s.kind !== 'navigation' && s.kind !== 'page' && (s.kind === 'shell' ? everywhere.some(f => f.surface === s.id) : s.routes.includes('*'))).flatMap(s => s.actions);
+    const line: MapLine = { page: everywhere[0], depth: 0, via: [], capabilities: capabilitiesOf(actions), head: 'On every page (the app’s frame)' };
+    lines.push(line);
+    out.push(line);
+  }
+  for (const frame of frames.filter(f => !f.routes.includes('*'))) {
+    const line: MapLine = { page: frame, depth: 0, via: [], capabilities: capabilitiesFor(frame, true), head: `Around ${frame.routes.join(', ')} (${frame.title})` };
+    lines.push(line);
+    out.push(line);
+  }
+  const tail = [
+    pages.some(p => p.query)
+      ? `Go to any page by its address with [${toolName(NAVIGATE_ACTION_ID)}]; a page whose address takes a query opens already filtered, in one call. An item's page (its route has an :id) opens from the page above it.`
+      : `Go to any page by its address with [${toolName(NAVIGATE_ACTION_ID)}]. An item's page (its route has an :id) opens from the page above it.`,
+    ...(outside.length
+      ? [
+          `You are not on these pages, so you cannot act on them or take the person to them: ${outside
+            .flatMap(o => o.routes.map(r => ({ route: r, reason: o.reason })))
+            .sort((a, b) => a.route.localeCompare(b.route))
+            .map(o => `${o.route} (${o.reason})`)
+            .join(', ')}.`,
+        ]
+      : []),
+  ];
+
+  // Fit: the fixed text first; then the first capability of every page whose
+  // first makes something or starts work, in the map's order; then one more at
+  // a time to the page furthest below its share, a share growing with how much
+  // the page offers.
+  const fixed =
+    out.reduce<number>((n, part) => n + (typeof part === 'string' ? part.length : part.head.length) + 1, 0) +
+    tail.reduce((n, t) => n + t.length + 1, 0);
+  const taken = new Map<MapLine, number>(lines.map(l => [l, 0]));
+  const lineLength = (l: MapLine, n: number) => {
+    const text = capabilityText(l.capabilities, n);
+    return text ? text.length + 2 : 0;
+  };
+  let used = fixed + lines.reduce((n, l) => n + lineLength(l, 0), 0);
+  const grow = (l: MapLine): boolean => {
+    const n = taken.get(l)!;
+    if (n >= l.capabilities.length) return false;
+    const cost = lineLength(l, n + 1) - lineLength(l, n);
+    if (used + cost > budget) return false;
+    used += cost;
+    taken.set(l, n + 1);
+    return true;
+  };
+  // Every page whose most telling capability makes something or starts work names it.
+  for (const l of lines) if (l.capabilities[0] && l.capabilities[0].rank <= 1) grow(l);
+  // Then by how much each page offers that makes something or starts work: a studio before a settings page.
+  const weight = (l: MapLine) => l.capabilities.filter(c => c.rank <= 2).length + 1;
+  for (;;) {
+    const candidates = lines
+      .filter(l => taken.get(l)! < l.capabilities.length && l.capabilities[taken.get(l)!].rank <= 5)
+      .sort((a, b) => (taken.get(a)! + 1) / weight(a) - (taken.get(b)! + 1) / weight(b) || lines.indexOf(a) - lines.indexOf(b));
+    if (!candidates.some(grow)) break;
+  }
+  // A page that offers nothing a person names is said by its description's first sentence, while there is room.
+  const text = new Map<MapLine, string>();
+  for (const l of lines) {
+    if (l.capabilities.length) {
+      text.set(l, capabilityText(l.capabilities, taken.get(l)!));
+      continue;
+    }
+    const sentence = firstSentence(l.page.description);
+    if (used + sentence.length + 2 <= budget) {
+      used += sentence.length + 2;
+      text.set(l, sentence);
+    }
+  }
+  const rendered = out.map(part => (typeof part === 'string' ? part : text.get(part) ? `${part.head}: ${text.get(part)}` : part.head));
+  return { title: 'The app’s pages', content: [...rendered, ...tail].join('\n') };
 }

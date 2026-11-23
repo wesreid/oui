@@ -1177,7 +1177,12 @@ export interface GeneratedKnowledge {
   version: 1;
   /** The manifest's build id: the two are one build. */
   buildId: string;
-  /** Every page, one line each: the map of the app. */
+  /**
+   * The app's map: every page and room, how to reach it (its sidebar group, or the page and the
+   * controls that lead to it), and what it offers, as capability groups from its bound actions
+   * and its rooms' menus. Fitted to the config's mapChars, and the same for every page of a
+   * build, so the assistant always has it.
+   */
   overview: KnowledgeEntry;
   pages: readonly PageKnowledge[];
   /**
@@ -1296,6 +1301,12 @@ export interface OuiConfigFile {
    * component's). A page listed here may not also be in `unbound`. Default none.
    */
   outside?: readonly OutsideEntry[];
+  /**
+   * The most characters the app's map takes: the knowledge's overview, which lists every page,
+   * how to reach it and what it offers, and which the assistant always has. Every page keeps
+   * its line; what is left is shared among the pages by how much they offer. Default 8000.
+   */
+  mapChars?: number;
   /**
    * Room catalogs the app itself declares (tier 3, a page's own editor), each loaded through
    * the app's own Vite config so its modules resolve as the app build resolves them: the app

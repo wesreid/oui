@@ -1,5 +1,20 @@
 # @ouispec/contract
 
+## 0.15.0
+
+### Minor Changes
+
+- The assistant knows what the whole app can do: the generated map says, for every page, how to reach it and what it offers, and the tab searches every action of the build for it.
+
+  - **The app's map (cli).** The knowledge's `overview` is now the app's map: every page under its sidebar group, a page opened from another indented under it with the control that opens it, the pages reached only by address, then the frame, each followed by what it offers, grouped by where it is (a room's menu, a tab) and most telling first. It is fitted to `mapChars` (`oui.config.json`, 2,000–20,000, default 8,000): every page keeps its line, and what is left goes to the pages that make things. It is the same for every page of a build.
+  - **Descriptions (cli).** A `PageHeader` subtitle describes its page only when it is a whole literal of three words or more and not a loading state: a fragment of a template literal ("s" in `` `${n} item${n === 1 ? '' : 's'}` ``) no longer does. A page that declares no description is described by what it offers ("Offers Remove, Generative Fill and Relight, among 261 actions."), or by what it shows, or, as a last resort, by its component's doc comment; one with none of these fails the generation, unless it is in `unbound`.
+  - **Capabilities only a person can reach (cli).** A `nonAgent` control is the only way into what it does when no bound control on its page calls an app function its handlers call, and its reason names no action, tool or command of the build. The generation fails on one, naming it, unless it is listed on purpose in `<out>/oui-non-agent.allow.json`, which `oui generate --allow-non-agent` writes from what the build finds; a listing nothing matches fails too, so the list only shrinks. `GenerateResult.nonAgentOnly` lists them, and `generate(config, { allowNonAgent })` takes the flag.
+  - **Picture inputs (cli).** A control that takes a picture says so where the knowledge lists it: any picture the assistant can reach, the sources its own input names, and the file slot beside it through which a file the person attached arrives.
+  - **The app as a whole (bindings).** New: `surfacesOfPage`, `actionsOfPage`, `capabilitiesOf`, `actionRank`, `actionGroup`, `describedByActions`, `pageLinks`, `wayTo`, `wayWords`, `actionNeeds`, `takesPicture`, `pictureSources`, `takesAttachment`, `attachmentMediaTypes`, `pageForRoute`, `routeTakesId` and `describeStep` (moved from the cli), one implementation for the map, the descriptions and the search.
+  - **The tab's lookup (bindings).** `createKnowledgeLookup({ knowledge, manifest, location })` answers `oui.find` (BM25 over every action's title, its own words, where a person finds it and its page, with each room's fields and commands; each result with its page, the way to it from the page the person is on, what it needs first, and what pictures it takes) and `oui.guide` (one page's knowledge by route, address or title, 12,000 characters at a time). `connectBindings({ knowledge })` installs it in the tab's runtime and removes it on disconnect.
+  - **resolveKnowledge (bindings).** The map also comes apart, as `ResolvedKnowledge.map`, so an agent runtime can keep it where the prompt cache reads it on every turn; it stays the first of `entries` for a runtime that reads only those.
+  - **Contract.** `oui-config.json` takes `mapChars`; the knowledge's `overview` is described as the map.
+
 ## 0.14.6
 
 ### Patch Changes

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Stack } from '@mantine/core';
 import { Select } from '@mantine/core';
 
+/** Shows Mantine's Select, imported straight from its package. */
 export function DirectImportPage() {
   const [market, setMarket] = useState<string | null>('us');
   return (

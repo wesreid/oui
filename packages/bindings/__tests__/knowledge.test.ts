@@ -54,8 +54,9 @@ describe('pageForPath', () => {
 });
 
 describe('resolveKnowledge', () => {
-  it('gives the map, the page in full, its recipes and its neighbours’ summaries', () => {
+  it('gives the map, apart and first, then the page in full, its recipes and its neighbours’ summaries', () => {
     const resolved = resolveKnowledge(knowledge, '/voices');
+    expect(resolved.map).toEqual(knowledge.overview);
     expect(resolved.entries.map(e => e.title)).toEqual(['Pages', 'Voices (/voices)', 'Create Voice']);
     expect(resolved.workflows.map(w => w.name)).toEqual(['Open a voice']);
   });
@@ -84,6 +85,8 @@ describe('resolveKnowledge', () => {
   });
 
   it('gives only the map on a page the build does not know', () => {
-    expect(resolveKnowledge(knowledge, '/nowhere').entries.map(e => e.title)).toEqual(['Pages']);
+    const resolved = resolveKnowledge(knowledge, '/nowhere');
+    expect(resolved.map?.title).toBe('Pages');
+    expect(resolved.entries.map(e => e.title)).toEqual(['Pages']);
   });
 });

@@ -95,6 +95,12 @@
         "$ref": "#/$defs/OutsideEntry"
       }
     },
+    "mapChars": {
+      "description": "The most characters the app's map takes: the knowledge's overview, which lists every page, how to reach it and what it offers, and which the assistant always has. Every page keeps its line; what is left is shared among the pages by how much they offer. Default 8000.",
+      "type": "integer",
+      "minimum": 2000,
+      "maximum": 20000
+    },
     "appCatalogs": {
       "description": "Room catalogs the app itself declares (tier 3, a page's own editor), each loaded through the app's own Vite config so its modules resolve as the app build resolves them: the app needs `vite` among its own dependencies. Only their declarations are read. Default none.",
       "type": "array",

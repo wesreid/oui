@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { resolveKnowledge, toolInputProblems, type ManifestSurface } from '@ouispec/bindings';
 
 import { generate, writeOrCheck, type GenerateResult } from '../src/index.js';
-import { CATALOG, config, FIXTURE } from './fixture-config.js';
+import { CATALOG, config, FIXTURE, undescribed } from './fixture-config.js';
 import ts from 'typescript';
 import { UNKNOWN, evaluate } from '../src/program.js';
 
@@ -461,6 +461,8 @@ describe('enforcement', () => {
   it('fails an unbound control on an enforced page', async () => {
     const r = await generate(config({ unbound: [] }));
     expect(r.errors.map(e => e.message)).toEqual([
+      // Enforced, it is described like any page: it binds nothing to derive a description from.
+      undescribed('UnboundPage', '/unbound'),
       '<Button> has no agent binding (on UnboundPage, whose bindings are enforced)',
       '<LanguageField> passes no agent to the <Select> it renders (on UnboundPage, whose bindings are enforced)',
       '<SyncedMediaPlayer> has no agent binding for "play" (on UnboundPage, whose bindings are enforced)',
@@ -477,7 +479,7 @@ describe('enforcement', () => {
       "<Carousel> from @closurestudio/ui takes onSlide, but is not in @closurestudio/ui's control table: bind it there, " +
         'or data-non-agent="<reason>" (on UnboundPage, whose bindings are enforced)',
     ]);
-    expect(r.errors[0].file).toBe('src/pages/UnboundPage.tsx');
+    expect(r.errors[1].file).toBe('src/pages/UnboundPage.tsx');
   });
 
   it('fails an "unbound" entry for a page that is fully bound, so the list only shrinks', async () => {

@@ -5,6 +5,9 @@
  *
  *   oui generate            write <out>/oui-manifest.json and oui-knowledge.json
  *   oui generate --check    fail if they are stale, or if any declaration is invalid (CI)
+ *   oui generate --allow-non-agent
+ *                           also write oui-non-agent.allow.json: every nonAgent control that is the
+ *                           only way into what it does, listed on purpose (the list may only shrink)
  *
  * Options: --config <path> (default ./oui.config.json)
  */
@@ -20,14 +23,19 @@ import { generate, writeOrCheck } from './generate.js';
 async function main(argv: readonly string[]): Promise<number> {
   const [command, ...rest] = argv;
   if (command !== 'generate') {
-    console.error(`usage: ${cliName} generate [--check] [--config oui.config.json]`);
+    console.error(`usage: ${cliName} generate [--check] [--allow-non-agent] [--config oui.config.json]`);
     return 2;
   }
   const check = rest.includes('--check');
+  const allowNonAgent = rest.includes('--allow-non-agent');
+  if (check && allowNonAgent) {
+    console.error('--check reads the committed oui-non-agent.allow.json; --allow-non-agent writes it: use one');
+    return 2;
+  }
   const configFlag = rest.indexOf('--config');
   const configPath = resolve(configFlag === -1 ? 'oui.config.json' : rest[configFlag + 1]);
   const config = loadConfig(configPath);
-  const result = await generate(config);
+  const result = await generate(config, { allowNonAgent });
 
   for (const e of result.errors) console.error(`${e.file}${e.line ? `:${e.line}` : ''}: ${e.message}`);
   for (const w of result.warnings) console.error(`${w.file}${w.line ? `:${w.line}` : ''}: warning: ${w.message}`);
@@ -36,7 +44,9 @@ async function main(argv: readonly string[]): Promise<number> {
   const summary =
     `${pages} pages, ${rooms} rooms, ${actions} actions; ${unboundPages} pages not yet bound; ` +
     `${outsidePages ? `${outsidePages} pages outside the assistant; ` : ''}` +
-    `${boundModules ? `${boundModules} bound modules; ` : ''}build ${result.manifest.buildId}`;
+    `${boundModules ? `${boundModules} bound modules; ` : ''}` +
+    `${result.nonAgentOnly.length ? `${result.nonAgentOnly.length} nonAgent controls listed as the only way into what they do; ` : ''}` +
+    `build ${result.manifest.buildId}`;
 
   if (result.errors.length) {
     console.error(`\n${result.errors.length} problem(s) in the UI's declarations. ${summary}`);

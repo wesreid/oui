@@ -535,6 +535,7 @@ A page in the app's frame fails the first three, and a page that binds anything 
 > | `apiSpec` | string \| null | yes | The API's OpenAPI 3 document, by module path, as the installed API client ships it (`@traidr/api-client/openapi.json`) — never a sibling checkout path, so the generator reads exactly the spec of the client version the app installs; or a path inside the app. |
 > | `unbound` | string[] |  | Page components whose interactive controls are not all bound yet. |
 > | `outside` | OutsideEntry[] |  | Pages the assistant is never on: pages before sign-in, and public pages a link opens (a share link, a confirmation link). |
+> | `mapChars` | integer |  | The most characters the app's map takes: the knowledge's overview, which lists every page, how to reach it and what it offers, and which the assistant always has. |
 > | `appCatalogs` | AppCatalogEntry[] |  | Room catalogs the app itself declares (tier 3, a page's own editor), each loaded through the app's own Vite config so its modules resolve as the app build resolves them: the app needs `vite` among its own dependencies. |
 > | `shell` | ShellEntry[] |  | The app's frame: components mounted around the pages rather than by a route (a sidebar, a top bar, a phone tab bar, a toast host). |
 
@@ -595,7 +596,7 @@ The two outputs are part of the contract too: the runtime offers the intersectio
 > |---|---|---|---|
 > | `version` | 1 | yes | The contract major (`MANIFEST_VERSION`). |
 > | `buildId` | string | yes | The manifest's build id: the two are one build. |
-> | `overview` | KnowledgeEntry | yes | Every page, one line each: the map of the app. |
+> | `overview` | KnowledgeEntry | yes | The app's map: every page and room, how to reach it (its sidebar group, or the page and the controls that lead to it), and what it offers, as capability groups from its bound actions and its rooms' menus. |
 > | `pages` | PageKnowledge[] | yes |  |
 > | `frames` | PageKnowledge[] |  | The app's frame around the pages (`shell` surfaces), each part with the route patterns it frames. |
 

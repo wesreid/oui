@@ -12,7 +12,7 @@ import { describe, expect, it, onTestFinished } from 'vitest';
 
 import { generate, resolveConfig, writeOrCheck } from '../src/index.js';
 import { boundModuleSlug } from '../src/tier2.js';
-import { FIXTURES, tempDir } from './fixture-config.js';
+import { FIXTURES, tempDir, undescribed } from './fixture-config.js';
 
 const APP = join(FIXTURES, 'tier2');
 const MAPPING = JSON.parse(readFileSync(join(APP, 'oui/acme-kit.mapping.json'), 'utf8')) as {
@@ -218,6 +218,7 @@ describe('a mapped control imported straight from its package', () => {
   it('fails on an enforced page, naming the bound import, by name and through a namespace', async () => {
     const result = await generate(resolveConfig(APP, { ...SETTINGS, routes: 'src/direct-routes.tsx' }));
     expect(result.errors.map(e => `${e.file}:${e.line}: ${e.message}`)).toEqual([
+      `routes:0: ${undescribed('DirectPage', '/direct')}`,
       'src/pages/DirectPage.tsx:2: Press is imported straight from acme-kit, which oui/acme-kit.mapping.json maps: import it from "../agent/generated/bound/acme-kit", whose Press carries the assistant’s binding (on DirectPage, whose bindings are enforced)',
       'src/pages/DirectPage.tsx:3: Picker is imported straight from acme-kit, which oui/acme-kit.mapping.json maps: import it from "../agent/generated/bound/acme-kit", whose Picker carries the assistant’s binding (on DirectPage, whose bindings are enforced)',
     ]);
@@ -226,6 +227,7 @@ describe('a mapped control imported straight from its package', () => {
   it('fails the same when it is imported from a subpath export of its package', async () => {
     const result = await generate(resolveConfig(APP, { ...SETTINGS, routes: 'src/subpath-routes.tsx' }));
     expect(result.errors.map(e => `${e.file}:${e.line}: ${e.message}`)).toEqual([
+      `routes:0: ${undescribed('SubpathPage', '/subpath')}`,
       'src/pages/SubpathPage.tsx:2: Picker is imported straight from acme-kit, which oui/acme-kit.mapping.json maps: import it from "../agent/generated/bound/acme-kit", whose Picker carries the assistant’s binding (on SubpathPage, whose bindings are enforced)',
     ]);
   });

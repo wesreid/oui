@@ -31,6 +31,7 @@ import {
   personOnlyLookup,
 } from './inputs.js';
 import { generateKnowledge } from './knowledge.js';
+import { allowListContent, allowListPath, knownNames, nonAgentFindings, nonAgentOnlyEntries, readAllowList, type NonAgentOnly } from './non-agent.js';
 import { holdsAnything, resolveOutside } from './outside.js';
 import { loadSource } from './program.js';
 import { BOUND_DIR, boundModuleSource, boundTableSource, checkMappingTypes, loadMappings } from './tier2.js';
@@ -60,6 +61,8 @@ export interface GenerateResult {
   files: { path: string; content: string }[];
   /** Files in `<out>/bound/` no mapping emits any more: stale, and deleted on write. */
   obsolete: string[];
+  /** The `nonAgent` controls that are the only way into what they do (`non-agent.ts`). */
+  nonAgentOnly: NonAgentOnly[];
   stats: {
     pages: number;
     actions: number;
@@ -71,7 +74,17 @@ export interface GenerateResult {
   };
 }
 
-export async function generate(config: GeneratorConfig): Promise<GenerateResult> {
+export interface GenerateOptions {
+  /**
+   * Write `oui-non-agent.allow.json` from what this build finds: every
+   * `nonAgent` control that is the only way into what it does is listed on
+   * purpose (`oui generate --allow-non-agent`). Otherwise the committed list is
+   * read, and a control it does not list, or a listing nothing matches, fails.
+   */
+  allowNonAgent?: boolean;
+}
+
+export async function generate(config: GeneratorConfig, options: GenerateOptions = {}): Promise<GenerateResult> {
   // The design systems' tables first: a mapping may use a kind one of them registers.
   const controls = loadControls(config);
   const mappings = loadMappings(config);
@@ -181,6 +194,7 @@ export async function generate(config: GeneratorConfig): Promise<GenerateResult>
     nav,
     api.operations,
     outside.outside,
+    config.mapChars,
   );
   const buildId = createHash('sha256')
     .update(stableStringify({ surfaces: assembled.surfaces, knowledge: knowledgeBody }, 0))
@@ -215,10 +229,20 @@ export async function generate(config: GeneratorConfig): Promise<GenerateResult>
       (u.spread ? ' (A spread may carry it, but the build cannot see what a spread holds: write it out.)' : ''),
   }));
 
+  // A capability only a person can reach: listed on purpose, or a failure.
+  const nonAgentOnly = nonAgentOnlyEntries(
+    [...analyses.values()].filter(a => !outsideAnalyses.has(a)),
+    knownNames(assembled.surfaces, catalogs.flatMap(c => c.catalog.commands.map(command => command.id))),
+  );
+  if (!options.allowNonAgent) {
+    errors.push(...nonAgentFindings(nonAgentOnly, readAllowList(allowListPath(config.out)), config.root, config.out));
+  }
+
   const files = [
     { path: join(config.out, MANIFEST_FILE), content: `${stableStringify(manifest)}\n` },
     { path: join(config.out, KNOWLEDGE_FILE), content: `${stableStringify(knowledge)}\n` },
     ...bound,
+    ...(options.allowNonAgent ? [{ path: allowListPath(config.out), content: allowListContent(nonAgentOnly) }] : []),
   ];
   // A bound module whose mapping is gone is stale: listed, and removed on write.
   const boundDir = join(config.out, BOUND_DIR);
@@ -241,6 +265,7 @@ export async function generate(config: GeneratorConfig): Promise<GenerateResult>
     tier2: { uses: uses.map(asUse), uncontrolled: uncontrolled.map(asUse) },
     files,
     obsolete,
+    nonAgentOnly,
     stats: {
       pages: assembled.pages.length,
       actions: assembled.surfaces.reduce((n, s) => n + s.actions.length, 0),

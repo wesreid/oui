@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { NAVIGATION_QUERY_ROUTES, navigationQueries, navigationTarget, type ControlTable, type JsonSchema } from '@ouispec/bindings';
 
 import { generate, resolveConfig } from '../src/index.js';
-import { TABLE, tempApp } from './fixture-config.js';
+import { TABLE, tempApp, undescribed } from './fixture-config.js';
 
 const DS = {
   name: '@fixture/ds',
@@ -139,7 +139,8 @@ const navigate = (r: Awaited<ReturnType<typeof run>>) =>
 describe('a page’s query', () => {
   it('is read from where the page reads it: the page, a component it renders, an app hook; renamed and namespace imports too', async () => {
     const r = await run();
-    expect(r.errors.map(e => e.message)).toEqual([]);
+    // The appointments page only reads its address: nothing describes it.
+    expect(r.errors.map(e => e.message)).toEqual([undescribed('AppointmentsPage', '/appointments')]);
     const input = navigate(r).input as JsonSchema;
     const query = input.properties!.query!;
     expect(query.anyOf!.map(alt => [alt[NAVIGATION_QUERY_ROUTES], Object.keys(alt.properties!)])).toEqual([
@@ -185,7 +186,7 @@ describe('a page’s query', () => {
     expect(lane.detail.content).toContain('- view: lane|declined, default lane — Which repair orders.');
     expect(lane.detail.content).toContain('- page: integer ≥1, default 1 — The page of the list.');
     expect(lane.summary.content).toContain('Its address takes ?view, ?period, ?advisor, ?page.');
-    expect(r.knowledge.overview.content).toContain('opens already filtered with its query, in one call');
+    expect(r.knowledge.overview.content).toContain('opens already filtered, in one call');
     const appointments = r.knowledge.pages.find(p => p.surface === 'page:AppointmentsPage')!;
     expect(appointments.detail.content).toContain('- status: list of unconfirmed|confirmed|no_show — Only appointments in these states. Several may be given.');
     expect(appointments.detail.content).toContain('- day: date YYYY-MM-DD — The day.');
@@ -197,11 +198,14 @@ describe('a page’s query', () => {
       'src/AppointmentsPage.tsx': 'export function AppointmentsPage() { return <div />; }',
     };
     const r = await run(app(files));
-    expect(r.errors).toEqual([]);
+    expect(r.errors.map(e => e.message)).toEqual([
+      undescribed('AppointmentsPage', '/appointments'),
+      undescribed('ServiceLanePage', '/lane, /service-lane'),
+    ]);
     const action = navigate(r);
     expect(Object.keys((action.input as JsonSchema).properties!)).toEqual(['path', 'params']);
     expect(action.description).toBe('Go to a page of the app, as following a link to it does. The page’s own tools are offered once it is open.');
-    expect(r.knowledge.overview.content).toContain('its path lists every page.');
+    expect(r.knowledge.overview.content).toContain('Go to any page by its address with [app_navigate].');
     expect(r.knowledge.overview.content).not.toContain('query');
   });
 
