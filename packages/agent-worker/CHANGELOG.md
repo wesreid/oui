@@ -1,5 +1,15 @@
 # @ouispec/agent-worker
 
+## 0.33.2
+
+### Patch Changes
+
+- Updated dependencies
+  - oui-spec@0.15.0
+  - @ouispec/agent-core@0.33.2
+  - @ouispec/agent-events@0.33.2
+  - @ouispec/bindings@0.14.7
+
 ## 0.33.1
 
 ### Patch Changes

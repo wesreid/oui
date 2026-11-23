@@ -1,5 +1,15 @@
 # oui-spec
 
+## 0.15.0
+
+### Minor Changes
+
+- A client can answer the agent's questions about the whole app, not only the page on screen: `oui.find` and `oui.guide` (spec §7.3.10).
+
+  - `createSurfaceRuntime({ lookup })`, or `runtime.setLookup(lookup)` later, gives the runtime the host's lookup: `find(params)` searches every action of the build by words, `guide(params)` reads one page's knowledge without going there. Each returns `{ success, data }` or `{ success: false, error }`; a lookup that throws is answered `LOOKUP_FAILED` with its message, and an answer larger than a frame carries is `TOO_LARGE`.
+  - The snapshot names what the lookup answers (`lookup: ["find", "guide"]`), and names nothing without one, so an agent runtime offers the tools that use them only to a client that answers them.
+  - New exports: `OUI_FIND_ACTION`, `OUI_GUIDE_ACTION`, `OUI_LOOKUP_ACTIONS` and the `OUILookupAction` type (`oui-spec/spec`), and the `OUILookup` and `OUILookupAnswer` types (`oui-spec/core`).
+
 ## 0.14.1
 
 ### Patch Changes

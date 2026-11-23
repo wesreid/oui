@@ -32,6 +32,18 @@ export const OUI_RUNTIME_SURFACE = "oui";
 export const OUI_DESCRIBE_ACTION = "describe";
 /** `oui.read`: part of an observation's value, by path, a page of a list at a time. */
 export const OUI_READ_ACTION = "read";
+/**
+ * `oui.find`: the actions of the whole app that match words, wherever they are,
+ * with the way to each from the page the person is on (§7.3.10). Answered only
+ * by a runtime given a lookup.
+ */
+export const OUI_FIND_ACTION = "find";
+/** `oui.guide`: what the app knows about one page, read without going there (§7.3.10). Answered only by a runtime given a lookup. */
+export const OUI_GUIDE_ACTION = "guide";
+/** The runtime's actions a host's lookup answers, as a snapshot names them (`lookup`). */
+export const OUI_LOOKUP_ACTIONS = [OUI_FIND_ACTION, OUI_GUIDE_ACTION] as const;
+/** One of the runtime's actions a lookup answers. */
+export type OUILookupAction = (typeof OUI_LOOKUP_ACTIONS)[number];
 
 /** The bytes `text` takes as UTF-8, which is what a frame's size limit counts. */
 export function utf8Length(text: string): number {
