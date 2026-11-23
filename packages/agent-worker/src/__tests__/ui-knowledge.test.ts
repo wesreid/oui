@@ -55,9 +55,6 @@ describe('rendering it', () => {
       [
         '## Platform Knowledge (Context-Aware)',
         '',
-        '### Desk',
-        'Pages: Inbox (/inbox), Reports (/reports).',
-        '',
         '### Inbox, in full',
         'Lists messages newest first. Reports are on the Reports page.',
         '',
@@ -86,7 +83,10 @@ describe('rendering it', () => {
   });
 
   it('appends it once to the host prompt, and leaves a prompt alone when the turn carries none', () => {
-    expect(withClientKnowledge('You are Desk.', { uiKnowledge: reportsPage })).toBe(`You are Desk.\n\n${renderClientKnowledge(reportsPage)}`);
+    // The app's map first, as its own section: the same on every page, it is read from the prompt cache.
+    expect(withClientKnowledge('You are Desk.', { uiKnowledge: reportsPage })).toBe(
+      `You are Desk.\n\n## The App: Desk\n\nPages: Inbox (/inbox), Reports (/reports).\n\n${renderClientKnowledge(reportsPage)}`,
+    );
     expect(withClientKnowledge('You are Desk.', { currentPath: '/reports' })).toBe('You are Desk.');
   });
 });

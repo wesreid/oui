@@ -47,12 +47,12 @@ import { evaluateToolPolicySafe } from './authz/tool-policy.js';
 import { createToolInputValidator } from './tools/input-validation.js';
 import { jsonBytes } from 'oui-spec/spec';
 import { CLIENT_SNAPSHOT_KEY, readClientPage, withoutClientUI } from './ui/snapshot.js';
-import { KNOWLEDGE_TOOL, knowledgeTool, readClientKnowledge, withClientKnowledge } from './ui/knowledge.js';
+import { KNOWLEDGE_TOOL, knowledgeTool, readClientKnowledge, withClientKnowledge, type ReadPageKnowledge } from './ui/knowledge.js';
 import { answerWithoutState, withStatesAtEnd } from './ui/page-state-at-end.js';
 import { readTurnContextPlacement, stepMessages as forStep, STEP_NOTE_CLOSE, STEP_NOTE_OPEN, withCallResults } from './step-messages.js';
 import { EVERY_TOOL, offeredTools, renderRule, type OfferedTools, type ToolRule } from './prompt/step-tools.js';
 import { systemPromptForTools } from './prompt/builder.js';
-import { PRESENT_OPTIONS_TOOL } from './tools/sdk-tool-names.js';
+import { FIND_TOOL, PRESENT_OPTIONS_TOOL } from './tools/sdk-tool-names.js';
 import { clockText, readClientTimeZone } from './prompt/clock.js';
 import { readClientMessageInput, spokenInputText } from './prompt/spoken-input.js';
 import { readClientReplyOutput, spokenReplyText } from './prompt/spoken-reply.js';
@@ -134,7 +134,7 @@ const DEFAULT_UI_RESULT_TIMEOUT_MS = 20_000;
 /** Time left, before the turn's deadline, for the model to answer after waiting on a UI action's work. */
 const UI_ANSWER_MARGIN_MS = 45_000;
 /** The tools the model works the page with: a host tool of one of these names is withheld. */
-const UI_TOOL_NAMES: ReadonlySet<string> = new Set([UI_ACT_TOOL, UI_DESCRIBE_TOOL, UI_READ_TOOL, UI_WAIT_TOOL]);
+const UI_TOOL_NAMES: ReadonlySet<string> = new Set([UI_ACT_TOOL, UI_DESCRIBE_TOOL, UI_READ_TOOL, UI_WAIT_TOOL, FIND_TOOL]);
 
 /**
  * Tools that hand the turn back to the user. The turn stops after any of them:
@@ -301,7 +301,7 @@ export async function runAgentTurn(
   const heldDefinitions: HeldDefinitions = client?.held ?? new Map();
   // Whether the page can be seen: nothing that changes it runs while it cannot.
   const sight = createPageSight();
-  const uiCounts = { describes: 0, reads: 0, acts: 0, guides: 0, waits: 0 };
+  const uiCounts = { describes: 0, reads: 0, acts: 0, guides: 0, waits: 0, finds: 0 };
   // Work the turn's actions started that was still running when their calls answered: what ui_wait waits for.
   const runningWork: RunningWorkLog = new Map();
   // Answers whose page state was moved to the end of what the model reads, summed over the turn's steps.
@@ -1017,6 +1017,7 @@ export async function runAgentTurn(
     else if (t.name === UI_WAIT_TOOL) uiCounts.waits++;
     // It reads what the client sent, and touches no page.
     else if (t.name === KNOWLEDGE_TOOL) uiCounts.guides++;
+    else if (t.name === FIND_TOOL) uiCounts.finds++;
     else if (isUI) uiCounts.acts++;
 
     log('info', 'agent:tool', 'Tool call started', {
@@ -1314,6 +1315,8 @@ export async function runAgentTurn(
     describe: RegisteredTool;
     read: RegisteredTool;
     wait: RegisteredTool;
+    find: RegisteredTool;
+    guidePage: ReadPageKnowledge;
   };
   let builtUI: CurrentUI | null = null;
   function currentUI(): CurrentUI | null {
@@ -1358,6 +1361,8 @@ export async function runAgentTurn(
       describe: built.describe,
       read: built.read,
       wait: built.wait,
+      find: built.find,
+      guidePage: built.guidePage,
     };
     return builtUI;
   }
@@ -1478,9 +1483,13 @@ export async function runAgentTurn(
       tools[UI_DESCRIBE_TOOL] = toAiTool(ui.describe);
       tools[UI_READ_TOOL] = toAiTool(ui.read);
       tools[UI_WAIT_TOOL] = toAiTool(ui.wait);
+      // The whole app, searched by the client's lookup: only when it says it answers it.
+      if (client?.lookup.includes('find')) tools[FIND_TOOL] = toAiTool(ui.find);
     }
-    // What the prompt leaves out of the client's knowledge, read when it is needed.
-    if (knowledge && !tools[KNOWLEDGE_TOOL]) tools[KNOWLEDGE_TOOL] = toAiTool(knowledgeTool(knowledge));
+    // What the prompt leaves out of the client's knowledge, read when it is needed, and another page's when the client answers it.
+    if (knowledge && !tools[KNOWLEDGE_TOOL]) {
+      tools[KNOWLEDGE_TOOL] = toAiTool(knowledgeTool(knowledge, ui && client?.lookup.includes('guide') ? ui.guidePage : undefined));
+    }
     return tools;
   }
 

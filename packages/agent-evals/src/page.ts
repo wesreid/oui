@@ -48,6 +48,7 @@ import {
   PROBLEMS_OBSERVATION_ID,
   PROBLEMS_SCHEMA,
   readQuery,
+  createKnowledgeLookup,
   resolveKnowledge,
   SHOWN_ROWS,
   toolName,
@@ -194,6 +195,13 @@ export interface EvalPageSource {
   manifest?: OuiManifest;
   /** The product's generated knowledge (`oui-knowledge.json`): each turn carries it for the page it is sent from. */
   knowledge?: GeneratedKnowledge;
+  /**
+   * The surfaces the app-wide search reads (`oui.find`), when `manifest` is kept to the pages a
+   * suite mounts: every surface of the build, its actions with or without their inputs. With
+   * `knowledge`, the page answers the search and the page guide as the product's tab does, over
+   * this, or over `manifest` when it is not given.
+   */
+  search?: OuiManifest;
   /** The page models a fixture may name (`page.models`), by name. */
   models?: Readonly<Record<string, EvalPageModelFactory>>;
 }
@@ -514,6 +522,10 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
   };
   const registry = createBindingRegistry();
   const disconnect = connectBindings({ registry, runtime, manifest: connected, jobs, ...(offersNavigation ? { navigation } : {}) });
+  // The build's knowledge searched in the tab, as the product's tab does (oui.find, oui.guide), the
+  // way to each result starting at the page the eval is on.
+  const searched = source.search ?? manifest;
+  if (knowledge && searched) runtime.setLookup(createKnowledgeLookup({ knowledge, manifest: searched, location: () => location }));
   /** A control's value as the page last showed it, kept while the page is elsewhere, as an app's state is. */
   const values = new Map<string, unknown>();
   const registered = new Map<string, { spec: AgentEvalPageControl; handles: ControlHandle[] }>();

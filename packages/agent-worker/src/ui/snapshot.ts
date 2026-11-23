@@ -33,6 +33,12 @@ export interface ClientPage {
   fit?: OUIFit;
   /** The definitions a client that sent them came with: describing those actions needs no request. */
   held: HeldDefinitions;
+  /**
+   * The runtime's own actions the client's lookup answers (oui-spec §7.3.10):
+   * `find` (the app-wide search, `ui_find`) and `guide` (another page's
+   * knowledge, `ui_guide` with `page`). Empty when it answers neither.
+   */
+  lookup: Array<'find' | 'guide'>;
 }
 
 /**
@@ -50,7 +56,7 @@ export function readClientPage(context: Record<string, unknown> | null | undefin
   if (typeof raw !== 'object') {
     throw new Error(`[agent-sdk] context.${CLIENT_SNAPSHOT_KEY} must be an object`);
   }
-  const { surfaces, index, observations, surfacesHash, fit } = raw as Record<string, unknown>;
+  const { surfaces, index, observations, surfacesHash, fit, lookup } = raw as Record<string, unknown>;
   const held: HeldDefinitions = new Map();
   let page: PageSurface[];
   if (Array.isArray(index)) {
@@ -81,6 +87,8 @@ export function readClientPage(context: Record<string, unknown> | null | undefin
     ...(typeof surfacesHash === 'string' && surfacesHash ? { surfacesHash } : {}),
     ...(fit && typeof fit === 'object' ? { fit: fit as OUIFit } : {}),
     held,
+    // Only the lookup actions the protocol has: an unknown name is a newer client's, and offered nothing.
+    lookup: Array.isArray(lookup) ? (['find', 'guide'] as const).filter(a => lookup.includes(a)) : [],
   };
 }
 

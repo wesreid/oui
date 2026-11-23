@@ -28,5 +28,8 @@ export const ATTACHMENT_VIEW_TOOL = 'attachment_view';
 export const ATTACHMENT_READ_TOOL = 'attachment_read';
 export const ATTACHMENT_LIST_TOOL = 'attachment_list';
 
-/** Reads what the prompt leaves out of the client's knowledge (ui/knowledge.ts). */
+/** Reads what the prompt leaves out of the client's knowledge, and another page's (ui/knowledge.ts). */
 export const KNOWLEDGE_TOOL = 'ui_guide';
+
+/** Searches every action of the whole app, answered by the client's lookup (ui/ui-tools.ts, oui-spec `oui.find`). */
+export const FIND_TOOL = 'ui_find';

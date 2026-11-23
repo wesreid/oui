@@ -11,6 +11,11 @@
  * every host: a persona or a `systemPrompt` callback never sees it as context
  * and never has to render it.
  *
+ * The app's map (`map`: every page, how to reach it and what it offers) comes
+ * apart from the page's entries and is rendered first, as its own section
+ * within `APP_MAP_PROMPT_CHARS`: it is the same on every page of a build, so
+ * it never competes with the page's knowledge for room.
+ *
  * It is bounded, as the page's index is: in one session a
  * video editor's knowledge was 117,000 characters, most of it a page detail
  * that repeats what the index already lists, in every model call of every
@@ -19,7 +24,7 @@
  * the prompt says what is not shown and how to read it.
  */
 import type { ResolvedKnowledge } from '@ouispec/bindings';
-import type { RegisteredTool } from '../tools/types.js';
+import type { RegisteredTool, ToolExecutionContext, ToolExecutionResult } from '../tools/types.js';
 import { KNOWLEDGE_TOOL } from '../tools/sdk-tool-names.js';
 import { EVERY_TOOL, renderRule, type OfferedTools } from '../prompt/step-tools.js';
 
@@ -33,6 +38,8 @@ export const KNOWLEDGE_PROMPT_CHARS = 12_000;
 const WHOLE_ENTRY_CHARS = 1_500;
 /** What one `ui_guide` answer gives at most. */
 export const KNOWLEDGE_PAGE_CHARS = 12_000;
+/** The app's map the system prompt carries at most, in characters, apart from the page's knowledge. */
+export const APP_MAP_PROMPT_CHARS = 10_000;
 
 /** What a UI client sends: the knowledge for the page the user is on. */
 export type ClientKnowledge = ResolvedKnowledge;
@@ -48,7 +55,8 @@ export function readClientKnowledge(context: Record<string, unknown> | null | un
   if (raw === undefined || raw === null) return null;
   const where = `context.${CLIENT_KNOWLEDGE_KEY}`;
   if (typeof raw !== 'object') throw new Error(`[agent-sdk] ${where} must be an object`);
-  const { entries, workflows } = raw as Record<string, unknown>;
+  const { map, entries, workflows } = raw as Record<string, unknown>;
+  if (map !== undefined && !isEntry(map)) throw new Error(`[agent-sdk] ${where}.map is not a knowledge entry (title, content)`);
   if (!Array.isArray(entries)) throw new Error(`[agent-sdk] ${where}.entries must be an array`);
   if (!Array.isArray(workflows)) throw new Error(`[agent-sdk] ${where}.workflows must be an array`);
   entries.forEach((e, i) => {
@@ -57,7 +65,15 @@ export function readClientKnowledge(context: Record<string, unknown> | null | un
   workflows.forEach((w, i) => {
     if (!isWorkflow(w)) throw new Error(`[agent-sdk] ${where}.workflows[${i}] is not a workflow (name, trigger, steps[])`);
   });
-  return { entries, workflows } as ClientKnowledge;
+  return { ...(map ? { map } : {}), entries, workflows } as ClientKnowledge;
+}
+
+/** The app's map as its own prompt section, cut at a line within `maxChars`; empty without one. */
+export function renderAppMap(knowledge: ClientKnowledge, maxChars = APP_MAP_PROMPT_CHARS): string {
+  if (!knowledge.map) return '';
+  const head = `## The App: ${knowledge.map.title}\n\n`;
+  const shown = cutAt(knowledge.map.content, Math.max(0, maxChars - head.length));
+  return head + shown + (shown.length < knowledge.map.content.length ? '\n(The rest of the map is not shown.)' : '');
 }
 
 /** A workflow in full: its trigger and numbered steps. */
@@ -90,7 +106,10 @@ export function renderClientKnowledge(knowledge: ClientKnowledge, maxChars = KNO
       .filter(Boolean)
       .join('\n\n');
 
-  const all = sections(knowledge.entries.map(whole), wholeWorkflows);
+  // The map has its own section (`renderAppMap`): the copy a tab also puts first among the entries is not said twice.
+  const map = knowledge.map;
+  const pageEntries = map ? knowledge.entries.filter((e) => !(e.title === map.title && e.content === map.content)) : knowledge.entries;
+  const all = sections(pageEntries.map(whole), wholeWorkflows);
   if (all.length <= maxChars) return all;
 
   // The workflows by name: each read whole with the tool.
@@ -107,11 +126,11 @@ export function renderClientKnowledge(knowledge: ClientKnowledge, maxChars = KNO
   const workflowsSize = named ? workflowHead.length + named.length + 2 : 0;
 
   // The small entries whole; the large ones share what is left, each cut at a line.
-  const small = knowledge.entries.filter((e) => whole(e).length <= WHOLE_ENTRY_CHARS);
-  const large = knowledge.entries.filter((e) => whole(e).length > WHOLE_ENTRY_CHARS);
+  const small = pageEntries.filter((e) => whole(e).length <= WHOLE_ENTRY_CHARS);
+  const large = pageEntries.filter((e) => whole(e).length > WHOLE_ENTRY_CHARS);
   const fixed = entryHead.length + small.reduce((n, e) => n + whole(e).length + 2, 0);
   const share = Math.max(0, Math.floor((maxChars - workflowsSize - fixed) / Math.max(large.length, 1)) - 200);
-  const rendered = knowledge.entries.map((e) => {
+  const rendered = pageEntries.map((e) => {
     if (!large.includes(e)) return whole(e);
     const shown = cutAt(e.content, share);
     const rest = e.content.length - shown.length;
@@ -154,7 +173,10 @@ export function findNamed<T>(items: readonly T[], nameOf: (item: T) => string, n
   );
 }
 
-export function knowledgeTool(knowledge: ClientKnowledge): RegisteredTool {
+/** How a client reads another page's knowledge (oui-spec `oui.guide`): given when its lookup answers it. */
+export type ReadPageKnowledge = (params: Record<string, unknown>, ctx: ToolExecutionContext) => Promise<ToolExecutionResult>;
+
+export function knowledgeTool(knowledge: ClientKnowledge, readPage?: ReadPageKnowledge): RegisteredTool {
   const titles = knowledge.entries.map((e) => e.title);
   const names = knowledge.workflows.map((w) => w.name);
   const listed = (items: string[]) => items.slice(0, 40).map((t) => `"${t}"`).join(', ') + (items.length > 40 ? ', …' : '');
@@ -165,17 +187,28 @@ export function knowledgeTool(knowledge: ClientKnowledge): RegisteredTool {
     description:
       'Reads the part of what the app knows about this page that your instructions do not show: the rest of a ' +
       'knowledge entry (`entry`, its title, and `from`, where to continue), or one workflow with its steps (`workflow`, its name). ' +
-      'Your instructions say what is not shown and give the title or name.',
+      'Your instructions say what is not shown and give the title or name.' +
+      (readPage
+        ? ' With `page` (a route, an address or a page’s title from the app’s map), it reads another page’s knowledge in full without going there, a part at a time (`from`).'
+        : ''),
     inputSchema: {
       type: 'object',
       additionalProperties: false,
       properties: {
         entry: { type: 'string', description: 'A knowledge entry’s title, as your instructions give it.' },
         workflow: { type: 'string', description: 'A workflow’s name, as your instructions list it.' },
-        from: { type: 'integer', minimum: 0, description: 'Where in the entry to begin. Default 0.' },
+        ...(readPage
+          ? { page: { type: 'string', description: 'Another page, by its route ("/image/:imageId"), an address on it, or its title in the app’s map.' } }
+          : {}),
+        from: { type: 'integer', minimum: 0, description: 'Where in the entry or page to begin. Default 0.' },
       },
     },
-    async execute(input) {
+    async execute(input, ctx) {
+      const page = typeof input.page === 'string' ? input.page.trim() : '';
+      if (page) {
+        if (!readPage) return { success: false, error: 'This app cannot read another page’s knowledge from here: go to the page.' };
+        return readPage({ page, ...(typeof input.from === 'number' ? { from: input.from } : {}) }, ctx);
+      }
       const workflow = typeof input.workflow === 'string' ? input.workflow.trim() : '';
       const entry = typeof input.entry === 'string' ? input.entry.trim() : '';
       if (workflow) {
@@ -200,7 +233,7 @@ export function knowledgeTool(knowledge: ClientKnowledge): RegisteredTool {
           },
         };
       }
-      return { success: false, error: 'Give an `entry` title or a `workflow` name.' };
+      return { success: false, error: readPage ? 'Give an `entry` title, a `workflow` name or a `page`.' : 'Give an `entry` title or a `workflow` name.' };
     },
   };
 }
@@ -212,8 +245,10 @@ export function withClientKnowledge(
   offered: OfferedTools = EVERY_TOOL,
 ): string {
   const knowledge = readClientKnowledge(context);
-  const rendered = knowledge ? renderClientKnowledge(knowledge, KNOWLEDGE_PROMPT_CHARS, offered) : '';
-  return rendered ? `${systemPrompt}\n\n${rendered}` : systemPrompt;
+  if (!knowledge) return systemPrompt;
+  // The map first: the same for every page of a build, it is read from the prompt cache on every turn.
+  const parts = [renderAppMap(knowledge), renderClientKnowledge(knowledge, KNOWLEDGE_PROMPT_CHARS, offered)].filter(Boolean);
+  return parts.length ? `${systemPrompt}\n\n${parts.join('\n\n')}` : systemPrompt;
 }
 
 function isEntry(value: unknown): boolean {

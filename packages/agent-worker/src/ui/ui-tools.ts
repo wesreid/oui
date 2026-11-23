@@ -20,6 +20,8 @@ import { AGENT_UI_TOOLS } from '@ouispec/agent-core';
 import {
   jsonBytes,
   OUI_DESCRIBE_ACTION,
+  OUI_FIND_ACTION,
+  OUI_GUIDE_ACTION,
   OUI_READ_ACTION,
   OUI_RUNTIME_SURFACE,
   type OUIAction,
@@ -29,6 +31,7 @@ import {
   type OUIFit,
 } from 'oui-spec/spec';
 import type { RegisteredTool, ToolExecutionContext, ToolExecutionResult } from '../tools/types.js';
+import { FIND_TOOL } from '../tools/sdk-tool-names.js';
 import type { UIActionChannel } from './channel.js';
 import { boundObservations, DEFAULT_PAGE_STATE_CHARS, observationSchemas } from './observations.js';
 import { answerCutNotes, DEFAULT_ANSWER_DATA_CHARS, fitAnswerData } from './answer-fit.js';
@@ -238,7 +241,17 @@ interface Shared {
 export function buildUITools(
   page: readonly PageSurface[],
   deps: UIToolDependencies,
-): { tools: RegisteredTool[]; collisions: UIToolCollision[]; describe: RegisteredTool; read: RegisteredTool; wait: RegisteredTool } {
+): {
+  tools: RegisteredTool[];
+  collisions: UIToolCollision[];
+  describe: RegisteredTool;
+  read: RegisteredTool;
+  wait: RegisteredTool;
+  /** `ui_find`: offered only when the client's snapshot says its lookup answers `find`. */
+  find: RegisteredTool;
+  /** Another page's knowledge, from the client's lookup (`oui.guide`): what `ui_guide` with `page` runs. */
+  guidePage: (params: Record<string, unknown>, ctx: ToolExecutionContext) => Promise<ToolExecutionResult>;
+} {
   const shared: Shared = {
     deps,
     sequence: deps.sequence ?? createUISequence(),
@@ -253,6 +266,8 @@ export function buildUITools(
     describe: describeTool(shared),
     read: readTool(shared),
     wait: waitTool(shared),
+    find: findTool(shared),
+    guidePage: (params, ctx) => askLookup(shared, OUI_GUIDE_ACTION, params, ctx, 'the page guide'),
   };
 }
 
@@ -536,6 +551,80 @@ function readTool(shared: Shared): RegisteredTool {
         return { success: true, data: result.data };
       });
     },
+  };
+}
+
+// ─── ui_find ─────────────────────────────────────────────────────────────────
+
+/** The most results one `ui_find` call gives (oui-spec's lookup refuses more). */
+export const MAX_FOUND = 10;
+
+/**
+ * Asks the client's lookup (oui-spec §7.3.10). It reads what the build knows
+ * of itself and changes nothing in the page, so a page that cannot be seen
+ * does not stop it; it takes its place in the turn's UI order, so the page it
+ * starts the way from is the page the calls before it left.
+ */
+function askLookup(
+  shared: Shared,
+  actionId: typeof OUI_FIND_ACTION | typeof OUI_GUIDE_ACTION,
+  params: Record<string, unknown>,
+  ctx: ToolExecutionContext,
+  what: string,
+): Promise<ToolExecutionResult> {
+  const slot = ctx.uiSlot ?? shared.sequence.reserve();
+  return slot.run(() => lookupOnce(shared, actionId, params, ctx, what));
+}
+
+async function lookupOnce(
+  shared: Shared,
+  actionId: typeof OUI_FIND_ACTION | typeof OUI_GUIDE_ACTION,
+  params: Record<string, unknown>,
+  ctx: ToolExecutionContext,
+  what: string,
+): Promise<ToolExecutionResult> {
+  const room = ctx.socketRoom;
+  if (!room) throw new Error(`[agent-sdk] Asking the page for ${what} needs the turn’s room`);
+  if (ctx.stop?.reason()) return stoppedBeforeAnswer(what);
+  const request: OUIActionRequest = {
+    requestId: ctx.toolCallId ?? `${actionId}-${randomUUID()}`,
+    surfaceId: OUI_RUNTIME_SURFACE,
+    actionId,
+    params,
+    timestamp: Date.now(),
+    turnId: ctx.turnId,
+  };
+  const answered = await dispatchUntilAnswered(shared.deps, room, request, ctx);
+  if (!answered.result && ctx.stop?.reason()) return stoppedBeforeAnswer(what);
+  if (!answered.result) {
+    return { success: false, error: 'The page did not answer. It may be closed or offline: tell the user the page is not responding.' };
+  }
+  const result = answered.result;
+  if (!result.success) return { success: false, error: result.error?.message ?? `The page could not give ${what}.` };
+  return { success: true, data: result.data };
+}
+
+function findTool(shared: Shared): RegisteredTool {
+  return {
+    name: FIND_TOOL,
+    kind: 'ui',
+    effect: 'view',
+    description:
+      'Searches every action of the whole app, on every page, by what it does: for each match, what it is, the page it is on, ' +
+      'the way to it from the page the user is on (the pages to go to and the controls to open), and what it needs first ' +
+      '(an open item, a row, a selection, the user’s approval, an attached file). Use it before saying something cannot be done, ' +
+      'and to find where a capability lives. It only reads: go there, then use that page’s own actions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', minLength: 1, description: 'What to do, in a few words: "remove an object from a picture", "add images to a character".' },
+        limit: { type: 'integer', minimum: 1, maximum: MAX_FOUND, description: 'How many results. Default 5.' },
+      },
+      required: ['query'],
+      additionalProperties: false,
+      sideEffects: false,
+    },
+    execute: (input, ctx) => askLookup(shared, OUI_FIND_ACTION, input, ctx, 'the search'),
   };
 }
 
