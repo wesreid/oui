@@ -72,11 +72,12 @@ describe.each(providers.map((make) => [make().name, make] as const))('on %s', (_
     for (const tool of ['ui_act', 'ui_describe', 'ui_read']) expect(first).toContain(`"${tool}"`);
     expect(first).toContain('- navigate: ');
     // The knowledge the tab sent for its page, rendered by the SDK after the
-    // host's prompt (the host's callback never sees it): the app's map, the
-    // page in full, the page it leads to, and the recipe the UI implies.
+    // host's prompt (the host's callback never sees it): the app's map, as its
+    // own section first, then the page in full, the page it leads to, and the
+    // recipe the UI implies.
     for (const section of [
+      '## The App: Desk\\n\\nPages: Inbox (/inbox), Reports (/reports).',
       '## Platform Knowledge (Context-Aware)',
-      '### Desk\\nPages: Inbox (/inbox), Reports (/reports).',
       '### Inbox, in full\\nLists messages newest first.',
       '### Reports\\nSaved reports: export one, or email it.',
       '## Active Workflows',
@@ -84,7 +85,8 @@ describe.each(providers.map((make) => [make().name, make] as const))('on %s', (_
     ]) {
       expect(first).toContain(section);
     }
-    expect(first.indexOf('Desk, a reporting product')).toBeLessThan(first.indexOf('## Platform Knowledge'));
+    expect(first.indexOf('Desk, a reporting product')).toBeLessThan(first.indexOf('## The App: Desk'));
+    expect(first.indexOf('## The App: Desk')).toBeLessThan(first.indexOf('## Platform Knowledge'));
     expect(first.split('## Platform Knowledge').length).toBe(2);
     expect(first).not.toContain('uiKnowledge');
     // The tab's real answer, carried back through the server's result store,

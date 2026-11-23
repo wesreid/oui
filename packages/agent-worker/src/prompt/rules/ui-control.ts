@@ -10,11 +10,13 @@
  * use it.
  */
 import { AGENT_UI_TOOLS } from '@ouispec/agent-core';
+import { FIND_TOOL } from '../../tools/sdk-tool-names.js';
 import { EVERY_TOOL, renderPieces, rulesOf, type OfferedTools, type PromptPiece, type ToolRule } from '../step-tools.js';
 
 const ACT = AGENT_UI_TOOLS.act;
 const DESCRIBE = AGENT_UI_TOOLS.describe;
 const READ = AGENT_UI_TOOLS.read;
+const FIND = FIND_TOOL;
 
 const UI_CONTROL: readonly PromptPiece[] = [
   `## THE USER'S UI
@@ -23,7 +25,17 @@ You act in the user's UI, as the user would, through what is on their screen rig
 
 ### What you can do
 - The page's index lists every action the screen offers, a line each: its id, what it does, and what it takes in outline. It follows this prompt, in a <page_index> block. The page's values come at the end of what you read, in a <page_state> block: the page as it is now, from the newest answer, or as the user's screen was when they sent their message.
-- Your abilities in the UI are exactly the actions in the index, as it is now. If a request needs something no action does, you cannot do it from here: say so plainly. If an action leads to a page that offers it, run that action first.
+- You act only through the actions in the index, as it is now: what is on the screen. The app has other pages, each with actions of its own, and you reach them by going there.`,
+  {
+    tools: [FIND],
+    text: ` ${FIND} searches every action of the whole app, on every page, and says how to get to each from here and what it needs first. Before you tell the user something cannot be done, search with ${FIND}: a capability on another page is done by going there, then using that page's own actions as the user would.`,
+    otherwise: ` The app's map, when your instructions carry it, says what each page offers.`,
+  },
+  `
+- If nothing in the app does what a request needs, say so plainly. If an action leads to a page that offers it, run that action first.
+- Where an action takes a picture, any picture you can reach will do: one made, kept or attached anywhere in the app, or a file the user attached to this conversation, given through the page's file slot.`,
+  { tools: [FIND], text: ` Find where it lives with ${FIND}, then bring it in through that action's own inputs.` },
+  ` Never say a picture cannot be used because it is on another page.
 - Never say you are doing something in the UI ("Let me take you there", "I'll open that") unless you run the action for it in the same response. Never describe an action as done before its result says so.`,
   {
     tools: [ACT],
@@ -80,6 +92,7 @@ You act in the user's UI, as the user would, through what is on their screen rig
 ### Offering what comes next
 - Only suggest a next step, or offer it as an option, when an action in the page's index or a tool in your list can carry it out, or leads to a page that can. Never offer something no tool can do.
 - A request is something no tool can do when no action does that very thing: an effect, material, style or result that no action's description names, even if other actions could imitate it.`,
+  { tools: [FIND], text: ` That means no action anywhere in the app: search with ${FIND} before you decide.` },
   {
     tools: [DESCRIBE],
     text: `

@@ -1,5 +1,26 @@
 # @ouispec/agent-evals
 
+## 0.34.0
+
+### Minor Changes
+
+- The agent knows what the whole app can do, not only the page it is on.
+
+  - **The app's map, always in the instructions (agent-worker).** The knowledge a tab sends may carry the app's map apart (`uiKnowledge.map`, from `resolveKnowledge`). The worker renders it first, as its own section ("The App"), straight after the host's prompt and within `APP_MAP_PROMPT_CHARS` (10,000), so it never competes with the page's knowledge for room; the copy a tab also puts first among the entries is not said twice. It is the same on every page of a build, so every step and turn on a page reads it from the prompt cache.
+  - **`ui_find` (agent-worker).** When the tab's snapshot names a lookup (`lookup` includes `find`, oui-spec §7.3.10), the turn offers `ui_find { query, limit? }`: it asks the tab (`oui.find`), which searches every action of the build, and the model gets each match with its page, the way to it from the page the user is on, and what it needs first. It takes its place in the turn's UI order and changes nothing in the page. `FIND_TOOL` is exported; a turn's usage counts `ui.finds`.
+  - **`ui_guide { page }` (agent-worker).** When the snapshot's lookup includes `guide`, `ui_guide` also takes `page` (a route, an address or a title from the map) and reads that page's knowledge from the tab without going there, a part at a time.
+  - **The UI rules (agent-worker).** Before saying something cannot be done, the agent searches the whole app with `ui_find`: a capability on another page is done by going there and using that page's own actions. Where an action takes a picture, any picture the agent can reach will do (one made, kept or attached anywhere in the app, or a file the user attached, given through the page's file slot), and it never says a picture cannot be used because it is on another page. Without `ui_find`, the rules point at the map instead.
+  - **Eval pages (agent-evals).** A page given the product's knowledge answers `oui.find` and `oui.guide` as the product's tab does, from the page the eval is on, so a scenario can expect `toolCalled: [{ name: ui_find }]`. It searches `page.search` when given (every surface of the build, for a suite whose `manifest` is kept to the pages it mounts), else the manifest.
+
+  ## 0.33.2
+
+  ## 0.33.3
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/agent-worker@0.34.0
+
 ## 0.33.4
 
 ### Patch Changes

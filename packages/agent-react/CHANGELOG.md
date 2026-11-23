@@ -1,5 +1,11 @@
 # @ouispec/agent-react
 
+## 0.34.1
+
+### Patch Changes
+
+- Reports its own version (`SDK_VERSION`) as the release it is.
+
 ## 0.33.3
 
 ### Patch Changes
