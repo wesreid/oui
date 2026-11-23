@@ -1039,7 +1039,7 @@ export const CONTRACT_SCHEMAS = {
         }
       },
       "SlotDescriptor": {
-        "description": "One slot of a composite: its kind and the callback it binds. `callback` absent: the slot is always interactive (a toast host's toasts, whatever the page passes). `rows`: the slot registers once per row the control renders (a table's rows, a filter bar's pills), so its action takes an `item`. `defaults`: what the slot always registers, over the component's (a table's sort can be cleared), so the declared schema is as wide as the live one.",
+        "description": "One slot of a composite: its kind and the callback it binds. `callback` absent: the slot is always interactive (a toast host's toasts, whatever the page passes). `rows`: the slot registers once per row the control renders (a table's rows, a filter bar's pills), so its action takes an `item`. `defaults`: what the slot always registers, over the component's (a table's sort can be cleared), so the declared schema is as wide as the live one. `schemaProps`: the component's props the slot's schema follows, as the component's own `schemaProps` do for it.",
         "type": "object",
         "properties": {
           "kind": {
@@ -1054,6 +1054,10 @@ export const CONTRACT_SCHEMAS = {
           },
           "defaults": {
             "$ref": "control-kind-registration.json#/$defs/SchemaProps"
+          },
+          "schemaProps": {
+            "description": "Props of the component the slot's schema is derived from, by `SchemaProps` key, over its `defaults`: an upload zone's `multiple` makes its choose slot take several files.",
+            "$ref": "#/$defs/SchemaPropSources"
           }
         },
         "required": [

@@ -526,12 +526,19 @@ export type ControlTable = Readonly<Record<string, ControlDescriptor>>;
  * registers once per row the control renders (a table's rows, a filter bar's pills), so its
  * action takes an `item`. `defaults`: what the slot always registers, over the component's (a
  * table's sort can be cleared), so the declared schema is as wide as the live one.
+ * `schemaProps`: the component's props the slot's schema follows, as the component's own
+ * `schemaProps` do for it.
  */
 export interface SlotDescriptor {
   kind: AnyControlKind;
   callback?: string;
   rows?: boolean;
   defaults?: SchemaProps;
+  /**
+   * Props of the component the slot's schema is derived from, by `SchemaProps` key, over its
+   * `defaults`: an upload zone's `multiple` makes its choose slot take several files.
+   */
+  schemaProps?: SchemaPropSources;
 }
 
 /**

@@ -1,5 +1,11 @@
 # @ouispec/contract
 
+## 0.14.5
+
+### Patch Changes
+
+- A composite's slot can take its schema from props of the component where the page uses it. In a control table, `SlotDescriptor.schemaProps` maps `SchemaProps` keys to the component's props, the way a control's own `schemaProps` do, and they are applied over the slot's `defaults`. The generator reads them from the element. So an upload zone used with `multiple` declares a choose slot that takes a list of files, and the list it registers live narrows that declaration instead of widening it.
+
 ## 0.14.4
 
 ### Patch Changes

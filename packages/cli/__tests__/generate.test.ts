@@ -194,6 +194,14 @@ describe('generate', () => {
     expect(byName.voices_sort.input.properties?.value?.type).toEqual(['string', 'null']);
     expect(byName.voices_open.input.properties?.value).toBeUndefined();
     expect(byName.voices_sort.itemized).toBeFalsy();
+    // A slot's own schema props come from the component where the page uses it: an upload zone
+    // that takes several files takes a list of them in one call, and one that does not, one.
+    expect(byName.voices_samples.input.properties?.value).toMatchObject({
+      type: 'array',
+      minItems: 1,
+      items: { type: 'string', format: 'oui-attachment' },
+    });
+    expect(byName.voices_portrait.input.properties?.value).toMatchObject({ type: 'string', format: 'oui-attachment' });
     // A slot with no callback is always interactive, and bound like any other.
     expect(byName.voices_play.input.properties?.value?.type).toBe('boolean');
     expect(byName.voices_bulk_delete.destructive).toBe(true);

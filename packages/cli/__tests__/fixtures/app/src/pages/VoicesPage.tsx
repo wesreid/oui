@@ -9,6 +9,7 @@ import {
   SimpleTabs,
   SyncedMediaPlayer,
   Table,
+  UploadZone,
   VoiceCard,
 } from '@closurestudio/ui';
 import { RenameDialog } from '../RenameDialog';
@@ -107,6 +108,17 @@ export function VoicesPage() {
           open: { id: 'voices.row', description: 'Open a voice from the table' },
           sort: { id: 'voices.sort', description: 'Sort the voices' },
         }}
+      />
+      <UploadZone
+        label="Samples"
+        multiple
+        onFilesSelect={() => {}}
+        agent={{ choose: { id: 'voices.samples', description: 'Add samples of the voice' } }}
+      />
+      <UploadZone
+        label="Portrait"
+        onFilesSelect={() => {}}
+        agent={{ choose: { id: 'voices.portrait', description: 'Give the voice a portrait' } }}
       />
       <SyncedMediaPlayer tracks={[]} agent={{ play: { id: 'voices.play', description: 'Play the sample' } }} />
       <ConfirmDialog

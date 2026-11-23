@@ -25,6 +25,7 @@ import {
   type ControlDescriptor,
   type ControlOption,
   type ReachStep,
+  type SchemaPropSources,
   type SchemaProps,
 } from '@ouispec/bindings';
 
@@ -1461,7 +1462,7 @@ export class PageAnalyzer {
     }
 
     // A composite's slots.
-    for (const [slot, { kind, callback, rows, defaults }] of Object.entries(descriptor.slots ?? {})) {
+    for (const [slot, { kind, callback, rows, defaults, schemaProps: slotSources }] of Object.entries(descriptor.slots ?? {})) {
       // The prop that makes the slot interactive: a callback, or a flag (a table's bare `sortable`).
       // A slot with no such prop is always interactive.
       const attr = callback ? jsxAttribute(el, callback) : true;
@@ -1494,7 +1495,7 @@ export class PageAnalyzer {
       const titleFromEl = this.title(el, descriptor);
       out.controls.push({
         ...base,
-        ...(defaults ? { schemaProps: this.schemaProps(el, descriptor, defaults) } : {}),
+        ...(defaults || slotSources ? { schemaProps: this.schemaProps(el, descriptor, defaults, slotSources) } : {}),
         site: siteOf(`:${slot}`),
         binding,
         kind,
@@ -1774,9 +1775,19 @@ export class PageAnalyzer {
     return { ...(hint ? { hint } : {}), ...(placeholder ? { placeholder } : {}) };
   }
 
-  private schemaProps(el: JsxOpening, descriptor: ControlDescriptor, slotDefaults?: Readonly<SchemaProps>): SchemaProps {
+  /**
+   * The props a control's schema is derived from where the page uses it: the descriptor's defaults
+   * and a slot's, then each source prop the element sets (the component's, then a slot's own, which
+   * win: an upload zone's `multiple` is its choose slot's).
+   */
+  private schemaProps(
+    el: JsxOpening,
+    descriptor: ControlDescriptor,
+    slotDefaults?: Readonly<SchemaProps>,
+    slotSources?: Readonly<SchemaPropSources>,
+  ): SchemaProps {
     const props: Record<string, unknown> = { ...(descriptor.defaults ?? {}), ...(slotDefaults ?? {}) };
-    for (const [key, prop] of Object.entries(descriptor.schemaProps ?? {})) {
+    for (const [key, prop] of [...Object.entries(descriptor.schemaProps ?? {}), ...Object.entries(slotSources ?? {})]) {
       const attr = jsxAttribute(el, prop as string);
       if (attr === undefined) continue;
       const v = attr === true ? true : evaluate(this.source.checker, attr);
