@@ -55,9 +55,13 @@ import {
 import {
   jsonBytes,
   OUI_DESCRIBE_ACTION,
+  OUI_FIND_ACTION,
+  OUI_GUIDE_ACTION,
+  OUI_LOOKUP_ACTIONS,
   OUI_READ_ACTION,
   OUI_RUNTIME_SURFACE,
   surfaceIndex,
+  type OUILookupAction,
 } from "../spec/index-form.js";
 import { atPointer, fitObservations } from "../spec/fit.js";
 import type { OUITransport, OUITransportConfig } from "../transport/types.js";
@@ -153,6 +157,33 @@ export interface SurfaceRuntimeOptions {
    * the file is the person's. Without it, such an action is refused.
    */
   attachments?: AttachmentResolver;
+
+  /**
+   * What the app knows about itself, for `oui.find` and `oui.guide`
+   * (§7.3.10): every action of the build, searched by words, and any page's
+   * knowledge, read without going there. Can be set or replaced later with
+   * `setLookup`. Without one, the runtime answers neither, and its snapshot
+   * says so by naming none.
+   */
+  lookup?: OUILookup | null;
+}
+
+/** What a lookup answers: data the agent is given, or why it could not. */
+export type OUILookupAnswer =
+  | { success: true; data: unknown }
+  | { success: false; error: { code: string; message: string } };
+
+/**
+ * A host's lookup over what its app knows of itself (§7.3.10). Each method
+ * takes the request's params as sent and reads only what the host holds: it
+ * changes nothing in the page. A method that throws is answered with its
+ * message (`LOOKUP_FAILED`).
+ */
+export interface OUILookup {
+  /** `oui.find`: the actions of the whole app that match `params.query`. */
+  find?(params: Record<string, unknown>): OUILookupAnswer | Promise<OUILookupAnswer>;
+  /** `oui.guide`: one page's knowledge, named by `params.page`. */
+  guide?(params: Record<string, unknown>): OUILookupAnswer | Promise<OUILookupAnswer>;
 }
 
 /** A file's text as a host resolves it, with what the file is, so its type can be checked (§7.3.11). */
@@ -246,6 +277,12 @@ export interface SurfaceRuntime<F extends SurfaceForm = "full"> {
    * answered, so the tab that holds the grant gives the only answer.
    */
   grantApproval(grant: OUIApprovalGrant): boolean;
+
+  /**
+   * Give the runtime the host's lookup for `oui.find` and `oui.guide`, or
+   * take it away (null). The snapshot names what it answers from then on.
+   */
+  setLookup(lookup: OUILookup | null): void;
 
   /** Called whenever the snapshot changes. */
   subscribe(listener: () => void): () => void;
@@ -427,6 +464,10 @@ export function createSurfaceRuntime(
   }
 
   let socket: SocketLike | null = null;
+  let lookup: OUILookup | null = options.lookup ?? null;
+  /** The lookup actions the host's lookup answers, in the protocol's order. */
+  const lookupActions = (): OUILookupAction[] =>
+    lookup ? OUI_LOOKUP_ACTIONS.filter((a) => typeof lookup?.[a] === "function") : [];
   let transport: OUITransport | null = null;
   let detachTransport: Array<() => void> = [];
 
@@ -957,10 +998,10 @@ export function createSurfaceRuntime(
    * client holds and change nothing, so there is nothing to settle, and their
    * answer carries their data and the surfaces hash only.
    */
-  function builtin(
+  async function builtin(
     request: OUIActionRequest,
     startedAt: number,
-  ): OUIActionResult {
+  ): Promise<OUIActionResult> {
     const done = (
       body: Pick<OUIActionResult, "success" | "data" | "error">,
     ): OUIActionResult => ({
@@ -1119,9 +1160,48 @@ export function createSurfaceRuntime(
       });
     }
 
+    if (
+      request.actionId === OUI_FIND_ACTION ||
+      request.actionId === OUI_GUIDE_ACTION
+    ) {
+      const answer = lookup?.[request.actionId as OUILookupAction];
+      if (typeof answer !== "function") {
+        return refuse(
+          "ACTION_NOT_FOUND",
+          `This client has no lookup that answers "${request.actionId}".`,
+        );
+      }
+      try {
+        const answered = await answer.call(lookup, params);
+        if (!answered || typeof answered !== "object" || typeof answered.success !== "boolean") {
+          return refuse(
+            "LOOKUP_FAILED",
+            `The lookup's "${request.actionId}" gave no answer.`,
+          );
+        }
+        if (!answered.success) return done({ success: false, error: answered.error });
+        // What the lookup found goes whole when it fits the frame, and its
+        // overflow is said, as an action's data is (§7.3.9).
+        const bytes = jsonBytes(answered.data);
+        const room = answerBytes - OBSERVATION_FLOOR_BYTES;
+        return bytes <= room
+          ? done({ success: true, data: answered.data })
+          : refuse(
+              "TOO_LARGE",
+              `The lookup's answer is ${bytes} bytes, more than a frame carries (${room}): ask for fewer.`,
+            );
+      } catch (err) {
+        return refuse(
+          "LOOKUP_FAILED",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
+    const names = [OUI_DESCRIBE_ACTION, OUI_READ_ACTION, ...lookupActions()].map((a) => `"${a}"`);
     return refuse(
       "ACTION_NOT_FOUND",
-      `The runtime answers "${OUI_DESCRIBE_ACTION}" and "${OUI_READ_ACTION}"; it has no "${request.actionId}".`,
+      `The runtime answers ${names.slice(0, -1).join(", ")} and ${names.at(-1)}; it has no "${request.actionId}".`,
     );
   }
 
@@ -1220,11 +1300,13 @@ export function createSurfaceRuntime(
         ? snapshotBytes
         : snapshotBytes - offeredBytes,
     );
+    const answers = lookupActions();
     return {
       ...offered,
       observations: fitted.observations,
       surfacesHash: page.surfacesHash,
       ...(fitted.cuts.length ? { fit: { observations: fitted.cuts } } : {}),
+      ...(answers.length ? { lookup: answers } : {}),
     };
   }
 
@@ -1389,6 +1471,12 @@ export function createSurfaceRuntime(
       grants.set(grant.approvalId, { ...grant });
       given.set(grant.approvalId, grant.expiresAt + GIVEN_APPROVAL_MEMORY_MS);
       return true;
+    },
+    setLookup(next) {
+      if (next === lookup) return;
+      lookup = next;
+      // What the snapshot names changed; nothing on the page did, so nothing settles.
+      changed(false);
     },
     subscribe(listener) {
       listeners.add(listener);

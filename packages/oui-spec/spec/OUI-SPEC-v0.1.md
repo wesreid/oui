@@ -869,6 +869,26 @@ them now (including what it narrowed at run time):
 - For any other value, data is `{ value, fit? }`, fitted as in §7.3.9.
 - An unknown surface, observation or path is `NOT_FOUND`.
 
+**`oui.find`** and **`oui.guide`** read what the app knows of itself: its whole
+build, not only what is on screen. A runtime answers them only when its host
+gives it a lookup (`lookup` at creation, or `setLookup` later), and its
+snapshot then names what the lookup answers: `lookup: ["find", "guide"]`, or
+only one of them. A snapshot without `lookup` answers neither, and an agent
+runtime offers the tools that use them only to a client whose snapshot names
+them.
+
+- **`oui.find`** searches every action of the build by words. Params:
+  `{ query, limit? }`. Data is the host's: each match with its page, the way to
+  it from the page the person is on, and what it needs first.
+- **`oui.guide`** returns one page's knowledge without going there. Params:
+  `{ page, from? }`, the page named by its route, an address on it, or its
+  title. Data is the host's.
+- Both change nothing in the page. The host's lookup answers with
+  `{ success, data }` or `{ success: false, error }`; a lookup that throws is
+  `LOOKUP_FAILED` with its message, and an answer larger than a frame carries is
+  `TOO_LARGE`. A runtime without a lookup answers either with
+  `ACTION_NOT_FOUND`.
+
 #### 7.3.11 Inputs That Take an Attached File
 
 An action input MAY take a file the user attached to their conversation with the agent. It is a string schema with the format `oui-attachment` and a declaration of what the action takes:

@@ -41,6 +41,8 @@ export type {
   SurfaceRuntimeOptions,
   AttachmentResolver,
   AttachmentText,
+  OUILookup,
+  OUILookupAnswer,
   SettleOptions,
   MountedSurface,
 } from "./surface-runtime.js";

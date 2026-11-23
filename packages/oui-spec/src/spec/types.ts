@@ -450,6 +450,12 @@ export interface OUISurfaceSnapshot {
   surfaces: OUISurface[];
   observations: OUIObservationSnapshot;
   /**
+   * The runtime's own actions the client's lookup answers (§7.3.10): `find`,
+   * `guide`, or both. Absent when it answers neither, so an agent runtime
+   * offers the tools that use them only to a client that answers them.
+   */
+  lookup?: Array<"find" | "guide">;
+  /**
    * `surfacesHash(surfaces)`: what an agent runtime sends back as a request's
    * `knownSurfaces`, so the client's answer need not repeat surfaces the
    * runtime already holds.
@@ -463,6 +469,8 @@ export interface OUISurfaceSnapshot {
 export interface OUIIndexSnapshot {
   index: OUISurfaceIndex[];
   observations: OUIObservationSnapshot;
+  /** The runtime's own actions the client's lookup answers (§7.3.10); absent when none. */
+  lookup?: Array<"find" | "guide">;
   /** `surfacesHash(index)`. */
   surfacesHash?: string;
   /** What was shortened so the snapshot fits its byte budget (§7.3.9). */

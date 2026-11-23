@@ -1,5 +1,11 @@
 # @ouispec/agent-mcp
 
+## 0.33.3
+
+### Patch Changes
+
+- Depends on the current release of `@ouispec/agent-core`.
+
 ## 0.33.0
 
 ### Patch Changes
