@@ -874,7 +874,8 @@ export const CONTRACT_SCHEMAS = {
           "paintKinds",
           "allowNone",
           "clearable",
-          "accept"
+          "accept",
+          "multiple"
         ]
       },
       "ControlOption": {
@@ -969,6 +970,10 @@ export const CONTRACT_SCHEMAS = {
               "type": "string",
               "minLength": 1
             }
+          },
+          "multiple": {
+            "description": "A file control that takes several files at once (an `<input multiple>`): its value is a list of files, and one call gives it every file.",
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -1300,6 +1305,9 @@ export const CONTRACT_SCHEMAS = {
             "type": "string"
           },
           "accept": {
+            "type": "string"
+          },
+          "multiple": {
             "type": "string"
           }
         },

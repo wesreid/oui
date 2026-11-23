@@ -434,7 +434,7 @@ export type RegisteredControlKind = `x-${string}`;
 export type AnyControlKind = ControlKind | RegisteredControlKind;
 
 /** A key of `SchemaProps`: a prop a control's value schema is derived from. */
-export type SchemaPropName = 'min' | 'max' | 'step' | 'unit' | 'wrap' | 'options' | 'minLength' | 'maxLength' | 'pattern' | 'inputType' | 'paintKinds' | 'allowNone' | 'clearable' | 'accept';
+export type SchemaPropName = 'min' | 'max' | 'step' | 'unit' | 'wrap' | 'options' | 'minLength' | 'maxLength' | 'pattern' | 'inputType' | 'paintKinds' | 'allowNone' | 'clearable' | 'accept' | 'multiple';
 
 /** One option of a choice, tab set or menu, as the control shows it. */
 export interface ControlOption {
@@ -477,6 +477,11 @@ export interface SchemaProps {
    * without file extensions.
    */
   accept?: readonly string[];
+  /**
+   * A file control that takes several files at once (an `<input multiple>`): its value is a
+   * list of files, and one call gives it every file.
+   */
+  multiple?: boolean;
 }
 
 /**
@@ -667,6 +672,7 @@ export interface SchemaPropSources {
   allowNone?: string;
   clearable?: string;
   accept?: string;
+  multiple?: string;
 }
 
 // ─── A tier 2 mapping ──────────────────────────────────────────────────────────

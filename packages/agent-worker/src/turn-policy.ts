@@ -25,6 +25,21 @@ export interface StepTool {
   toolClass?: string;
 }
 
+/** What a policy's `timeHandBack` is given: the turn, and whether this step can offer choices. */
+export interface TimeHandBackContext {
+  turn: AgentTurnInfo;
+  /** Whether `present_options` is among the turn's tools. */
+  canOfferChoices: boolean;
+}
+
+/** What the step that hands a turn back for time is held to: its note, and the tool it must or may call. */
+export interface TimeHandBackStep {
+  /** The instruction for that step, added after the system prompt. Say why it is the last. */
+  note: string;
+  /** The step's tool choice: `none` to have it answer in words. Default `auto`. */
+  toolChoice?: 'auto' | 'none' | 'required' | { type: 'tool'; toolName: string };
+}
+
 export interface TurnPolicy {
   /**
    * Classify the current turn to determine orchestration behavior.
@@ -68,6 +83,17 @@ export interface TurnPolicy {
      */
     note?: string;
   }>;
+
+  /**
+   * Optional: what the step that hands a turn back for time is held
+   * to. The worker decides when time is short; this decides what that last step
+   * does. Without it, or when it returns undefined, the step says what is done
+   * and what is left and offers to continue with `present_options`
+   * (`timeHandBackNote`). A host whose person asked the assistant to carry on
+   * without stopping can have it write a status and end instead, so the client
+   * continues the work itself.
+   */
+  timeHandBack?: (ctx: TimeHandBackContext) => TimeHandBackStep | undefined;
 
   /**
    * Optional: called after turn classification to perform side effects

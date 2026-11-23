@@ -1,5 +1,14 @@
 # @ouispec/bindings
 
+## 0.14.4
+
+### Patch Changes
+
+- A file control can take several files at once. A control whose schema props say `multiple` (an upload zone that takes several files) takes a list of attached files' ids, from 1 to `ATTACHMENT_LIST_MAX` (20), as its `value`. The page resolves each id and runs the handler once, with every file in the order given, the way the person's own choice of several files does. A call that names any file the control does not take is refused whole, and its handler never runs. `multiple` is a new `SchemaProps` key, and a control table can map it (`SchemaPropSources.multiple`). `ATTACHMENT_LIST_MAX` is now exported from `oui-spec/spec` as well as `oui-spec/core`.
+- Updated dependencies
+  - @ouispec/contract@0.14.4
+  - oui-spec@0.14.1
+
 ## 0.14.2
 
 ### Patch Changes

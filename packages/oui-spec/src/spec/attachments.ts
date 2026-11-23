@@ -30,6 +30,9 @@ export function isAttachmentId(value: unknown): value is string {
 }
 
 /** The same rule as a pattern, for a validator's format. */
+/** The most files one list input takes (§7.3.11): a client refuses a request naming more. */
+export const ATTACHMENT_LIST_MAX = 20;
+
 export const ATTACHMENT_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 
 /** The attachment declaration of a schema, when it is an attachment input. */

@@ -44,6 +44,7 @@ import {
 } from "../spec/approval.js";
 import { surfacesHash } from "../spec/surfaces-hash.js";
 import {
+  ATTACHMENT_LIST_MAX,
   acceptsMediaType,
   attachmentIdsIn,
   attachmentInputs,
@@ -177,8 +178,8 @@ export interface AttachmentResolver {
   ): Promise<File | AttachmentText | string>;
 }
 
-/** The most files one list input takes (§7.3.11). */
-export const ATTACHMENT_LIST_MAX = 20;
+/** The most files one list input takes (§7.3.11). Defined with the attachment rules, re-exported here. */
+export { ATTACHMENT_LIST_MAX };
 /** How many files a runtime resolves at once. */
 const ATTACHMENT_RESOLVE_CONCURRENCY = 4;
 

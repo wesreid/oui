@@ -161,7 +161,7 @@ export { PROMPT_CACHE_BREAKPOINTS, describeModel } from './model.js';
 // An answer as the model is sent it and as it is stored, for a host that fits answers stored before 0.11.
 export { answerWithoutState } from './ui/page-state-at-end.js';
 export type { LanguageModel, ProviderOptions } from './model.js';
-export type { TurnPolicy, StepTool } from './turn-policy.js';
+export type { TurnPolicy, StepTool, TimeHandBackContext, TimeHandBackStep } from './turn-policy.js';
 export { defaultTurnPolicy } from './turn-policy.js';
 export { createHttpEmitAdapter } from './emit/http-adapter.js';
 export type { HttpEmitAdapterConfig } from './emit/http-adapter.js';
@@ -172,7 +172,7 @@ export type { TurnEventObserver } from './emit/tee.js';
 export { createAgentTurnRunner, categorizeError, hostSystemPrompt, payloadRefusal, TURN_DEADLINE_EXCEEDED } from './runtime/turn-runner.js';
 export type { AgentTurnRunner, TurnHost, TurnOutcome, CategorizedError } from './runtime/turn-runner.js';
 export { assertAgentRuntimeConfig } from './runtime/config.js';
-export { turnInfoOf, DEFAULT_TURN_CHANNEL } from './runtime/turn-info.js';
+export { turnInfoOf, autoContinueOf, DEFAULT_TURN_CHANNEL } from './runtime/turn-info.js';
 export type { AgentTurnInfo, AgentTurnChannel, AgentTurnInputMode } from './runtime/turn-info.js';
 export type { AgentRuntimeConfig, LambdaAgentConfig, AgentTurnPayload, HistoryRequest, TurnHistory } from './runtime/types.js';
 export { createLambdaAgentHandler } from './lambda/handler.js';

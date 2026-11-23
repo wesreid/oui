@@ -41,23 +41,46 @@ export interface AgentTurnInfo {
    * names none.
    */
   approvalChannel: ApprovalChannel;
+  /**
+   * The context the client sent with the turn (the turn payload's `context`), as
+   * it came, or null when it sent none. A host reads its own keys from it, such
+   * as a preference that changes how its policy hands a turn back. It is the
+   * client's word: a host validates what it reads.
+   */
+  context: Readonly<Record<string, unknown>> | null;
+  /**
+   * Which automatic continuation this turn is: `context.autoContinue` when the
+   * client started the turn itself to carry on the work of the turns before it
+   * (1 for the first, 2 for the next), else 0, a turn the person started.
+   */
+  autoContinue: number;
+}
+
+/** Which automatic continuation a turn's context says it is: a positive integer, else 0. */
+export function autoContinueOf(context: Readonly<Record<string, unknown>> | null | undefined): number {
+  const n = context?.autoContinue;
+  return typeof n === 'number' && Number.isInteger(n) && n > 0 ? n : 0;
 }
 
 /**
  * The description of a turn: its id, how it reached the runtime, how its
- * message was entered (its context's `input`), and where the person approves.
+ * message was entered (its context's `input`), where the person approves, its
+ * context, and whether the client started it to continue on its own.
  */
 export function turnInfoOf(
   turn: { turnId: string; context?: Record<string, unknown> | null },
   channel: AgentTurnChannel | undefined,
   approvalChannel?: ApprovalChannel,
 ): AgentTurnInfo {
-  const input = readClientMessageInput(turn.context ?? null);
+  const context = turn.context && typeof turn.context === 'object' && !Array.isArray(turn.context) ? turn.context : null;
+  const input = readClientMessageInput(context);
   return {
     id: turn.turnId,
     channel: typeof channel === 'string' && channel ? channel : DEFAULT_TURN_CHANNEL,
     inputMode: input?.mode === 'voice' ? 'voice' : 'text',
     language: input?.language ?? null,
     approvalChannel: approvalChannel ?? 'ui',
+    context,
+    autoContinue: autoContinueOf(context),
   };
 }

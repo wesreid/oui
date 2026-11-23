@@ -96,7 +96,15 @@ describe('beforeTurn', () => {
     const outcome = await createAgentTurnRunner(config({ beforeTurn })).run(SPOKEN_TURN, { channel: 'sms' });
 
     expect(outcome).toEqual({ status: 'completed', turnId: 't1', rounds: 2 });
-    expect(beforeTurn).toHaveBeenCalledExactlyOnceWith(SPOKEN_TURN, { id: 't1', channel: 'sms', inputMode: 'voice', language: 'es', approvalChannel: 'ui' });
+    expect(beforeTurn).toHaveBeenCalledExactlyOnceWith(SPOKEN_TURN, {
+      id: 't1',
+      channel: 'sms',
+      inputMode: 'voice',
+      language: 'es',
+      approvalChannel: 'ui',
+      context: SPOKEN_TURN.context,
+      autoContinue: 0,
+    });
     const [, input] = ranWith()!;
     expect(input.content).toBe(REDACTED);
     expect(input.channel).toBe('sms');
@@ -115,7 +123,7 @@ describe('beforeTurn', () => {
   it('names the turn’s channel `direct` when the host names none', async () => {
     const beforeTurn = vi.fn(async (payload: AgentTurnPayload) => payload);
     await createAgentTurnRunner(config({ beforeTurn })).run({ ...SPOKEN_TURN, context: null });
-    expect(beforeTurn.mock.calls[0][1]).toEqual({ id: 't1', channel: 'direct', inputMode: 'text', language: null, approvalChannel: 'ui' });
+    expect(beforeTurn.mock.calls[0][1]).toEqual({ id: 't1', channel: 'direct', inputMode: 'text', language: null, approvalChannel: 'ui', context: null, autoContinue: 0 });
     expect(ranWith()![1].channel).toBe('direct');
   });
 
@@ -202,7 +210,15 @@ describe('filterEvent', () => {
     // The host observing the turn (the live-call handler) gets exactly what the room got.
     expect(observed).toEqual(room);
     // Told which turn each event is of.
-    expect(filterEvent.mock.calls[0][2]).toEqual({ id: 't1', channel: 'live-call', inputMode: 'voice', language: 'es', approvalChannel: 'ui' });
+    expect(filterEvent.mock.calls[0][2]).toEqual({
+      id: 't1',
+      channel: 'live-call',
+      inputMode: 'voice',
+      language: 'es',
+      approvalChannel: 'ui',
+      context: SPOKEN_TURN.context,
+      autoContinue: 0,
+    });
     // Given a copy: what it changes reaches no other part of the turn.
     expect(callInput).toEqual({ card: '4111 1111 1111 1111', note: 'pay' });
   });

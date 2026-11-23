@@ -115,6 +115,7 @@ describe('the host’s hooks around the fixture turn', () => {
   it.each(adapters)('on the %s adapter: the model reads the host’s copy, the tab gets what the host lets out, and every round is announced', async (adapter) => {
     const provider = openaiReplay();
     const told: AgentTurnInfo[] = [];
+    const contexts: unknown[] = [];
     const run = await runFixtureTurn(product, {
       adapter,
       model: provider.model,
@@ -123,6 +124,7 @@ describe('the host’s hooks around the fixture turn', () => {
       hooks: {
         beforeTurn: async (payload: AgentTurnPayload, info: AgentTurnInfo) => {
           told.push(info);
+          contexts.push(payload.context ?? null);
           return { ...payload, content: payload.content.replace(/\d{8}/, '[account]') };
         },
         // The page's path stays out of the room, and the model's text is sent as written.
@@ -131,7 +133,9 @@ describe('the host’s hooks around the fixture turn', () => {
     });
 
     expect(run.outcome.status).toBe('completed');
-    expect(told).toEqual([{ id: `turn-fx-hooks-${adapter}`, channel: adapter, inputMode: 'text', language: null, approvalChannel: 'ui' }]);
+    expect(told).toEqual([{ id: `turn-fx-hooks-${adapter}`, channel: adapter, inputMode: 'text', language: null, approvalChannel: 'ui', context: contexts[0], autoContinue: 0 }]);
+    // The turn's own context: the page the tab sent it from.
+    expect(told[0].context).toMatchObject({ currentPath: '/inbox' });
     // ── What the provider was sent: the host's copy ──
     const first = JSON.stringify(provider.requests[0]);
     expect(first).toContain('Open my reports, my account is [account]');

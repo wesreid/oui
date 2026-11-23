@@ -302,6 +302,9 @@
         },
         "accept": {
           "type": "string"
+        },
+        "multiple": {
+          "type": "string"
         }
       },
       "additionalProperties": false

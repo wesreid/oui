@@ -2217,11 +2217,13 @@ export async function runAgentTurn(
         handedBackForTime ||= timing.handBack;
         const canOfferChoices = PRESENT_OPTIONS_TOOL in aiTools;
         const stepPolicy: StepPolicy = handedBackForTime
-          ? {
-              // The hand-back step is held to the choice, or to no tool: it is told of exactly that.
+          ? // The host may hold the hand-back step to its own last step (a status, and no card, for a
+            // person who asked it to carry on); else it is held to the choice, or to no tool, and told
+            // of exactly that.
+            (turnPolicy.timeHandBack?.({ turn: turnInfo, canOfferChoices }) ?? {
               note: timeHandBackNote(offeredTools(canOfferChoices ? [PRESENT_OPTIONS_TOOL] : [])),
               toolChoice: canOfferChoices ? { type: 'tool', toolName: PRESENT_OPTIONS_TOOL } : 'none',
-            }
+            })
           : await turnPolicy.prepareStep({
               // The policy counts steps across the whole turn, not per segment. Each call says whether it
               // ran: one that did not (refused, invalid, a tool the step did not offer) did nothing.

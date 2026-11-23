@@ -1,5 +1,25 @@
 # @ouispec/agent-worker
 
+## 0.33.0
+
+### Minor Changes
+
+- A host can decide what a turn's last step does when the turn runs short of time, and its hooks can read the turn's context.
+
+  - `AgentTurnInfo` has two new fields:
+    - `context`: the context the client sent with the turn, as it came, or null.
+    - `autoContinue`: `context.autoContinue` when it is a positive integer, else 0. A client sets it when it starts a turn itself to carry on the turns before it.
+  - The new optional `TurnPolicy.timeHandBack({ turn, canOfferChoices })` sets the step that hands a turn back for time to the host's own note and tool choice. For example, a person who asked the agent to carry on without stopping can get a short status in words instead of an offer to continue. Returning undefined keeps the offer.
+  - `autoContinueOf` is exported, along with the `TimeHandBackContext` and `TimeHandBackStep` types.
+
+  Breaking for code that builds an `AgentTurnInfo` itself: it must now give `context` and `autoContinue`.
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/bindings@0.14.4
+  - oui-spec@0.14.1
+
 ## 0.32.4
 
 ### Patch Changes
