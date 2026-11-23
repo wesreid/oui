@@ -1438,7 +1438,11 @@ export async function runAgentTurn(
         if (stepActions.only && !stepActions.only.has(action)) {
           return notAnAction(`"${action}" is not available at this step.`);
         }
-        // Looked up in the page as it is now: an earlier action of this response may have changed it.
+        // Looked up in the page as it is now: an earlier action of this response may have changed it,
+        // so once the actions called before it have answered (a button the fields before it enable,
+        // the field the Next before it shows). Looked up as the call arrived, it was refused as not
+        // on the page whenever an earlier call of the same response was what offered it.
+        await uiSlot.ready();
         const ui = currentUI();
         const tool = ui?.actions.get(action);
         if (!tool) {

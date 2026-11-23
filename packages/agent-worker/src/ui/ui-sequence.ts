@@ -36,6 +36,14 @@ export interface UISlot {
    */
   run<T>(step: () => Promise<T>): Promise<T>;
   /**
+   * Resolves once every place taken before this one has finished: the page is
+   * then as the actions before it left it, so a call named in one response
+   * after the action that offers it (a button its form's fields enable, the
+   * next question's field after Next) is looked up in that page, not in the
+   * one the response began on.
+   */
+  ready(): Promise<void>;
+  /**
    * Give the place up without running anything (the call was refused before it
    * reached the page). Does nothing once `run` has been called: then the place
    * is finished only when the action settles, so a caller that stops waiting
@@ -105,6 +113,7 @@ export function createUISequence(): UISequence {
         next.then(finish, finish);
         return next;
       },
+      ready: () => before,
       release() {
         if (used) return;
         used = true;

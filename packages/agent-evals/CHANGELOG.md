@@ -1,5 +1,30 @@
 # @ouispec/agent-evals
 
+## 0.33.1
+
+### Patch Changes
+
+- An eval's page can render part of itself in code, from its own state, as the product's component does (`page.models`). What a case must have done by a turn can be checked whichever turn did it (`page.ranInCase`). A cache share is held only where there is a cache.
+
+  - `@ouispec/contract`: a page names the models it shows, and the data each renders from (`AgentEvalPage.models`).
+  - `@ouispec/agent-evals`: the configuration gives each model by name (`page: { models }`, an `EvalPageModelFactory`).
+    - A model says what it shows where the page is (`render`): the product's controls by binding id, each with its value, live schema, rows and whether it can be used; its displays' facts; its problems.
+    - It says what each of its controls does (`run`).
+    - It is rendered again after each run and whenever the page goes elsewhere. A row or control that is gone is unregistered, a new one registered, a changed one updated, through the binding registry as the product's tab does.
+    - A form asked one step at a time is what it is for: only the step's field is shown, its Next is offered once the step is answered, and its last button once every required step is. A fixed `controls` could not show this.
+    - A model's controls are the manifest's. A control named by both a model (`owns`, or what it shows) and `controls`, by two models, or by none in the manifest, is refused. `allControls` mounts around a model's controls.
+    - A model's `identity` (the product's declarations it renders from) is in each recording's fingerprint. A recording made before those declarations changed replays as stale.
+  - `page.ranInCase`: each action ran on the page in the case by the end of the turn, in this turn or an earlier one, and its last run (a list control's, for its row) held the input given.
+    - An agent answers a form until it reaches a question the person must answer, then finishes once they have, so each answer may come in either turn.
+  - `usage.cachedShare` is held only on a model that reads a prompt cache (in a matrix, a candidate whose `capabilities.promptCache` is true).
+    - A turn of many model calls declares the share it measured, and `--estimate` prices that share as cache reads where there is a cache.
+    - Before, a candidate with no cache failed the bound for not reading a cache it does not have.
+
+- Updated dependencies
+- Updated dependencies
+  - @ouispec/contract@0.14.6
+  - @ouispec/agent-worker@0.33.1
+
 ## 0.33.0
 
 ### Patch Changes

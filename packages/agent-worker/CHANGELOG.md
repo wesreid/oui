@@ -1,5 +1,14 @@
 # @ouispec/agent-worker
 
+## 0.33.1
+
+### Patch Changes
+
+- A page action named in one response after the action that offers it now runs.
+
+  - `ui_act` looks the action up once the actions called before it have answered (`UISlot.ready`), in the page those actions left.
+  - Before, it looked the action up as the call arrived, in the page the response began on. So "answer, then the Next it enables" or "a form's fields, then the button they enable" refused the second call as not on the page, and each such step took a response of its own.
+
 ## 0.33.0
 
 ### Minor Changes
