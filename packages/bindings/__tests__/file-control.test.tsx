@@ -150,6 +150,11 @@ describe('a file control that takes several files', () => {
       items: { type: 'string', format: 'oui-attachment', 'x-oui-attachment': { as: 'file', mediaTypes: ['image/png'] } },
     });
     expect(summarizeInput(several.surfaces[0].actions[0].input as never)).toBe('value: list of file(image/png|image/jpeg)');
+    // The description names the limit itself, as the assistant reads it.
+    expect((schema as { description: string }).description).toBe(
+      'The ids of the files the person attached to the conversation, of type image/png: every one this control should take, ' +
+        'in one call (at most 20). The page uses them as if the person had chosen them together',
+    );
   });
 
   it('runs its handler once with every file, in the order they were given, as the person’s choice of several does', async () => {

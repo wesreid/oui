@@ -1,5 +1,11 @@
 # @ouispec/bindings
 
+## 0.15.1
+
+### Patch Changes
+
+- A file control that takes several files says its limit in its description ("at most 20"). Before, the assistant read the unfilled text "at most ${ATTACHMENT_LIST_MAX}".
+
 ## 0.15.0
 
 ### Minor Changes
