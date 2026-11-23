@@ -206,6 +206,68 @@ describe('UI actions called in one response, through runAgentTurn', () => {
   });
 });
 
+describe('an action offered by an earlier action of the same response', () => {
+  // A form of questions asked one at a time: its Next is offered only once the question is answered.
+  const answer = { id: 'question_answer', description: 'Answer the question', input: { type: 'object', properties: { value: { type: 'string' } }, required: ['value'] } };
+  const next = { id: 'question_next', description: 'Go on to the next question', input: { type: 'object', properties: {} } };
+  const asked: OUISurface = { id: 'page:Questions', name: 'Questions', description: 'one at a time', actions: [answer] };
+  const answered: OUISurface = { ...asked, actions: [answer, next] };
+
+  it('is looked up in the page the actions before it left, so it runs: an answer, then the Next it enabled', async () => {
+    const dispatched: OUIActionRequest[] = [];
+    const channel: UIActionChannel = {
+      dispatch: vi.fn(async (_room, request) => {
+        dispatched.push(request);
+      }),
+      awaitResult: vi.fn(async (requestId): Promise<OUIActionResult> => {
+        await sleep(5);
+        return { requestId, success: true, timestamp: Date.now(), surfaces: [answered] };
+      }),
+    };
+    const results: Record<string, string> = {};
+    callAll(
+      [
+        ['question_answer', { value: 'A watch' }],
+        ['question_next', {}],
+      ],
+      results,
+    );
+    const { runAgentTurn } = await import('../orchestrator.js');
+    await runAgentTurn(makeConfig(channel, {}), {
+      ...input,
+      context: { currentPath: '/orders/new', oui: { surfaces: [asked], observations: {} } },
+    });
+    // Before: Next was looked up as the call arrived, in the page the response began on, and refused as not on it.
+    expect(dispatched.map((r) => r.actionId)).toEqual(['question_answer', 'question_next']);
+    expect(JSON.parse(results.question_next)).not.toHaveProperty('notRun');
+  });
+
+  it('is still refused when the actions before it did not offer it', async () => {
+    const dispatched: OUIActionRequest[] = [];
+    const channel: UIActionChannel = {
+      dispatch: vi.fn(async (_room, request) => {
+        dispatched.push(request);
+      }),
+      awaitResult: vi.fn(async (requestId): Promise<OUIActionResult> => ({ requestId, success: true, timestamp: Date.now(), surfaces: [asked] })),
+    };
+    const results: Record<string, string> = {};
+    callAll(
+      [
+        ['question_answer', { value: '' }],
+        ['question_next', {}],
+      ],
+      results,
+    );
+    const { runAgentTurn } = await import('../orchestrator.js');
+    await runAgentTurn(makeConfig(channel, {}), {
+      ...input,
+      context: { currentPath: '/orders/new', oui: { surfaces: [asked], observations: {} } },
+    });
+    expect(dispatched.map((r) => r.actionId)).toEqual(['question_answer']);
+    expect(JSON.parse(results.question_next)).toMatchObject({ success: false, notRun: true });
+  });
+});
+
 describe('the surfaces a turn holds, by hash (oui-spec 0.6)', () => {
   it('names the snapshot\'s hash on every request while the page keeps it, and takes the answers that omit surfaces as that page', async () => {
     const dispatched: OUIActionRequest[] = [];

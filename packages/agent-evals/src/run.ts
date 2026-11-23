@@ -453,7 +453,19 @@ export async function runEvalCase(config: AgentEvalConfig, target: EvalCaseTarge
     suite,
     scenario,
     // What else shapes what the model is asked, when the scenario has it.
-    ...(pageFixture ? { page: { fixture: pageFixture, manifest: config.page?.manifest ?? null, knowledge: config.page?.knowledge ?? null } } : {}),
+    ...(pageFixture
+      ? {
+          page: {
+            fixture: pageFixture,
+            manifest: config.page?.manifest ?? null,
+            knowledge: config.page?.knowledge ?? null,
+            // A page model renders from the declarations it reads too.
+            ...(pageFixture.models
+              ? { models: Object.keys(pageFixture.models).sort().map((name) => ({ name, identity: config.page?.models?.[name]?.identity ?? null })) }
+              : {}),
+          },
+        }
+      : {}),
     ...(agent.modelProviderOptions !== undefined ? { modelProviderOptions: agent.modelProviderOptions } : {}),
     ...(agent.forcedToolChoice !== undefined ? { forcedToolChoice: agent.forcedToolChoice } : {}),
     ...(agent.requireReplyBeforeChoice ? { requireReplyBeforeChoice: true } : {}),
@@ -702,7 +714,8 @@ export async function runEvalCase(config: AgentEvalConfig, target: EvalCaseTarge
               : { approvalId: waiting.approvalId, decision: 'decline' },
         }, expectation);
       }
-      for (const failure of await check(expectation, ran.record, ran.stored, judgeModel, { judge: judgeAsk })) {
+      const promptCache = candidate ? candidate.capabilities.promptCache : undefined;
+      for (const failure of await check(expectation, ran.record, ran.stored, judgeModel, { judge: judgeAsk, promptCache, ...(page ? { caseRan: page.ran } : {}) })) {
         fail(index, failure.assertion, failure.message, failure.kind ?? 'assertion');
       }
     }
@@ -798,7 +811,18 @@ export async function check(
   record: EvalTurnRecord,
   stored: string,
   judgeModel: Judge,
-  options: { judge?: JudgeAsk } = {},
+  options: {
+    judge?: JudgeAsk;
+    /**
+     * Whether the model the turn ran on reads a prompt cache (in a matrix, its
+     * candidate's `capabilities.promptCache`). One that has none cannot be held
+     * to a share of one: `usage.cachedShare` holds only where it is true or not
+     * known.
+     */
+    promptCache?: boolean;
+    /** Every action that ran on the page in the case so far, this turn's included: what `page.ranInCase` reads. */
+    caseRan?: readonly EvalPageRun[];
+  } = {},
 ): Promise<CheckFailure[]> {
   const out: CheckFailure[] = [];
   const reply = record.reply;
@@ -915,7 +939,7 @@ export async function check(
       }
     }
     const share = expect.usage.cachedShare;
-    if (share && !within(u.cachedShare, share)) {
+    if (share && options.promptCache !== false && !within(u.cachedShare, share)) {
       out.push({
         assertion: 'usage.cachedShare',
         message: `${pct(u.cachedShare)} of its input (${u.cacheReadTokens.toLocaleString('en-US')} of ${u.inputTokens.toLocaleString('en-US')} tokens) was read from the prompt cache, not ${describeBound(share, pct)}`,
@@ -972,6 +996,22 @@ export async function check(
       for (const name of wanted.notRan ?? []) {
         const hit = name === '*' ? page.ran.length > 0 : page.ran.some((r) => sameAction(r.action, name) || sameAction(r.id, name));
         if (hit) out.push({ assertion: 'page.notRan', message: `${name === '*' ? 'an action' : name} ran on the page: ${ranText}` });
+      }
+      // What the case has left done by the end of this turn, whichever of its turns did it.
+      const caseRan = options.caseRan ?? page.ran;
+      const caseText = caseRan.length ? caseRan.map((r) => `${r.action} ${JSON.stringify(r.input)}`).join('; ') : 'nothing';
+      for (const run of wanted.ranInCase ?? []) {
+        // The last run of the action (for a list's control, of its row) is what the page holds: an answer changed later is the later one.
+        const item = run.input?.item;
+        const last = [...caseRan]
+          .reverse()
+          .find((r) => (sameAction(r.action, run.action) || sameAction(r.id, run.action)) && (item === undefined || r.input.item === item));
+        if (!last || (run.input !== undefined && !holdsSubset(last.input, run.input))) {
+          out.push({
+            assertion: 'page.ranInCase',
+            message: `${run.action}${run.input ? ` with ${JSON.stringify(run.input)}` : ''} was not the last ${run.action} run on the page in the case; ${last ? `its last was ${JSON.stringify(last.input)}` : 'it never ran'}: ${caseText}`,
+          });
+        }
       }
     }
   }

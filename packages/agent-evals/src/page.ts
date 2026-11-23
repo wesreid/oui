@@ -62,6 +62,7 @@ import {
   type PageQuery,
   type ProblemHandle,
   type RoomProblem,
+  type RoomResult,
   type ShownFacts,
 } from '@ouispec/bindings';
 import {
@@ -120,12 +121,81 @@ export interface EvalPage {
   close(): void;
 }
 
+/**
+ * One of the product's controls as a page model shows it now: its value,
+ * its live schema, whether it can be used, its rows. What it does when it
+ * runs is the model's (`EvalPageModel.run`).
+ */
+export type EvalPageModelControl = Pick<AgentEvalPageControl, 'value' | 'title' | 'valueSchema' | 'disabled' | 'rows'>;
+
+/** What a page model shows with the page where it is: the product's controls by binding id, its displays and its problems. */
+export interface EvalPageModelView {
+  controls?: Readonly<Record<string, EvalPageModelControl>>;
+  /** Displays' facts, shown while the model shows them (their `routes` and `query` are not read). */
+  shown?: readonly Omit<AgentEvalShown, 'routes' | 'query'>[];
+  /** Problems its areas show, shown while the model shows them (their `routes` and `query` are not read). */
+  problems?: readonly Omit<AgentEvalProblems, 'routes' | 'query'>[];
+}
+
+/** One of a model's controls ran: its binding id, its input (a list's names its row as `item`), and where the page was. */
+export interface EvalPageModelRun {
+  control: string;
+  input: Readonly<Record<string, unknown>>;
+  at: string;
+}
+
+/** What the run answers (default: it succeeds, returning nothing), and the address the page goes to once it has run. */
+export interface EvalPageModelOutcome {
+  result?: { success: boolean; data?: unknown; error?: string };
+  navigate?: string;
+}
+
+/**
+ * A part of the page rendered in code, from its own state, as the product's
+ * component renders it: what it shows where the page is (`render`, read
+ * again after each of its controls runs and whenever the page goes to
+ * another address), and what each of its controls does (`run`). A form asked
+ * one step at a time is one: only the step's own field is shown, its Next
+ * is offered once the step is answered, and its last button once every
+ * required step is.
+ */
+export interface EvalPageModel {
+  /**
+   * Every control it renders, shown now or not (a form's Send before its last
+   * step): `allControls` leaves them to it, and a fixture may not name them in
+   * `controls`. Default: only what it shows now is its own.
+   */
+  readonly owns?: readonly string[];
+  /** What it shows with the page at `at` (its path and query string); null where it shows nothing. */
+  render(at: string): EvalPageModelView | null;
+  /** One of its controls ran: change its state, and say what the run answers and where the page goes. */
+  run(run: EvalPageModelRun): EvalPageModelOutcome | void;
+}
+
+/**
+ * Makes a page's model from the data a fixture gives it (`page.models[name]`):
+ * one per page, so each case starts afresh.
+ */
+export interface EvalPageModelFactory {
+  (data: Readonly<Record<string, unknown>>): EvalPageModel;
+  /**
+   * What the model renders from beyond the fixture's data (the product's own
+   * declarations it reads: a form's questions, a list's options), as JSON.
+   * It goes into each recording's fingerprint with the model's name, so a
+   * recording made before those declarations changed replays as stale
+   * instead of answering a page no longer shown.
+   */
+  identity?: unknown;
+}
+
 /** The product's generated files a page can be built from. */
 export interface EvalPageSource {
   /** The product's generated manifest (`oui-manifest.json`): what a fixture's `controls` name. */
   manifest?: OuiManifest;
   /** The product's generated knowledge (`oui-knowledge.json`): each turn carries it for the page it is sent from. */
   knowledge?: GeneratedKnowledge;
+  /** The page models a fixture may name (`page.models`), by name. */
+  models?: Readonly<Record<string, EvalPageModelFactory>>;
 }
 
 /** A fixture that cannot be built, with every reason. */
@@ -316,6 +386,24 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
   const { manifest, knowledge } = source;
   const problems: string[] = [];
   if (fixture.controls && !manifest) problems.push('`controls` names the product’s controls, and the configuration gives no manifest (`page.manifest`)');
+  // Each model the fixture names, made from its data: one per page, so a case starts with it fresh.
+  const models: { name: string; model: EvalPageModel }[] = [];
+  if (fixture.models && Object.keys(fixture.models).length > 0 && !manifest) {
+    problems.push('`models` renders the product’s controls, and the configuration gives no manifest (`page.manifest`)');
+  }
+  for (const [name, data] of Object.entries(fixture.models ?? {})) {
+    const factory = source.models?.[name];
+    if (!factory) {
+      const known = Object.keys(source.models ?? {});
+      problems.push(`the configuration gives no page model "${name}" (\`page.models\`${known.length ? `: it gives ${known.join(', ')}` : ''})`);
+      continue;
+    }
+    try {
+      models.push({ name, model: factory(data) });
+    } catch (err) {
+      problems.push(`the page model "${name}" cannot be made from its data: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
   if (fixture.shown && !manifest) problems.push('`shown` is what the product’s pages show, and the configuration gives no manifest (`page.manifest`): a declared surface shows its own (`surfaces[].shown`)');
   const controlActions = new Map<string, { surface: ManifestSurface; action: ManifestAction }>();
   for (const surface of manifest?.surfaces ?? []) {
@@ -495,8 +583,8 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
     registered.set(id, { spec, handles });
   };
 
-  /** The controls the page shows at `path`. */
-  const controlsAt = (path: string): Map<string, AgentEvalPageControl> => {
+  /** The controls the page shows at `path`, beside those its models show there (`modelled`). */
+  const controlsAt = (path: string, modelled: ReadonlySet<string>): Map<string, AgentEvalPageControl> => {
     const wanted = new Map<string, AgentEvalPageControl>();
     if (!manifest) return wanted;
     const mounted = new Set(manifestSurfacesAt(manifest, path).map((s) => s.id));
@@ -508,8 +596,8 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
       for (const surface of manifest.surfaces) {
         if (!mounted.has(surface.id)) continue;
         for (const action of surface.actions) {
-          // A list's control is one per row, and no row is rendered here.
-          if (action.source !== 'control' || action.itemized || !action.control || wanted.has(action.id)) continue;
+          // A list's control is one per row, and no row is rendered here; a model's shows as its model renders it.
+          if (action.source !== 'control' || action.itemized || !action.control || wanted.has(action.id) || modelled.has(action.id)) continue;
           wanted.set(action.id, {});
         }
       }
@@ -564,6 +652,144 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
         return handle;
       }),
     };
+  };
+
+  // ─── The page's models: parts rendered in code, from their own state ───────
+  /** Each model's control, row by row (`id#key`), as registered now: its handle and what it showed. */
+  const modelHandles = new Map<string, { handle: ControlHandle; shown: string }>();
+  let modelFacts: { key: string; handles: FactsHandle[] } = { key: '', handles: [] };
+  let modelProblems: { key: string; handles: ProblemHandle[] } = { key: '', handles: [] };
+  /** Why a model could not be rendered or run after the page was built: the next turn fails with it, never quietly. */
+  let modelFailure: Error | null = null;
+  const fixtureControlIds = new Set(Object.keys(fixture.controls ?? {}));
+
+  /** Every model's view with the page at `address`, each control checked against the manifest and shown by one owner only. */
+  const modelViews = (address: string): { name: string; model: EvalPageModel; view: EvalPageModelView }[] => {
+    const owner = new Map<string, string>();
+    const wrong: string[] = [];
+    const views = models.map(({ name, model }) => {
+      const view = model.render(address) ?? {};
+      for (const id of new Set([...(model.owns ?? []), ...Object.keys(view.controls ?? {})])) {
+        if (!controlActions.has(id)) wrong.push(`the page model "${name}" shows "${id}", and the manifest declares no such control`);
+        else if (fixtureControlIds.has(id)) wrong.push(`the control "${id}" is the page model "${name}"’s and the fixture’s (\`controls\`)`);
+        else if (owner.has(id)) wrong.push(`the control "${id}" is shown by the page models "${owner.get(id)}" and "${name}"`);
+        owner.set(id, name);
+      }
+      return { name, model, view };
+    });
+    if (wrong.length > 0) throw new EvalPageError(wrong);
+    return views;
+  };
+
+  /** A model's control ran: the model decides what it does, and the page shows what the model then renders. */
+  const runModelControl = (model: EvalPageModel, id: string, row: { key: string } | undefined, input: Record<string, unknown>): RoomResult => {
+    const { surface, action } = controlActions.get(id)!;
+    const called = row ? { ...input, item: row.key } : input;
+    ran.push({ action: action.name, id, surface: surface.id, input: called, at: location });
+    if (modelFailure) return { ok: false, code: 'FAILED', message: modelFailure.message };
+    let outcome: EvalPageModelOutcome;
+    try {
+      outcome = model.run({ control: id, input: called, at: location }) ?? {};
+    } catch (err) {
+      modelFailure = err instanceof Error ? err : new Error(String(err));
+      return { ok: false, code: 'FAILED', message: modelFailure.message };
+    }
+    // What it changed shows once the call returns, as a component renders after its handler: the runtime settles on it.
+    const next = outcome.navigate;
+    queueMicrotask(() => (next ? go(next) : rerenderModels()));
+    if (outcome.result && !outcome.result.success) return { ok: false, code: 'FAILED', message: outcome.result.error ?? 'It failed.' };
+    const data = startedData(outcome.result?.data);
+    return { ok: true, ...(data ? { data: data as Record<string, unknown> } : {}) };
+  };
+
+  /** Register what the models show now: a row or control gone is unregistered, a new one registered, a changed one updated. */
+  const showModels = (views: ReturnType<typeof modelViews>) => {
+    const wanted = new Map<string, { id: string; model: EvalPageModel; spec: EvalPageModelControl; row?: NonNullable<EvalPageModelControl['rows']>[number] }>();
+    for (const { model, view } of views) {
+      for (const [id, spec] of Object.entries(view.controls ?? {})) {
+        if (spec.rows) for (const row of spec.rows) wanted.set(`${id}#${row.key}`, { id, model, spec, row });
+        else wanted.set(id, { id, model, spec });
+      }
+    }
+    for (const [key, { handle }] of [...modelHandles]) {
+      if (wanted.has(key)) continue;
+      handle.unregister();
+      modelHandles.delete(key);
+    }
+    for (const [key, { id, model, spec, row }] of wanted) {
+      const { action } = controlActions.get(id)!;
+      const declaredValue = (action.input as { properties?: { value?: JsonSchema } }).properties?.value ?? null;
+      const value = row ? row.value : spec.value;
+      const live = {
+        title: spec.title ?? action.title,
+        valueSchema: (spec.valueSchema as JsonSchema | undefined) ?? declaredValue,
+        value,
+        disabled: !!spec.disabled,
+        ...(row ? { item: { key: row.key, title: row.title, ...(row.description ? { description: row.description } : {}) } } : {}),
+      };
+      const shown = JSON.stringify(live);
+      const had = modelHandles.get(key);
+      if (had) {
+        if (had.shown !== shown) {
+          had.handle.update(live);
+          had.shown = shown;
+        }
+        continue;
+      }
+      const handle = registry.registerControl({
+        id,
+        kind: action.control!,
+        title: live.title,
+        valueSchema: live.valueSchema,
+        ...(value !== undefined ? { value } : {}),
+        ...(live.disabled ? { disabled: true } : {}),
+        ...(live.item ? { item: live.item } : {}),
+        // A button's run carries no value: what the call gave, without what it left out.
+        run: (input) => runModelControl(model, id, row, Object.fromEntries(Object.entries(input ?? {}).filter(([, v]) => v !== undefined))),
+      });
+      modelHandles.set(key, { handle, shown });
+    }
+    // Their displays and problems, registered again only when what they show changed.
+    const facts = views.flatMap(({ view }) => view.shown ?? []);
+    const factsKey = JSON.stringify(facts);
+    if (factsKey !== modelFacts.key) {
+      for (const handle of modelFacts.handles) handle.unregister();
+      modelFacts = {
+        key: factsKey,
+        handles: facts.map((entry) => {
+          const handle = registry.registerFacts();
+          handle.set(shownFacts(entry, titleOf(entry)));
+          return handle;
+        }),
+      };
+    }
+    const bySource = new Map<string, RoomProblem[]>();
+    for (const entry of views.flatMap(({ view }) => view.problems ?? [])) {
+      const source = entry.source ?? 'page';
+      bySource.set(source, [...(bySource.get(source) ?? []), ...entry.problems]);
+    }
+    const problemsKey = JSON.stringify([...bySource]);
+    if (problemsKey !== modelProblems.key) {
+      for (const handle of modelProblems.handles) handle.unregister();
+      modelProblems = {
+        key: problemsKey,
+        handles: [...bySource].map(([source, list]) => {
+          const handle = registry.registerProblems(source);
+          handle.set(list);
+          return handle;
+        }),
+      };
+    }
+  };
+
+  /** The models rendered again where the page is, after one of their controls ran; a failure is kept for the next turn. */
+  const rerenderModels = () => {
+    if (modelFailure) return;
+    try {
+      showModels(modelViews(location));
+    } catch (err) {
+      modelFailure = err instanceof Error ? err : new Error(String(err));
+    }
   };
 
   // ─── The fixture's own surfaces ─────────────────────────────────────────────
@@ -660,7 +886,19 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
         mountedSurfaces.delete(surface.id);
       }
     }
-    const wanted = controlsAt(path);
+    // What the models show here first: the controls they own are not the fixture's to mount.
+    let views: ReturnType<typeof modelViews> = [];
+    if (!modelFailure) {
+      try {
+        views = modelViews(path);
+      } catch (err) {
+        // Building the page, this is the fixture's problem, thrown; after, the next turn's.
+        if (!built) throw err;
+        modelFailure = err instanceof Error ? err : new Error(String(err));
+      }
+    }
+    const modelled = new Set(views.flatMap(({ model, view }) => [...(model.owns ?? []), ...Object.keys(view.controls ?? {})]));
+    const wanted = controlsAt(path, modelled);
     for (const [id, { handles }] of [...registered]) {
       if (wanted.has(id)) continue;
       for (const handle of handles) handle.unregister();
@@ -675,8 +913,12 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
     const mounted = new Set(manifest ? manifestSurfacesAt(manifest, path).map((s) => s.id) : []);
     showFacts(path, mounted);
     showProblems(path, mounted);
+    if (!modelFailure) showModels(views);
   }
+  /** Whether the page is built: a model that cannot render then fails the next turn, not the build. */
+  let built = false;
   remount();
+  built = true;
 
   /** The registry tells the connection what mounted once the current task ends; the runtime then settles. */
   const settled = () => new Promise<void>((resolve) => setTimeout(resolve, 10));
@@ -736,6 +978,7 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
     location: () => location,
     async context() {
       await settled();
+      if (modelFailure) throw new EvalPageError([`a page model failed: ${modelFailure.message}`]);
       return {
         currentPath: location,
         [CLIENT_SNAPSHOT_KEY]: runtime.snapshot(),
@@ -753,6 +996,10 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
       registered.clear();
       for (const handle of factsShown.handles) handle.unregister();
       for (const handle of problemsShown.handles) handle.unregister();
+      for (const { handle } of modelHandles.values()) handle.unregister();
+      modelHandles.clear();
+      for (const handle of modelFacts.handles) handle.unregister();
+      for (const handle of modelProblems.handles) handle.unregister();
       wire.dispose();
       runtime.dispose();
     },

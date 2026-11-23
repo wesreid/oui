@@ -4873,6 +4873,13 @@ export const CONTRACT_SCHEMAS = {
             "items": {
               "$ref": "#/$defs/AgentEvalProblems"
             }
+          },
+          "models": {
+            "description": "Parts of the page the configuration renders in code (`page.models`), by the model's name, each with the data it renders from, in a shape of the model's own. A part whose controls follow what is done on it, which `controls` cannot show because each of those shows one way on a page: a form asked one step at a time, whose Next is offered only once the step is answered and whose last button only once every required step is; a dialog a button opens. Its controls are the manifest's, registered with the binding registry as `controls` are, and its displays and problems as `shown` and `problems` are; a control is either a model's or `controls`', never both.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "object"
+            }
           }
         },
         "required": [
@@ -5473,7 +5480,7 @@ export const CONTRACT_SCHEMAS = {
             "$ref": "#/$defs/AgentEvalBound"
           },
           "cachedShare": {
-            "description": "The share of the turn's input tokens read from the prompt cache.",
+            "description": "The share of the turn's input tokens read from the prompt cache. Held only on a model that reads one (in a model matrix, a candidate whose `capabilities.promptCache` is true), and its `min` is what `--estimate` prices as cache reads there: a turn of many model calls, each re-reading the turn so far, reads most of its input from the cache, which the configuration's default budget for a turn would price as written.",
             "$ref": "#/$defs/AgentEvalShareBound"
           }
         },
@@ -5541,6 +5548,27 @@ export const CONTRACT_SCHEMAS = {
             "items": {
               "type": "string",
               "minLength": 1
+            }
+          },
+          "ranInCase": {
+            "description": "Each ran on the page in the case by the end of the turn, in this turn or an earlier one, and the last time it ran its input held `input` as a subset: what the page must hold done by then, whichever turn the agent did it in. A form the agent answers until it reaches a question the person must answer, then finishes once they have, gives each answer in either turn; a list control's answer is its row's (`item`) last run.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "input": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              },
+              "required": [
+                "action"
+              ],
+              "additionalProperties": false
             }
           }
         },
