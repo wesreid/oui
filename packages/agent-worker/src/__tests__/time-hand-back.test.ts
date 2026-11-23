@@ -200,6 +200,44 @@ describe('a turn that runs short of time', () => {
     expect(said).toContain('Ask me to continue');
   });
 
+  it('holds its last step to what the host’s timeHandBack gives, told the turn and its context', async () => {
+    const clock = fakeClock();
+    const { model, seen } = slowBuilder(clock);
+    const timeHandBack = vi.fn<NonNullable<TurnPolicy['timeHandBack']>>(({ turn }) =>
+      turn.context?.carryOn === true ? { note: 'Out of time: write a short status of what is done and what is next.', toolChoice: 'none' } : undefined,
+    );
+    const policy: TurnPolicy = { classifyTurn: () => 'normal', prepareStep: vi.fn(async () => ({})), timeHandBack };
+    const { runAgentTurn } = await import('../orchestrator.js');
+    const result = await runAgentTurn(
+      turnConfig(model, [drawConcept, ...loadBuiltinTools()], { turnPolicy: policy }),
+      { ...turnInput, context: { carryOn: true, autoContinue: 2 } },
+    );
+
+    expect(seen).toHaveLength(4);
+    expect(timeHandBack).toHaveBeenCalledTimes(1);
+    const [{ turn, canOfferChoices }] = timeHandBack.mock.calls[0];
+    expect(canOfferChoices).toBe(true);
+    expect(turn).toMatchObject({ id: 'turn-time', context: { carryOn: true, autoContinue: 2 }, autoContinue: 2 });
+    // The host's step, not the offer: no card, a status in words.
+    expect(seen[3].toolChoice).toEqual({ type: 'none' });
+    expect(seen[3].prompt).toContain('write a short status');
+    expect(seen[3].prompt).not.toContain(NOTE);
+    expect(result.stopReason).toBe('time_limit');
+    expect(result.newMessages.flatMap((m) => m.toolCalls ?? []).some((c) => c.name === 'present_options')).toBe(false);
+  });
+
+  it('keeps the offer to continue when the host’s timeHandBack gives nothing', async () => {
+    const clock = fakeClock();
+    const { model, seen } = slowBuilder(clock);
+    const policy: TurnPolicy = { classifyTurn: () => 'normal', prepareStep: vi.fn(async () => ({})), timeHandBack: () => undefined };
+    const { runAgentTurn } = await import('../orchestrator.js');
+    const result = await runAgentTurn(turnConfig(model, [drawConcept, ...loadBuiltinTools()], { turnPolicy: policy }), turnInput);
+
+    expect(seen[3].toolChoice).toEqual({ type: 'tool', toolName: 'present_options' });
+    expect(seen[3].prompt).toContain(NOTE);
+    expect(result.stopReason).toBe('time_limit');
+  });
+
   it('never cuts a turn short that has time for its steps', async () => {
     const clock = fakeClock();
     const { model, seen } = slowBuilder(clock);

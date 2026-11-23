@@ -874,7 +874,8 @@ export const CONTRACT_SCHEMAS = {
           "paintKinds",
           "allowNone",
           "clearable",
-          "accept"
+          "accept",
+          "multiple"
         ]
       },
       "ControlOption": {
@@ -969,6 +970,10 @@ export const CONTRACT_SCHEMAS = {
               "type": "string",
               "minLength": 1
             }
+          },
+          "multiple": {
+            "description": "A file control that takes several files at once (an `<input multiple>`): its value is a list of files, and one call gives it every file.",
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -1034,7 +1039,7 @@ export const CONTRACT_SCHEMAS = {
         }
       },
       "SlotDescriptor": {
-        "description": "One slot of a composite: its kind and the callback it binds. `callback` absent: the slot is always interactive (a toast host's toasts, whatever the page passes). `rows`: the slot registers once per row the control renders (a table's rows, a filter bar's pills), so its action takes an `item`. `defaults`: what the slot always registers, over the component's (a table's sort can be cleared), so the declared schema is as wide as the live one.",
+        "description": "One slot of a composite: its kind and the callback it binds. `callback` absent: the slot is always interactive (a toast host's toasts, whatever the page passes). `rows`: the slot registers once per row the control renders (a table's rows, a filter bar's pills), so its action takes an `item`. `defaults`: what the slot always registers, over the component's (a table's sort can be cleared), so the declared schema is as wide as the live one. `schemaProps`: the component's props the slot's schema follows, as the component's own `schemaProps` do for it.",
         "type": "object",
         "properties": {
           "kind": {
@@ -1049,6 +1054,10 @@ export const CONTRACT_SCHEMAS = {
           },
           "defaults": {
             "$ref": "control-kind-registration.json#/$defs/SchemaProps"
+          },
+          "schemaProps": {
+            "description": "Props of the component the slot's schema is derived from, by `SchemaProps` key, over its `defaults`: an upload zone's `multiple` makes its choose slot take several files.",
+            "$ref": "#/$defs/SchemaPropSources"
           }
         },
         "required": [
@@ -1300,6 +1309,9 @@ export const CONTRACT_SCHEMAS = {
             "type": "string"
           },
           "accept": {
+            "type": "string"
+          },
+          "multiple": {
             "type": "string"
           }
         },

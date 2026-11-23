@@ -111,6 +111,117 @@ describe('a file control', () => {
   });
 });
 
+describe('a file control that takes several files', () => {
+  const several: OuiManifest = {
+    ...manifest,
+    surfaces: [
+      {
+        ...manifest.surfaces[0],
+        actions: [
+          {
+            ...manifest.surfaces[0].actions[0],
+            input: deriveInputSchema('file', { accept: ['image/png', 'image/jpeg'], multiple: true }),
+          },
+        ],
+      },
+    ],
+  };
+
+  function UploadMany({ onFiles }: { onFiles: (files: File[]) => void }) {
+    useAgentBinding({
+      agent: { id: 'textures.upload', description: 'Upload pictures as textures' },
+      kind: 'file',
+      title: 'Upload a texture',
+      schemaProps: { accept: ['image/png', 'image/jpeg'], multiple: true },
+      run: ({ value }) => {
+        onFiles(value as File[]);
+        return { ok: true };
+      },
+    });
+    return null;
+  }
+
+  it('takes a list of attached files’ ids, at least one, described as files of the types it accepts', () => {
+    const schema = deriveValueSchema('file', { accept: ['image/png'], multiple: true });
+    expect(schema).toMatchObject({
+      type: 'array',
+      minItems: 1,
+      maxItems: 20,
+      items: { type: 'string', format: 'oui-attachment', 'x-oui-attachment': { as: 'file', mediaTypes: ['image/png'] } },
+    });
+    expect(summarizeInput(several.surfaces[0].actions[0].input as never)).toBe('value: list of file(image/png|image/jpeg)');
+  });
+
+  it('runs its handler once with every file, in the order they were given, as the person’s choice of several does', async () => {
+    const brick = new File([new Uint8Array([1])], 'brick.png', { type: 'image/png' });
+    const moss = new File([new Uint8Array([2])], 'moss.jpg', { type: 'image/jpeg' });
+    const byId: Record<string, File> = { att_brick0001: brick, att_moss00001: moss };
+    const resolve = vi.fn(async (id: string) => byId[id]);
+    const registry = createBindingRegistry();
+    const runtime = createSurfaceRuntime({ announce: false, settle: { quietMs: 0, timeoutMs: 50 }, attachments: { resolve } });
+    disconnect = connectBindings({ registry, runtime, manifest: several });
+    const onFiles = vi.fn();
+    render(
+      <AgentBindingProvider registry={registry}>
+        <UploadMany onFiles={onFiles} />
+      </AgentBindingProvider>,
+    );
+    await act(async () => {});
+    const result = await act(() =>
+      runtime.execute({
+        requestId: 'm1',
+        surfaceId: 'page:TexturesPage',
+        actionId: 'textures_upload',
+        params: { value: ['att_brick0001', 'att_moss00001'] },
+        timestamp: 0,
+      }),
+    );
+    expect(result).toMatchObject({ success: true });
+    expect(onFiles).toHaveBeenCalledTimes(1);
+    expect(onFiles).toHaveBeenCalledWith([brick, moss]);
+  });
+
+  it('refuses the whole call when any file is of a type it does not take, and never runs its handler', async () => {
+    const brick = new File([new Uint8Array([1])], 'brick.png', { type: 'image/png' });
+    const pdf = new File([new Uint8Array([1])], 'deck.pdf', { type: 'application/pdf' });
+    const byId: Record<string, File> = { att_brick0001: brick, att_deck00001: pdf };
+    const registry = createBindingRegistry();
+    const runtime = createSurfaceRuntime({
+      announce: false,
+      settle: { quietMs: 0, timeoutMs: 50 },
+      attachments: { resolve: async (id: string) => byId[id] },
+    });
+    disconnect = connectBindings({ registry, runtime, manifest: several });
+    const onFiles = vi.fn();
+    render(
+      <AgentBindingProvider registry={registry}>
+        <UploadMany onFiles={onFiles} />
+      </AgentBindingProvider>,
+    );
+    await act(async () => {});
+    const result = await act(() =>
+      runtime.execute({
+        requestId: 'm2',
+        surfaceId: 'page:TexturesPage',
+        actionId: 'textures_upload',
+        params: { value: ['att_brick0001', 'att_deck00001'] },
+        timestamp: 0,
+      }),
+    );
+    expect(result).toMatchObject({ success: false, error: { code: 'ATTACHMENT_UNAVAILABLE' } });
+    expect(onFiles).not.toHaveBeenCalled();
+  });
+
+  it('checks a resolved list as files: two different files are not one listed twice, and an unresolved id is not a file', () => {
+    const schema = deriveValueSchema('file', { accept: ['image/png'], multiple: true });
+    const a = new File([new Uint8Array([1])], 'a.png', { type: 'image/png' });
+    const b = new File([new Uint8Array([2])], 'b.png', { type: 'image/png' });
+    expect(validateValue(schema as never, [a, b])).toBeNull();
+    expect(validateValue(schema as never, [])).toBe('value needs at least 1 items');
+    expect(validateValue(schema as never, [a, 'att_b00000001'])).toBe('value[1] must be an attached file');
+  });
+});
+
 describe('a file input’s value', () => {
   it('is the file itself for an input that takes a file, and the text for one that takes text: an unresolved id or URL is neither', () => {
     const file = deriveValueSchema('file', { accept: ['image/png'] });

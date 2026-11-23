@@ -100,6 +100,13 @@ export const TABLE: ControlTable = {
     },
     titleProps: [],
   },
+  UploadZone: {
+    callbacks: [],
+    slots: {
+      choose: { kind: 'file', callback: 'onFilesSelect', schemaProps: { multiple: 'multiple' } },
+    },
+    titleProps: ['label'],
+  },
 };
 
 export const CATALOG: RoomCatalogData = {

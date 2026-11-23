@@ -180,6 +180,7 @@ A composite with several callbacks names each in `slots`; an array prop whose en
 > | `callback` | string |  |  |
 > | `rows` | boolean |  |  |
 > | `defaults` | SchemaProps |  |  |
+> | `schemaProps` | SchemaPropSources |  | Props of the component the slot's schema is derived from, by `SchemaProps` key, over its `defaults`: an upload zone's `multiple` makes its choose slot take several files. |
 
 ### Adding a control kind
 

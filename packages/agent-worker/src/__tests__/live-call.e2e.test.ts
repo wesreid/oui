@@ -871,6 +871,9 @@ describe('what the product decides for its calls', () => {
         language: 'en',
         // A call is spoken: its approvals are read back.
         approvalChannel: 'voice',
+        // The context the call's turn carries, as the handler built it.
+        context: (beforeTurn.mock.calls[0] as unknown as [{ context: Record<string, unknown> }])[0].context,
+        autoContinue: 0,
       });
       expect(m.requests).toHaveLength(0);
       expect(call.persisted).toEqual([]);

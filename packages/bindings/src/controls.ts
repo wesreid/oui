@@ -8,7 +8,7 @@
  * slider's range is its `min` and `max`, a select's options are its options.
  */
 
-import { OUI_ATTACHMENT_FORMAT } from 'oui-spec/spec';
+import { ATTACHMENT_LIST_MAX, OUI_ATTACHMENT_FORMAT } from 'oui-spec/spec';
 import type {
   AnyControlKind,
   ControlKind,
@@ -331,17 +331,32 @@ export function deriveValueSchema(kind: AnyControlKind, props: SchemaProps = {})
       };
     case 'date':
       return { type: 'string', format: 'date', description: 'A date, YYYY-MM-DD' };
-    case 'file':
-      // The file the person attached, by its id: the page resolves it to a File.
-      return {
+    case 'file': {
+      // The file the person attached, by its id: the page resolves it to a File. A control that
+      // takes several (`multiple`) takes a list of ids, each resolved, so one call gives it every
+      // file, as the person's own choice of several files does.
+      const types = props.accept?.length ? `, of type ${props.accept.join(', ')}` : '';
+      const attachment = {
         type: 'string',
         format: OUI_ATTACHMENT_FORMAT,
         'x-oui-attachment': { as: 'file', ...(props.accept?.length ? { mediaTypes: [...props.accept] } : {}) },
-        description:
-          'The id of a file the person attached to the conversation' +
-          (props.accept?.length ? `, of type ${props.accept.join(', ')}` : '') +
-          ': the page uses it as if the person had chosen it',
+      } as const;
+      if (props.multiple) {
+        return {
+          type: 'array',
+          minItems: 1,
+          maxItems: ATTACHMENT_LIST_MAX,
+          items: { ...attachment, description: `The id of a file the person attached to the conversation${types}` },
+          description:
+            `The ids of the files the person attached to the conversation${types}: every one this control should ` +
+            'take, in one call (at most ${ATTACHMENT_LIST_MAX}). The page uses them as if the person had chosen them together',
+        };
+      }
+      return {
+        ...attachment,
+        description: `The id of a file the person attached to the conversation${types}: the page uses it as if the person had chosen it`,
       };
+    }
     case 'date-range':
       return {
         type: 'object',

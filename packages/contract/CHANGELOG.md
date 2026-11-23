@@ -1,5 +1,17 @@
 # @ouispec/contract
 
+## 0.14.5
+
+### Patch Changes
+
+- A composite's slot can take its schema from props of the component where the page uses it. In a control table, `SlotDescriptor.schemaProps` maps `SchemaProps` keys to the component's props, the way a control's own `schemaProps` do, and they are applied over the slot's `defaults`. The generator reads them from the element. So an upload zone used with `multiple` declares a choose slot that takes a list of files, and the list it registers live narrows that declaration instead of widening it.
+
+## 0.14.4
+
+### Patch Changes
+
+- A file control can take several files at once. A control whose schema props say `multiple` (an upload zone that takes several files) takes a list of attached files' ids, from 1 to `ATTACHMENT_LIST_MAX` (20), as its `value`. The page resolves each id and runs the handler once, with every file in the order given, the way the person's own choice of several files does. A call that names any file the control does not take is refused whole, and its handler never runs. `multiple` is a new `SchemaProps` key, and a control table can map it (`SchemaPropSources.multiple`). `ATTACHMENT_LIST_MAX` is now exported from `oui-spec/spec` as well as `oui-spec/core`.
+
 ## 0.14.3
 
 ### Patch Changes

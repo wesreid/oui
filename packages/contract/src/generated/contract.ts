@@ -434,7 +434,7 @@ export type RegisteredControlKind = `x-${string}`;
 export type AnyControlKind = ControlKind | RegisteredControlKind;
 
 /** A key of `SchemaProps`: a prop a control's value schema is derived from. */
-export type SchemaPropName = 'min' | 'max' | 'step' | 'unit' | 'wrap' | 'options' | 'minLength' | 'maxLength' | 'pattern' | 'inputType' | 'paintKinds' | 'allowNone' | 'clearable' | 'accept';
+export type SchemaPropName = 'min' | 'max' | 'step' | 'unit' | 'wrap' | 'options' | 'minLength' | 'maxLength' | 'pattern' | 'inputType' | 'paintKinds' | 'allowNone' | 'clearable' | 'accept' | 'multiple';
 
 /** One option of a choice, tab set or menu, as the control shows it. */
 export interface ControlOption {
@@ -477,6 +477,11 @@ export interface SchemaProps {
    * without file extensions.
    */
   accept?: readonly string[];
+  /**
+   * A file control that takes several files at once (an `<input multiple>`): its value is a
+   * list of files, and one call gives it every file.
+   */
+  multiple?: boolean;
 }
 
 /**
@@ -521,12 +526,19 @@ export type ControlTable = Readonly<Record<string, ControlDescriptor>>;
  * registers once per row the control renders (a table's rows, a filter bar's pills), so its
  * action takes an `item`. `defaults`: what the slot always registers, over the component's (a
  * table's sort can be cleared), so the declared schema is as wide as the live one.
+ * `schemaProps`: the component's props the slot's schema follows, as the component's own
+ * `schemaProps` do for it.
  */
 export interface SlotDescriptor {
   kind: AnyControlKind;
   callback?: string;
   rows?: boolean;
   defaults?: SchemaProps;
+  /**
+   * Props of the component the slot's schema is derived from, by `SchemaProps` key, over its
+   * `defaults`: an upload zone's `multiple` makes its choose slot take several files.
+   */
+  schemaProps?: SchemaPropSources;
 }
 
 /**
@@ -667,6 +679,7 @@ export interface SchemaPropSources {
   allowNone?: string;
   clearable?: string;
   accept?: string;
+  multiple?: string;
 }
 
 // ─── A tier 2 mapping ──────────────────────────────────────────────────────────
