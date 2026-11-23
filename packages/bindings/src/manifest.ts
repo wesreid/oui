@@ -31,6 +31,14 @@ export type {
 
 /** What rides a turn as `context.uiKnowledge`. */
 export interface ResolvedKnowledge {
+  /**
+   * The app's map: every page, how to reach it and what it offers. The same
+   * for every page of a build, so an agent runtime that reads it here keeps it
+   * apart from the page's entries, where the prompt cache reads it on every
+   * turn. It is also the first of `entries`, for a runtime that reads only
+   * those; one that reads `map` leaves that entry out.
+   */
+  map?: KnowledgeEntry;
   entries: KnowledgeEntry[];
   workflows: KnowledgeRecipe[];
 }
@@ -62,8 +70,9 @@ export function pageForPath(knowledge: GeneratedKnowledge, path: string): PageKn
 }
 
 /**
- * The knowledge for the page the user is on: the app's map, the page in full
- * with its relationships and recipes, and one paragraph for each adjacent page.
+ * The knowledge for the page the user is on: the app's map (also apart, as
+ * `map`), then the frame, the page in full with its relationships and
+ * recipes, and one paragraph for each adjacent page.
  */
 export function resolveKnowledge(knowledge: GeneratedKnowledge, path: string): ResolvedKnowledge {
   const entries: KnowledgeEntry[] = [knowledge.overview];
@@ -87,7 +96,7 @@ export function resolveKnowledge(knowledge: GeneratedKnowledge, path: string): R
       if (other) entries.push(other.summary);
     }
   }
-  return { entries, workflows };
+  return { map: knowledge.overview, entries, workflows };
 }
 
 // ─── Navigation ──────────────────────────────────────────────────────────────

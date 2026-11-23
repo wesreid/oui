@@ -40,9 +40,9 @@ import {
   objectProperty,
   propertyName,
   resolveSymbol,
-  stringLiterals,
   UNKNOWN,
   unwrap,
+  wholeLiterals,
   type JsxOpening,
   type Scope,
   type Source,
@@ -153,6 +153,12 @@ export interface PageAnalysis {
   dialogs: DialogStep[];
   /** The page's own PageHeader: its title and every description it can show. */
   header: { title: string | null; subtitles: string[] };
+  /**
+   * The first paragraph of the doc comment on the page's component: what the
+   * page is for, declared where it is implemented. The description of last
+   * resort, for a page that has no subtitle and offers and shows nothing.
+   */
+  doc: string | null;
   /** Displays of facts, each with its binding. */
   displays: FoundDisplay[];
   /** Interactive design-system controls with no binding. */
@@ -167,6 +173,14 @@ export interface PageAnalysis {
    * is checked against the actions there are.
    */
   nonAgent: Finding[];
+  /**
+   * Each design-system control marked `nonAgent`, with the app functions its
+   * handlers call: a capability it is the only way into is one no bound control
+   * also calls (the generator's guard, `nonAgentOnlyEntries`).
+   */
+  nonAgentControls: { file: string; line: number; reason: string; callees: string[] }[];
+  /** The app functions the bound controls' handlers call, each by where it is declared. */
+  boundCallees: Set<string>;
   /** Where a person-only component (`oui.personOnly`) is rendered, each naming it: the person's own UI, such as the assistant's. */
   personOnly: Finding[];
   /** Every one of the app's components the page renders, itself included. */
@@ -255,11 +269,14 @@ export class PageAnalyzer {
       rooms: new Set(),
       dialogs: [],
       header: { title: null, subtitles: [] },
+      doc: componentDoc(pageDecl),
       displays: [],
       unbound: [],
       errors: [],
       tier2Uses: [],
       nonAgent: [],
+      nonAgentControls: [],
+      boundCallees: new Set(),
       personOnly: [],
       components: new Set(),
     };
@@ -945,7 +962,7 @@ export class PageAnalyzer {
       if (isPage && name === 'PageHeader' && out.header.title === null) {
         const title = evaluate(this.source.checker, asExpr(jsxAttribute(el, 'title')));
         out.header.title = typeof title === 'string' ? title : null;
-        out.header.subtitles = stringLiterals(asExpr(jsxAttribute(el, 'subtitle')));
+        out.header.subtitles = wholeLiterals(asExpr(jsxAttribute(el, 'subtitle')));
       }
       const descriptor = this.controls.get(`${pkg}#${name}`);
       const bound = this.boundByKey.get(pkg);
@@ -1054,6 +1071,60 @@ export class PageAnalyzer {
     if (ts.isArrowFunction(e) || ts.isFunctionExpression(e)) return true;
     const type = this.source.checker.getNonNullableType(this.source.checker.getTypeAtLocation(e));
     return type.getCallSignatures().length > 0;
+  }
+
+  /**
+   * The app's own functions a handler calls, each named by where it is
+   * declared: the handler's body when it is written inline, or the body of the
+   * function it names, one level deep. Calls into the platform or a package
+   * (a DOM method, a library) are not the app's, and a callback's own
+   * parameters are not functions of the app.
+   */
+  private appCallees(expr: ts.Expression): string[] {
+    const checker = this.source.checker;
+    const out = new Set<string>();
+    const declOf = (node: ts.Node): ts.Declaration | undefined => {
+      const symbol = resolveSymbol(checker, node);
+      return symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+    };
+    const key = (d: ts.Declaration) => {
+      const sf = d.getSourceFile();
+      return `${this.source.rel(sf)}:${sf.getLineAndCharacterOfPosition(d.getStart()).line + 1}:${(ts.getNameOfDeclaration(d)?.getText() ?? '')}`;
+    };
+    const isApp = (d: ts.Declaration | undefined): d is ts.Declaration =>
+      !!d && !ts.isParameter(d) && this.source.isAppFile(d.getSourceFile());
+    const bodyOf = (node: ts.Node): ts.Node | undefined => {
+      const e = unwrap(node as ts.Expression);
+      if (ts.isArrowFunction(e) || ts.isFunctionExpression(e)) return e.body;
+      const d = declOf(e);
+      if (!isApp(d)) return undefined;
+      if (ts.isFunctionDeclaration(d) || ts.isMethodDeclaration(d)) return d.body;
+      if (ts.isVariableDeclaration(d) && d.initializer) {
+        const init = unwrap(d.initializer);
+        if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) return init.body;
+        // `useCallback(() => …, deps)`
+        if (ts.isCallExpression(init) && init.arguments[0]) {
+          const inner = unwrap(init.arguments[0]);
+          if (ts.isArrowFunction(inner) || ts.isFunctionExpression(inner)) return inner.body;
+        }
+      }
+      return undefined;
+    };
+    const named = unwrap(expr);
+    if (!ts.isArrowFunction(named) && !ts.isFunctionExpression(named)) {
+      const d = declOf(named);
+      if (isApp(d)) out.add(key(d));
+    }
+    const body = bodyOf(expr);
+    const visit = (n: ts.Node) => {
+      if (ts.isCallExpression(n)) {
+        const d = declOf(n.expression);
+        if (isApp(d)) out.add(key(d));
+      }
+      ts.forEachChild(n, visit);
+    };
+    if (body) visit(body);
+    return [...out];
   }
 
   /** Where the page being analysed keeps its non-agent reasons. */
@@ -1438,6 +1509,9 @@ export class PageAnalyzer {
       } else if (!('nonAgent' in agentObj)) {
         const binding = this.binding(agentObj, at, tag, out);
         if (binding) {
+          for (const cb of descriptor.callbacks) {
+            for (const r of resolved(asExpr(jsxAttribute(el, cb)))) for (const c of this.appCallees(r.expr)) out.boundCallees.add(c);
+          }
           out.controls.push({
             ...base,
             ...this.fieldGuidance(el, descriptor.kind),
@@ -1458,6 +1532,17 @@ export class PageAnalyzer {
         });
       } else {
         this.noteNonAgent(agentObj.nonAgent, el);
+        if (interactive) {
+          out.nonAgentControls.push({
+            ...at,
+            reason: agentObj.nonAgent.trim(),
+            callees: [
+              ...new Set(
+                descriptor.callbacks.flatMap(cb => resolved(asExpr(jsxAttribute(el, cb))).flatMap(r => this.appCallees(r.expr))),
+              ),
+            ].sort(),
+          });
+        }
       }
     }
 
@@ -2109,6 +2194,22 @@ function openerFunctions(owner: ts.Node, setters: ReadonlySet<string>): Set<stri
   };
   visit(owner);
   return out;
+}
+
+/** The first paragraph of a component's doc comment, on one line; null without one. */
+export function componentDoc(decl: ts.Node): string | null {
+  // A component declared as a variable keeps its comment on the statement.
+  const holder =
+    ts.isVariableDeclaration(decl) && ts.isVariableDeclarationList(decl.parent) && ts.isVariableStatement(decl.parent.parent)
+      ? decl.parent.parent
+      : decl;
+  for (const doc of ts.getJSDocCommentsAndTags(holder)) {
+    if (!ts.isJSDoc(doc)) continue;
+    const text = ts.getTextOfJSDocComment(doc.comment)?.trim();
+    if (!text) continue;
+    return text.split(/\n\s*\n/)[0].replace(/\s+/g, ' ').trim();
+  }
+  return null;
 }
 
 /** Literal routes a callback navigates to: `navigate('/voices/create')`. */

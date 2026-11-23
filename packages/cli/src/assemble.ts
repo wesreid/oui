@@ -5,6 +5,10 @@
  */
 
 import {
+  actionsOfPage,
+  describedByActions,
+  describeStep,
+  listed,
   manifestBudgetProblems,
   bindingIdProblem,
   controlVerb,
@@ -316,11 +320,15 @@ export function assemble(
   const surfaces: ManifestSurface[] = [];
   const metas: PageMeta[] = [];
   const frames: PageMeta[] = [];
+  /** The pages that declare no description, described once every surface is known. */
+  const undeclared: { surface: ManifestSurface; component: string }[] = [];
   for (const page of [...pages].sort((a, b) => a.component.localeCompare(b.component))) {
     const kind = page.frame ? 'shell' : 'page';
     const id = `${kind}:${page.component}`;
     const found = controlSurfaces.get(id);
-    const description = pageDescription(page, pageTitle(page), allPaths);
+    const declared = pageDescription(page, pageTitle(page), allPaths);
+    // Derived once every surface is known (`describeUndeclared`): the rooms and shared parts come after.
+    const description = declared ?? '';
     const observations: ManifestObservation[] = [
       { id: 'state', description: stateDescription(found?.actions ?? []), schema: PAGE_STATE_SCHEMA },
       { id: PROBLEMS_OBSERVATION_ID, description: PROBLEMS_SCHEMA.description!, schema: PROBLEMS_SCHEMA },
@@ -347,6 +355,7 @@ export function assemble(
       ...(displays.length ? { displays } : {}),
     });
     const navEntry = page.routes.map(r => navFor(r.path)).find(Boolean);
+    if (declared === null) undeclared.push({ surface: surfaces[surfaces.length - 1], component: page.component });
     (page.frame ? frames : metas).push({
       surface: id,
       component: page.component,
@@ -407,6 +416,26 @@ export function assemble(
   for (const [, { catalog, routes }] of [...rooms.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     surfaces.push(roomSurface(catalog.catalog, [...routes].sort(), api.operations));
     uniqueErrors.push(...catalogProblems(catalog, { api, allRoutes }));
+  }
+
+  // A page that declares no description is described by what it offers; one
+  // that offers and shows nothing is a defect: the assistant would know it only
+  // by its name.
+  for (const { surface, component } of undeclared) {
+    const meta = [...metas, ...frames].find(m => m.surface === surface.id)!;
+    const derived = describeUndeclared(meta, surfaces, pages.find(p => p.component === component)?.analysis?.doc ?? null);
+    if (derived) {
+      surface.description = derived;
+      meta.description = derived;
+      continue;
+    }
+    // A page listed as not yet bound is known to be incomplete: its controls will describe it once bound.
+    if (!unboundAllowed.has(component)) uniqueErrors.push({
+      file: 'routes',
+      line: 0,
+      message: `${component} (${meta.routes.join(', ')}) has no description, and offers and shows nothing to derive one from: give its PageHeader a subtitle, or its component a doc comment, that says what it is for, or bind its controls`,
+    });
+    surface.description = meta.description = `${meta.title} (${meta.routes.join(', ')}).`;
   }
 
   // Going to a page by its address, from the routes themselves.
@@ -634,22 +663,8 @@ export function sharedOwner(
   return control.component;
 }
 
-export function describeStep(step: ReachStep): string {
-  switch (step.kind) {
-    case 'route':
-      return `on ${step.title} (${step.path})`;
-    case 'tab':
-      return `on the "${step.title}" tab (select it with ${toolName(step.binding)})`;
-    case 'dialog':
-      return `in the "${step.title}" dialog${step.openedBy.length ? ` (open it with ${step.openedBy.map(toolName).join(' or ')})` : ''}`;
-    case 'menu':
-      return `in the ${step.title} menu`;
-    case 'panel':
-      return `in the ${step.title}${step.openedBy.length ? ` (it shows after ${step.openedBy.map(toolName).join(' or ')})` : ''}`;
-    case 'room':
-      return step.where;
-  }
-}
+/** One step of the way to a capability, in words: one implementation, the app-wide readers' (`@ouispec/bindings`). */
+export { describeStep };
 
 function stateDescription(actions: readonly ManifestAction[]): string {
   const values = actions.filter(
@@ -691,14 +706,44 @@ export function everyPage(routes: readonly string[], allRoutes: readonly string[
   return under.every(r => on.has(r)) ? `every page under ${prefix}` : null;
 }
 
-function pageDescription(page: PageInput, title: string, allRoutes: readonly string[]): string {
-  const subtitles = page.analysis?.header.subtitles ?? [];
+/**
+ * What a page declares it is: its header's subtitles that describe (whole
+ * values of three words or more, not a loading state ending in "…"), or, for
+ * the frame, where it is. Null when it declares nothing: its description is
+ * then derived from what it offers (`describeUndeclared`).
+ */
+function pageDescription(page: PageInput, title: string, allRoutes: readonly string[]): string | null {
+  const subtitles = (page.analysis?.header.subtitles ?? []).filter(isDescription);
   if (subtitles.length) return subtitles.join(' ');
   if (page.frame) {
     const where = page.routes.map(r => r.path);
     return `${title}: the app's frame, around ${everyPage(where, allRoutes) ?? `the pages at ${where.join(', ')}`}. Its controls are there whatever page is open.`;
   }
-  return `The ${title} page (${page.routes.map(r => r.path).join(', ')}).`;
+  return null;
+}
+
+/** Whether a subtitle describes its page: three words or more, and not a loading state ("Loading…"). */
+export function isDescription(text: string): boolean {
+  const t = text.trim();
+  return t.split(/\s+/).filter(w => /[\p{L}\p{N}]/u.test(w)).length >= 3 && !/(…|\.\.\.)$/.test(t);
+}
+
+/**
+ * A page that declares no description is described by what it offers, or,
+ * offering nothing a person would name, by what it shows, or, showing nothing
+ * either, by its component's doc comment. One with none of these is a defect
+ * the generation reports.
+ */
+function describeUndeclared(
+  meta: PageMeta,
+  surfaces: readonly ManifestSurface[],
+  doc: string | null,
+): string | null {
+  const offers = describedByActions(actionsOfPage(meta, surfaces));
+  if (offers) return offers;
+  const shows = [...new Set(meta.shown.map(d => d.title))];
+  if (shows.length) return `Shows ${listed(shows.slice(0, 5))}${shows.length > 5 ? ', and more' : ''}.`;
+  return doc && isDescription(doc) ? doc : null;
 }
 
 function sortActions(actions: readonly ManifestAction[]): ManifestAction[] {
@@ -813,19 +858,27 @@ function catalogProblems(
 const DOTTED_ID = String.raw`[a-z][a-z0-9-]*(?:\.[a-z0-9-]+)+`;
 
 /**
- * What a non-agent reason names that does not exist. Two forms are read, and
- * nothing else in the sentence: an id in parentheses, `(editor.add-asset.open)`,
- * is a binding or a room action; an id followed by "command", `the insert.media
- * command`, is a room's command.
+ * The ids a non-agent reason names, in the two forms read and nothing else in
+ * the sentence: an id in parentheses, `(editor.add-asset.open)`, is a binding
+ * or a room action; an id followed by "command", `the insert.media command`, is
+ * a room's command.
  */
+export function nonAgentReferences(reason: string): { actions: string[]; commands: string[] } {
+  return {
+    actions: [...reason.matchAll(new RegExp(String.raw`\((${DOTTED_ID})\)`, 'g'))].map(m => m[1]),
+    commands: [...reason.matchAll(new RegExp(String.raw`(${DOTTED_ID}) command\b`, 'g'))].map(m => m[1]),
+  };
+}
+
+/** What a non-agent reason names that does not exist (`nonAgentReferences`). */
 export function nonAgentReferenceProblems(
   reason: string,
   bindingIds: ReadonlySet<string>,
   commandIds: ReadonlySet<string>,
 ): string[] {
   const problems: string[] = [];
-  for (const match of reason.matchAll(new RegExp(String.raw`\((${DOTTED_ID})\)`, 'g'))) {
-    const id = match[1];
+  const { actions, commands } = nonAgentReferences(reason);
+  for (const id of actions) {
     if (!bindingIds.has(id) && !commandIds.has(id)) {
       problems.push(
         `A non-agent reason names "${id}", which is no binding, room action or command of the app: ` +
@@ -833,8 +886,7 @@ export function nonAgentReferenceProblems(
       );
     }
   }
-  for (const match of reason.matchAll(new RegExp(String.raw`(${DOTTED_ID}) command\b`, 'g'))) {
-    const id = match[1];
+  for (const id of commands) {
     if (!commandIds.has(id)) {
       problems.push(
         `A non-agent reason names the command "${id}", which no room’s catalog has: ` +

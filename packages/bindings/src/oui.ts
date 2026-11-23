@@ -25,9 +25,11 @@ import {
   NAVIGATION_SURFACE_ID,
   routeMatcher,
   type ManifestAction,
+  type GeneratedKnowledge,
   type ManifestSurface,
   type OuiManifest,
 } from './manifest.js';
+import { createKnowledgeLookup } from './lookup.js';
 import { factsByDisplay, type BindingRegistry, type ControlRegistration, type RoomRegistration } from './registry.js';
 import type { JobOutcome } from '@ouispec/contract';
 import { addressesRows, observationLookup, resolveInputRefs } from './readers.js';
@@ -61,6 +63,13 @@ export interface ConnectBindingsOptions {
    * is not offered.
    */
   navigation?: AppNavigation;
+  /**
+   * This build's generated knowledge. With it, the runtime answers the
+   * assistant's app-wide search and page guide (`oui.find`, `oui.guide`,
+   * oui-spec §7.3.10) from this build's manifest and knowledge, the way to
+   * each result starting at the page `navigation` says the person is on.
+   */
+  knowledge?: GeneratedKnowledge;
 }
 
 /** How the app goes to a page, and tells which page it is on. */
@@ -125,7 +134,12 @@ export function connectBindings({
   onDefect,
   jobs,
   navigation,
+  knowledge,
 }: ConnectBindingsOptions): () => void {
+  // What the build knows of itself, searched in the tab: one lookup, removed on disconnect.
+  if (knowledge) {
+    runtime.setLookup(createKnowledgeLookup({ knowledge, manifest, ...(navigation ? { location: () => navigation.location() } : {}) }));
+  }
   const navigationSurface = navigation
     ? manifest.surfaces.find(s => s.id === NAVIGATION_SURFACE_ID && s.kind === 'navigation')
     : undefined;
@@ -386,6 +400,7 @@ export function connectBindings({
     busyAfterPress.clear();
     for (const { handle } of mounted.values()) handle.unmount();
     mounted.clear();
+    if (knowledge) runtime.setLookup(null);
   };
 }
 

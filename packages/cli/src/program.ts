@@ -364,17 +364,39 @@ export function humanizeId(id: string): string {
   return words ? words[0].toUpperCase() + words.slice(1) : id;
 }
 
-/** Every string literal in an expression: the words a conditional title or description can show. */
-export function stringLiterals(expr: ts.Node | undefined): string[] {
+/**
+ * The values an expression shows that are whole literals: the literal itself,
+ * each branch of a conditional, the fallback of `??` or `||`. A literal that is
+ * only part of a value (a template's text around its expressions, one side of
+ * a concatenation, an argument) is not one: "s" in `${n} item${n === 1 ? '' : 's'}`
+ * is never a value on its own.
+ */
+export function wholeLiterals(expr: ts.Node | undefined): string[] {
   const out: string[] = [];
-  const visit = (n: ts.Node) => {
-    if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) {
-      // Not a comparison operand (`scope === 'extended'`): only the values shown.
-      const parent = n.parent;
-      if (parent && ts.isBinaryExpression(parent) && isComparison(parent.operatorToken.kind)) return;
-      out.push(n.text);
+  const visit = (n: ts.Node): void => {
+    if (ts.isParenthesizedExpression(n) || ts.isAsExpression(n) || ts.isNonNullExpression(n)) return visit(n.expression);
+    if (ts.isJsxExpression(n)) {
+      if (n.expression) visit(n.expression);
+      return;
     }
-    ts.forEachChild(n, visit);
+    if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) {
+      out.push(n.text);
+      return;
+    }
+    if (ts.isConditionalExpression(n)) {
+      visit(n.whenTrue);
+      visit(n.whenFalse);
+      return;
+    }
+    if (
+      ts.isBinaryExpression(n) &&
+      (n.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken || n.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+    ) {
+      visit(n.left);
+      visit(n.right);
+      return;
+    }
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) visit(n.right);
   };
   if (expr) visit(expr);
   return [...new Set(out.map(s => s.trim()).filter(Boolean))];

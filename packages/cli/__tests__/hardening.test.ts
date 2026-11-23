@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 import type { ControlTable, ManifestSurface } from '@ouispec/bindings';
 
 import { generate, loadConfig, resolveConfig } from '../src/index.js';
-import { config, FIXTURE, FIXTURES, TABLE, tempApp, tempDir } from './fixture-config.js';
+import { config, FIXTURE, FIXTURES, TABLE, tempApp, tempDir, undescribed } from './fixture-config.js';
 
 const surface = (surfaces: readonly ManifestSurface[], id: string) => {
   const s = surfaces.find(x => x.id === id);
@@ -174,6 +174,8 @@ describe('a design-system package is resolved and has a control table, or the bu
         'oui.config.json',
         'designSystem lists "@fixture/ds", which cannot be resolved from the app: install it, or remove it from "designSystem"',
       ],
+      // With no design system read, the page binds nothing to describe it by.
+      ['routes', undescribed('HomePage', '/')],
     ]);
   });
 
@@ -181,6 +183,7 @@ describe('a design-system package is resolved and has a control table, or the bu
     const r = await generateIn(tempApp([{ name: '@fixture/ds', packageJson: { version: '1.0.0' } }]));
     expect(r.errors.map(e => e.message)).toEqual([
       'designSystem lists "@fixture/ds", which declares no control table: its package.json needs "oui": { "agentControls": "<path to its control table>" }',
+      undescribed('HomePage', '/'),
     ]);
   });
 
@@ -190,6 +193,7 @@ describe('a design-system package is resolved and has a control table, or the bu
     );
     expect(r.errors.map(e => e.message)).toEqual([
       '"@fixture/ds" names ./dist/agent-controls.json as its oui.agentControls, but it does not exist',
+      undescribed('HomePage', '/'),
     ]);
   });
 
@@ -200,6 +204,7 @@ describe('a design-system package is resolved and has a control table, or the bu
     );
     expect(r.errors.map(e => e.message)).toEqual([
       '"@fixture/ds" declares both "oui.agentControls" and "closure.agentControls": keep "oui"',
+      undescribed('HomePage', '/'),
     ]);
   });
 

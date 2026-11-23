@@ -27,6 +27,8 @@ export * from './tier2.js';
 export * from './budgets.js';
 export * from './query.js';
 export * from './navigation.js';
+export * from './app.js';
+export * from './lookup.js';
 
 // The rest of the contract an integrator builds against: the tier 2 mapping,
 // a package's `oui` declarations, and `oui.config.json`.

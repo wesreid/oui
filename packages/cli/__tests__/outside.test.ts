@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import type { ControlTable } from '@ouispec/bindings';
 
 import { ConfigError, generate, resolveConfig, type OuiConfigFile } from '../src/index.js';
-import { TABLE, tempApp } from './fixture-config.js';
+import { TABLE, tempApp, undescribed } from './fixture-config.js';
 
 const SIGN_IN_REASON = 'the person signs in with their own credentials';
 const ASSISTANT_REASON = "the person's own conversation with the assistant";
@@ -356,6 +356,8 @@ describe("a design system's person-only components", () => {
     const r = await run({ outside: [], unbound: ['AssistedPage', 'SettingsPage', 'WatchPage'] });
     // LoginPage is enforced: its SignInScreen takes callbacks, and its own <form> is reported, nothing else.
     expect(messages(r)).toEqual([
+      // What it holds is the person's own, so nothing describes it.
+      undescribed('LoginPage', '/login'),
       'A raw <form> someone can use cannot carry a binding: use the design system\'s control, or data-non-agent="<reason>" (on LoginPage, whose bindings are enforced)',
     ]);
   });
@@ -373,6 +375,7 @@ describe("a design system's person-only components", () => {
     };
     const r = await run({ unbound: ['AssistedPage', 'SettingsPage', 'WatchPage'] }, app(ROUTES, files));
     expect(messages(r)).toEqual([
+      undescribed('LoginPage', '/login'),
       `<Screen> from @fixture/ds is the person's own and takes no agent binding: ${SIGN_IN_REASON}`,
       "<Screen> from @fixture/ds is the person's own: write its props out, not as a spread, so the build can see none is an agent binding",
     ]);
@@ -388,6 +391,7 @@ describe("a design system's person-only components", () => {
       resolveConfig(root, { tsconfig: 'tsconfig.json', routes: 'src/routes.tsx', designSystem: ['@fixture/ds'], apiSpec: null, out: 'out' }),
     );
     expect(messages(r)).toEqual([
+      undescribed('HomePage', '/'),
       "<Button> from @fixture/ds is the person's own and takes no agent binding: never",
       "<Button> is in @fixture/ds's control table and also person-only (oui.personOnly: never): @fixture/ds must say one or the other",
     ]);
@@ -398,6 +402,7 @@ describe('a route’s page, followed through the components it renders', () => {
   it('reads what the route element renders, through a lazy page and the components that page renders', async () => {
     const r = await run({ unbound: ['AssistedPage', 'LoginPage', 'SettingsPage'] });
     expect(r.errors.map(e => `${e.file}:${e.line} ${e.message}`)).toEqual([
+      `routes:0 ${undescribed('WatchPage', '/watch/:clipId')}`,
       'src/VideoWatchPage.tsx:9 <Button> has no agent binding (on WatchPage, whose bindings are enforced)',
       'src/VideoWatchPage.tsx:10 A raw <a> someone can use cannot carry a binding: use the design system\'s control, or data-non-agent="<reason>" (on WatchPage, whose bindings are enforced)',
       'src/VideoWatchPage.tsx:19 <Button> has no agent binding (on WatchPage, whose bindings are enforced)',

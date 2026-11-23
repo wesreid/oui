@@ -302,3 +302,12 @@ export function tempApp(packages: readonly TempPackage[], routes: string = DEFAU
   }
   return root;
 }
+
+/**
+ * The generator's message for a page that declares no description and offers
+ * and shows nothing to derive one from: a fixture page that
+ * renders only text, or only what is the person's own, is one.
+ */
+export function undescribed(component: string, routes: string): string {
+  return `${component} (${routes}) has no description, and offers and shows nothing to derive one from: give its PageHeader a subtitle, or its component a doc comment, that says what it is for, or bind its controls`;
+}

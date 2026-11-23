@@ -5,6 +5,7 @@ The assistant's surfaces and knowledge, generated from a React app's own code. A
 ```sh
 oui generate            # writes <out>/oui-manifest.json and <out>/oui-knowledge.json
 oui generate --check    # CI: fails if either is stale, or any declaration is invalid
+oui generate --allow-non-agent   # also writes <out>/oui-non-agent.allow.json (below)
 ```
 
 `--config <path>` names the settings file (default `./oui.config.json`). The same command is installed as `closure-oui`.
@@ -47,8 +48,19 @@ Required, and explicit: nothing an app depends on has a default, so a misconfigu
 | `appCatalogs` | no | Room catalogs the app declares itself. Needs Vite (below). |
 | `unbound` | no | Pages whose controls are not all bound yet. It may only shrink. |
 | `outside` | no | Pages the assistant is never on, each by `component` or `route`, with its `reason` (below). |
+| `mapChars` | no | The most characters the app's map takes (2,000–20,000, default 8,000). |
 
 `apiClient` was replaced by `apiSpec`.
+
+## The app's map
+
+The knowledge's `overview` is the app's map, which the assistant always has. It lists every page under its sidebar group; a page opened from another (a navigate effect) is indented under it, with the control that opens it; the pages nothing leads to follow, by address, then what is on every page (the frame). After each page comes what it offers, grouped by where it is (a room's menu, a tab) and most telling first: work it starts and changes it saves, then a room's edits and the controls that make something, then its other actions, openers, navigation and fields, with upkeep (delete, cancel, refresh, …) last and the controls inside a dialog left to its opener. It is fitted to `mapChars`: every page keeps its line, and what is left goes to the pages that make things. The same rule (`capabilitiesOf` in `@ouispec/bindings`) derives a page's description when it declares none ("Offers Remove, Generative Fill and Relight, among 261 actions."), and ranks the tab's app-wide search.
+
+A page's description is its `PageHeader` subtitle when that is a whole literal of three words or more and not a loading state; a fragment of a template literal is not one. A page with none is described by what it offers, then by what it shows, then by the first paragraph of its component's doc comment; a page with none of these fails the generation (unless it is in `unbound`).
+
+## Capabilities only a person can reach
+
+A control marked `nonAgent` is the only way into what it does when no bound control on its page calls an app function its handlers call, and its reason names no action, tool or command of the build (`(the.action.id)`, `the x.y command`, or such a name anywhere in it). The assistant cannot reach what it does, so the build fails, naming it, unless it is listed on purpose in `<out>/oui-non-agent.allow.json`, which `oui generate --allow-non-agent` writes from what the build finds (each file's reasons, by count). A listed control that is gone fails the build too, so the list only shrinks.
 
 ## Pages outside the assistant
 
@@ -133,6 +145,8 @@ The app imports mapped controls from the bound module. Each use is read as a tie
 - A page in `outside` that the assistant may be on (above), or one that is also in `unbound`, or an entry naming no page.
 - A page's query the build cannot read, or one that breaks `page-query.json` or declares a parameter twice differently (above).
 - A stale bound module or control table, or a file in `<out>/bound/` no mapping emits (`--check`; writing removes it).
+- A page with no description that offers and shows nothing to derive one from (not on a page in `unbound`).
+- A `nonAgent` control that is the only way into what it does and is not in `oui-non-agent.allow.json`, or a listing nothing matches any more (above).
 
 ## Person-only components
 

@@ -1,5 +1,5 @@
 {
-  "buildId": "b73e2ed6652a35a6",
+  "buildId": "7fc78138d45b33b3",
   "surfaces": [
     {
       "actions": [
@@ -161,7 +161,7 @@
           "title": "Side"
         }
       ],
-      "description": "The Order Ticket page (/ticket).",
+      "description": "Offers Account, Extended hours, Panel, Side and Confirm each fill.",
       "id": "page:OrderTicketPage",
       "kind": "page",
       "observations": [

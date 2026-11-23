@@ -51,7 +51,12 @@ export interface GeneratorConfig extends ConfigInjection {
   outside: readonly OutsideEntry[];
   appCatalogs: readonly AppCatalogEntry[];
   shell: readonly ShellEntry[];
+  /** The most characters the app's map takes (`mapChars`, default `DEFAULT_MAP_CHARS`). */
+  mapChars: number;
 }
+
+/** The app's map's size when the config sets none: about 2,000 tokens, always in the assistant's context. */
+export const DEFAULT_MAP_CHARS = 8_000;
 
 export const CONFIG_FILE = 'oui.config.json';
 
@@ -156,6 +161,7 @@ export function resolveConfig(root: string, raw: unknown, inject: ConfigInjectio
     outside: [...(file.outside ?? [])],
     appCatalogs: [...(file.appCatalogs ?? [])],
     shell: (file.shell ?? []).map(s => ({ ...s, module: resolve(root, s.module) })),
+    mapChars: file.mapChars ?? DEFAULT_MAP_CHARS,
   };
 }
 
