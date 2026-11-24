@@ -8,14 +8,14 @@
 import { indexEntry } from 'oui-spec/spec';
 import { describe, expect, it } from 'vitest';
 
-import { gatherRoomFamilies, offeredAction, roomFamilyMembers, roomActionFamily, roomChoices, RoomFamilyError, ROOM_FAMILY_KEY, type RoomAction } from '../src/index.js';
+import { gatherRoomFamilies, offeredAction, roomFamilyMembers, roomActionFamily, roomChoices, RoomFamilyError, ROOM_FAMILY_KEY, type JsonSchema, type RoomAction } from '../src/index.js';
 
 interface Doc {
   effects: Array<{ id: string; kind: string; amount: number; enabled: boolean }>;
 }
 
-const clipId = { type: 'string', description: 'The clip’s id, as the timeline lists it' };
-const effectId = { type: 'string', description: 'The effect’s id on the clip' };
+const clipId: JsonSchema = { type: 'string', description: 'The clip’s id, as the timeline lists it' };
+const effectId: JsonSchema = { type: 'string', description: 'The effect’s id on the clip' };
 
 const add: RoomAction<Doc, { clipId: string; kind: string; amount?: number }> = {
   kind: 'action',
