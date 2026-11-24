@@ -175,12 +175,11 @@ export const DEFAULT_INDEX_CHARS = 60_000;
 export const sharedPrefixNote = (prefix: string): string => `every action id here is ${prefix} + the name its line starts with`;
 
 /**
- * The start a surface's lines leave out: `vector_studio_` for `vector_studio_add_text` and its 188
- * siblings. A surface that declares it from its whole catalog (`idPrefix`, oui-spec §7.3.8) has it
- * folded whenever every action it offers now starts with it and keeps a word of its own, so the
- * names its lines give stay the same as controls show and hide. Otherwise it is taken from the
- * actions offered now (`sharedIdPrefix` of oui-spec), and folded only where saying it once is
- * shorter than repeating it. Empty when there is none.
+ * The start a surface's action ids share, that a name its lines give is read through: `vector_studio_`
+ * for `vector_studio_add_text` and its 188 siblings. A surface that declares it from its whole catalog
+ * (`idPrefix`, oui-spec §7.3.8) has it whenever every action it offers now starts with it and keeps a
+ * word of its own, so a name never stops meaning its action as controls show and hide. Otherwise it is
+ * taken from the actions offered now (`sharedIdPrefix` of oui-spec). Empty when there is none.
  */
 export function sharedIdPrefix(surface: Pick<PageSurface, 'index' | 'idPrefix'>): string {
   const ids = surface.index.map((a) => a.id);
@@ -190,24 +189,40 @@ export function sharedIdPrefix(surface: Pick<PageSurface, 'index' | 'idPrefix'>)
     const fits = ids.length > 0 && ids.every((id) => id.startsWith(declared) && id.length > declared.length);
     return fits ? declared : '';
   }
-  const prefix = sharedStart(ids);
-  // The note goes in the heading once; the start leaves every line.
-  return prefix && prefix.length * ids.length > sharedPrefixNote(prefix).length + 2 ? prefix : '';
+  return sharedStart(ids);
 }
 
+/** Whether saying a surface's start once, in its heading, is shorter than repeating it on each of its lines. */
+const foldingIsShorter = (prefix: string, lines: number): boolean => prefix.length * lines > sharedPrefixNote(prefix).length + 2;
+
 /**
- * The start each surface of the page has folded: its `sharedIdPrefix`, unless a name it would give
- * is the full id of an action on the page. A full id resolves first, so that name would run the
- * other action: such a surface keeps its full ids. What `indexText` lists and `resolveActionName`
- * reads are the same folding, so a name the model is given is always the action it means.
+ * The start each surface's names are read through on the page: its `sharedIdPrefix`, unless a name it
+ * would give is the full id of an action on the page. A full id resolves first, so that name would run
+ * the other action: such a surface has none. `resolveActionName` reads names through these.
  */
-export function foldedPrefixes(page: readonly PageSurface[]): Map<string, string> {
+export function resolvablePrefixes(page: readonly PageSurface[]): Map<string, string> {
   const fullIds = new Set(pageActions(page).actions.map((a) => a.entry.id));
   return new Map(
     page.map((s) => {
       const prefix = sharedIdPrefix(s);
       const clashes = prefix !== '' && s.index.some((a) => fullIds.has(a.id.slice(prefix.length)));
       return [s.id, clashes ? '' : prefix];
+    }),
+  );
+}
+
+/**
+ * The start each surface's lines leave out in the index: its resolvable start (`resolvablePrefixes`),
+ * where saying it once, in the heading, is shorter than repeating it on every line. A surface of a few
+ * actions keeps its full ids; a name its lines would give still resolves, so a name the model learned on
+ * a page where the surface was folded keeps meaning its action here.
+ */
+export function foldedPrefixes(page: readonly PageSurface[]): Map<string, string> {
+  const resolvable = resolvablePrefixes(page);
+  return new Map(
+    page.map((s) => {
+      const prefix = resolvable.get(s.id) ?? '';
+      return [s.id, prefix && foldingIsShorter(prefix, s.index.length) ? prefix : ''];
     }),
   );
 }
@@ -279,7 +294,7 @@ export function resolveActionName(page: readonly PageSurface[], name: string): A
   const owner = new Map(actions.map((a) => [a.entry.id, a.surface]));
   if (owner.has(name)) return { id: name };
   const meant: string[] = [];
-  const folded = foldedPrefixes(page);
+  const folded = resolvablePrefixes(page);
   for (const surface of page) {
     const prefix = folded.get(surface.id) ?? '';
     if (!prefix || name.startsWith(prefix)) continue;

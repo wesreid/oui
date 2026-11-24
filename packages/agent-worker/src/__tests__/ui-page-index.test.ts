@@ -16,6 +16,7 @@ import {
   pageFromSurfaces,
   ambiguousNameError,
   foldedPrefixes,
+  resolvablePrefixes,
   resolveActionName,
   sharedIdPrefix,
   sharedPrefixNote,
@@ -195,9 +196,12 @@ describe('the start a surface’s action ids share, said once', () => {
     expect(sharedIdPrefix(page[0])).toBe('');
     expect(sharedIdPrefix(pageFromSurfaces([room('r', '', ['add_a', 'set_b', 'run_c'])], new Map())[0])).toBe('');
     // Every id is the start and one more word: the last word stays each id's own.
-    expect(sharedIdPrefix(pageFromSurfaces([room('r', 'a_b_', ['x', 'y', 'z', 'w', 'v', 'u', 'q', 't'])], new Map())[0])).toBe('');
-    // Saying it once would be longer than repeating it.
-    expect(sharedIdPrefix(pageFromSurfaces([room('r', 'ab_', ['x_1', 'y_1', 'z_1'])], new Map())[0])).toBe('');
+    const short = pageFromSurfaces([room('r', 'a_b_', ['x', 'y', 'z', 'w', 'v', 'u', 'q', 't'])], new Map());
+    expect(sharedIdPrefix(short[0])).toBe('a_b_');
+    // Saying it once would be longer than repeating it: its lines keep their full ids, and a name still resolves.
+    expect(foldedPrefixes(short).get('r')).toBe('');
+    expect(indexText(short)).toContain('- a_b_x: ');
+    expect(resolveActionName(short, 'x')).toEqual({ id: 'a_b_x' });
   });
 
   it('says the start in the surface’s heading once, and each line gives the rest of its id', () => {
@@ -260,14 +264,17 @@ describe('a start the client declares from its whole catalog', () => {
   });
 
   it('is the start folded, whatever the actions shown now share, so a name stays the same between turns', () => {
-    const now = shown(['storyboard_editor_storyboard_shot_add', 'storyboard_editor_storyboard_shot_move', 'storyboard_editor_storyboard_shot_split'], 'storyboard_editor_storyboard_');
+    const now = shown(
+      ['shot_add', 'shot_move', 'shot_split', 'shot_remove', 'shot_duplicate', 'shot_retime'].map((n) => `storyboard_editor_storyboard_${n}`),
+      'storyboard_editor_storyboard_',
+    );
     // Taken from what shows now, the start would swallow `shot_` too, and the names would change as other sections open.
     expect(sharedIdPrefix({ index: now.index })).toBe('storyboard_editor_storyboard_shot_');
     expect(sharedIdPrefix(now)).toBe('storyboard_editor_storyboard_');
     expect(indexText([now])).toContain('- shot_add: Does storyboard_editor_storyboard_shot_add.');
-    // One action shown: still folded, still the same name.
+    // One action shown: its line is whole, since the heading's note would cost more, and the name still means it.
     const one = shown(['storyboard_editor_storyboard_shot_add'], 'storyboard_editor_storyboard_');
-    expect(indexText([one])).toContain('- shot_add: ');
+    expect(indexText([one])).toContain('- storyboard_editor_storyboard_shot_add: ');
     expect(resolveActionName([one], 'shot_add')).toEqual({ id: 'storyboard_editor_storyboard_shot_add' });
   });
 
@@ -308,8 +315,9 @@ describe('a surface whose folded name would be another action’s full id', () =
     expect(resolveActionName([page, song], 'song_add_track')).toEqual({ id: 'song_add_track' });
   });
 
-  it('is folded again on a page where nothing has that id', () => {
-    expect(foldedPrefixes([song]).get('room:song')).toBe('song_');
+  it('reads its names through its start again on a page where nothing has that id', () => {
+    expect(resolvablePrefixes([song]).get('room:song')).toBe('song_');
+    expect(resolvablePrefixes([page, song]).get('room:song')).toBe('');
     expect(resolveActionName([song], 'voice_track')).toEqual({ id: 'song_voice_track' });
   });
 });

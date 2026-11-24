@@ -129,6 +129,7 @@ export {
   pageFromIndex,
   pageFromSurfaces,
   foldedPrefixes,
+  resolvablePrefixes,
   resolveActionName,
   sharedIdPrefix,
   sharedPrefixNote,
