@@ -24,6 +24,8 @@ export interface SurfaceDefinition<TContext = unknown> {
   actions: ActionDefinition<TContext>[];
   observations?: ObservationDefinition[];
   metadata?: Record<string, unknown>;
+  /** The start the surface's whole catalog's action ids share (`OUISurface.idPrefix`). */
+  idPrefix?: string;
 }
 
 /**
@@ -189,6 +191,7 @@ export function defineSurface<
         actions: definition.actions.map(actionToManifest),
         observations: definition.observations?.map(obsToManifest),
         metadata: definition.metadata,
+        ...(definition.idPrefix !== undefined ? { idPrefix: definition.idPrefix } : {}),
       };
     },
 

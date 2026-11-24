@@ -1,5 +1,24 @@
 # @ouispec/agent-worker
 
+## 0.36.0
+
+### Minor Changes
+
+- The start a surface's action ids share is declared from its whole catalog, and a folded name never runs another action.
+
+  - oui-spec: `OUISurface.idPrefix` and `OUISurfaceIndex.idPrefix` (§7.3.8). This is the start every action id of the surface's whole catalog shares; an empty string declares there is none. `sharedIdPrefix(ids)` computes it in whole `_` words, from at least three ids, with each id keeping a word of its own.
+  - bindings: every surface the bindings mount declares `idPrefix` from the build's manifest surface, not from the controls shown now. So the names an agent's index gives stay the same between turns as sections open and close. Re-exports `sharedIdPrefix`.
+  - agent-worker: a declared start is folded whenever every action offered starts with it, so a name never moves. Without one, the start is taken from what is offered, as in 0.35. Fix: a surface is not folded on a page where a name it would give is another action's full id. On /audio/compose, the Song room's `song_voice_track` would have been listed as `voice_track`, the page's own action, and a call by that name ran the page's. `foldedPrefixes(page)` is the one folding that `indexText` and `resolveActionName` share.
+  - cli: `oui generate` warns of each surface that can't be folded on a route because one of its folded names is another action's id there, naming both.
+
+### Patch Changes
+
+- Updated dependencies
+  - oui-spec@0.16.0
+  - @ouispec/bindings@0.17.0
+  - @ouispec/agent-core@0.36.0
+  - @ouispec/agent-events@0.36.0
+
 ## 0.35.0
 
 ### Minor Changes

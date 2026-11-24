@@ -7,7 +7,7 @@
  * definitions to describe actions from; from an index it fetches a definition
  * when one is needed.
  */
-import { surfaceIndex, type OUIAction, type OUIActionIndexEntry, type OUIObservationIndexEntry, type OUISurface, type OUISurfaceIndex } from 'oui-spec/spec';
+import { sharedIdPrefix as sharedStart, surfaceIndex, type OUIAction, type OUIActionIndexEntry, type OUIObservationIndexEntry, type OUISurface, type OUISurfaceIndex } from 'oui-spec/spec';
 
 import { surfaceRank } from './observations.js';
 
@@ -18,6 +18,8 @@ export interface PageSurface {
   description: string;
   observations?: OUIObservationIndexEntry[];
   index: OUIActionIndexEntry[];
+  /** The start its whole catalog's action ids share, as the client declares it (oui-spec §7.3.8). */
+  idPrefix?: string;
 }
 
 /** An action of the page, with the surface that offers it. */
@@ -77,6 +79,7 @@ export function pageFromIndex(index: readonly OUISurfaceIndex[]): PageSurface[] 
     description: s.description,
     ...(s.observations ? { observations: s.observations } : {}),
     index: s.index,
+    ...(s.idPrefix !== undefined ? { idPrefix: s.idPrefix } : {}),
   }));
 }
 
@@ -171,27 +174,42 @@ export const DEFAULT_INDEX_CHARS = 60_000;
  */
 export const sharedPrefixNote = (prefix: string): string => `every action id here is ${prefix} + the name its line starts with`;
 
-/** The fewest actions a surface folds a shared id start for: below it the note costs more than it saves. */
-const MIN_FOLDED_ACTIONS = 3;
+/**
+ * The start a surface's lines leave out: `vector_studio_` for `vector_studio_add_text` and its 188
+ * siblings. A surface that declares it from its whole catalog (`idPrefix`, oui-spec §7.3.8) has it
+ * folded whenever every action it offers now starts with it and keeps a word of its own, so the
+ * names its lines give stay the same as controls show and hide. Otherwise it is taken from the
+ * actions offered now (`sharedIdPrefix` of oui-spec), and folded only where saying it once is
+ * shorter than repeating it. Empty when there is none.
+ */
+export function sharedIdPrefix(surface: Pick<PageSurface, 'index' | 'idPrefix'>): string {
+  const ids = surface.index.map((a) => a.id);
+  const declared = surface.idPrefix;
+  // Declared: the client knows its whole catalog. An empty start declares there is none.
+  if (declared !== undefined) {
+    const fits = ids.length > 0 && ids.every((id) => id.startsWith(declared) && id.length > declared.length);
+    return fits ? declared : '';
+  }
+  const prefix = sharedStart(ids);
+  // The note goes in the heading once; the start leaves every line.
+  return prefix && prefix.length * ids.length > sharedPrefixNote(prefix).length + 2 ? prefix : '';
+}
 
 /**
- * The start every action id of a surface shares, in whole `_`-separated words,
- * that its index lines leave out: `vector_studio_` for `vector_studio_add_text`
- * and its 188 siblings. Each id keeps at least one word of its own, and a start
- * is folded only where saying it once is shorter than repeating it. Empty when
- * there is none.
+ * The start each surface of the page has folded: its `sharedIdPrefix`, unless a name it would give
+ * is the full id of an action on the page. A full id resolves first, so that name would run the
+ * other action: such a surface keeps its full ids. What `indexText` lists and `resolveActionName`
+ * reads are the same folding, so a name the model is given is always the action it means.
  */
-export function sharedIdPrefix(surface: Pick<PageSurface, 'index'>): string {
-  const ids = surface.index.map((a) => a.id);
-  if (ids.length < MIN_FOLDED_ACTIONS) return '';
-  const words = ids.map((id) => id.split('_'));
-  const shortest = Math.min(...words.map((w) => w.length));
-  let shared = 0;
-  while (shared < shortest - 1 && words.every((w) => w[shared] === words[0][shared] && w[shared] !== '')) shared++;
-  if (shared === 0) return '';
-  const prefix = `${words[0].slice(0, shared).join('_')}_`;
-  // The note goes in the heading once; the start leaves every line.
-  return prefix.length * ids.length > sharedPrefixNote(prefix).length + 2 ? prefix : '';
+export function foldedPrefixes(page: readonly PageSurface[]): Map<string, string> {
+  const fullIds = new Set(pageActions(page).actions.map((a) => a.entry.id));
+  return new Map(
+    page.map((s) => {
+      const prefix = sharedIdPrefix(s);
+      const clashes = prefix !== '' && s.index.some((a) => fullIds.has(a.id.slice(prefix.length)));
+      return [s.id, clashes ? '' : prefix];
+    }),
+  );
 }
 
 /** A surface's heading: its name, its id, and the id start its lines leave out. */
@@ -221,8 +239,9 @@ export interface IndexTextOptions {
  */
 export function indexText(page: readonly PageSurface[], maxChars: number = DEFAULT_INDEX_CHARS, options: IndexTextOptions = {}): string {
   const fold = options.foldSharedPrefix ?? true;
+  const folded = fold ? foldedPrefixes(page) : new Map<string, string>();
   const full = page.map((s) => {
-    const prefix = fold ? sharedIdPrefix(s) : '';
+    const prefix = fold ? (folded.get(s.id) ?? '') : '';
     return { surface: s, prefix, text: [surfaceHeading(s, prefix), ...s.index.map((a) => indexLine(a, prefix))].join('\n') };
   });
   let total = full.reduce((n, s) => n + s.text.length + 2, 0);
@@ -260,8 +279,9 @@ export function resolveActionName(page: readonly PageSurface[], name: string): A
   const owner = new Map(actions.map((a) => [a.entry.id, a.surface]));
   if (owner.has(name)) return { id: name };
   const meant: string[] = [];
+  const folded = foldedPrefixes(page);
   for (const surface of page) {
-    const prefix = sharedIdPrefix(surface);
+    const prefix = folded.get(surface.id) ?? '';
     if (!prefix || name.startsWith(prefix)) continue;
     const id = `${prefix}${name}`;
     if (owner.get(id) === surface) meant.push(id);

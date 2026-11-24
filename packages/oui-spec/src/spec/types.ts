@@ -65,6 +65,16 @@ export interface OUISurface {
 
   /** Additional metadata for agent context */
   metadata?: Record<string, unknown>;
+
+  /**
+   * The start every action id of the surface's whole catalog shares, in whole
+   * `_` words (`sharedIdPrefix`), declared by a client that knows its whole
+   * catalog: an agent runtime may say it once and list each action by the rest
+   * of its id. Declared from the whole catalog, not from what is shown now, so
+   * the names an index gives do not move as controls show and hide. An empty
+   * string declares that the catalog's ids share no start.
+   */
+  idPrefix?: string;
 }
 
 /**
@@ -238,6 +248,8 @@ export interface OUISurfaceIndex {
   /** What the surface reports, by id, with where its schema declares a list of rows (§7.3.8). */
   observations?: OUIObservationIndexEntry[];
   index: OUIActionIndexEntry[];
+  /** The start its whole catalog's action ids share, as the surface declares it (`OUISurface.idPrefix`). */
+  idPrefix?: string;
 }
 
 /**

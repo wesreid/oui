@@ -16,6 +16,7 @@ import {
   type SurfaceForm,
   type SurfaceRuntime,
 } from 'oui-spec/core';
+import { sharedIdPrefix } from 'oui-spec/spec';
 
 import { deriveInputSchema, ITEM_PROPERTY, itemSchema, MAX_DESCRIBED_OPTIONS } from './controls.js';
 import { effectKind, type ActionEffectKind } from './effect.js';
@@ -325,6 +326,9 @@ export function connectBindings({
         id: surface.id,
         name: surface.title,
         description: surface.description,
+        // The start the surface's whole catalog shares (oui-spec §7.3.8): the build's, not what shows now, so the
+        // names an agent's index gives stay the same as controls show and hide.
+        idPrefix: sharedIdPrefix(surface.actions.map(a => a.name)),
         actions,
         observations: surface.observations.map(o => ({
           id: o.id,

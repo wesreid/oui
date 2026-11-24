@@ -21,6 +21,7 @@ import {
   pageLinks,
   pictureSources,
   searchWords,
+  sharedIdPrefix,
   stem,
   surfacesOfPage,
   takesPicture,
@@ -251,6 +252,36 @@ describe('the lookup', () => {
     expect(answer).toMatchObject({ success: false, error: { code: 'NOT_FOUND' } });
     expect((answer as { error: { message: string } }).error.message).toContain('"Image Editor"');
     expect(at('/images').guide({})).toMatchObject({ success: false, error: { code: 'INVALID_PARAMS' } });
+  });
+});
+
+describe('the start a surface’s whole catalog shares, declared by the bindings', () => {
+  it('comes from the build’s whole surface, however few of its actions the page offers now', async () => {
+    const runtime = createSurfaceRuntime({ form: 'index', announce: false, settle: { quietMs: 0, timeoutMs: 200 } });
+    const registry = createBindingRegistry();
+    const disconnect = connectBindings({ registry, runtime, manifest, navigation: { navigate: () => {}, location: () => '/image/i_1', subscribe: () => () => {} } });
+    // The room offers two of its actions; the start is its whole catalog's.
+    registry.registerRoom({
+      catalog: {
+        room: 'image-studio',
+        title: 'Image Studio',
+        description: 'Pictures',
+        actions: ['generative-remove', 'run-command'].map(id => ({ kind: 'action' as const, id, title: id, description: id, control: 'c', input: { type: 'object' }, effect: 'edit' as const })),
+        fields: [],
+        commands: [],
+        observations: [],
+      },
+      run: () => ({ ok: true as const }),
+    });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const index = runtime.snapshot().index!;
+    const room = index.find(s => s.id === 'room:image-studio')!;
+    expect(room.index.map(e => e.id).sort()).toEqual(['image_studio_generative_remove', 'image_studio_run_command']);
+    expect(room.idPrefix).toBe('image_studio_');
+    expect(room.idPrefix).toBe(sharedIdPrefix(surfaces.find(s => s.id === 'room:image-studio')!.actions.map(a => a.name)));
+    // The navigation's one action shares no start: declared as none.
+    expect(index.find(s => s.id === 'app:navigation')!.idPrefix).toBe('');
+    disconnect();
   });
 });
 

@@ -338,5 +338,29 @@ export function surfaceIndex(surface: OUISurface): OUISurfaceIndex {
       ? { observations: surface.observations.map(observationIndexEntry) }
       : {}),
     index: surface.actions.map(indexEntry),
+    ...(surface.idPrefix !== undefined ? { idPrefix: surface.idPrefix } : {}),
   };
+}
+
+/** The fewest action ids a shared start is taken from: below it, a start is a coincidence. */
+export const MIN_ID_PREFIX_ACTIONS = 3;
+
+/**
+ * The start every id shares, in whole `_`-separated words, leaving each id at
+ * least one word of its own: `vector_studio_` for `vector_studio_add_text` and
+ * its siblings. Empty for fewer than `MIN_ID_PREFIX_ACTIONS` ids, or when they
+ * share no whole word. A client takes it from its whole catalog
+ * (`OUISurface.idPrefix`); a generator checks the names it gives against it.
+ */
+export function sharedIdPrefix(ids: readonly string[]): string {
+  if (ids.length < MIN_ID_PREFIX_ACTIONS) return "";
+  const words = ids.map((id) => id.split("_"));
+  const shortest = Math.min(...words.map((w) => w.length));
+  let shared = 0;
+  while (
+    shared < shortest - 1 &&
+    words.every((w) => w[shared] === words[0][shared] && w[shared] !== "")
+  )
+    shared++;
+  return shared === 0 ? "" : `${words[0].slice(0, shared).join("_")}_`;
 }

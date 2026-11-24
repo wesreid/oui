@@ -128,6 +128,7 @@ export {
   pageFingerprint,
   pageFromIndex,
   pageFromSurfaces,
+  foldedPrefixes,
   resolveActionName,
   sharedIdPrefix,
   sharedPrefixNote,

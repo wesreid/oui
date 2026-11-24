@@ -23,6 +23,7 @@ import {
   INDEX_DESCRIPTION_CHARS,
   INDEX_INPUT_CHARS,
   OUI_RUNTIME_SURFACE,
+  sharedIdPrefix,
 } from "../../src/spec/index-form.js";
 import { atPointer, fitObservations } from "../../src/spec/fit.js";
 import { fnv1a64, sortedJson, surfacesHash } from "../../src/spec/surfaces-hash.js";
@@ -936,5 +937,34 @@ describe("an observation in index form", () => {
 
   it("stays whole in a full-form surface", () => {
     expect(surface([observation]).observations[0]).toBe(observation);
+  });
+});
+
+describe("the start a surface's whole catalog's ids share", () => {
+  it("is the longest start of whole words, each id keeping one of its own", () => {
+    expect(
+      sharedIdPrefix(["vector_studio_add_text", "vector_studio_add_shape", "vector_studio_export"]),
+    ).toBe("vector_studio_");
+    expect(
+      sharedIdPrefix(["storyboard_editor_storyboard_a", "storyboard_editor_storyboard_b_c", "storyboard_editor_storyboard_d"]),
+    ).toBe("storyboard_editor_storyboard_");
+    // Each id keeps a word of its own.
+    expect(sharedIdPrefix(["a_b_x", "a_b_y", "a_b_z"])).toBe("a_b_");
+    expect(sharedIdPrefix(["a_b", "a_b_c", "a_b_d"])).toBe("a_");
+    // Too few to be more than a coincidence, or nothing shared.
+    expect(sharedIdPrefix(["a_x", "a_y"])).toBe("");
+    expect(sharedIdPrefix(["a_x", "b_y", "c_z"])).toBe("");
+    expect(sharedIdPrefix([])).toBe("");
+  });
+
+  it("travels from a surface's definition to its index, declared empty too", () => {
+    const action = { id: "studio_a", description: "Does a.", input: { type: "object" as const, properties: {} } };
+    const declared = defineSurface({ id: "s", name: "S", description: "s", idPrefix: "studio_", actions: [{ ...action, handler: async () => ({ success: true }) }] });
+    expect(declared.toManifest().idPrefix).toBe("studio_");
+    expect(surfaceIndex(declared.toManifest()).idPrefix).toBe("studio_");
+    const none = defineSurface({ id: "t", name: "T", description: "t", idPrefix: "", actions: [{ ...action, handler: async () => ({ success: true }) }] });
+    expect(surfaceIndex(none.toManifest())).toHaveProperty("idPrefix", "");
+    const silent = defineSurface({ id: "u", name: "U", description: "u", actions: [{ ...action, handler: async () => ({ success: true }) }] });
+    expect(surfaceIndex(silent.toManifest())).not.toHaveProperty("idPrefix");
   });
 });
