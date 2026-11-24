@@ -81,7 +81,16 @@ import {
   UI_WAIT_TOOL,
   type RunningWorkLog,
 } from './ui/ui-tools.js';
-import { DEFAULT_INDEX_CHARS, indexText, pageActions, pageFingerprint, type HeldDefinitions, type PageSurface } from './ui/page-index.js';
+import {
+  ambiguousNameError,
+  DEFAULT_INDEX_CHARS,
+  indexText,
+  pageActions,
+  pageFingerprint,
+  resolveActionName,
+  type HeldDefinitions,
+  type PageSurface,
+} from './ui/page-index.js';
 import { RESUME_READ_WAIT_MS, resumedCalls, resumeNote, storedToolCall, type ResumedCall, type ResumedTurn } from './resume/resumed-calls.js';
 import { describeSchema } from './ui/outline.js';
 import { createUISequence, type UISlot } from './ui/ui-sequence.js';
@@ -1367,6 +1376,12 @@ export async function runAgentTurn(
     return builtUI;
   }
 
+  /** An action's full id, for a name the model gave as an index line gives it; the name itself when it means no one action. */
+  function fullActionId(name: string): string {
+    const meant = resolveActionName(currentPage, name);
+    return meant && 'id' in meant ? meant.id : name;
+  }
+
   // The host's tools the model is given. A host tool with a UI tool's name, or
   // with the id of an action of the page, is withheld: for a
   // UI-only agent, the page is the authority.
@@ -1410,7 +1425,7 @@ export async function runAgentTurn(
       inputSchema: jsonSchema({
         type: 'object',
         properties: {
-          action: { type: 'string', description: 'The action’s id, exactly as the page’s index gives it.' },
+          action: { type: 'string', description: 'The action’s id, or the name its line in the page’s index starts with.' },
           input: { type: 'object', description: 'The action’s input. Leave out for an action that takes nothing.' },
         },
         required: ['action'],
@@ -1424,19 +1439,24 @@ export async function runAgentTurn(
     });
 
     async function act(rawArgs: unknown, toolUseId: string): Promise<string> {
-        const { action, input: actionInput } = (rawArgs ?? {}) as { action?: unknown; input?: unknown };
+        const { action: requested, input: actionInput } = (rawArgs ?? {}) as { action?: unknown; input?: unknown };
         // Taken as the call arrives, like any UI call (ui-sequence.ts), and
         // given up if it never reaches the page.
         const uiSlot = uiSequence.reserve();
         const notAnAction = (error: string): string => {
           uiSlot.release();
-          ledger.record({ tool: typeof action === 'string' && action ? action : UI_ACT_TOOL, ok: false, error });
+          ledger.record({ tool: typeof requested === 'string' && requested ? fullActionId(requested) : UI_ACT_TOOL, ok: false, error });
           const text = JSON.stringify({ success: false, notRun: true, error });
           callsNotRun.set(toolUseId, error);
           executedToolResults.push({ toolCallId: toolUseId, toolName: UI_ACT_TOOL, result: text });
           return text;
         };
-        if (typeof action !== 'string' || !action) return notAnAction(`${UI_ACT_TOOL} needs "action": an action id from the page's index.`);
+        if (typeof requested !== 'string' || !requested) return notAnAction(`${UI_ACT_TOOL} needs "action": an action id from the page's index.`);
+        // The name as an index line gives it, or the full id (page-index.ts `resolveActionName`): the
+        // full id is what the policy, the ledger and the page know it by.
+        const early = resolveActionName(currentPage, requested);
+        if (early && 'ambiguous' in early) return notAnAction(ambiguousNameError(requested, early.ambiguous));
+        let action = early?.id ?? requested;
         if (stepActions.forced && action !== stepActions.forced) {
           return notAnAction(`This step runs "${stepActions.forced}" and nothing else: call ${UI_ACT_TOOL} with that action.`);
         }
@@ -1448,6 +1468,10 @@ export async function runAgentTurn(
         // the field the Next before it shows). Looked up as the call arrived, it was refused as not
         // on the page whenever an earlier call of the same response was what offered it.
         await uiSlot.ready();
+        // Looked up again in the page as the calls before it left it.
+        const meant = resolveActionName(currentPage, requested);
+        if (meant && 'ambiguous' in meant) return notAnAction(ambiguousNameError(requested, meant.ambiguous));
+        if (meant) action = meant.id;
         const ui = currentUI();
         const tool = ui?.actions.get(action);
         if (!tool) {
@@ -2190,7 +2214,7 @@ export async function runAgentTurn(
       // An action of the page called as a tool of its own is the `ui_act` call it
       // means, run once (ui/action-as-tool.ts): never refused, then called again.
       repairToolCall: async ({ toolCall, tools }) => {
-        const repaired = actionCallAsUiAct(toolCall, tools, (name) => currentUI()?.actions.has(name) ?? false, UI_ACT_TOOL);
+        const repaired = actionCallAsUiAct(toolCall, tools, (name) => resolveActionName(currentPage, name), UI_ACT_TOOL);
         if (repaired) log('info', 'agent:tool', 'An action called as a tool runs through ui_act', { turnId, action: toolCall.toolName });
         return repaired;
       },
@@ -2246,7 +2270,7 @@ export async function runAgentTurn(
                   return {
                     toolName:
                       tc.toolName === UI_ACT_TOOL && typeof (tc.input as { action?: unknown } | undefined)?.action === 'string'
-                        ? (tc.input as { action: string }).action
+                        ? fullActionId((tc.input as { action: string }).action)
                         : tc.toolName,
                     ran: notRun === undefined,
                     ...(notRun !== undefined ? { notRun } : {}),

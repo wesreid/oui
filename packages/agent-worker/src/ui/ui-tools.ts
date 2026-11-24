@@ -39,12 +39,15 @@ import { describeSchema } from './outline.js';
 import {
   definitionKey,
   indexDiff,
+  ambiguousNameError,
+  DEFAULT_INDEX_CHARS,
   indexText,
   isFullSurface,
   isSurfaceIndex,
   pageActions,
   pageFromIndex,
   pageFromSurfaces,
+  resolveActionName,
   type HeldDefinitions,
   type PageAction,
   type PageSurface,
@@ -423,7 +426,7 @@ function describeTool(shared: Shared): RegisteredTool {
           items: { type: 'string' },
           minItems: 1,
           maxItems: MAX_DESCRIBED_ACTIONS,
-          description: 'The ids of the actions, as the page’s index gives them.',
+          description: 'The actions: each one’s id, or the name its line in the page’s index starts with.',
         },
         path: {
           type: 'string',
@@ -448,9 +451,15 @@ function describeTool(shared: Shared): RegisteredTool {
       if ((path || from) && ids.length !== 1) {
         return { success: false, error: 'A path or a row to start at reads part of one action’s input: name one action with it.' };
       }
-      const offered = new Map(pageActions(shared.deps.currentPage()).actions.map((a) => [a.entry.id, a]));
-      const wanted = ids.flatMap((id) => offered.get(id) ?? []);
-      const unknown = ids.filter((id) => !offered.has(id));
+      const page = shared.deps.currentPage();
+      const offered = new Map(pageActions(page).actions.map((a) => [a.entry.id, a]));
+      // A name as an index line gives it stands for its full id (resolveActionName); one that names an
+      // action on more than one surface is refused with their full ids, never guessed.
+      const resolved = ids.map((name) => ({ name, meant: resolveActionName(page, name) }));
+      const ambiguous = resolved.flatMap(({ name, meant }) => (meant && 'ambiguous' in meant ? [ambiguousNameError(name, meant.ambiguous)] : []));
+      if (ambiguous.length > 0) return { success: false, error: ambiguous.join(' ') };
+      const wanted = resolved.flatMap(({ meant }) => (meant && 'id' in meant ? (offered.get(meant.id) ?? []) : []));
+      const unknown = resolved.filter(({ meant }) => !meant).map(({ name }) => name);
       let definitions: Map<PageAction, OUIAction>;
       try {
         definitions = await definitionsOf(wanted, shared, ctx);
@@ -1071,7 +1080,8 @@ function forModel(
     ...(result.fit?.data ? { resultLeftOut: dataNote(result.fit.data) } : {}),
     page: {
       surfaces: after.map((s) => s.name),
-      ...(opened.length ? { nowOffers: indexText(opened) } : {}),
+      // Read away from the index's headings, so every line gives its action's full id.
+      ...(opened.length ? { nowOffers: indexText(opened, DEFAULT_INDEX_CHARS, { foldSharedPrefix: false }) } : {}),
       ...(closed.length ? { noLongerOnScreen: closed } : {}),
       ...(added.length ? { actionsAdded: added } : {}),
       ...(removed.length ? { actionsRemoved: removed } : {}),

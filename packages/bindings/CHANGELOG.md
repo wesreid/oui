@@ -1,5 +1,11 @@
 # @ouispec/bindings
 
+## 0.16.0
+
+### Minor Changes
+
+- Room action families. `roomActionFamily` gathers a room's near-identical actions (an effect's add, set, switch and move) into one action whose input names the member by `op`. Each member still runs through its own `run`, with its input checked against its own schema first. The family's `op` lists its members a line each, "op = Title: what it does", the form run-command lists its commands in. The family is refused when the catalog is built if the members cannot be one action: fewer than two, a destructive member (a removal stays its own action, approved as one), effects that differ, or a property two members take with different schemas. The app-wide search finds each member by its own words, with its op to pass (`roomChoices`, which replaces the run-command-only parsing: any string-enum property described a line per value is expanded, called as `<property>: <id>`). `gatherRoomFamilies(actions, families)` gathers the families a room declares by its members' ids: each family takes its first member's place, so a room keeps each member's definition and its tests where they were. A family's `op` names each member by its own id under `x-members` (`ROOM_FAMILY_MEMBERS`, read with `roomFamilyMembers`), for a generator and a reason that names a member.
+
 ## 0.15.2
 
 ### Patch Changes

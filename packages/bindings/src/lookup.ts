@@ -27,7 +27,7 @@ import {
 } from './app.js';
 import type { JsonSchema } from './json-schema.js';
 import { pageForPath } from './manifest.js';
-import { ROOM_RUN_COMMAND_ID, ROOM_SET_PROPERTIES_ID } from './room.js';
+import { ROOM_SET_PROPERTIES_ID } from './room.js';
 
 /** What a lookup answers: data the assistant is given, or why it could not (oui-spec's `OUILookupAnswer`). */
 export type KnowledgeLookupAnswer =
@@ -148,14 +148,25 @@ function roomFields(action: ManifestAction): { id: string; title: string; where:
   });
 }
 
-/** The commands a room's run-command action takes, from its input's lines "id = Title (keys): words". */
-function roomCommands(action: ManifestAction): { id: string; title: string; what: string }[] {
-  const text = action.input.properties?.command?.description ?? '';
-  return text
-    .split('\n')
-    .map(line => /^([\w.:-]+) = ([^:]+?)(?::\s*(.*))?$/.exec(line.trim()))
-    .filter((m): m is RegExpExecArray => !!m)
-    .map(m => ({ id: m[1], title: m[2].trim(), what: (m[3] ?? '').trim() }));
+/**
+ * The choices a room action names by one of its properties, each an entry of its own: the commands its
+ * run-command takes, or the members of an action family (`roomActionFamily`, its `op`). Such a property
+ * is a string enum whose description is a line per value, "id = Title (keys): words", every line of it;
+ * each is called as `<property>: <id>`. Empty for an action with none.
+ */
+export function roomChoices(action: ManifestAction): { property: string; id: string; title: string; what: string }[] {
+  for (const [property, schema] of Object.entries(action.input.properties ?? {}) as [string, JsonSchema][]) {
+    if (!Array.isArray(schema.enum) || typeof schema.description !== 'string') continue;
+    const lines = schema.description.split('\n').map(line => line.trim()).filter(Boolean);
+    const parsed = lines.map(line => /^([\w.:-]+) = ([^:]+?)(?::\s*(.*))?$/.exec(line));
+    if (parsed.length === 0 || parsed.some(m => !m)) continue;
+    const values = new Set(schema.enum.map(String));
+    const choices = (parsed as RegExpExecArray[])
+      .filter(m => values.has(m[1]))
+      .map(m => ({ property, id: m[1], title: m[2].trim(), what: (m[3] ?? '').trim() }));
+    if (choices.length > 0) return choices;
+  }
+  return [];
 }
 
 function countTerms(parts: [string, number][]): { terms: Map<string, number>; length: number } {
@@ -215,8 +226,10 @@ function entriesOf(manifest: OuiManifest, pages: readonly AppPage[]): Entry[] {
         for (const f of roomFields(action)) add(f.title, f.what, f.where || where, `values.${f.id}`);
         continue;
       }
-      if (action.source === 'room-action' && action.id.endsWith(`/action/${ROOM_RUN_COMMAND_ID}`)) {
-        for (const c of roomCommands(action)) add(c.title, c.what, where, `command: ${c.id}`);
+      // Its commands (run-command) or its family's members, each found by its own words.
+      const choices = action.source === 'room-action' ? roomChoices(action) : [];
+      if (choices.length > 0) {
+        for (const c of choices) add(c.title, c.what, where, `${c.property}: ${c.id}`);
         continue;
       }
       add(action.title, ownWords(action), where);

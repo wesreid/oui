@@ -151,33 +151,80 @@ export function shortInput(input: string): string {
  * in brackets what it takes and what calling it involves. An index is hundreds
  * of these. No brackets: it takes nothing.
  */
-export function indexLine(entry: OUIActionIndexEntry): string {
+export function indexLine(entry: OUIActionIndexEntry, sharedPrefix = ''): string {
   const notes = [
     entry.input === 'none' ? '' : shortInput(entry.input),
     entry.effect === 'view' ? 'reads' : '',
     entry.effect === 'transaction' || entry.confirm ? 'needs approval' : '',
     entry.async ? `waits for its work${entry.estimatedDuration ? `, ${entry.estimatedDuration}` : ''}` : '',
   ].filter(Boolean);
-  return `- ${entry.id}: ${entry.description}${notes.length ? ` (${notes.join('; ')})` : ''}`;
+  return `- ${entry.id.slice(sharedPrefix.length)}: ${entry.description}${notes.length ? ` (${notes.join('; ')})` : ''}`;
 }
 
 /** The longest the page's index is in the model's context, in characters, before surfaces are listed by id only. */
 export const DEFAULT_INDEX_CHARS = 60_000;
 
 /**
+ * How a surface's heading says its lines leave out the start every one of its
+ * action ids shares. The one wording of it: the heading, and every test and
+ * measure of the index, read it from here.
+ */
+export const sharedPrefixNote = (prefix: string): string => `every action id here is ${prefix} + the name its line starts with`;
+
+/** The fewest actions a surface folds a shared id start for: below it the note costs more than it saves. */
+const MIN_FOLDED_ACTIONS = 3;
+
+/**
+ * The start every action id of a surface shares, in whole `_`-separated words,
+ * that its index lines leave out: `vector_studio_` for `vector_studio_add_text`
+ * and its 188 siblings. Each id keeps at least one word of its own, and a start
+ * is folded only where saying it once is shorter than repeating it. Empty when
+ * there is none.
+ */
+export function sharedIdPrefix(surface: Pick<PageSurface, 'index'>): string {
+  const ids = surface.index.map((a) => a.id);
+  if (ids.length < MIN_FOLDED_ACTIONS) return '';
+  const words = ids.map((id) => id.split('_'));
+  const shortest = Math.min(...words.map((w) => w.length));
+  let shared = 0;
+  while (shared < shortest - 1 && words.every((w) => w[shared] === words[0][shared] && w[shared] !== '')) shared++;
+  if (shared === 0) return '';
+  const prefix = `${words[0].slice(0, shared).join('_')}_`;
+  // The note goes in the heading once; the start leaves every line.
+  return prefix.length * ids.length > sharedPrefixNote(prefix).length + 2 ? prefix : '';
+}
+
+/** A surface's heading: its name, its id, and the id start its lines leave out. */
+function surfaceHeading(s: PageSurface, prefix: string): string {
+  return `${s.name} (${s.id}${prefix ? `; ${sharedPrefixNote(prefix)}` : ''}): ${s.description}`;
+}
+
+export interface IndexTextOptions {
+  /**
+   * Fold each surface's shared id start into its heading (`sharedIdPrefix`).
+   * Default true: the index in the model's context. False where a line is read
+   * on its own, away from its heading (what an answer says the page now offers).
+   */
+  foldSharedPrefix?: boolean;
+}
+
+/**
  * The page's index as the model reads it: each surface, then its actions a
- * line each. Past `maxChars`, surfaces are listed by their action ids only, and
+ * line each. A surface whose action ids share a start says it once, in its
+ * heading, and its lines give the rest of each id; `resolveActionName` takes
+ * either. Past `maxChars`, surfaces are listed by their action ids only, and
  * say so, so every action stays findable: first the frame around every page,
  * then what is shared between pages, then the pages and rooms, the longest
  * mounted first. A client lists its surfaces as they mounted, so what the person
  * opened last, a studio docked on the page they are working in, keeps its lines
  * longest.
  */
-export function indexText(page: readonly PageSurface[], maxChars: number = DEFAULT_INDEX_CHARS): string {
-  const full = page.map((s) => ({
-    surface: s,
-    text: [`${s.name} (${s.id}): ${s.description}`, ...s.index.map(indexLine)].join('\n'),
-  }));
+export function indexText(page: readonly PageSurface[], maxChars: number = DEFAULT_INDEX_CHARS, options: IndexTextOptions = {}): string {
+  const fold = options.foldSharedPrefix ?? true;
+  const full = page.map((s) => {
+    const prefix = fold ? sharedIdPrefix(s) : '';
+    return { surface: s, prefix, text: [surfaceHeading(s, prefix), ...s.index.map((a) => indexLine(a, prefix))].join('\n') };
+  });
   let total = full.reduce((n, s) => n + s.text.length + 2, 0);
   if (total <= maxChars) return full.map((s) => s.text).join('\n\n');
   const shortestFirst = full
@@ -187,13 +234,45 @@ export function indexText(page: readonly PageSurface[], maxChars: number = DEFAU
     if (total <= maxChars) break;
     const s = entry.surface;
     const short = [
-      `${s.name} (${s.id}): ${s.description}`,
-      `- ${s.index.length} actions, listed by id only to save room; describe one to learn what it does: ${s.index.map((a) => a.id).join(', ')}`,
+      surfaceHeading(s, entry.prefix),
+      `- ${s.index.length} actions, listed by id only to save room; describe one to learn what it does: ${s.index.map((a) => a.id.slice(entry.prefix.length)).join(', ')}`,
     ].join('\n');
     total += short.length - entry.text.length;
     entry.text = short;
   }
   return full.map((s) => s.text).join('\n\n');
+}
+
+/** What a name the model gave stands for on the page: one action's id, several it could mean, or none. */
+export type ActionNameResolution = { id: string } | { ambiguous: string[] } | null;
+
+/**
+ * The action a name the model gave means, on the page as it is now. An action's
+ * id is itself, exactly as it always was. Otherwise the name is read as an index
+ * line gives it, the rest of an id after its surface's shared start: it means
+ * the one action whose surface folds a start that, with the name, is that
+ * action's id. A name more than one surface's start makes an action of is
+ * ambiguous, and never resolved: the caller refuses it with the full ids. The
+ * one resolver `ui_act`, `ui_describe` and an action called as a tool share.
+ */
+export function resolveActionName(page: readonly PageSurface[], name: string): ActionNameResolution {
+  const { actions } = pageActions(page);
+  const owner = new Map(actions.map((a) => [a.entry.id, a.surface]));
+  if (owner.has(name)) return { id: name };
+  const meant: string[] = [];
+  for (const surface of page) {
+    const prefix = sharedIdPrefix(surface);
+    if (!prefix || name.startsWith(prefix)) continue;
+    const id = `${prefix}${name}`;
+    if (owner.get(id) === surface) meant.push(id);
+  }
+  if (meant.length === 0) return null;
+  return meant.length === 1 ? { id: meant[0] } : { ambiguous: meant };
+}
+
+/** What a model is told of a name that stands for several actions: each one's full id, to call it by. */
+export function ambiguousNameError(name: string, ids: readonly string[]): string {
+  return `"${name}" names an action on more than one part of the page: ${ids.join(', ')}. Call it by its full id.`;
 }
 
 /** What an answer changed in what the page offers: the actions added, a line each, and the ids removed. */

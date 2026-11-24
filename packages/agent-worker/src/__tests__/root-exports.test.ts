@@ -15,6 +15,9 @@ import {
   observationsText,
   pageFromIndex,
   pageStateFit,
+  resolveActionName,
+  sharedIdPrefix,
+  sharedPrefixNote,
   type PageStateFit,
 } from '../index.js';
 import type { OUIIndexSnapshot } from 'oui-spec/spec';
@@ -35,5 +38,24 @@ describe('the package root, on a long form', () => {
     expect(text).toContain('board.line.language');
 
     expect(indexText(page, Infinity).length).toBeLessThanOrEqual(DEFAULT_INDEX_CHARS);
+  });
+
+  it('gives the fold of a surface’s shared id start, and the resolver of the names its lines give', () => {
+    const page = pageFromIndex([
+      {
+        id: 'room:studio',
+        name: 'Studio',
+        description: 'A studio',
+        index: ['add_text', 'add_shape', 'set_grid', 'export', 'add_guide', 'set_swatch', 'run_command'].map((n) => ({
+          id: `vector_studio_${n}`,
+          description: n,
+          input: 'none',
+          definitionHash: '0',
+        })),
+      },
+    ]);
+    expect(sharedIdPrefix(page[0])).toBe('vector_studio_');
+    expect(indexText(page)).toContain(sharedPrefixNote('vector_studio_'));
+    expect(resolveActionName(page, 'export')).toEqual({ id: 'vector_studio_export' });
   });
 });

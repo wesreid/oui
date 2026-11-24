@@ -20,6 +20,7 @@ import type { AgentTurnInput, AgentWorkerConfig } from '../types.js';
 import { createToolRegistry } from '../tools/types.js';
 import type { UIActionChannel } from '../ui/channel.js';
 import type { TurnPolicy } from '../turn-policy.js';
+import { sharedPrefixNote } from '../ui/page-index.js';
 
 // ─── Mock the `ai` module: the test plays the model ──────────────────────────
 
@@ -246,10 +247,13 @@ describe('what the model is given on a page of 427 actions', () => {
     const message = String((seenOpts[0] as unknown as { instructions: Array<{ content: string }> }).instructions[1].content) + tail;
     expect(message).toContain('<page_index>');
     expect(message).toContain('<page_state>');
-    expect(message).toContain('- studio_effect_add: Adds an effect to a layer. (one of 60 shapes by effect)');
-    expect(message).toContain('- studio_layer_add: Adds a layer on top of the stack. (name)');
-    expect(message).toContain('- studio_layers_query: Lists the layers, by name. (title_contains?; reads)');
-    expect(message).toContain('- studio_action_423: ');
+    // Every id starts studio_: the surface's heading says so once, and its lines give the rest.
+    expect(message).toContain(sharedPrefixNote('studio_'));
+    expect(message).toContain('- effect_add: Adds an effect to a layer. (one of 60 shapes by effect)');
+    expect(message).toContain('- layer_add: Adds a layer on top of the stack. (name)');
+    expect(message).toContain('- layers_query: Lists the layers, by name. (title_contains?; reads)');
+    expect(message).toContain('- action_423: ');
+    expect(message).not.toContain('- studio_');
     expect(message).toContain('"layer-5"');
 
     // The turn's snapshot fits one queue message, and what the model reads of the page fits its context.

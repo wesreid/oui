@@ -1,5 +1,16 @@
 # @ouispec/agent-worker
 
+## 0.35.0
+
+### Minor Changes
+
+- The page's index says a surface's shared action-id start once. A surface whose action ids all begin with the same words (`vector_studio_` on each of a studio's 189 actions) names that start in its heading, and its lines give the rest of each id, so the model reads each start once instead of on every line: the Video Studio editor's index with a graphic docked goes from 59,821 to 56,200 characters before anything else changes. `ui_act`, `ui_describe` and an action called as a tool share one resolver (`resolveActionName`). A full id resolves exactly as before. A line's name resolves to the one action it means, and a name that two surfaces' actions end in is refused with their full ids, never guessed. What an answer says the page now offers, and every note and error, keeps full ids. New root exports: `resolveActionName`, `sharedIdPrefix`, `sharedPrefixNote`, `IndexTextOptions`, `ActionNameResolution`; `indexText` takes `{ foldSharedPrefix }`.
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/bindings@0.16.0
+
 ## 0.34.0
 
 ### Minor Changes
