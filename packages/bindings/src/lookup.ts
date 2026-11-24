@@ -73,14 +73,29 @@ export function stem(word: string): string {
   return w;
 }
 
-/** Text as the search's words: lower case, split on anything that is not a letter or digit, stop words out, stemmed. */
+/**
+ * Stems that name the same thing, as one: a person says "photo" where an app's controls say "image" or "picture".
+ * Only words that mean the same in every app's controls; a word a product uses in a sense of its own stays itself.
+ */
+const SAME_THING: ReadonlyMap<string, string> = new Map([
+  ['photo', 'imag'],
+  ['photograph', 'imag'],
+  ['pictur', 'imag'],
+  ['pic', 'imag'],
+]);
+
+/**
+ * Text as the search's words: lower case, split on anything that is not a letter or digit, stop words out, stemmed,
+ * and stems that name the same thing made one (`SAME_THING`).
+ */
 export function searchWords(text: string): string[] {
   return text
     .toLowerCase()
     .replace(/[’']s\b/g, '')
     .split(/[^\p{L}\p{N}]+/u)
     .filter(w => w && !STOP_WORDS.has(w))
-    .map(stem);
+    .map(stem)
+    .map(word => SAME_THING.get(word) ?? word);
 }
 
 // ─── What is searched ────────────────────────────────────────────────────────

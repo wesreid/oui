@@ -121,7 +121,13 @@ describe('the search’s words', () => {
     expect(['remove', 'removed', 'removing', 'removes'].map(stem)).toEqual(['remov', 'remov', 'remov', 'remov']);
     expect(stem('layers')).toBe(stem('layer'));
     expect(stem('galleries')).toBe('gallery');
-    expect(searchWords("Remove the basketball from this character's photo")).toEqual(['remov', 'basketball', 'character', 'photo']);
+    expect(searchWords("Remove the basketball from this character's photo")).toEqual(['remov', 'basketball', 'character', 'imag']);
+  });
+
+  it('make a photo, a picture, a pic and an image one word, as a person says them interchangeably', () => {
+    expect(['photo', 'photos', 'photograph', 'picture', 'pictures', 'pic', 'image', 'images'].flatMap(w => searchWords(w))).toEqual(
+      Array(8).fill('imag'),
+    );
   });
 });
 
@@ -158,6 +164,13 @@ describe('the lookup', () => {
     );
     // The character's own Remove takes an image off the character: found too, below the editor's.
     expect(data.results.map(r => r.tool)).toContain('characters_images_remove');
+  });
+
+  it('finds the editor’s Remove however the person names the picture', () => {
+    for (const query of ['remove an object from a photo', 'remove an object from an image']) {
+      const data = (at('/characters/c_alex').find({ query }) as { data: { results: Record<string, unknown>[] } }).data;
+      expect(data.results[0]?.tool, query).toBe('image_studio_generative_remove');
+    }
   });
 
   it('finds where a generated picture is added to a character', () => {
