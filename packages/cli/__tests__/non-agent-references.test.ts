@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { nonAgentReferenceProblems } from '../src/assemble.js';
+import { knownNames, namesAlternative } from '../src/non-agent.js';
 
 const bindings = new Set(['editor.add-asset.open', 'library.place', 'video-editor/action/run-command']);
 const commands = new Set(['insert.media', 'graphic.edit', 'tool.select']);
@@ -44,5 +45,28 @@ describe('what a non-agent reason names', () => {
 
   it('reports each missing name once per mention', () => {
     expect(problems('as (a.b) and (c.d) do, or the x.y command')).toHaveLength(3);
+  });
+});
+
+describe('a room action family’s members', () => {
+  // As roomActionFamily writes it: the family is the action, each member named under x-members.
+  const surfaces = [
+    {
+      actions: [
+        {
+          name: 'video_editor_segment',
+          id: 'video-editor/action/segment',
+          input: { properties: { op: { type: 'string', enum: ['add-segment', 'update-segment'], 'x-members': { 'add-segment': 'add-segment', 'update-segment': 'update-segment' } } } },
+        },
+      ],
+    },
+  ];
+
+  it('are names the build has, by their own ids, so a reason naming one names the assistant’s way in', () => {
+    const known = knownNames(surfaces, []);
+    expect(known.has('update-segment')).toBe(true);
+    expect(known.has('segment')).toBe(true);
+    expect(namesAlternative('the editor catalog’s update-segment sets the same property', known)).toBe(true);
+    expect(namesAlternative('the editor catalog’s remove-segment does it', known)).toBe(false);
   });
 });

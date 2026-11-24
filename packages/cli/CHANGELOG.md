@@ -2,6 +2,10 @@
 
 ## 0.16.0
 
+### Minor Changes
+
+- A room action family's members (`roomActionFamily`, named under `x-members` on its `op`) are names the build has, by their own ids: a `nonAgent` reason that names one ("the editor catalog's update-segment sets the same property") names the assistant's way in, and a reason's parenthesised name may be one.
+
 ### Patch Changes
 
 - Updated dependencies

@@ -8,7 +8,7 @@
 import { indexEntry } from 'oui-spec/spec';
 import { describe, expect, it } from 'vitest';
 
-import { gatherRoomFamilies, offeredAction, roomActionFamily, roomChoices, RoomFamilyError, ROOM_FAMILY_KEY, type RoomAction } from '../src/index.js';
+import { gatherRoomFamilies, offeredAction, roomFamilyMembers, roomActionFamily, roomChoices, RoomFamilyError, ROOM_FAMILY_KEY, type RoomAction } from '../src/index.js';
 
 interface Doc {
   effects: Array<{ id: string; kind: string; amount: number; enabled: boolean }>;
@@ -97,6 +97,8 @@ describe('an action family', () => {
         'enable = Switch an effect: Switches an effect off, keeping it, or back on. Needs clipId, id, enabled.',
     );
     expect(f.input.required).toEqual([ROOM_FAMILY_KEY]);
+    // Each op's member by its own id, for a generator and a reason that names the member.
+    expect(roomFamilyMembers(f.input)).toEqual(['clip-effect-add', 'clip-effect-set', 'clip-effect-enable']);
     // What every member takes keeps its words; what only some take says which.
     expect(f.input.properties!.clipId.description).toBe('The clip’s id, as the timeline lists it');
     expect(f.input.properties!.id.description).toBe('For set, enable: The effect’s id on the clip');

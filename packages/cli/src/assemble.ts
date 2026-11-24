@@ -22,6 +22,7 @@ import {
   problemsSchema,
   ROOM_RUN_COMMAND_ID,
   ROOM_SET_PROPERTIES_ID,
+  roomFamilyMembers,
   roomListProblems,
   roomMeasureProblems,
   routeMatcher,
@@ -254,7 +255,11 @@ export function assemble(
     for (const control of page.analysis?.controls ?? []) bindingIds.add(control.binding.id);
     for (const display of page.analysis?.displays ?? []) bindingIds.add(display.binding.id);
     for (const room of page.analysis?.rooms ?? []) {
-      for (const action of room.catalog.actions) bindingIds.add(action.id);
+      for (const action of room.catalog.actions) {
+        bindingIds.add(action.id);
+        // A family's members (roomActionFamily) are the room's actions too, by their own ids.
+        for (const member of roomFamilyMembers(action.input)) bindingIds.add(member);
+      }
       for (const command of room.catalog.commands ?? []) commandIds.add(command.id);
     }
   }

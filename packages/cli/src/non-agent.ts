@@ -17,6 +17,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 import type { Finding, PageAnalysis } from './analyze.js';
+import { roomFamilyMembers } from '@ouispec/bindings';
+
 import { nonAgentReferences } from './assemble.js';
 
 /** The list of `nonAgent` controls that are, on purpose, the only way into what they do. */
@@ -40,10 +42,11 @@ export function namesAlternative(reason: string, known: ReadonlySet<string>): bo
 
 /**
  * The names the build gives what the assistant can do: every tool name and
- * action id, a room action's own id, and every room command.
+ * action id, a room action's own id, the members of a room's action families
+ * by their own ids (`x-members` on the family's `op`), and every room command.
  */
 export function knownNames(
-  surfaces: readonly { actions: readonly { name: string; id: string }[] }[],
+  surfaces: readonly { actions: readonly { name: string; id: string; input?: { properties?: Record<string, unknown> } }[] }[],
   commands: Iterable<string>,
 ): Set<string> {
   const known = new Set<string>(commands);
@@ -53,6 +56,7 @@ export function knownNames(
       known.add(a.id);
       const own = a.id.split('/action/')[1];
       if (own) known.add(own);
+      for (const member of roomFamilyMembers(a.input)) known.add(member);
     }
   }
   return known;

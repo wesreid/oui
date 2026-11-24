@@ -191,6 +191,21 @@ export function catalogData<Ctx>(catalog: RoomCatalog<Ctx>): RoomCatalogData {
 /** The property a family's input names its member by. */
 export const ROOM_FAMILY_KEY = 'op';
 
+/** The extension on a family's `op` that names each op's member by its own id. */
+export const ROOM_FAMILY_MEMBERS = 'x-members';
+
+/** The members' own ids of a family action, from its input (`x-members`); none for any other action. */
+export function roomFamilyMembers(input: { properties?: Record<string, unknown> } | undefined): string[] {
+  const out: string[] = [];
+  for (const property of Object.values(input?.properties ?? {})) {
+    const members = (property as Record<string, unknown> | null)?.[ROOM_FAMILY_MEMBERS];
+    if (members && typeof members === 'object') {
+      for (const id of Object.values(members)) if (typeof id === 'string') out.push(id);
+    }
+  }
+  return out;
+}
+
 /** A family cannot be built from these members: it says which and why. */
 export class RoomFamilyError extends Error {
   constructor(message: string) {
@@ -285,7 +300,9 @@ export function roomActionFamily<Ctx>(options: RoomActionFamilyOptions<Ctx>): Ro
           type: 'string',
           enum: ops,
           description: ops.map(op => line(op, byOp.get(op)!)).join('\n'),
-        },
+          // Each op's member by its own id: what a generator and a reason naming the member read.
+          ...({ [ROOM_FAMILY_MEMBERS]: Object.fromEntries(ops.map(op => [op, byOp.get(op)!.id])) } as Record<string, unknown>),
+        } as JsonSchema,
         ...merged,
       },
       required: [ROOM_FAMILY_KEY],
