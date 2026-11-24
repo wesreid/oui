@@ -1,5 +1,11 @@
 # @ouispec/bindings
 
+## 0.15.2
+
+### Patch Changes
+
+- The app-wide search (`createKnowledgeLookup`, `searchWords`) treats a photo, a picture, a pic and an image as one word, as a person says them interchangeably. "Remove an object from a photo" now finds an image editor's Remove, as "from an image" does.
+
 ## 0.15.1
 
 ### Patch Changes
