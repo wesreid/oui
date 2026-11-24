@@ -33,3 +33,6 @@ export * from './lookup.js';
 // The rest of the contract an integrator builds against: the tier 2 mapping,
 // a package's `oui` declarations, and `oui.config.json`.
 export type { OuiConfigFile, OuiPackageDeclaration, Tier2Control, Tier2Mapping, Tier2Part, ValueFrom } from '@ouispec/contract';
+
+// The start a surface's whole catalog's action ids share (oui-spec §7.3.8), as the bindings declare it and a generator checks it.
+export { sharedIdPrefix, MIN_ID_PREFIX_ACTIONS } from 'oui-spec/spec';

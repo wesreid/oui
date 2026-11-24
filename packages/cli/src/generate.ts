@@ -32,6 +32,7 @@ import {
 } from './inputs.js';
 import { generateKnowledge } from './knowledge.js';
 import { allowListContent, allowListPath, knownNames, nonAgentFindings, nonAgentOnlyEntries, readAllowList, type NonAgentOnly } from './non-agent.js';
+import { foldedNameCollisions } from './index-names.js';
 import { holdsAnything, resolveOutside } from './outside.js';
 import { loadSource } from './program.js';
 import { BOUND_DIR, boundModuleSource, boundTableSource, checkMappingTypes, loadMappings } from './tier2.js';
@@ -220,7 +221,7 @@ export async function generate(config: GeneratorConfig, options: GenerateOptions
   const uses = [...found.values()].sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
   const asUse = (u: Tier2Found): Tier2Use => ({ component: u.component, file: u.file, line: u.line, props: u.props });
   const uncontrolled = uses.filter(u => u.uncontrolled);
-  const warnings = uncontrolled.map(u => ({
+  const warnings: Finding[] = uncontrolled.map(u => ({
     file: u.file,
     line: u.line,
     message:
@@ -228,6 +229,8 @@ export async function generate(config: GeneratorConfig, options: GenerateOptions
       `but the control will not show what it set. Pass ${u.controlled}, kept in state.` +
       (u.spread ? ' (A spread may carry it, but the build cannot see what a spread holds: write it out.)' : ''),
   }));
+  // A surface an agent runtime cannot fold on a route, since a name it would give is another action's id there.
+  warnings.push(...foldedNameCollisions(assembled.surfaces, MANIFEST_FILE));
 
   // A capability only a person can reach: listed on purpose, or a failure.
   const nonAgentOnly = nonAgentOnlyEntries(

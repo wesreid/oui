@@ -15,6 +15,7 @@ import {
   pageFromIndex,
   pageFromSurfaces,
   ambiguousNameError,
+  foldedPrefixes,
   resolveActionName,
   sharedIdPrefix,
   sharedPrefixNote,
@@ -245,5 +246,70 @@ describe('the start a surface’s action ids share, said once', () => {
     const twice = room('room:copy', 'video_editor_', ['add_clip', 'remove_clips', 'set_zoom', 'run_command', 'add_marker', 'add_track', 'set_playhead']);
     const both = pageFromSurfaces([editor, twice], new Map());
     expect(resolveActionName(both, 'add_clip')).toEqual({ id: 'video_editor_add_clip' });
+  });
+});
+
+describe('a start the client declares from its whole catalog', () => {
+  const entry = (id: string) => ({ id, description: `Does ${id}.`, input: 'none', definitionHash: '0' });
+  const shown = (ids: string[], idPrefix?: string): PageSurface => ({
+    id: 'room:storyboard',
+    name: 'Storyboard',
+    description: 'The Storyboard',
+    index: ids.map(entry),
+    ...(idPrefix !== undefined ? { idPrefix } : {}),
+  });
+
+  it('is the start folded, whatever the actions shown now share, so a name stays the same between turns', () => {
+    const now = shown(['storyboard_editor_storyboard_shot_add', 'storyboard_editor_storyboard_shot_move', 'storyboard_editor_storyboard_shot_split'], 'storyboard_editor_storyboard_');
+    // Taken from what shows now, the start would swallow `shot_` too, and the names would change as other sections open.
+    expect(sharedIdPrefix({ index: now.index })).toBe('storyboard_editor_storyboard_shot_');
+    expect(sharedIdPrefix(now)).toBe('storyboard_editor_storyboard_');
+    expect(indexText([now])).toContain('- shot_add: Does storyboard_editor_storyboard_shot_add.');
+    // One action shown: still folded, still the same name.
+    const one = shown(['storyboard_editor_storyboard_shot_add'], 'storyboard_editor_storyboard_');
+    expect(indexText([one])).toContain('- shot_add: ');
+    expect(resolveActionName([one], 'shot_add')).toEqual({ id: 'storyboard_editor_storyboard_shot_add' });
+  });
+
+  it('folds nothing when the client declares there is none, or when an action shown does not start with it', () => {
+    const ids = ['video_editor_a', 'video_editor_b', 'video_editor_c', 'video_editor_d', 'video_editor_e', 'video_editor_f', 'video_editor_g'];
+    expect(sharedIdPrefix(shown(ids, ''))).toBe('');
+    expect(indexText([shown(ids, '')])).toContain('- video_editor_a: ');
+    expect(sharedIdPrefix(shown([...ids, 'other_x'], 'video_editor_'))).toBe('');
+    // Undeclared, a start is taken from what is offered.
+    expect(sharedIdPrefix(shown(ids))).toBe('video_editor_');
+  });
+
+  it('arrives with the index a client sends', () => {
+    expect(pageFromIndex([{ id: 's', name: 'S', description: 's', index: [entry('studio_a')], idPrefix: 'studio_' }])[0].idPrefix).toBe('studio_');
+  });
+});
+
+describe('a surface whose folded name would be another action’s full id', () => {
+  // As on /audio/compose: the Song room's song_voice_track, and the page's own voice_track.
+  const entry = (id: string) => ({ id, description: `Does ${id}.`, input: 'none', definitionHash: '0' });
+  const song: PageSurface = {
+    id: 'room:song',
+    name: 'Song',
+    description: 'The song',
+    index: ['song_voice_track', 'song_add_track', 'song_set_tempo', 'song_play'].map(entry),
+    idPrefix: 'song_',
+  };
+  const page: PageSurface = { id: 'page:Compose', name: 'Compose', description: 'Compose', index: ['voice_track', 'compose_save'].map(entry) };
+
+  it('keeps its full ids, so the name the page’s own action has runs that action and no other', () => {
+    expect(foldedPrefixes([page, song]).get('room:song')).toBe('');
+    const text = indexText([page, song]);
+    expect(text).toContain('- song_voice_track: ');
+    expect(text).toContain('- voice_track: ');
+    expect(text).not.toContain(sharedPrefixNote('song_'));
+    expect(resolveActionName([page, song], 'voice_track')).toEqual({ id: 'voice_track' });
+    expect(resolveActionName([page, song], 'add_track')).toBeNull();
+    expect(resolveActionName([page, song], 'song_add_track')).toEqual({ id: 'song_add_track' });
+  });
+
+  it('is folded again on a page where nothing has that id', () => {
+    expect(foldedPrefixes([song]).get('room:song')).toBe('song_');
+    expect(resolveActionName([song], 'voice_track')).toEqual({ id: 'song_voice_track' });
   });
 });

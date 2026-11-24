@@ -769,6 +769,7 @@ interface OUISurfaceIndex {
   description: string;
   observations?: OUIObservationIndexEntry[];
   index: OUIActionIndexEntry[];
+  idPrefix?: string; // the start the whole catalog's action ids share, declared by the client
 }
 
 interface OUIObservationIndexEntry {
@@ -800,6 +801,16 @@ interface OUIActionIndexEntry {
   optional ones marked `?`, the first six, then `+N more`. An action that takes
   nothing has `none`. A union has `one of N shapes`, and `by <property>` when
   one property tells its members apart.
+- `idPrefix` is the start every action id of the surface's whole catalog
+  shares, in whole `_`-separated words, with each id keeping at least one word
+  of its own (`sharedIdPrefix`; at least three ids). A client that knows its
+  whole catalog, not only the actions shown now, declares it (on the surface,
+  `OUISurface.idPrefix`, and so on its index); an empty string declares there
+  is none, and a runtime then folds nothing for the surface. An agent runtime MAY then name
+  the surface's actions to its model by the rest of each id, and MUST resolve
+  such a name to the one action it means, accept the full id exactly as before,
+  and refuse a name that more than one surface's actions end in. Declared from
+  the whole catalog, the names stay the same while controls show and hide.
 - A snapshot and a result carry `index` in place of `surfaces`. Exactly one of
   the two is present, and `surfacesHash` is the hash of the one that is.
 - An agent runtime MUST accept both forms. From full surfaces it can derive the
