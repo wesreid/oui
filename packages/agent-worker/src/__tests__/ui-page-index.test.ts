@@ -14,7 +14,12 @@ import {
   pageFingerprint,
   pageFromIndex,
   pageFromSurfaces,
+  ambiguousNameError,
+  resolveActionName,
+  sharedIdPrefix,
+  sharedPrefixNote,
   type HeldDefinitions,
+  type PageSurface,
 } from '../ui/page-index.js';
 
 const shell: OUISurface = {
@@ -114,7 +119,7 @@ describe('an index over what the model is given', () => {
       definitionHash: '00000000',
     })),
   });
-  const idsOnly = (text: string, id: string) => new RegExp(`${id} \\(${id}\\): ${id}\\n- \\d+ actions, listed by id only`).test(text);
+  const idsOnly = (text: string, id: string) => new RegExp(`${id} \\(${id}(; [^)]*)?\\): ${id}\\n- \\d+ actions, listed by id only`).test(text);
   // As a client lists them: the frame first, then what mounted, the studio docked last of all.
   const page = [surface('app:navigation', 2), surface('shell:Frame', 20), surface('room:editor', 200), surface('page:Editor', 100), surface('room:studio', 200)];
 
@@ -140,7 +145,16 @@ describe('an index over what the model is given', () => {
 
   it('keeps every action findable, whatever it lists by id', () => {
     const text = indexText(page, 100);
-    for (const s of page) for (const entry of s.index) expect(text).toContain(entry.id);
+    for (const s of page) {
+      const prefix = sharedIdPrefix(s);
+      if (prefix) expect(text).toContain(sharedPrefixNote(prefix));
+      for (const entry of s.index) {
+        expect(text).toContain(entry.id.slice(prefix.length));
+        // Every surface here numbers its actions alike: a bare number is several surfaces' action, listed by its full ids.
+        const meant = resolveActionName(page, entry.id.slice(prefix.length));
+        expect(meant && ('id' in meant ? [meant.id] : meant.ambiguous)).toContain(entry.id);
+      }
+    }
     expect(text.indexOf('app:navigation')).toBeLessThan(text.indexOf('room:studio'));
   });
 });
@@ -159,5 +173,77 @@ describe('what an action takes, in a line of the index', () => {
     expect(shortInput('one of 60 shapes by effect')).toBe('one of 60 shapes by effect');
     expect(shortInput('number 0–100 px')).toBe('number 0–100 px');
     expect(shortInput('a|b|c')).toBe('a|b|c');
+  });
+});
+
+describe('the start a surface’s action ids share, said once', () => {
+  const room = (id: string, prefix: string, names: string[]): OUISurface => ({
+    id,
+    name: id,
+    description: `The ${id}`,
+    actions: names.map((n) => ({ id: `${prefix}${n}`, description: `Does ${n}.`, input: { type: 'object', properties: {} } })),
+  });
+  const editor = room('room:video-editor', 'video_editor_', ['add_clip', 'remove_clips', 'set_zoom', 'run_command', 'add_marker', 'add_track', 'set_playhead']);
+  const studio = room('room:vector-studio', 'vector_studio_', ['add_text', 'add_shape', 'run_command', 'set_grid', 'export', 'add_guide', 'set_swatch']);
+  const page = pageFromSurfaces([shell, editor, studio], new Map());
+
+  it('is the longest start of whole words every id shares, leaving each id a word of its own', () => {
+    expect(sharedIdPrefix(page[1])).toBe('video_editor_');
+    expect(sharedIdPrefix(page[2])).toBe('vector_studio_');
+    // One action: no start to share. Ids that share nothing: none.
+    expect(sharedIdPrefix(page[0])).toBe('');
+    expect(sharedIdPrefix(pageFromSurfaces([room('r', '', ['add_a', 'set_b', 'run_c'])], new Map())[0])).toBe('');
+    // Every id is the start and one more word: the last word stays each id's own.
+    expect(sharedIdPrefix(pageFromSurfaces([room('r', 'a_b_', ['x', 'y', 'z', 'w', 'v', 'u', 'q', 't'])], new Map())[0])).toBe('');
+    // Saying it once would be longer than repeating it.
+    expect(sharedIdPrefix(pageFromSurfaces([room('r', 'ab_', ['x_1', 'y_1', 'z_1'])], new Map())[0])).toBe('');
+  });
+
+  it('says the start in the surface’s heading once, and each line gives the rest of its id', () => {
+    const text = indexText(page);
+    expect(text).toContain(`room:video-editor (room:video-editor; ${sharedPrefixNote('video_editor_')}): The room:video-editor\n- add_clip: Does add_clip.`);
+    expect(text).toContain('\n- run_command: Does run_command.');
+    expect(text).not.toContain('- video_editor_');
+    expect(text).not.toContain('- vector_studio_');
+    // Shorter than every id written whole, which is what the model was given before.
+    expect(text.length).toBeLessThan(indexText(page, Infinity, { foldSharedPrefix: false }).length);
+  });
+
+  it('gives every id whole where a line is read on its own', () => {
+    const text = indexText(page, Infinity, { foldSharedPrefix: false });
+    expect(text).toContain('- video_editor_add_clip: Does add_clip.');
+    expect(text).not.toContain(sharedPrefixNote('video_editor_'));
+    // What an answer adds is listed whole too.
+    const more = pageFromSurfaces([shell, { ...editor, actions: [...editor.actions, { id: 'video_editor_split_clip', description: 'Splits.', input: { type: 'object', properties: {} } }] }, studio], new Map());
+    expect(indexDiff(page, more).added).toEqual(['- video_editor_split_clip: Splits.']);
+  });
+
+  it('lists a surface by id only with the start still said once', () => {
+    const text = indexText(page, 300);
+    expect(text).toContain(`${sharedPrefixNote('vector_studio_')}): The room:vector-studio\n- 7 actions, listed by id only to save room; describe one to learn what it does: add_text, add_shape, run_command, set_grid, export, add_guide, set_swatch`);
+  });
+
+  it('resolves a full id exactly as before, and a line’s name to the one action it means', () => {
+    for (const s of page) for (const entry of s.index) expect(resolveActionName(page, entry.id)).toEqual({ id: entry.id });
+    expect(resolveActionName(page, 'add_clip')).toEqual({ id: 'video_editor_add_clip' });
+    expect(resolveActionName(page, 'export')).toEqual({ id: 'vector_studio_export' });
+    expect(resolveActionName(page, 'navigate')).toEqual({ id: 'navigate' });
+    expect(resolveActionName(page, 'add_bus')).toBeNull();
+    // A start is never added twice.
+    expect(resolveActionName(page, 'video_editor_add_bus')).toBeNull();
+  });
+
+  it('never guesses a name more than one surface’s actions end in: it lists their full ids', () => {
+    const meant = resolveActionName(page, 'run_command');
+    expect(meant).toEqual({ ambiguous: ['video_editor_run_command', 'vector_studio_run_command'] });
+    expect(ambiguousNameError('run_command', ['video_editor_run_command', 'vector_studio_run_command'])).toBe(
+      '"run_command" names an action on more than one part of the page: video_editor_run_command, vector_studio_run_command. Call it by its full id.',
+    );
+  });
+
+  it('resolves only to the surface that keeps an id two surfaces declare', () => {
+    const twice = room('room:copy', 'video_editor_', ['add_clip', 'remove_clips', 'set_zoom', 'run_command', 'add_marker', 'add_track', 'set_playhead']);
+    const both = pageFromSurfaces([editor, twice], new Map());
+    expect(resolveActionName(both, 'add_clip')).toEqual({ id: 'video_editor_add_clip' });
   });
 });

@@ -29,8 +29,10 @@ import type {
   RoomObservation,
   RoomProblemKind,
   RoomRecipe,
+  RoomEntryInfo,
   RoomResult,
 } from '@ouispec/contract';
+import { validateValue } from './json-schema.js';
 
 export type {
   AgentCatalogManifestEntry,
@@ -181,5 +183,123 @@ export function catalogData<Ctx>(catalog: RoomCatalog<Ctx>): RoomCatalogData {
     observations: catalog.observations.map(o => ({ ...o })),
     ...(catalog.problems ? { problems: catalog.problems.map(p => ({ ...p })) } : {}),
     ...(catalog.recipes ? { recipes: catalog.recipes.map(r => ({ ...r, steps: [...r.steps] })) } : {}),
+  };
+}
+
+// ─── Action families ─────────────────────────────────────────────────────────
+
+/** The property a family's input names its member by. */
+export const ROOM_FAMILY_KEY = 'op';
+
+/** A family cannot be built from these members: it says which and why. */
+export class RoomFamilyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RoomFamilyError';
+  }
+}
+
+export interface RoomActionFamilyOptions<Ctx> extends RoomEntryInfo {
+  /**
+   * The actions it gathers: near-identical operations on one kind of thing (an effect's add, set,
+   * switch and move). They share one effect, none is destructive (a removal stays an action of its
+   * own, approved as one), and a property two of them take means the same in both.
+   */
+  members: readonly RoomAction<Ctx, never>[];
+}
+
+/** A schema without its words: what two members must agree on for one property to serve both. */
+function shapeOf(schema: JsonSchema): string {
+  const { description: _description, ...rest } = schema as JsonSchema & { description?: string };
+  return JSON.stringify(rest, Object.keys(rest).sort());
+}
+
+/**
+ * One action for a family of near-identical ones: its input names the member by `op`, and takes
+ * what that member takes. Index lines are an assistant's map of a page, and a room of hundreds of
+ * actions spends most of it repeating what such a family shares; gathered, the family is one line
+ * that lists its members, and each member still runs exactly as it did, through its own `run`, its
+ * input checked against its own schema first.
+ *
+ * `op`'s description is a line per member, "op = Title: what it does", the form a room's
+ * run-command lists its commands in, so the app-wide search (`roomChoices`) finds each member by
+ * its own words and gives the call (`op: set`). A member's op is its id after the family's
+ * (`clip-effect-set` in `clip-effect` is `set`), or its whole id.
+ *
+ * Throws `RoomFamilyError` when the members cannot be one action: fewer than two, a destructive
+ * one, effects that differ, an input that is not an object or already takes `op`, two ops alike,
+ * or a property two members take with different schemas.
+ */
+export function roomActionFamily<Ctx>(options: RoomActionFamilyOptions<Ctx>): RoomAction<Ctx, Record<string, unknown>> {
+  const { id, title, description, control, members } = options;
+  const fail = (why: string): never => {
+    throw new RoomFamilyError(`The ${id} family ${why}`);
+  };
+  if (members.length < 2) fail('needs at least two members');
+  const effect = members[0].effect;
+  const byOp = new Map<string, RoomAction<Ctx, never>>();
+  const properties: Record<string, JsonSchema> = {};
+  const takenBy = new Map<string, string[]>();
+  for (const member of members) {
+    if (member.destructive) fail(`cannot hold ${member.id}: it is destructive, and is approved as an action of its own`);
+    if (member.effect !== effect) fail(`cannot hold ${member.id}: its effect is ${member.effect}, the family's ${effect}`);
+    const input = member.input as JsonSchema;
+    if (input.type !== 'object') fail(`cannot hold ${member.id}: its input is not an object`);
+    const op = member.id.startsWith(`${id}-`) ? member.id.slice(id.length + 1) : member.id;
+    if (byOp.has(op)) fail(`has two members whose op is ${op}`);
+    byOp.set(op, member);
+    for (const [name, schema] of Object.entries(input.properties ?? {})) {
+      if (name === ROOM_FAMILY_KEY) fail(`cannot hold ${member.id}: it already takes ${ROOM_FAMILY_KEY}`);
+      const had = properties[name];
+      if (had && shapeOf(had) !== shapeOf(schema)) fail(`cannot hold ${member.id}: its ${name} is not the ${name} the others take`);
+      if (!had) properties[name] = schema;
+      takenBy.set(name, [...(takenBy.get(name) ?? []), op]);
+    }
+  }
+  const ops = [...byOp.keys()];
+  const line = (op: string, member: RoomAction<Ctx, never>): string => {
+    const needs = ((member.input as JsonSchema).required ?? []) as string[];
+    const words = member.description.replace(/\s+/g, ' ').trim();
+    return `${op} = ${member.title.replace(/:/g, ' ')}: ${words}${needs.length ? ` Needs ${needs.join(', ')}.` : ''}`;
+  };
+  const merged = Object.fromEntries(
+    Object.entries(properties).map(([name, schema]) => {
+      const by = takenBy.get(name)!;
+      const words = (schema as { description?: string }).description;
+      // A property only some members take says which.
+      const scoped = by.length === ops.length ? words : `For ${by.join(', ')}${words ? `: ${words}` : ''}`;
+      return [name, { ...schema, ...(scoped ? { description: scoped } : {}) }];
+    }),
+  );
+  return {
+    kind: 'action',
+    id,
+    title,
+    description,
+    control,
+    effect,
+    input: {
+      type: 'object',
+      properties: {
+        [ROOM_FAMILY_KEY]: {
+          type: 'string',
+          enum: ops,
+          description: ops.map(op => line(op, byOp.get(op)!)).join('\n'),
+        },
+        ...merged,
+      },
+      required: [ROOM_FAMILY_KEY],
+      additionalProperties: false,
+    },
+    run: (ctx, input) => {
+      const { [ROOM_FAMILY_KEY]: op, ...rest } = input;
+      const member = typeof op === 'string' ? byOp.get(op) : undefined;
+      if (!member) {
+        return { ok: false, code: 'NO_SUCH_OP', message: `${String(op)} is not one of ${id}'s: ${ops.join(', ')}` };
+      }
+      const problem = validateValue(member.input as JsonSchema, rest, 'input');
+      if (problem) return { ok: false, code: 'INVALID_INPUT', message: `${op}: ${problem}` };
+      return member.run(ctx, rest as never);
+    },
   };
 }

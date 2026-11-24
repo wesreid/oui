@@ -66,7 +66,7 @@ describe('the app as a whole', () => {
 
   it('describes a page by what it offers when it declares nothing', () => {
     expect(describedByActions(roomSurface.actions)).toBe(
-      'Offers Remove, Generative Fill, Edit by Instruction, Relight and Generative Expand, among 12 actions.',
+      'Offers Remove, Generative Fill, Edit by Instruction, Relight and Generative Expand, among 13 actions.',
     );
     expect(describedByActions([])).toBeNull();
   });
@@ -189,6 +189,16 @@ describe('the lookup', () => {
     expect(field).toMatchObject({ capability: 'Size', tool: 'image_studio_set_properties', call: 'image_studio_set_properties with values.brush-size', onThisPage: true });
     const command = (at('/image/i_1').find({ query: 'lasso freehand outline' }) as { data: { results: Record<string, unknown>[] } }).data.results[0];
     expect(command).toMatchObject({ capability: 'Lasso (L)', call: 'image_studio_run_command with command: tool.lasso' });
+  });
+
+  it('finds a member of a room’s action family by its own words, with its op to pass', () => {
+    const member = (at('/image/i_1').find({ query: 'turn an adjustment off' }) as { data: { results: Record<string, unknown>[] } }).data.results[0];
+    expect(member).toMatchObject({ capability: 'Switch an adjustment', tool: 'image_studio_adjustment', call: 'image_studio_adjustment with op: enable', onThisPage: true });
+    const curves = (at('/image/i_1').find({ query: 'add a curves adjustment above the layer' }) as { data: { results: Record<string, unknown>[] } }).data.results[0];
+    expect(curves).toMatchObject({ capability: 'Add an adjustment', call: 'image_studio_adjustment with op: add' });
+    // The family is found as its members, never as one entry of its own.
+    const all = (at('/image/i_1').find({ query: 'adjust a layer adjustments', limit: 10 }) as { data: { results: Record<string, unknown>[] } }).data.results;
+    expect(all.filter(r => r.tool === 'image_studio_adjustment').every(r => typeof r.call === 'string')).toBe(true);
   });
 
   it('gives what the frame offers as on every page, with no way to go', () => {

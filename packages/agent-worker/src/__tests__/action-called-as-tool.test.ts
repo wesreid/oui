@@ -15,6 +15,7 @@ import type { AgentTurnInput, AgentWorkerConfig } from '../types.js';
 import { createToolRegistry } from '../tools/types.js';
 import type { UIActionChannel } from '../ui/channel.js';
 import { actionCallAsUiAct } from '../ui/action-as-tool.js';
+import { pageFromSurfaces, resolveActionName } from '../ui/page-index.js';
 
 type PromptPart = { type: string; toolName?: string; input?: unknown; output?: { type: string; value: unknown } };
 type PromptMessage = { role: string; content: string | PromptPart[] };
@@ -147,7 +148,7 @@ describe('an action called as a tool', () => {
 
 describe('actionCallAsUiAct', () => {
   const tools = { ui_act: {}, ui_read: {} };
-  const isAction = (name: string) => name === 'app_navigate';
+  const isAction = (name: string) => (name === 'app_navigate' ? { id: name } : null);
   const call = (toolName: string, input: string) => ({ toolCallId: 'c1', toolName, input });
 
   it('is the ui_act call the action means', () => {
@@ -160,10 +161,25 @@ describe('actionCallAsUiAct', () => {
   });
 
   it('is nothing for a tool of the turn, a name the page does not offer, a turn with no ui_act, or an input that is not an object', () => {
-    expect(actionCallAsUiAct(call('ui_read', '{}'), tools, () => true, 'ui_act')).toBeNull();
+    expect(actionCallAsUiAct(call('ui_read', '{}'), tools, (name) => ({ id: name }), 'ui_act')).toBeNull();
     expect(actionCallAsUiAct(call('nope', '{}'), tools, isAction, 'ui_act')).toBeNull();
     expect(actionCallAsUiAct(call('app_navigate', '{}'), { ui_read: {} }, isAction, 'ui_act')).toBeNull();
     expect(actionCallAsUiAct(call('app_navigate', '[1]'), tools, isAction, 'ui_act')).toBeNull();
     expect(actionCallAsUiAct(call('app_navigate', '{not json'), tools, isAction, 'ui_act')).toBeNull();
+  });
+
+  it('names an action called by its index line’s name by its full id, and leaves a name of several actions for ui_act to refuse', () => {
+    const page = pageFromSurfaces(
+      [
+        { id: 'room:editor', name: 'Editor', description: 'An editor', actions: ['add_clip', 'remove_clip', 'run_command', 'set_zoom', 'add_marker', 'add_track', 'set_playhead'].map((a) => ({ id: `video_editor_${a}`, description: a })) },
+        { id: 'room:studio', name: 'Studio', description: 'A studio', actions: ['add_text', 'add_shape', 'run_command', 'set_grid', 'export', 'add_guide', 'set_swatch'].map((a) => ({ id: `vector_studio_${a}`, description: a })) },
+      ],
+      new Map(),
+    );
+    const resolve = (name: string) => resolveActionName(page, name);
+    expect(actionCallAsUiAct(call('add_text', '{}'), tools, resolve, 'ui_act')?.input).toBe('{"action":"vector_studio_add_text","input":{}}');
+    expect(actionCallAsUiAct(call('video_editor_add_clip', '{}'), tools, resolve, 'ui_act')?.input).toBe('{"action":"video_editor_add_clip","input":{}}');
+    expect(actionCallAsUiAct(call('run_command', '{}'), tools, resolve, 'ui_act')?.input).toBe('{"action":"run_command","input":{}}');
+    expect(actionCallAsUiAct(call('add_bus', '{}'), tools, resolve, 'ui_act')).toBeNull();
   });
 });

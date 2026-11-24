@@ -128,7 +128,12 @@ export {
   pageFingerprint,
   pageFromIndex,
   pageFromSurfaces,
+  resolveActionName,
+  sharedIdPrefix,
+  sharedPrefixNote,
+  type ActionNameResolution,
   type HeldDefinitions,
+  type IndexTextOptions,
   type PageAction,
   type PageSurface,
 } from './ui/page-index.js';

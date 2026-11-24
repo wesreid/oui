@@ -208,12 +208,33 @@ export const surfaces: ManifestSurface[] = [
           },
         },
       }),
+      // A family (roomActionFamily): a layer's adjustments, each found by its own words.
+      room('adjustment', 'Adjust a layer', 'Adds, sets or switches a layer’s adjustments.', 'Adjustments panel', 'edit', {
+        input: {
+          type: 'object',
+          properties: {
+            op: {
+              type: 'string',
+              enum: ['add', 'set', 'enable'],
+              description:
+                'add = Add an adjustment: Adds a levels, curves or hue adjustment above the layer. Needs kind.\n' +
+                'set = Set an adjustment: Sets an adjustment’s values. Needs id.\n' +
+                'enable = Switch an adjustment: Turns an adjustment off, keeping it, or back on. Needs id, enabled.',
+            },
+            kind: { type: 'string', enum: ['levels', 'curves', 'hue'], description: 'For add: which adjustment' },
+            id: { type: 'string', description: 'For set, enable: the adjustment' },
+            enabled: { type: 'boolean', description: 'For enable: on or off' },
+          },
+          required: ['op'],
+        },
+      }),
       room('run-command', 'Run a command', 'Runs one of the editor’s commands.', 'The menus and keys', 'edit', {
         input: {
           type: 'object',
           properties: {
             command: {
               type: 'string',
+              enum: ['tool.lasso', 'edit.undo'],
               description: 'tool.lasso = Lasso (L): Selects inside a freehand outline.\nedit.undo = Undo (⌘Z): Takes back the last change.',
             },
           },
