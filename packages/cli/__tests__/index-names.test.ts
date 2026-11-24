@@ -1,8 +1,8 @@
 /**
  * A name an agent's index gives an action, the rest of its id after its
  * surface's shared start, never runs another action: an agent runtime resolves
- * a full id first, so a folded name that is another action's full id on the
- * same route is warned of: an agent runtime keeps that surface's full ids there.
+ * a full id first, so it keeps a surface's full ids on a route where a folded
+ * name is another action's full id. The build warns of each such route.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -24,7 +24,7 @@ describe('the names an index gives a page’s actions', () => {
     ).toEqual([]);
   });
 
-  it('fails a folded name that is another action’s full id on the same route, naming both', () => {
+  it('warns of a folded name that is another action’s full id on the same route, naming both', () => {
     const found = foldedNameCollisions(
       [
         surface('room:studio', ['/studio'], ['studio_app_navigate', 'studio_add', 'studio_move']),
@@ -39,10 +39,18 @@ describe('the names an index gives a page’s actions', () => {
         file: 'oui-manifest.json',
         line: 0,
         message:
-          'On /studio, room:studio lists studio_app_navigate as "app_navigate" (its catalog\'s ids all start studio_), and "app_navigate" is ' +
+          'On /studio, room:studio would list studio_app_navigate as "app_navigate" (its catalog\'s ids all start studio_), and "app_navigate" is ' +
           "app:navigation's action there, so an agent's index lists room:studio with its full ids on /studio. Give one of them another id to fold it.",
       },
     ]);
+  });
+
+  it('says a name that is the surface’s own action is its own', () => {
+    const [found] = foldedNameCollisions([surface('room:song', ['/compose'], ['song_song_x', 'song_x', 'song_y'])], 'm.json');
+    expect(found.message).toBe(
+      'On /compose, room:song would list song_song_x as "song_x" (its catalog\'s ids all start song_), and "song_x" is its own action, ' +
+        "so an agent's index lists room:song with its full ids on /compose. Give one of them another id to fold it.",
+    );
   });
 
   it('reports a collision once however many routes share the surfaces', () => {
