@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.36.1
+
+### Patch Changes
+
+- A surface's start is folded into its heading only where that makes its lines shorter. Since 0.36 the bindings declare every surface's start (`idPrefix`), so 0.36.0 folded it everywhere, including on dialogs of three actions, where the heading's note cost more than it saved. On studio-ui's /audio/compose the index grew by 82 characters and on /vector by 41. Folding (`foldedPrefixes`) and reading names (`resolvablePrefixes`) are now separate. A name a surface's lines would give resolves whether or not the surface is folded on this page, guarded against another action's full id as before, so a name the model learned where the surface was folded still means its action where it isn't.
+
 ## 0.36.0
 
 ### Minor Changes
