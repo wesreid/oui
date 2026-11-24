@@ -303,3 +303,47 @@ export function roomActionFamily<Ctx>(options: RoomActionFamilyOptions<Ctx>): Ro
     },
   };
 }
+
+/** A family a room declares by its members' ids: its own id, title, words and control. */
+export interface RoomFamilyDeclaration extends RoomEntryInfo {
+  members: readonly string[];
+}
+
+/**
+ * A room's actions with its families gathered (`roomActionFamily`): each family takes the place
+ * of its first member, and its other members leave the list. Members are named by id, so a room
+ * keeps each member's definition, and its tests, where it was. Throws `RoomFamilyError` for a
+ * member the room does not have or that two families claim.
+ */
+export function gatherRoomFamilies<Ctx>(
+  actions: readonly RoomAction<Ctx, never>[],
+  families: readonly RoomFamilyDeclaration[],
+): RoomAction<Ctx, never>[] {
+  const byId = new Map(actions.map(a => [a.id, a]));
+  const familyOf = new Map<string, RoomFamilyDeclaration>();
+  for (const family of families) {
+    for (const member of family.members) {
+      if (!byId.has(member)) throw new RoomFamilyError(`The ${family.id} family names ${member}, which the room does not have`);
+      const other = familyOf.get(member);
+      if (other) throw new RoomFamilyError(`${member} is in two families: ${other.id} and ${family.id}`);
+      familyOf.set(member, family);
+    }
+  }
+  const built = new Map(
+    families.map(f => [
+      f.id,
+      roomActionFamily<Ctx>({ id: f.id, title: f.title, description: f.description, control: f.control, members: f.members.map(m => byId.get(m)!) }),
+    ]),
+  );
+  const out: RoomAction<Ctx, never>[] = [];
+  const placed = new Set<string>();
+  for (const action of actions) {
+    const family = familyOf.get(action.id);
+    if (!family) out.push(action);
+    else if (!placed.has(family.id)) {
+      placed.add(family.id);
+      out.push(built.get(family.id)! as RoomAction<Ctx, never>);
+    }
+  }
+  return out;
+}

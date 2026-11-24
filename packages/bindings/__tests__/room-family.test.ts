@@ -8,7 +8,7 @@
 import { indexEntry } from 'oui-spec/spec';
 import { describe, expect, it } from 'vitest';
 
-import { offeredAction, roomActionFamily, roomChoices, RoomFamilyError, ROOM_FAMILY_KEY, type RoomAction } from '../src/index.js';
+import { gatherRoomFamilies, offeredAction, roomActionFamily, roomChoices, RoomFamilyError, ROOM_FAMILY_KEY, type RoomAction } from '../src/index.js';
 
 interface Doc {
   effects: Array<{ id: string; kind: string; amount: number; enabled: boolean }>;
@@ -159,5 +159,24 @@ describe('an action family', () => {
     const takesOp = { ...set, input: { ...set.input, properties: { ...set.input.properties, op: { type: 'string' } } } };
     expect(build([add, takesOp] as RoomAction<Doc, never>[])).toThrow('it already takes op');
     expect(build([add, { ...set, id: 'clip-effect-add' }] as RoomAction<Doc, never>[])).toThrow('two members whose op is add');
+  });
+});
+
+describe('a room’s families, declared by their members’ ids', () => {
+  const other: RoomAction<Doc, never> = { ...add, id: 'split-clip', title: 'Split', description: 'Splits a clip.', input: { type: 'object', properties: {} } } as never;
+  const remove: RoomAction<Doc, never> = { ...set, id: 'clip-effect-remove', title: 'Remove an effect', destructive: true } as never;
+  const declared = [{ id: 'clip-effect', title: 'Change a clip’s effects', description: 'Adds, sets or switches a clip’s effects.', control: 'The Effects panel', members: ['clip-effect-add', 'clip-effect-set', 'clip-effect-enable'] }];
+
+  it('puts each family where its first member was, and keeps every other action and its order', () => {
+    const actions = gatherRoomFamilies([other, add, remove, set, enable] as RoomAction<Doc, never>[], declared);
+    expect(actions.map(a => a.id)).toEqual(['split-clip', 'clip-effect', 'clip-effect-remove']);
+    expect(actions[1].input.properties!.op.enum).toEqual(['add', 'set', 'enable']);
+  });
+
+  it('refuses a member the room does not have, or one two families claim', () => {
+    expect(() => gatherRoomFamilies([add, set] as RoomAction<Doc, never>[], declared)).toThrow('names clip-effect-enable, which the room does not have');
+    expect(() =>
+      gatherRoomFamilies([add, set, enable] as RoomAction<Doc, never>[], [...declared, { ...declared[0], id: 'effects', members: ['clip-effect-set', 'clip-effect-enable'] }]),
+    ).toThrow('clip-effect-set is in two families: clip-effect and effects');
   });
 });
