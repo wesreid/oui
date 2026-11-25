@@ -49,6 +49,8 @@ import { jsonBytes } from 'oui-spec/spec';
 import { CLIENT_SNAPSHOT_KEY, readClientPage, withoutClientUI } from './ui/snapshot.js';
 import { KNOWLEDGE_TOOL, knowledgeTool, readClientKnowledge, withClientKnowledge, type ReadPageKnowledge } from './ui/knowledge.js';
 import { answerWithoutState, withStatesAtEnd } from './ui/page-state-at-end.js';
+import { readStateDigestSetting, stateDigestOf } from './ui/state-digest.js';
+import { withPageAtStart } from './ui/page-at-start.js';
 import { readTurnContextPlacement, stepMessages as forStep, STEP_NOTE_CLOSE, STEP_NOTE_OPEN, withCallResults } from './step-messages.js';
 import { EVERY_TOOL, offeredTools, renderRule, type OfferedTools, type ToolRule } from './prompt/step-tools.js';
 import { systemPromptForTools } from './prompt/builder.js';
@@ -300,6 +302,21 @@ export async function runAgentTurn(
         'its UI actions could be sent but never answered.',
     );
   }
+  // What stored history keeps of each page: the default digest, the host's, or none (state-digest.ts).
+  const stateDigest = readStateDigestSetting(config.ui?.stateDigest);
+  // The page the person's message was sent from, kept with the message (page-at-start.ts): made now,
+  // and sent with the message in the words the history gives it later. An approval's continuation and a
+  // resumed turn carry no message of the person's to keep it on.
+  const pageAtStart =
+    client && !input.approval && !input.resume && (input.content.trim() || (input.attachments?.length ?? 0) > 0)
+      ? stateDigestOf(
+          client.observations,
+          { surfaceId: null, schemas: observationSchemas(client.page), at: 'pageAtStart' },
+          stateDigest,
+          config.ui?.maxStateDigestChars,
+          (level, message, data) => log(level, 'agent:ui', message, { turnId, ...data }),
+        )
+      : null;
   // What the page offers, in index: kept current by every answer.
   let currentPage: PageSurface[] = client?.page ?? [];
   // The turn's UI actions run one at a time, in the order the model called them (ui-sequence.ts).
@@ -1337,6 +1354,8 @@ export async function runAgentTurn(
       resultTimeoutMs: uiResultTimeoutMs,
       maxObservationChars: config.ui.maxObservationChars,
       maxAnswerDataChars: config.ui.maxAnswerDataChars,
+      stateDigest,
+      maxStateDigestChars: config.ui.maxStateDigestChars,
       waitDeadline: uiWaitDeadline,
       jobWaitMs: uiJobWaitMs,
       currentPage: () => currentPage,
@@ -1685,6 +1704,9 @@ export async function runAgentTurn(
       const answer = laterAnswerFor(final, call, page, {
         maxObservationChars: config.ui?.maxObservationChars,
         maxAnswerDataChars: config.ui?.maxAnswerDataChars,
+        stateDigest,
+        maxStateDigestChars: config.ui?.maxStateDigestChars,
+        log: (level, message, data) => log(level, 'agent:ui', message, { turnId, ...data }),
       });
       const text = JSON.stringify(callResultPayload(answer).payload ?? { error: 'no result' });
       // Stored as the model is sent it; an approved call keeps saying it was approved and run once.
@@ -1992,6 +2014,8 @@ export async function runAgentTurn(
       // The turn's own message, when the history already holds it: its files are given below,
       // each with its line, so the history's copy of the message does not name them again.
       turnFilesGiven && input.history?.at(-1)?.role === 'user' ? input.history.length - 1 : null,
+      // The page it was sent from, with it as every later turn's history gives it.
+      pageAtStart,
     ),
     ...(continued?.messages ?? []),
   ];
@@ -2614,7 +2638,7 @@ export async function runAgentTurn(
   // it completes must be answered from a history that holds this turn.
   if (config.beforeTurnComplete) {
     try {
-      await config.beforeTurnComplete({ rounds: steps.length, usage, newMessages });
+      await config.beforeTurnComplete({ rounds: steps.length, usage, newMessages, ...(pageAtStart ? { pageAtStart } : {}) });
     } catch (err) {
       log('error', 'agent:turn', 'beforeTurnComplete failed; the turn completes without it', {
         turnId,
@@ -2653,6 +2677,7 @@ export async function runAgentTurn(
     stopReason,
     ...(fileArea ? { attachments: fileGuard.usage() } : {}),
     ...(resumed ? { resumed: resumed.record } : {}),
+    ...(pageAtStart ? { pageAtStart } : {}),
   };
   } finally {
     clearTimeout(deadlineTimer);
@@ -2791,7 +2816,9 @@ export async function runAgentTurn(
     if (config.beforeTurnComplete) {
       try {
         // Kept back: time to announce after it.
-        stored = await within('store', STOP_ANNOUNCE_MARGIN_MS, () => config.beforeTurnComplete!({ rounds, usage, newMessages, stopped: marker }));
+        stored = await within('store', STOP_ANNOUNCE_MARGIN_MS, () =>
+          config.beforeTurnComplete!({ rounds, usage, newMessages, stopped: marker, ...(pageAtStart ? { pageAtStart } : {}) }),
+        );
       } catch (err) {
         stored = false;
         log('error', 'agent:turn', 'beforeTurnComplete failed; the stopped turn is announced without it', {
@@ -2836,6 +2863,7 @@ export async function runAgentTurn(
       ...(stored ? {} : { stored: false as const }),
       ...(fileArea ? { attachments: fileGuard.usage() } : {}),
       ...(earlier.resumed ? { resumed: earlier.resumed.record } : {}),
+      ...(pageAtStart ? { pageAtStart } : {}),
     };
   }
 }
@@ -2861,10 +2889,14 @@ export function convertHistoryToCoreMessages(
   currentContent: string,
   /** The history's copy of the turn's own message, whose files the turn gives with their lines. */
   turnMessageAt: number | null = null,
+  /** The digest of the page the turn's own message was sent from, which it is sent with (page-at-start.ts). */
+  turnPageAtStart: string | null = null,
 ): ModelMessage[] {
   const messages: ModelMessage[] = [];
   /** The messages made from a person's entries, which a following entry joins. */
   const staffMessages = new Set<ModelMessage>();
+  /** The person's messages, by what they said without the note on their page. */
+  const ownMessages = new Map<ModelMessage, string>();
 
   // First pass: collect all tool_call_ids that have results in history
   // AND all tool call IDs from assistant messages (to validate results)
@@ -2929,7 +2961,12 @@ export function convertHistoryToCoreMessages(
       // the turn's own message is then the one it was given (`currentContent`, below).
       if (!(typeof msg.content === 'string' && msg.content.trim()) && !msg.attachments?.length) continue;
       // A message's files are in history as their reference lines, never their content.
-      messages.push({ role: 'user', content: idx === turnMessageAt ? msg.content : withReferenceLines(msg.content, msg.attachments ?? undefined) });
+      const said = idx === turnMessageAt ? msg.content : withReferenceLines(msg.content, msg.attachments ?? undefined);
+      // The page it was sent from, as its turn sent it (page-at-start.ts). The turn's own message, the
+      // history's last, is given its turn's below.
+      const entry: ModelMessage = { role: 'user', content: withPageAtStart(said, msg.pageAtStart) };
+      ownMessages.set(entry, said);
+      messages.push(entry);
     } else if (msg.role === 'assistant') {
       // A stopped turn's last message says so after its text.
       // A message that has only that carries the line as its whole text: an
@@ -3009,7 +3046,11 @@ export function convertHistoryToCoreMessages(
   // Add current user message if not already at the end
   const lastMsg = messages[messages.length - 1];
   if (!lastMsg || lastMsg.role !== 'user') {
-    messages.push({ role: 'user', content: currentContent });
+    messages.push({ role: 'user', content: withPageAtStart(currentContent, turnPageAtStart) });
+  } else if (ownMessages.has(lastMsg)) {
+    // The history's copy of the turn's own message: sent with the page this turn began on, which is
+    // what this turn stores with it, so every later turn reads the message the same way.
+    messages[messages.length - 1] = { role: 'user', content: withPageAtStart(ownMessages.get(lastMsg)!, turnPageAtStart) };
   }
 
   // Final diagnostics: summary of converted messages

@@ -2,6 +2,7 @@ import type { AgentRuntimeConfig } from './types.js';
 import { resolveCommunicationStyle } from '../prompt/rules/communication.js';
 import { resolveNarration } from '../prompt/rules/narration.js';
 import { readTurnContextPlacement } from '../step-messages.js';
+import { readStateDigestSetting } from '../ui/state-digest.js';
 import { isRealtimeApiKey } from '../realtime/api-key.js';
 
 /**
@@ -43,4 +44,6 @@ export function assertAgentRuntimeConfig<TDb>(config: Partial<AgentRuntimeConfig
   if (config.persona) resolveNarration(config.persona.overrides?.narration);
   // So does a turn context placement the worker does not know.
   readTurnContextPlacement(config.turnContextPlacement);
+  // So does a page digest setting that is neither a function nor false.
+  readStateDigestSetting(config.uiActions?.stateDigest);
 }

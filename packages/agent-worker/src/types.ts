@@ -17,6 +17,7 @@ import type { AgentTurnChannel } from './runtime/turn-info.js';
 import type { ApprovalContinuation, ResumeContinuation } from '@ouispec/agent-core';
 import type { ResumedTurn } from './resume/resumed-calls.js';
 import type { TurnContextPlacement } from './step-messages.js';
+import type { StateDigestSetting } from './ui/state-digest.js';
 
 /**
  * Configuration for the agent worker.
@@ -146,6 +147,22 @@ export interface AgentWorkerConfig {
     maxAnswerDataChars?: number;
     /** Largest index of the page's actions given to the model, in characters. Default 60000 (`DEFAULT_INDEX_CHARS`). */
     maxIndexChars?: number;
+    /**
+     * What stored history keeps of the pages the conversation was on: a digest
+     * of each, made once and never changed, so a later turn can still say what
+     * an earlier page showed. Each UI answer keeps one of the page it showed as
+     * `shown` (which `answerWithoutState` keeps), and the turn keeps one of the
+     * page its message was sent from as `pageAtStart` (`AgentTurnResult`).
+     *
+     * Left out: the default digest (state-digest.ts `pageDigest`): the surface
+     * acted on first, each display's facts by label, each list's count and its
+     * first rows' titles. A function: the host's own, given the observations
+     * and `{ surfaceId, schemas, at }`; null keeps no digest for that page.
+     * `false`: no digest at all, as before 0.38.
+     */
+    stateDigest?: StateDigestSetting;
+    /** The longest a page's digest is, in characters. Default 600 (`DEFAULT_STATE_DIGEST_CHARS`). */
+    maxStateDigestChars?: number;
   };
   /**
    * Called with what the turn produced, after its last step and before the
@@ -161,7 +178,7 @@ export interface AgentWorkerConfig {
    * A stopped turn calls it too, with what it had produced and `stopped`
    *: stored first, announced after, on both paths.
    */
-  beforeTurnComplete?: (turn: Pick<AgentTurnResult, 'rounds' | 'usage' | 'newMessages' | 'stopped'>) => Promise<void>;
+  beforeTurnComplete?: (turn: Pick<AgentTurnResult, 'rounds' | 'usage' | 'newMessages' | 'stopped' | 'pageAtStart'>) => Promise<void>;
   /**
    * Where the turn hears that it was asked to stop: the
    * person's Stop, or a newer message superseding it. Without one, or without
@@ -288,6 +305,13 @@ export type TurnHistoryMessage =
       content: string;
       /** The files the person attached to this message: the model reads their reference lines. */
       attachments?: AttachmentRef[] | null;
+      /**
+       * The digest of the page the message was sent from, as its turn gave it
+       * (`AgentTurnResult.pageAtStart`). The model reads it as a short note
+       * after the message (`<page_at_start>`), in the words the turn itself
+       * sent, so a later turn can say what that page showed.
+       */
+      pageAtStart?: string | null;
     }
   | {
       role: 'assistant';
@@ -384,6 +408,16 @@ export interface AgentTurnResult {
   attachments?: AttachmentUsage;
   /** Set on a turn resumed after work: which requests it reported, could not read, and left out. */
   resumed?: ResumedTurn;
+  /**
+   * The digest of the page the person's message was sent from (the turn's
+   * `context.oui` snapshot, `ui.stateDigest`), made when the turn began. The
+   * host writes it on the turn's stored user message and hands it back in
+   * history as that message's `pageAtStart`: the model was sent the message
+   * with it, so a history without it reads that message differently from the
+   * turn that sent it. Absent on a turn with no page, no digest, or no message
+   * of the person's (an approval's continuation, a resumed turn).
+   */
+  pageAtStart?: string;
 }
 
 export interface TurnMessage {

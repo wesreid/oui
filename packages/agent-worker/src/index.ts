@@ -112,6 +112,17 @@ export { createRealtimeKeySource, isRealtimeKeySource, DEFAULT_REALTIME_KEY_MAX_
 export type { RealtimeApiKey, RealtimeApiKeyGetter, RealtimeKeySource, RealtimeKeySourceOptions } from './realtime/api-key.js';
 export { createHttpUIActionChannel } from './ui/channel.js';
 export { readClientPage, withoutClientSnapshot, withoutClientUI, capabilityFingerprint, CLIENT_SNAPSHOT_KEY, type ClientPage } from './ui/snapshot.js';
+// What stored history keeps of each page: a digest, made once (state-digest.ts, page-at-start.ts).
+export {
+  DEFAULT_STATE_DIGEST_CHARS,
+  DIGEST_FIRST_ROWS,
+  pageDigest,
+  stateDigestOf,
+  type StateDigest,
+  type StateDigestContext,
+  type StateDigestSetting,
+} from './ui/state-digest.js';
+export { PAGE_AT_START_OPEN, PAGE_AT_START_CLOSE, pageAtStartNote, withPageAtStart } from './ui/page-at-start.js';
 export {
   DEFAULT_PAGE_STATE_CHARS,
   observationSchemas,
