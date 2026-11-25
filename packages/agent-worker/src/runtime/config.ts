@@ -5,6 +5,7 @@ import { readTurnContextPlacement } from '../step-messages.js';
 import { readStateDigestId, readStateDigestSetting } from '../ui/state-digest.js';
 import { readKnowledgePlacement } from '../ui/knowledge.js';
 import { isRealtimeApiKey } from '../realtime/api-key.js';
+import { assertTrailerTools } from '../tools/trailer.js';
 
 /**
  * Every value the runtime cannot run without, and what it is for. A missing
@@ -53,4 +54,6 @@ export function assertAgentRuntimeConfig<TDb>(config: Partial<AgentRuntimeConfig
   readStateDigestId(config.uiActions?.stateDigestId);
   // So does a knowledge placement the worker does not know.
   readKnowledgePlacement(config.uiActions?.knowledgePlacement);
+  // And a trailer tool that cannot be one (tools/trailer.ts); a resolver's are checked when it gives a turn its tools.
+  if (Array.isArray(config.tools)) assertTrailerTools(config.tools, config.model);
 }

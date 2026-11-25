@@ -129,6 +129,8 @@ export function fingerprint(inputs: FingerprintInputs): string {
         destructive: t.destructive ?? false,
         title: t.title ?? null,
         consequence: t.consequence ?? null,
+        // A trailer tool is taught in the prompt rather than declared: only when set, so other recordings stay current.
+        ...(t.trailer ? { trailer: true } : {}),
       })),
     channel,
     context: [suite.context ?? null, scenario.context ?? null],

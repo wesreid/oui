@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { AgentEvalScenario, AgentEvalSuite } from '@ouispec/contract';
+import type { RegisteredTool } from '@ouispec/agent-worker';
 import { fingerprint, fingerprintedUiActions, type FingerprintInputs } from '../cassettes.js';
 
 const scenario: AgentEvalScenario = { id: 'one', title: 'One turn', turns: [{ user: 'Hello' }] };
@@ -50,8 +51,35 @@ describe('a recording’s fingerprint of the agent’s UI settings', () => {
   });
 });
 
+describe('a recording’s fingerprint of a trailer tool', () => {
+  const note: RegisteredTool = {
+    name: 'note',
+    effect: 'edit',
+    answerless: true,
+    description: 'Write one line in this chat’s work notes.',
+    inputSchema: {
+      type: 'object',
+      sideEffects: false,
+      additionalProperties: false,
+      properties: { kind: { type: 'string', enum: ['decision', 'task', 'made'] }, text: { type: 'string' } },
+    },
+    execute: async () => ({ success: true }),
+  };
+
+  it('is what it was for an answerless tool that is not a trailer: pinned', () => {
+    expect(fingerprint({ ...inputs(), tools: [note] })).toBe(PINNED.answerlessNote);
+    expect(fingerprint({ ...inputs(), tools: [{ ...note, trailer: false }] })).toBe(PINNED.answerlessNote);
+  });
+
+  it('changes when the tool is written as a trailer, which changes what the model is sent', () => {
+    expect(fingerprint({ ...inputs(), tools: [{ ...note, trailer: true }] })).not.toBe(PINNED.answerlessNote);
+  });
+});
+
 /** Taken from 0.41.0's fingerprint of the same inputs, before function digests were held by name. */
 const PINNED = {
   none: '03bc2fd2406fae3c7dd6151e521544d420cec9c339f75016ea69c3eca8b3f4a2',
   plain: 'dc2bd8dcb5b855ba5aa32a3a0aa12579f04f0c5d9ed9e0d33d4230c9e7a263ac',
+  /** Taken from 0.41.1, before trailer tools: an answerless `note`. */
+  answerlessNote: '41634dba379e669962922625fe3505485dd3a6398986dcd279b75c7bdbec99aa',
 };

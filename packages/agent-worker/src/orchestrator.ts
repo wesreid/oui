@@ -60,7 +60,21 @@ import { answerWithoutState, withStatesAtEnd } from './ui/page-state-at-end.js';
 import { readStateDigestSetting, stateDigestOf } from './ui/state-digest.js';
 import { withPageAtStart } from './ui/page-at-start.js';
 import { readTurnContextPlacement, stepMessages as forStep, STEP_NOTE_CLOSE, STEP_NOTE_OPEN, withCallResults } from './step-messages.js';
-import { EVERY_TOOL, offeredTools, renderRule, type OfferedTools, type ToolRule } from './prompt/step-tools.js';
+import { EVERY_TOOL, offeredTools, renderPieces, renderRule, type OfferedTools, type ToolRule } from './prompt/step-tools.js';
+import {
+  asTrailers,
+  assertTrailerTools,
+  createTrailerStream,
+  requestDigest,
+  trailerCallId,
+  trailerCloser,
+  trailerNotTakenError,
+  trailerOpener,
+  trailerParams,
+  trailerRule,
+  unreadableTrailerError,
+  type ReadTrailer,
+} from './tools/trailer.js';
 import { systemPromptForTools } from './prompt/builder.js';
 import { FIND_TOOL, PRESENT_OPTIONS_TOOL } from './tools/sdk-tool-names.js';
 import { clockText, readClientTimeZone } from './prompt/clock.js';
@@ -170,7 +184,9 @@ export { PRESENT_OPTIONS_TOOL };
  * step goes on. `ai` answers such a call with its own error (`AI_NoSuchToolError`)
  * and runs nothing; this is the result the model reads in its place.
  */
-export function unavailableToolError(toolName: string): string {
+export function unavailableToolError(toolName: string, trailer = false): string {
+  // A trailer tool is written after the reply, never called (tools/trailer.ts).
+  if (trailer) return trailerNotTakenError(toolName);
   return (
     `"${toolName}" is not one of the tools you can use now, so the call did not run and nothing was shown to the user. ` +
     'Carry on with the tools you have, or answer in words.'
@@ -276,6 +292,14 @@ export async function runAgentTurn(
   if (input.resume && input.approval) {
     throw new Error('[agent-sdk] A turn carries resume or approval, never both: it continues one thing.');
   }
+  // The host's tools the model writes after its reply instead of calling (tools/trailer.ts): refused
+  // here when one cannot be, for a host whose resolver gives the turn its tools. None for most hosts,
+  // which are then given exactly what they were before.
+  assertTrailerTools(config.tools.tools, config.model);
+  const trailerTools = config.tools.tools.filter((t) => t.trailer === true);
+  const trailerNames = trailerTools.map((t) => t.name);
+  const trailerNameSet: ReadonlySet<string> = new Set(trailerNames);
+  const trailerRules = trailerTools.map(trailerRule);
   const { turnId, socketRoom } = input;
   // The turn as every host hook is told of it: its id, its channel, how its message was entered.
   const turnInfo = turnInfoOf(input, input.channel, input.approvalChannel);
@@ -424,7 +448,8 @@ export async function runAgentTurn(
    * tool is said only to a step that offers the tool.
    */
   const systemPromptFor = (offered: OfferedTools): string => {
-    const host = systemPromptForTools(hostPrompt, offered);
+    // A trailer tool's rule, for a step that offers it, in place of the definition it is not sent.
+    const host = systemPromptForTools(hostPrompt, offered) + renderPieces(trailerRules, offered);
     return withClientKnowledge(fileArea ? `${host}\n\n${attachmentDataNote(offered)}` : host, input.context, offered, knowledgePlacement);
   };
 
@@ -545,12 +570,25 @@ export async function runAgentTurn(
    */
   const answerlessSucceeded = new Set<string>();
   /**
+   * The calls of this turn that trailers became (tools/trailer.ts), by id, and
+   * why each that could not be read could not. A trailer is written with the
+   * reply it belongs to, which has been shown and may have been spoken: the
+   * step that wrote them is the turn's last, whatever became of its trailers,
+   * so the reply is never written twice. One that wrote nothing is stored with
+   * its error, and a later turn writes it again.
+   */
+  const trailerCalls = new Set<string>();
+  const unreadTrailers = new Map<string, string>();
+  /**
    * Whether the turn ends after a step that said this and made these calls:
    * it wrote reply text, and every call it made was to an answerless tool and
-   * succeeded. The model is not called again to read answers it does not need.
+   * succeeded, or was a trailer. The model is not called again to read
+   * answers it does not need.
    */
   const endsOnAnswerless = (text: string | undefined, toolCalls: ReadonlyArray<{ toolCallId: string }>): boolean =>
-    !!text?.trim() && toolCalls.length > 0 && toolCalls.every((tc) => answerlessSucceeded.has(tc.toolCallId));
+    !!text?.trim() &&
+    toolCalls.length > 0 &&
+    toolCalls.every((tc) => answerlessSucceeded.has(tc.toolCallId) || trailerCalls.has(tc.toolCallId));
   /** Why a call that did not run did not, from the result the model was given. */
   const notRunReason = (text: string): string => {
     try {
@@ -576,17 +614,39 @@ export async function runAgentTurn(
     const piece = typeof part.delta === 'string' ? part.delta : typeof part.text === 'string' ? part.text : '';
     replyText += piece;
   };
+  /** A trailer read from a step's stream: a call of the turn, and, when it could not be read, why. */
+  const readTrailer = (trailer: ReadTrailer) => {
+    trailerCalls.add(trailer.toolCallId);
+    if (trailer.cause === undefined) return;
+    unreadTrailers.set(trailer.toolCallId, trailer.cause);
+    log('warn', 'agent:tool', 'A trailer could not be read; nothing was written for it', {
+      turnId,
+      toolName: trailer.toolName,
+      toolCallId: trailer.toolCallId,
+      cause: trailer.cause,
+    });
+  };
   const replyRecorder =
     typeof config.model === 'string'
       ? config.model
       : wrapLanguageModel({
           model: config.model,
           middleware: {
-            wrapStream: async ({ doStream }) => {
+            // A trailer tool is taught, not declared: its calls in the prompt are written back as trailers, and its
+            // definition is left out (tools/trailer.ts). Only for a host that declares one.
+            ...(trailerNames.length > 0 ? { transformParams: async ({ params }) => trailerParams(params, trailerNames) } : {}),
+            wrapStream: async ({ doStream, params }) => {
               const result = await doStream();
+              // The step's number in the turn, and its request, name its trailers' calls: the same request, the same ids.
+              const step = recordedSteps.length;
+              const digest = trailerNames.length > 0 ? requestDigest(params.prompt) : '';
+              const read =
+                trailerNames.length > 0
+                  ? result.stream.pipeThrough(createTrailerStream({ tools: trailerNames, callId: (i) => trailerCallId(digest, step, i), onTrailer: readTrailer }))
+                  : result.stream;
               return {
                 ...result,
-                stream: result.stream.pipeThrough(
+                stream: read.pipeThrough(
                   new TransformStream({
                     transform(part, controller) {
                       recordReply(part as { type: string; delta?: unknown });
@@ -722,11 +782,15 @@ export async function runAgentTurn(
   const callNoToolRan = async (call: { toolCallId: string; toolName: string; input: unknown; error: unknown }): Promise<void> => {
     if (callsNotRun.has(call.toolCallId)) return;
     const unavailable = NoSuchToolError.isInstance(call.error);
+    // A trailer that could not be read says why, in words a trailer's writer can act on.
+    const unreadable = unreadTrailers.get(call.toolCallId);
     const error = unavailable
-      ? unavailableToolError(call.toolName)
-      : call.error instanceof Error
-        ? call.error.message
-        : `The call to "${call.toolName}" could not be read, so it did not run.`;
+      ? unavailableToolError(call.toolName, trailerNameSet.has(call.toolName))
+      : unreadable !== undefined
+        ? unreadableTrailerError(call.toolName, unreadable)
+        : call.error instanceof Error
+          ? call.error.message
+          : `The call to "${call.toolName}" could not be read, so it did not run.`;
     const text = JSON.stringify({ success: false, notRun: true, ...(unavailable ? { unavailable: true } : { invalidInput: true }), error });
     callsNotRun.set(call.toolCallId, error);
     resultsOfCallsNoToolRan.set(call.toolCallId, text);
@@ -1021,6 +1085,13 @@ export async function runAgentTurn(
       policyRequiresApproval = decision.action === 'require_approval';
     }
 
+    // ── A trailer is never asked for approval ──
+    // Text the model copies from a page can hold a trailer, so a trailer the host's policy would ask
+    // the person to approve is refused instead (tools/trailer.ts).
+    if (trailerCalls.has(toolUseId) && (requirement.required || policyRequiresApproval)) {
+      return refused({ error: `"${t.name}" was written as a trailer, which is never asked for approval, so it was not run.`, notRun: true }, args);
+    }
+
     // ── Approval ──
     // Checked and set with no await in between, so of the calls in one
     // response exactly the first that needs approval stops the turn.
@@ -1176,6 +1247,13 @@ export async function runAgentTurn(
     if (isWrapped && typeof result.modelText === 'string') answerTexts.set(toolUseId, result.modelText);
     // An answerless tool that succeeded told the model nothing it needs: its step may be the turn's last.
     if (t.answerless === true && resultSuccess) answerlessSucceeded.add(toolUseId);
+    // A trailer tool's stored answer says the note was written by being an object with no error (tools/trailer.ts).
+    if (t.trailer === true && resultSuccess && (!modelPayload || typeof modelPayload !== 'object' || Array.isArray(modelPayload) || 'error' in modelPayload)) {
+      log('warn', 'agent:tool', 'A trailer tool succeeded with an answer that is not an object without an error: later prompts read it as not written', {
+        turnId,
+        toolName: t.name,
+      });
+    }
     return { text: JSON.stringify(modelPayload ?? { error: 'no result' }), ran: true };
   };
 
@@ -2044,6 +2122,8 @@ export async function runAgentTurn(
       turnFilesGiven && input.history?.at(-1)?.role === 'user' ? input.history.length - 1 : null,
       // The page it was sent from, with it as every later turn's history gives it.
       pageAtStart,
+      // A trailer tool's calls, read as the trailers the model was taught to write.
+      trailerNames,
     ),
     ...(continued?.messages ?? []),
   ];
@@ -2169,7 +2249,7 @@ export async function runAgentTurn(
       // approval card, and a resume after work, are not messages, so they say nothing.
       ...(turnSpoken ? [spokenInputText(turnSpoken)] : []),
       // A reply a voice will read out is written for the ear (prompt/spoken-reply.ts).
-      ...(turnSpokenReply ? [spokenReplyText(turnSpokenReply)] : []),
+      ...(turnSpokenReply ? [spokenReplyText(turnSpokenReply, trailerNames.filter((name) => offered.has(name)))] : []),
       // When the model may look at the person, or that it cannot see them and why.
       ...(turnVisionText ? [turnVisionText] : []),
       // When the model may ask for photos, and what has happened in a capture.
@@ -2350,7 +2430,23 @@ export async function runAgentTurn(
               ],
               turn: turnInfo,
             });
-        const { note, ...policy } = stepPolicy;
+        const { note, ...asked } = stepPolicy;
+        // A trailer tool is written, never called (tools/trailer.ts): a step held to it is told to write
+        // it after its reply, and offered it alone, rather than forced to a call the provider is not sent.
+        const askedActive = asked.activeTools ?? turnTools;
+        const forcedTrailer =
+          trailerNames.length === 0
+            ? null
+            : typeof asked.toolChoice === 'object' && trailerNameSet.has(asked.toolChoice.toolName)
+              ? asked.toolChoice.toolName
+              : asked.toolChoice === 'required' && askedActive.length > 0 && askedActive.every((n) => trailerNameSet.has(n))
+                ? askedActive[0]
+                : null;
+        let policy: Omit<StepPolicy, 'note'> = asked;
+        if (forcedTrailer) {
+          const { toolChoice: _forced, ...rest } = asked;
+          policy = typeof asked.toolChoice === 'object' ? { ...rest, activeTools: [forcedTrailer] } : rest;
+        }
         // What it constrained, in the model's terms: an action is run through
         // `ui_act`, which holds the step to the actions the policy allowed.
         const isAction = (name: string) => actionIds.includes(name);
@@ -2388,7 +2484,9 @@ export async function runAgentTurn(
         // to the cache again instead of reading it.
         const stepCall = forced
           ? `This step: call ${UI_ACT_TOOL} with action "${forced}".`
-          : held
+          : forcedTrailer
+            ? `This step: write your reply, then a ${forcedTrailer} after it, as ${trailerOpener(forcedTrailer)}{…}${trailerCloser(forcedTrailer)}.`
+            : held
             ? forcedTool
               ? `This step: call ${forcedTool}. It is the only tool this step has.`
               : 'This step: call a tool.'
@@ -2400,7 +2498,9 @@ export async function runAgentTurn(
         const offered = stepOfferedTools(turnTools, constraints);
         const turnContext = turnContextFor(offered);
         // A call no tool ran reads the SDK's result for it, never `ai`'s error (callNoToolRan).
-        const answered = messages && resultsOfCallsNoToolRan.size > 0 ? withCallResults(messages, resultsOfCallsNoToolRan) : messages;
+        const resulted = messages && resultsOfCallsNoToolRan.size > 0 ? withCallResults(messages, resultsOfCallsNoToolRan) : messages;
+        // A trailer tool's calls are read again as the trailers they were (tools/trailer.ts), as the next turn's history reads them.
+        const answered = resulted && trailerNames.length > 0 ? asTrailers(resulted, trailerNameSet) : resulted;
         // Every answer gives its page state up the same way; the newest of this turn's is read at the end.
         const trimmed = answered ? withStatesAtEnd(answered, turnMessageAt) : null;
         if (trimmed) {
@@ -2583,7 +2683,17 @@ export async function runAgentTurn(
   const lastStep = steps.at(-1) as { text?: string; toolCalls?: ReadonlyArray<{ toolCallId: string; toolName: string }> } | undefined;
   const answerlessEnd: AnswerlessEnd | null =
     stopReason === 'complete' && lastStep && endsOnAnswerless(lastStep.text, lastStep.toolCalls ?? [])
-      ? { tools: (lastStep.toolCalls ?? []).map((tc) => tc.toolName) }
+      ? (() => {
+          const calls = lastStep.toolCalls ?? [];
+          // Which of them arrived as trailers, and how many of those wrote nothing: only when any did.
+          const trailered = calls.filter((tc) => trailerCalls.has(tc.toolCallId));
+          const failed = trailered.filter((tc) => !answerlessSucceeded.has(tc.toolCallId)).length;
+          return {
+            tools: calls.map((tc) => tc.toolName),
+            ...(trailered.length > 0 ? { trailer: true as const, trailers: trailered.length } : {}),
+            ...(failed > 0 ? { failedTrailers: failed } : {}),
+          };
+        })()
       : null;
   // deadline and token_budget are caught by the try/catch — they produce errors, not normal returns
 
@@ -2619,6 +2729,8 @@ export async function runAgentTurn(
     segments,
     // The model call the turn did not make: it ended on its reply and answerless calls.
     ...(answerlessEnd ? { answerlessEnd } : {}),
+    // The trailers the turn's steps wrote, and how many could not be read.
+    ...(trailerNames.length > 0 ? { trailers: { read: trailerCalls.size, unread: unreadTrailers.size } } : {}),
     peakPromptTokens: usage.peakPromptTokens,
     promptTokens: usage.promptTokens,
     cacheReadTokens: usage.cacheReadTokens,
@@ -2940,6 +3052,8 @@ export function convertHistoryToCoreMessages(
   turnMessageAt: number | null = null,
   /** The digest of the page the turn's own message was sent from, which it is sent with (page-at-start.ts). */
   turnPageAtStart: string | null = null,
+  /** The tools written as trailers (tools/trailer.ts): their calls are given back as the trailers they were. */
+  trailerTools: readonly string[] = [],
 ): ModelMessage[] {
   const messages: ModelMessage[] = [];
   /** The messages made from a person's entries, which a following entry joins. */
@@ -3101,6 +3215,9 @@ export function convertHistoryToCoreMessages(
     // what this turn stores with it, so every later turn reads the message the same way.
     messages[messages.length - 1] = { role: 'user', content: withPageAtStart(ownMessages.get(lastMsg)!, turnPageAtStart) };
   }
+
+  // A trailer tool's calls, as the trailers the model was taught to write: the same bytes its turn sent.
+  if (trailerTools.length > 0) messages.splice(0, messages.length, ...asTrailers(messages, trailerTools));
 
   // Final diagnostics: summary of converted messages
   log('info', 'agent:llm', 'Converted messages summary', {

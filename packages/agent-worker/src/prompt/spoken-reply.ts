@@ -27,8 +27,12 @@ export function readClientReplyOutput(context: Record<string, unknown> | null | 
   return readReplyOutput(context?.[REPLY_OUTPUT_CONTEXT_KEY]);
 }
 
-/** What the model is told about a reply that will be spoken. */
-export function spokenReplyText(output: ReplyOutput): string {
+/**
+ * What the model is told about a reply that will be spoken. `trailers`: the
+ * trailer tools the step offers (tools/trailer.ts), which are written into the
+ * response as tags and taken out before it is spoken; none for most hosts.
+ */
+export function spokenReplyText(output: ReplyOutput, trailers: readonly string[] = []): string {
   return (
     '<output>Your reply will be spoken aloud to the user on a live call; they will hear it, not read it. ' +
     'Speak in short, plain sentences, one idea at a time, and keep the reply brief. ' +
@@ -36,7 +40,7 @@ export function spokenReplyText(output: ReplyOutput): string {
     'Write numbers, prices, dates and times the way a person says them aloud, in words, and spell out symbols and abbreviations. ' +
     'Never read out a link, an id or a long list: show what the user should look at through the page’s actions, and say in a sentence what you are showing. ' +
     'Before something that takes a while to look up or do, first say in a few words what you are doing.' +
-    (output.voiceDirections ? ` ${voiceDirectionsText(output.voiceDirections)}` : '') +
+    (output.voiceDirections ? ` ${voiceDirectionsText(output.voiceDirections, trailers)}` : '') +
     '</output>'
   );
 }
@@ -46,10 +50,17 @@ export function spokenReplyText(output: ReplyOutput): string {
  * own tags and guidance (`output.voiceDirections`), after the rules above. A
  * tag is written into the reply where it applies, and the voice performs it.
  */
-function voiceDirectionsText(directions: VoiceDirections): string {
+function voiceDirectionsText(directions: VoiceDirections, trailers: readonly string[]): string {
   return (
     `The voice that reads your reply (${directions.engine}) can be directed with these inline tags, written exactly as shown, where they apply: ` +
     `${directions.tags.join(' ')}. They are not markdown: the voice performs them and does not read them out. ` +
-    `Use no other tags. ${directions.guidance}`
+    `Use no other tags${trailerException(trailers)}. ${directions.guidance}`
   );
+}
+
+/** The trailers the rule against other tags does not cover: they are taken out before the reply is spoken. */
+function trailerException(trailers: readonly string[]): string {
+  if (trailers.length === 0) return '';
+  if (trailers.length === 1) return ` (the ${trailers[0]} trailer excepted: it is never spoken)`;
+  return ` (the ${trailers.slice(0, -1).join(', ')} and ${trailers.at(-1)} trailers excepted: they are never spoken)`;
 }
