@@ -435,6 +435,19 @@ export interface AgentTurnResult {
    * of the person's (an approval's continuation, a resumed turn).
    */
   pageAtStart?: string;
+  /**
+   * Set when the turn ended at a step that wrote its reply and made only calls
+   * to answerless tools (`RegisteredTool.answerless`), which all succeeded: the
+   * model was not called again to read their answers. `tools` names them, in
+   * the order they were called. The turn's `stopReason` is `complete`.
+   */
+  answerlessEnd?: AnswerlessEnd;
+}
+
+/** How a turn ended on answerless calls (`AgentTurnResult.answerlessEnd`). */
+export interface AnswerlessEnd {
+  /** The answerless tools the last step called, in order. */
+  tools: string[];
 }
 
 export interface TurnMessage {

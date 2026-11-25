@@ -10,7 +10,7 @@
 import type { RegisteredTool } from '../tools/types.js';
 import type { AgentPersonaConfig } from '../prompt/index.js';
 import type { AgentApiSurface } from '@ouispec/agent-core';
-import type { TurnMessage, TurnHistoryMessage } from '../types.js';
+import type { TurnMessage, TurnHistoryMessage, AnswerlessEnd } from '../types.js';
 import type { StateDigestSetting } from '../ui/state-digest.js';
 import type { TurnPolicy } from '../turn-policy.js';
 import type { ToolPolicy } from '../authz/tool-policy.js';
@@ -499,6 +499,8 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
     attachments?: AttachmentUsage;
     /** Set on a turn resumed after work (the payload's `resume`): which requests it reported, could not read, and left out. */
     resumed?: ResumedTurn;
+    /** Set when the turn ended on its reply and answerless calls, with no model call to read their answers. */
+    answerlessEnd?: AnswerlessEnd;
     db: TDb;
   }) => Promise<void>;
 

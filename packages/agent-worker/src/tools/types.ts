@@ -72,6 +72,20 @@ export interface RegisteredTool {
    */
   inputPrivate?: boolean;
   /**
+   * The tool's answer only says that what it was given was written (a note the
+   * agent keeps for itself): the model needs nothing from it to finish its
+   * reply. A step that wrote reply text and whose only calls were to answerless
+   * tools, every one of which succeeded, is the turn's last: its text is the
+   * reply, and the model is not called again to read the answers. A call that
+   * failed or did not run, or any other tool called in the same step, lets the
+   * turn go on as it always has. Default false.
+   *
+   * The tool's description and schema are sent as they are, so the flag
+   * changes no prompt. Tell the agent, in the host's rules, to make such a call
+   * in the step that writes its reply.
+   */
+  answerless?: boolean;
+  /**
    * The API this tool's approved calls go to, as an origin
    * (`https://api.example.com`): the audience of the receipt an approved call
    * carries (`ctx.approval.receipt`), which that API verifies. A host tool
