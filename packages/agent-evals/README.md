@@ -22,6 +22,44 @@ agent-evals --channel sms --scenario price-only --junit evals.xml
 
 In a test runner, `evalCases(config)` gives one case per scenario and channel; `await evalCase.assert()` throws with every failure.
 
+## A declared page that shows what it was given
+
+A surface declared in the suite reports the `state` it is given, and each action leaves the `state` its fixture says. An action that `writes` also puts what its input gives into that state once it succeeds, so the next observation shows what was typed or chosen, as your page does, and a model never writes a line again because the page still shows it empty:
+
+```yaml
+page:
+  at: /scripts/s-1
+  surfaces:
+    - id: room:script
+      name: Script
+      description: A script's lines.
+      routes: [/scripts/:scriptId]
+      state:
+        state:
+          lists:
+            line.text:
+              - { key: line-1, title: Line 1, value: Spring is here. }
+              - { key: line-2, title: Line 2, value: '' }
+      actions:
+        - id: script_line_text
+          description: Types the words of a line.
+          input: { type: object, properties: { item: { type: string }, value: { type: string } } }
+          # The row `item` names, in the list at state › lists › line.text, takes the input's `value`.
+          writes: [{ to: [state, lists, line.text], item: item }]
+        - id: script_title
+          description: Renames the script.
+          input: { type: object, properties: { value: { type: string } } }
+          # A field: the input's `value` replaces state › title.
+          writes: [{ to: [state, title] }]
+```
+
+- **`to`** is a path of whole keys into the surface's state, its observation id first, so a key may hold dots (`line.text`). With **`item`** (the input property that names the row), `to` holds a list, and the row's `field` (default `value`) takes the input's `value` (or the property named by `value`). Rows are addressed by `ref` (default `key`) and named by `title` (default `title`).
+- **A row is named as your page names it**: by its key, else its title, exactly or ignoring case and outer spaces (the bindings' own `resolveRef`). The action runs, is recorded and matches its `cases` with the row's key. A name several rows share fails the call (`AMBIGUOUS_ITEM`), and one no row has fails it once it would write (`ITEM_NOT_FOUND`), each listing the rows on screen.
+- **Only a run that succeeds writes**, after its own `state`: never one its `result`, or the `cases` entry its input holds, fails. An input that leaves the value out writes nothing, and the fixture you wrote is never changed, so each case starts from the same page.
+- **A page that declares no `writes` is the page it was**, and a recording's fingerprint covers `writes`, so adding one replays the old recording as stale.
+
+`page.ran` and `page.ranInCase` judge a run's `item` the same way where the run addressed a list the page knows (a control's `rows`, a model's, or a list an action `writes`): `{ action: script_line_text, input: { item: line-2 } }` holds a run the agent gave as "Line 2", and an `item` that names no row of that list fails, naming the row it looked for and the rows the list holds. Everything that held before still holds. `EvalPage.rowsOf(run)` gives the rows a run addressed, and `resolveRow` resolves a name among rows as the page does.
+
 ## A model matrix: one run against every candidate model
 
 The same suites, on every model you might run your agent on, several times each, judged by one fixed model, so the cheapest model that does your work well enough is chosen by your own scenarios rather than a public benchmark.

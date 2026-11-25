@@ -14,9 +14,10 @@
  *
  * How much each preset narrates its tool use is the persona's `narration`
  * (rules/narration.ts): fixed and brief by default, or deferred to the host's
- * instruction, with a section saying what holds whatever it asks.
+ * instruction and its default amount, in one section that says where the
+ * amount comes from.
  */
-import { NARRATION_INSTRUCTION, resolveNarration, type NarrationSetting } from './narration.js';
+import { NARRATION_INSTRUCTION, resolveNarration, resolveNarrationDefault, type NarrationSetting } from './narration.js';
 
 /** The tone a persona's replies take. */
 export type CommunicationStyle = 'conversational' | 'concise' | 'formal';
@@ -99,41 +100,56 @@ const PRESET_FORMAT_LINE: Record<'concise' | 'formal', Record<CommunicationForma
 
 /**
  * What a host that says how much the agent narrates adds after the truthfulness
- * rules: where the amount comes from, what holds at any amount, and the
- * amount when a turn comes without it.
+ * rules: the one place the rules say where the amount comes from. With the
+ * host's default amount (`narrationDefault`), a turn that comes with no
+ * instruction is held to it; with none, to one brief line.
  */
-const HOST_NARRATION = `
+const hostNarration = (narrationDefault: string | null): string =>
+  narrationDefault === null
+    ? `
 
 ### How Much You Say While You Work
-- How much you write while you work (before a tool call, between steps, after a step that fails) is set by ${NARRATION_INSTRUCTION}, which comes with each turn. Follow it.
-- Whatever it asks, everything you write is for the user: never your reasoning, never a result a tool has not returned yet, and never the same answer twice.
-- When a turn comes with no such instruction, write at most one brief line before a tool call ("Let me check that for you."), or nothing at all.`;
+- How much you write before a tool call, between steps and after a failed step is set by ${NARRATION_INSTRUCTION}, which comes with the turn. Without one, write at most one brief line before a tool call, or nothing.`
+    : `
+
+### How Much You Say While You Work
+How much you write before a tool call, between steps and after a failed step is as follows, unless the turn comes with ${NARRATION_INSTRUCTION}, which then replaces it:
+${narrationDefault}`;
 
 /** The preset lines on narrating tool use and its failures, by narration setting. */
 const NARRATION_LINES: Record<'conversationalTools' | 'conversationalFailures' | 'concise' | 'formal', Record<NarrationSetting, string>> = {
   conversationalTools: {
     brief: `- Briefly narrate what you're doing when using tools — but keep it to ONE short sentence, never a paragraph.`,
-    host: `- Say what you're doing when using tools as ${NARRATION_INSTRUCTION} asks, in words a person would say, never as a log of your steps.`,
+    host: `- Say what you're doing in words a person would say, never as a log of your steps.`,
   },
   conversationalFailures: {
     brief: `- If a tool returns an error, acknowledge it briefly: "That didn't work — let me try another approach."
 - When tools fail silently or return empty results, pivot immediately to an alternative without narrating each failure.`,
-    host: `- If a tool returns an error, say what happened in plain words, as ${NARRATION_INSTRUCTION} asks, then try another approach.
-- When tools fail silently or return empty results, move on to an alternative. Whether and how you tell the user is for ${NARRATION_INSTRUCTION} to decide.`,
+    host: `- If a tool returns an error or nothing, try another approach.`,
   },
   concise: {
     brief: `- One sentence of narration per tool use, maximum.`,
-    host: `- Narrate tool use only as much as ${NARRATION_INSTRUCTION} asks, in the fewest words that say it.`,
+    host: `- Narrate tool use in the fewest words that say it.`,
   },
   formal: {
     brief: `- Narrate tool usage with brief, factual statements.`,
-    host: `- Narrate tool usage with factual statements, as much as ${NARRATION_INSTRUCTION} asks.`,
+    host: `- Narrate tool use with factual statements.`,
   },
 };
 
-export function getCommunicationRules(setting: CommunicationStyleSetting = 'conversational', narration: NarrationSetting = 'brief'): string {
+/**
+ * The communication rules at a preset and format, and a narration setting
+ * (`brief` by default). With `host`, `narrationDefault` is the host's default
+ * amount (resolveNarrationDefault): what a turn with no instruction is held to.
+ */
+export function getCommunicationRules(
+  setting: CommunicationStyleSetting = 'conversational',
+  narration: NarrationSetting = 'brief',
+  narrationDefault?: string | null,
+): string {
   const { preset, format } = resolveCommunicationStyle(setting);
   const amount = resolveNarration(narration);
+  const statedDefault = resolveNarrationDefault(amount, narrationDefault);
   const baseRules = `## COMMUNICATION RULES
 
 ### Output Format
@@ -145,7 +161,7 @@ ${OUTPUT_FORMAT[format]}
 - NEVER tell the user that a generation, export, or other async job is "in progress," "processing," or "rendering" unless the tool returned a real jobId.
 - If a tool returns an error, an empty result, or no jobId, say what actually happened: "That didn't work — the backend rejected the request." Do NOT pretend the work started.
 - If a tool returns a jobId, you may say it's processing and quote the jobId.
-- A tool started real work only if its result says so (a job id, or a started status). Moving around the UI starts nothing by itself.${amount === 'host' ? HOST_NARRATION : ''}`;
+- A tool started real work only if its result says so (a job id, or a started status). Moving around the UI starts nothing by itself.${amount === 'host' ? hostNarration(statedDefault) : ''}`;
 
   switch (preset) {
     case 'concise':

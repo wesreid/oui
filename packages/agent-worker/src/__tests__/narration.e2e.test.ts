@@ -49,20 +49,23 @@ afterAll(async () => {
 
 // ─── The product ─────────────────────────────────────────────────────────────
 
-const persona = (narration?: NarrationSetting): AgentPersonaConfig => ({
+const persona = (narration?: NarrationSetting, narrationDefault?: string): AgentPersonaConfig => ({
   name: 'Deos',
   identity: 'You are Deos, the assistant at a car dealership.',
   instructions: ['Quote only the dealer price.'],
-  overrides: { disableUIControlRules: true, ...(narration ? { narration } : {}) },
+  overrides: { disableUIControlRules: true, ...(narration ? { narration } : {}), ...(narrationDefault !== undefined ? { narrationDefault } : {}) },
 });
 
+/** The host's default level, as the lines it states once in the system prompt (`narrationDefault`). */
+const EXPLAIN_DEFAULT = '- Before each distinct step, say in one or two sentences what you will do and why.';
+
 /** A runtime as a host creates it, whose history carries `stepContext`; the requests its model was sent, in order. */
-function product(narration: NarrationSetting | undefined, stepContext: string | null) {
+function product(narration: NarrationSetting | undefined, stepContext: string | null, narrationDefault?: string) {
   const scripted = scriptedChatCompletions(() => ({ text: REPLY }));
   const config: AgentRuntimeConfig<object> = {
     model: createOpenAI({ apiKey: 'fixture-scripted-key', fetch: scripted.fetch }).chat('gpt-fixture'),
     realtime: { url: realtimeUrl, apiKey: 'realtime-key' },
-    persona: persona(narration),
+    persona: persona(narration, narrationDefault),
     tools: [],
     getDb: async () => ({}),
     getHistory: async () => ({ messages: [{ role: 'user', content: SAID }], stepContext }),
@@ -94,8 +97,8 @@ const turnContextOf = (request: ChatRequest) => {
   return users.find((t) => t.includes('<now>')) ?? '';
 };
 
-async function turnWith(narration: NarrationSetting | undefined, stepContext: string | null) {
-  const { runner, requests } = product(narration, stepContext);
+async function turnWith(narration: NarrationSetting | undefined, stepContext: string | null, narrationDefault?: string) {
+  const { runner, requests } = product(narration, stepContext, narrationDefault);
   const outcome = await runner.run(TURN, { channel: 'chat' });
   expect(outcome).toMatchObject({ status: 'completed', turnId: TURN.turnId });
   expect(requests).toHaveLength(1);
@@ -128,6 +131,27 @@ describe('a host that says how much, through a turn', () => {
     expect(systemOf(none)).toBe(systemOf(explain));
     expect(turnContextOf(quietTurn)).toContain(QUIET);
     expect(turnContextOf(none)).not.toContain('How you talk while you work');
+  });
+});
+
+describe('a host that states its default level, through a turn', () => {
+  it('sends the default in the system prompt and no instruction at that level, and an instruction that replaces it at another (acceptance)', async () => {
+    const atDefault = await turnWith('host', null, EXPLAIN_DEFAULT);
+    const system = systemOf(atDefault);
+    expect(system).toContain(`unless the turn comes with ${NARRATION_INSTRUCTION}, which then replaces it:\n${EXPLAIN_DEFAULT}`);
+    // The default replaces the one-brief-line fallback, and the turn carries no instruction of its own.
+    expect(system).not.toContain('Without one, write at most one brief line');
+    expect(turnContextOf(atDefault)).not.toContain('How you talk while you work');
+    // Another level sends its instruction with the turn; the system prompt is the same, so the cache holds.
+    const quietTurn = await turnWith('host', QUIET, EXPLAIN_DEFAULT);
+    expect(systemOf(quietTurn)).toBe(system);
+    expect(turnContextOf(quietTurn)).toContain(QUIET);
+  });
+
+  it('refuses a default with no host narration, or an empty one, when the runtime is created', () => {
+    expect(() => product(undefined, null, EXPLAIN_DEFAULT)).toThrow(/narrationDefault is the host's default amount: it needs narration: 'host'/);
+    expect(() => product('brief', null, EXPLAIN_DEFAULT)).toThrow(/needs narration: 'host'/);
+    expect(() => product('host', null, '  ')).toThrow(/narrationDefault must be the text of the default amount/);
   });
 });
 

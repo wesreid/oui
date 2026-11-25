@@ -10,7 +10,7 @@
 import type { AgentPersonaConfig, PromptBuildContext } from './types.js';
 import { getBaseRules } from './rules/base.js';
 import { getCommunicationRules, resolveCommunicationStyle } from './rules/communication.js';
-import { resolveNarration } from './rules/narration.js';
+import { resolveNarration, resolveNarrationDefault } from './rules/narration.js';
 import { getToolStrategyRules, TOOL_STRATEGY_TOOL_RULES } from './rules/tool-strategy.js';
 import { getUIControlRules, UI_CONTROL_TOOL_RULES } from './rules/ui-control.js';
 import { promptForTools, type OfferedTools, type ToolRule } from './step-tools.js';
@@ -40,7 +40,8 @@ export function systemPromptForTools(prompt: string, offered: OfferedTools): str
  *    a preset and a format (markdown, or plain text)
  *
  * How much the agent says while it works (sections 2–4) is `overrides.narration`:
- * fixed and brief by default, or the host's to say with each turn.
+ * fixed and brief by default, or the host's to say with each turn, with its
+ * default amount stated once in section 3 (`overrides.narrationDefault`).
  * 4. SDK tool strategy rules (discovery-first, error handling, options)
  * 5. SDK UI control rules (navigation, forms, player, toasts)
  * 6. Platform capabilities
@@ -59,6 +60,7 @@ export function buildAgentSystemPrompt(
   const overrides = persona.overrides ?? {};
   const style = resolveCommunicationStyle(overrides.communicationStyle);
   const narration = resolveNarration(overrides.narration);
+  const narrationDefault = resolveNarrationDefault(narration, overrides.narrationDefault);
   // In plain text, the prompt's own labels carry no markdown either, so no
   // example shows the model a formatting symbol to copy.
   const label = (name: string) => (style.format === 'plain' ? `${name}:` : `**${name}:**`);
@@ -86,7 +88,7 @@ export function buildAgentSystemPrompt(
   }
 
   // 3. SDK communication rules
-  parts.push('\n\n' + getCommunicationRules(style, narration));
+  parts.push('\n\n' + getCommunicationRules(style, narration, narrationDefault));
 
   // 4. SDK tool strategy rules
   if (!overrides.disableToolStrategy) {

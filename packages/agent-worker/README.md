@@ -76,23 +76,29 @@ A persona's `overrides.narration` says who decides how much the agent writes bef
 | Value | The rules say | When to use it |
 |---|---|---|
 | `brief` (default) | At most one brief line before a tool call, one short sentence of narration, no text between tool rounds, and a pivot past a failure without narrating it | Every persona that names no narration: its prompt is unchanged, byte for byte |
-| `host` | What holds at any amount: only words for the user, never reasoning, never a result a tool has not returned, never the same answer twice. The amount is deferred to "the instruction on how much you say while you work", which the host sends with each turn; a turn sent without one is held to one brief line | A host that lets the person choose how much the agent explains, such as a setting from "explain as you go" to "results only" |
+| `host` | What holds at any amount: only words for the user, never reasoning, never a result a tool has not returned, never the same answer twice. One section says the amount is "the instruction on how much you say while you work", which the host sends with a turn; a turn sent without one is held to the host's `narrationDefault`, or, with none, to one brief line. The host rules add a handful of characters to the brief prompt | A host that lets the person choose how much the agent explains, such as a setting from "explain as you go" to "results only" |
 
 ```ts
 const persona: AgentPersonaConfig = {
   name: 'Ava',
   identity: 'You are Ava, the dealership’s assistant.',
-  overrides: { narration: 'host' },
+  overrides: {
+    narration: 'host',
+    // The default level, stated once in the cached system prompt: a turn at it sends no instruction.
+    narrationDefault: '- Before each distinct step, say in one or two sentences what you will do and why.\n- After a failed step, say what happened and what you will try next.',
+  },
 };
 
-// getHistory: the person's level, as an instruction in the turn's context.
+// getHistory: an instruction in the turn's context only at another level, which replaces the default.
 getHistory: async (conversationId, db, turn) => ({
   messages: await load(conversationId),
-  stepContext: '## How you talk while you work: explain as you go\n- Before each distinct step, say in one or two sentences what you will do and why.',
+  stepContext: level === 'results' ? '## How much you say while you work: results only\n- Write nothing while you work; give the result once, at the end.' : null,
 }),
 ```
 
-The setting is part of the system prompt and the instruction is part of the turn's context ("How a turn is assembled"), so the system prompt is the same at every level and a change of level keeps the cached conversation. A value the worker does not know fails when the adapter is created, naming it. `resolveNarration` and `NARRATION_SETTINGS` are exported for a host that reads the setting itself, and `getBaseRules`, `getCommunicationRules` and `getToolStrategyRules` take it as their last argument.
+`narrationDefault` is the text of the default level, one bullet per line and no heading: the rules say a turn's instruction replaces it, and hold a turn that comes without one to it in place of the one brief line. A host whose people mostly keep the default sends nothing with those turns, and its default sits in the cached prefix rather than in every turn's context. Keep it to what the level asks while the work goes on; a line that asks the agent to check its own work makes it read the page again after every step that succeeded. A default without `narration: 'host'`, or an empty one, fails when the adapter is created, and `resolveNarrationDefault` reads it as the worker does.
+
+The setting is part of the system prompt and the instruction is part of the turn's context ("How a turn is assembled"), so the system prompt is the same at every level and a change of level keeps the cached conversation. A persona that names no narration is sent the same prompt, byte for byte, as before either option existed. A value the worker does not know fails when the adapter is created, naming it. `resolveNarration` and `NARRATION_SETTINGS` are exported for a host that reads the setting itself, and `getBaseRules`, `getCommunicationRules` and `getToolStrategyRules` take it as their last argument.
 
 A host that fits its stored history loads `@ouispec/agent-worker/history` (`answerWithoutState`, and `withPageAtStart` for a message's page note): a module with no runtime imports, which also answers a CommonJS resolver.
 

@@ -5,13 +5,18 @@
  * - With no setting, or `brief`, every rule is byte for byte the earlier
  *   release's (the fixtures in fixtures/communication were written by it).
  * - With `host`, no rule fixes the amount: the base, communication and tool
- *   strategy rules keep what holds at any amount and defer the amount to the
- *   host's instruction, with one brief line when a turn comes without it.
+ *   strategy rules keep what holds at any amount, and one section says the
+ *   amount is the host's instruction, with one brief line when a turn comes
+ *   without it. The host rules are held to a size: they add next to nothing
+ *   to the brief prompt.
+ * - With `host` and `narrationDefault`, that section states the host's default
+ *   level, which a turn's instruction replaces, in place of the brief line.
  * - The rules that name tools are the same at both settings, so a limited
  *   step is told the same tools either way.
  *
  * narration.e2e.test.ts checks the same through a whole turn.
  */
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -23,6 +28,7 @@ import {
   getToolStrategyRules,
   NARRATION_SETTINGS,
   resolveNarration,
+  resolveNarrationDefault,
   systemPromptForTools,
   type AgentPersonaConfig,
   type NarrationSetting,
@@ -35,8 +41,23 @@ const fixture = (name: string) => readFileSync(fileURLToPath(new URL(`./fixtures
 /** A persona with every section the builder writes. */
 const PERSONA = JSON.parse(fixture('persona.json')) as AgentPersonaConfig;
 const CONTEXT = { userId: 'u1', accountId: 'a1', context: { currentPath: '/inventory' } };
-const withNarration = (narration?: NarrationSetting) =>
-  buildAgentSystemPrompt({ ...PERSONA, overrides: { ...PERSONA.overrides, ...(narration ? { narration } : {}) } }, CONTEXT);
+const withNarration = (narration?: NarrationSetting, narrationDefault?: string) =>
+  buildAgentSystemPrompt(
+    { ...PERSONA, overrides: { ...PERSONA.overrides, ...(narration ? { narration } : {}), ...(narrationDefault !== undefined ? { narrationDefault } : {}) } },
+    CONTEXT,
+  );
+const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
+/** The lines of a prompt that the brief prompt does not have: what the host rules cost. */
+const hostOnly = (prompt: string) => {
+  const brief = new Set(withNarration().split('\n'));
+  return prompt.split('\n').filter((line) => !brief.has(line));
+};
+/** A host's default level, as it states it once (`narrationDefault`). */
+const EXPLAIN_DEFAULT = [
+  '- Before you act, say which feature fits the task, where it lives and why.',
+  '- Before each distinct step, say in a sentence or two what you will do and why.',
+  '- After a failed step, say what happened and what you will try next.',
+].join('\n');
 
 /** Every line of today's rules that fixes how much is said while the agent works. */
 const BRIEF_ONLY_LINES = [
@@ -70,6 +91,10 @@ describe('no setting: the rules are the earlier release’s, byte for byte', () 
     const before = fixture('prompt.default.markdown.txt');
     expect(withNarration()).toBe(before);
     expect(withNarration('brief')).toBe(before);
+    // The hash of the prompt agent SDK 0.40.0 wrote for this persona, before the host rules were trimmed
+    // and `narrationDefault` existed: a host that opts into neither is sent the same bytes.
+    expect(sha256(withNarration())).toBe('8eabd0ee9874cd4c5c859e8d07220c6eae97691502bafb1d9ecda78de5c792b9');
+    expect(withNarration()).toHaveLength(17_234);
   });
 
   it.each(COMMUNICATION_STYLES)('the %s preset’s rules are the earlier release’s with no narration and with brief', (preset) => {
@@ -113,30 +138,43 @@ describe('host: the amount is the host’s instruction', () => {
       expect(withNarration()).toContain(line);
     }
     expect(host).toContain('- So whatever you write before or between tool calls is meant for the user: only words you would say to them.');
-    expect(host).toContain('- Never say something is done, made, saved or found before the tool that does it has returned and confirmed it.');
-    expect(host).toContain('never your reasoning, never a result a tool has not returned yet, and never the same answer twice');
+    expect(host).toContain('- Never say something is done, made, saved or found before the tool that does it has returned success.');
   });
 
-  it('defers the amount to the host’s instruction, which comes with the turn, in every rule that spoke of it', () => {
+  it('says once, in one section, that the amount is the host’s instruction, which comes with the turn', () => {
     expect(host).toContain('### How Much You Say While You Work');
-    expect(host).toContain(`is set by ${NARRATION_INSTRUCTION}, which comes with each turn. Follow it.`);
-    expect(getBaseRules('Ava', 'host')).toContain(`How much you write there is set by ${NARRATION_INSTRUCTION}, which comes with the turn.`);
-    expect(getToolStrategyRules(undefined, 'host')).toContain(`write there what ${NARRATION_INSTRUCTION} asks for, and nothing more`);
-    expect(getToolStrategyRules(undefined, 'host')).toContain(`- If a tool returns an error, say so as ${NARRATION_INSTRUCTION} asks, and try an alternative approach.`);
+    expect(host).toContain(`- How much you write before a tool call, between steps and after a failed step is set by ${NARRATION_INSTRUCTION}, which comes with the turn.`);
+    expect(host.split(NARRATION_INSTRUCTION)).toHaveLength(2);
+    // The base and tool strategy rules fix no amount and name no instruction: the section is where it is said.
+    expect(getBaseRules('Ava', 'host')).not.toContain(NARRATION_INSTRUCTION);
+    expect(getToolStrategyRules(undefined, 'host')).not.toContain(NARRATION_INSTRUCTION);
+    expect(getToolStrategyRules(undefined, 'host')).toContain('- Never write filler between tool rounds (pleasantries, or repeating what the user has already read)');
+    expect(getToolStrategyRules(undefined, 'host')).toContain('- If a tool returns an error, try an alternative approach.');
     for (const preset of COMMUNICATION_STYLES) {
       const rules = getCommunicationRules(preset, 'host');
-      expect(rules).toContain(NARRATION_INSTRUCTION);
+      expect(rules.split(NARRATION_INSTRUCTION)).toHaveLength(2);
       expect(rules).toContain('### How Much You Say While You Work');
     }
-    expect(getCommunicationRules('conversational', 'host')).toContain(
-      `Whether and how you tell the user is for ${NARRATION_INSTRUCTION} to decide.`,
-    );
+  });
+
+  it('is the trimmed host prompt, byte for byte (fixtures/communication/prompt.host.markdown.txt)', () => {
+    expect(host).toBe(fixture('prompt.host.markdown.txt'));
+  });
+
+  it('costs next to nothing over the brief prompt: the host rules are trimmed to what is needed', () => {
+    // Agent SDK 0.40.0's host rules were 1,249 characters longer than the brief prompt (about 431 tokens at
+    // 2.9 characters a token), and their own lines came to 2,320 characters (about 800 tokens).
+    expect(host.length - withNarration().length).toBeLessThanOrEqual(50);
+    expect(hostOnly(host).join('\n').length).toBeLessThanOrEqual(1_100);
+  });
+
+  it('asks for no check of its own work: verifying is for after a failed step', () => {
+    for (const line of hostOnly(host)) expect(line).not.toMatch(/confirm|verif|re-?read|check|took effect/i);
+    for (const line of hostOnly(withNarration('host', EXPLAIN_DEFAULT))) expect(line).not.toMatch(/confirm|verif|re-?read|check|took effect/i);
   });
 
   it('holds a turn that comes with no instruction to one brief line', () => {
-    expect(host).toContain(
-      '- When a turn comes with no such instruction, write at most one brief line before a tool call ("Let me check that for you."), or nothing at all.',
-    );
+    expect(host).toContain('Without one, write at most one brief line before a tool call, or nothing.');
   });
 
   it('changes nothing before the multi-round rules, and nothing from the answering rules on', () => {
@@ -153,6 +191,40 @@ describe('host: the amount is the host’s instruction', () => {
     expect(buildAgentSystemPrompt({ ...PERSONA, overrides: { narration: 'host' } }, { ...CONTEXT, context: { currentPath: '/inventory' } })).toBe(
       buildAgentSystemPrompt({ ...PERSONA, overrides: { narration: 'host' } }, CONTEXT),
     );
+  });
+});
+
+describe('host with a default level: the host states it once, in the system prompt', () => {
+  const stated = withNarration('host', EXPLAIN_DEFAULT);
+
+  it('states the default where the brief line was, and says a turn’s instruction replaces it', () => {
+    expect(stated).toContain(
+      `### How Much You Say While You Work\nHow much you write before a tool call, between steps and after a failed step is as follows, unless the turn comes with ${NARRATION_INSTRUCTION}, which then replaces it:\n${EXPLAIN_DEFAULT}`,
+    );
+    expect(stated).not.toContain('Without one, write at most one brief line');
+    expect(stated.split(NARRATION_INSTRUCTION)).toHaveLength(2);
+    // Only the section changes: everything else is the host prompt's.
+    const section = (prompt: string) => prompt.replace(/### How Much You Say While You Work\n[\s\S]*?\n\n### Style/, '### Style');
+    expect(section(stated)).toBe(section(withNarration('host')));
+  });
+
+  it('takes the text as given, trimmed, at every preset, and is the same prompt whatever the turn', () => {
+    expect(withNarration('host', `\n${EXPLAIN_DEFAULT}\n\n`)).toBe(stated);
+    for (const preset of COMMUNICATION_STYLES) expect(getCommunicationRules(preset, 'host', EXPLAIN_DEFAULT)).toContain(EXPLAIN_DEFAULT);
+    expect(buildAgentSystemPrompt({ ...PERSONA, overrides: { narration: 'host', narrationDefault: EXPLAIN_DEFAULT } }, { ...CONTEXT, context: { currentPath: '/inventory' } })).toBe(
+      buildAgentSystemPrompt({ ...PERSONA, overrides: { narration: 'host', narrationDefault: EXPLAIN_DEFAULT } }, CONTEXT),
+    );
+  });
+
+  it('is the host’s only: refused with brief or no narration, and refused empty or not text', () => {
+    expect(resolveNarrationDefault('host', undefined)).toBeNull();
+    expect(resolveNarrationDefault(undefined, null)).toBeNull();
+    expect(resolveNarrationDefault('host', ' - Say it. ')).toBe('- Say it.');
+    expect(() => withNarration(undefined, EXPLAIN_DEFAULT)).toThrow(/narrationDefault is the host's default amount: it needs narration: 'host'/);
+    expect(() => withNarration('brief', EXPLAIN_DEFAULT)).toThrow(/needs narration: 'host'/);
+    expect(() => withNarration('host', '   ')).toThrow(/narrationDefault must be the text of the default amount, not " {3}"/);
+    expect(() => resolveNarrationDefault('host', 3)).toThrow(/not 3/);
+    expect(() => getCommunicationRules('conversational', 'brief', EXPLAIN_DEFAULT)).toThrow(/needs narration: 'host'/);
   });
 });
 
