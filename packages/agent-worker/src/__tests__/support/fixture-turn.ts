@@ -10,6 +10,8 @@ import { createLambdaAgentHandler } from '../../lambda/handler.js';
 import { historyOf } from '../../history.js';
 import { startContainerAgentWorker } from '../../container/server.js';
 import { createHttpUIActionChannel } from '../../ui/channel.js';
+import { createHttpEmitAdapter } from '../../emit/http-adapter.js';
+import { teeEmitAdapter, type TurnEventObserver } from '../../emit/tee.js';
 import type { AgentRuntimeConfig } from '../../runtime/types.js';
 import type { TurnOutcome } from '../../runtime/turn-runner.js';
 import type { LanguageModel, ProviderOptions } from '../../model.js';
@@ -91,6 +93,8 @@ export interface FixtureTurnOptions {
    * test's observed UI channel reads it too).
    */
   apiKey?: RealtimeApiKey;
+  /** Called with each event the turn emits, in the order it emits them, before it is sent to the room. */
+  onEvent?: TurnEventObserver;
 }
 
 /** The realtime server's UI action channel, as the worker builds it, telling the test of each request sent. */
@@ -130,7 +134,17 @@ export async function runFixtureTurn(product: FixtureProduct, options: FixtureTu
   const config: AgentRuntimeConfig<object> = {
     model: options.model,
     promptCacheBreakpoint: options.promptCacheBreakpoint,
-    realtime: { url: product.realtimeUrl, apiKey },
+    realtime: {
+      url: product.realtimeUrl,
+      apiKey,
+      ...(options.onEvent
+        ? {
+            emit: teeEmitAdapter(createHttpEmitAdapter({ url: product.realtimeUrl, apiKey }), options.onEvent, (error) => {
+              throw error;
+            }),
+          }
+        : {}),
+    },
     systemPrompt: () => FIXTURE_SYSTEM_PROMPT,
     tools: options.tools ?? [],
     toolPolicy: options.toolPolicy,

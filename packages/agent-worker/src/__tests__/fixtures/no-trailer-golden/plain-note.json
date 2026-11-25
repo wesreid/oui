@@ -1,0 +1,237 @@
+{
+  "requests": [
+    {
+      "model": "gpt-fixture",
+      "max_tokens": 32000,
+      "temperature": 0.3,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You help with music."
+        },
+        {
+          "role": "user",
+          "content": "Make the chorus brighter and keep the verse as it is."
+        },
+        {
+          "role": "user",
+          "content": "<now>\nIt is <clock> in the user's time zone, Europe/Paris (UTC<offset>).\nDays the user names — today, yesterday, this morning, last week — are days on that clock. A date or time in the page’s data or a tool’s result is UTC unless it carries its own offset: convert it to this zone before saying which day it falls on.\n</now>"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "note",
+            "description": "Write one line in this chat’s work notes.",
+            "parameters": {
+              "type": "object",
+              "sideEffects": false,
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "decision",
+                    "task",
+                    "made"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "tool_choice": "auto",
+      "stream": true,
+      "stream_options": {
+        "include_usage": true
+      }
+    },
+    {
+      "model": "gpt-fixture",
+      "max_tokens": 32000,
+      "temperature": 0.3,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You help with music."
+        },
+        {
+          "role": "user",
+          "content": "Make the chorus brighter and keep the verse as it is."
+        },
+        {
+          "role": "user",
+          "content": "<now>\nIt is <clock> in the user's time zone, Europe/Paris (UTC<offset>).\nDays the user names — today, yesterday, this morning, last week — are days on that clock. A date or time in the page’s data or a tool’s result is UTC unless it carries its own offset: convert it to this zone before saying which day it falls on.\n</now>"
+        },
+        {
+          "role": "assistant",
+          "content": "I made the chorus brighter and left the verse as it was.",
+          "tool_calls": [
+            {
+              "id": "call_note",
+              "type": "function",
+              "function": {
+                "name": "note",
+                "arguments": "{\"kind\":\"decision\",\"text\":\"Chorus brighter; verse unchanged.\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call_note",
+          "content": "{\"id\":\"note-1\",\"kind\":\"decision\",\"text\":\"Chorus brighter; verse unchanged.\"}"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "note",
+            "description": "Write one line in this chat’s work notes.",
+            "parameters": {
+              "type": "object",
+              "sideEffects": false,
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "decision",
+                    "task",
+                    "made"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "tool_choice": "auto",
+      "stream": true,
+      "stream_options": {
+        "include_usage": true
+      }
+    }
+  ],
+  "events": [
+    {
+      "event": "agent:token",
+      "data": {
+        "turnId": "turn-note-1",
+        "text": "I made the chorus brighter and left the verse as it was.",
+        "step": 0
+      }
+    },
+    {
+      "event": "agent:tool_call_started",
+      "data": {
+        "turnId": "turn-note-1",
+        "toolUseId": "call_note",
+        "name": "note",
+        "input": {
+          "kind": "decision",
+          "text": "Chorus brighter; verse unchanged."
+        }
+      }
+    },
+    {
+      "event": "agent:tool_call_complete",
+      "data": {
+        "turnId": "turn-note-1",
+        "toolUseId": "call_note",
+        "name": "note",
+        "result": {
+          "id": "note-1",
+          "kind": "decision",
+          "text": "Chorus brighter; verse unchanged."
+        },
+        "success": true
+      }
+    },
+    {
+      "event": "agent:round_end",
+      "data": {
+        "turnId": "turn-note-1",
+        "step": 0,
+        "calledTools": true,
+        "final": false
+      }
+    },
+    {
+      "event": "agent:token",
+      "data": {
+        "turnId": "turn-note-1",
+        "text": "\n\nDone: the chorus is brighter, and I noted your decision.",
+        "step": 1
+      }
+    },
+    {
+      "event": "agent:round_end",
+      "data": {
+        "turnId": "turn-note-1",
+        "step": 1,
+        "calledTools": false,
+        "final": true
+      }
+    },
+    {
+      "event": "agent:turn_complete",
+      "data": {
+        "turnId": "turn-note-1",
+        "rounds": 2,
+        "usage": {
+          "promptTokens": 1000,
+          "completionTokens": 40,
+          "totalTokens": 1040,
+          "peakPromptTokens": 500,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "endReason": "complete"
+      }
+    }
+  ],
+  "stored": [
+    {
+      "role": "assistant",
+      "content": "I made the chorus brighter and left the verse as it was.",
+      "toolCalls": [
+        {
+          "id": "call_note",
+          "name": "note",
+          "arguments": {
+            "kind": "decision",
+            "text": "Chorus brighter; verse unchanged."
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "content": "{\"id\":\"note-1\",\"kind\":\"decision\",\"text\":\"Chorus brighter; verse unchanged.\"}",
+      "toolCallId": "call_note",
+      "name": "note"
+    },
+    {
+      "role": "assistant",
+      "content": "Done: the chorus is brighter, and I noted your decision."
+    }
+  ],
+  "recorded": {
+    "rounds": 2
+  },
+  "outcome": {
+    "status": "completed",
+    "turnId": "turn-note-1",
+    "rounds": 2
+  }
+}

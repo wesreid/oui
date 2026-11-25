@@ -1,0 +1,603 @@
+{
+  "requests": [
+    {
+      "system": [
+        {
+          "text": "You are the assistant in Desk, a reporting product. Do what the user asks with the page's tools, then say in one short sentence what you did.\n\n## The App: Desk\n\nPages: Inbox (/inbox), Reports (/reports).\n\n## Platform Knowledge (Context-Aware)\n\n### Inbox, in full\nLists messages newest first. Reports are on the Reports page.\n\n### Reports\nSaved reports: export one, or email it.\n\n## Active Workflows\n\n### Find a report\nTrigger: The user asks for a report\nSteps:\n1. Go to /reports\n2. Read the reports observation"
+        },
+        {
+          "cachePoint": {
+            "type": "default"
+          }
+        },
+        {
+          "text": "<page_index>\nThe user's screen offers these surfaces and actions. In brackets after an action: what it takes (\"?\" marks an optional one, and a name alone takes text) and what calling it involves; no brackets means it takes nothing. Run an action with ui_act; ui_describe says what one takes.\nApp Shell (app-shell): The frame around every page\n- navigate: Go to a page (path)\n\nInbox (inbox): Messages\n</page_index>"
+        },
+        {
+          "cachePoint": {
+            "type": "default"
+          }
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "text": "Open my reports"
+            },
+            {
+              "cachePoint": {
+                "type": "default"
+              }
+            },
+            {
+              "text": "<now>\nIt is <clock> UTC (the user's time zone is not known, so say UTC when you name a time).\nDays the user names — today, yesterday, this morning, last week — are days on that clock. A date or time in the page’s data or a tool’s result is UTC unless it carries its own offset: convert it to this zone before saying which day it falls on.\n</now>"
+            },
+            {
+              "cachePoint": {
+                "type": "default"
+              }
+            },
+            {
+              "text": "<page_state>\nThe page as it was when the user sent their message.\nCurrent values: {}\n</page_state>"
+            }
+          ]
+        }
+      ],
+      "additionalModelResponseFieldPaths": [
+        "/delta/stop_sequence"
+      ],
+      "inferenceConfig": {
+        "maxTokens": 32000,
+        "temperature": 0.3
+      },
+      "toolConfig": {
+        "tools": [
+          {
+            "toolSpec": {
+              "name": "ui_act",
+              "description": "Runs one action of the user’s page, as the user would. `action` is an action id from the page’s index; `input` is what it takes. The index line says what an action takes in outline: when that is not enough to write its input, call ui_describe first. The answer says what happened, what the page now offers where that changed, and what it shows.",
+              "inputSchema": {
+                "json": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "description": "The action’s id, or the name its line in the page’s index starts with."
+                    },
+                    "input": {
+                      "type": "object",
+                      "description": "The action’s input. Leave out for an action that takes nothing."
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "toolSpec": {
+              "name": "ui_describe",
+              "description": "Says what actions of the page take: each action’s full description and its input, as a JSON Schema when it is small, or in outline when it is large. An outline names how to open each part: call again with that one action and `path`. A part opened by its path is given whole; a list too long for one answer says how many rows it has and where the next begin (`from`). Describe an action before the first time you use it, unless its line in the index already says everything it takes. Up to 8 actions a call.",
+              "inputSchema": {
+                "json": {
+                  "type": "object",
+                  "properties": {
+                    "actions": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1,
+                      "maxItems": 8,
+                      "description": "The actions: each one’s id, or the name its line in the page’s index starts with."
+                    },
+                    "path": {
+                      "type": "string",
+                      "description": "With one action: the part of its input to open, as an outline named it. A property (\"style.fill\"), a union member (\"effect=glow\"), a list’s items (\"stops.[]\")."
+                    },
+                    "from": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "With one action: the row to start at, when an answer said its rows continue (\"call again with from: 81\")."
+                    }
+                  },
+                  "required": [
+                    "actions"
+                  ],
+                  "additionalProperties": false,
+                  "sideEffects": false
+                }
+              }
+            }
+          },
+          {
+            "toolSpec": {
+              "name": "ui_read",
+              "description": "Reads part of the page’s state: an observation of a surface, or the part of it at `path`. For a list it returns rows from `offset`, `limit` at a time, with the total and where the next page begins. Use it for what the page state says was cut or left out, and to see the page again after an answer came without its state. When a surface has its own tools to query or inspect its rows, prefer those: they find rows by what they are.",
+              "inputSchema": {
+                "json": {
+                  "type": "object",
+                  "properties": {
+                    "surface": {
+                      "type": "string",
+                      "description": "The surface’s id, as the page state gives it."
+                    },
+                    "observation": {
+                      "type": "string",
+                      "description": "The observation’s id."
+                    },
+                    "path": {
+                      "type": "string",
+                      "description": "A JSON Pointer into the value (\"/lists/rows\"). Leave out for the whole value."
+                    },
+                    "offset": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "For a list: the first row to return. Default 0."
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 200,
+                      "description": "For a list: how many rows. Default 50."
+                    }
+                  },
+                  "required": [
+                    "surface",
+                    "observation"
+                  ],
+                  "additionalProperties": false,
+                  "sideEffects": false
+                }
+              }
+            }
+          },
+          {
+            "toolSpec": {
+              "name": "ui_wait",
+              "description": "Waits for work an action started that was still running when its call answered (a job, an export), until it ends, and answers as that action would have: its outcome, what the page offers now and what it shows. Use it when the rest of the request needs the outcome: to check what was made, or to act on it. It waits until the work ends, its own limit passes, or the turn must answer, whichever is first; work still running then is reported running, never done. Name the work by `jobId`, as its answer gave it, or by `action`; with neither, the work started last.",
+              "inputSchema": {
+                "json": {
+                  "type": "object",
+                  "properties": {
+                    "jobId": {
+                      "type": "string",
+                      "description": "The job’s id, as the answer that started it gave it."
+                    },
+                    "action": {
+                      "type": "string",
+                      "description": "The action that started it, by id: its latest run still going."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "sideEffects": false
+                }
+              }
+            }
+          },
+          {
+            "toolSpec": {
+              "name": "ui_guide",
+              "description": "Reads the part of what the app knows about this page that your instructions do not show: the rest of a knowledge entry (`entry`, its title, and `from`, where to continue), or one workflow with its steps (`workflow`, its name). Your instructions say what is not shown and give the title or name.",
+              "inputSchema": {
+                "json": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "entry": {
+                      "type": "string",
+                      "description": "A knowledge entry’s title, as your instructions give it."
+                    },
+                    "workflow": {
+                      "type": "string",
+                      "description": "A workflow’s name, as your instructions list it."
+                    },
+                    "from": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Where in the entry or page to begin. Default 0."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "toolChoice": {
+          "auto": {}
+        }
+      }
+    },
+    {
+      "system": [
+        {
+          "text": "You are the assistant in Desk, a reporting product. Do what the user asks with the page's tools, then say in one short sentence what you did.\n\n## The App: Desk\n\nPages: Inbox (/inbox), Reports (/reports).\n\n## Platform Knowledge (Context-Aware)\n\n### Inbox, in full\nLists messages newest first. Reports are on the Reports page.\n\n### Reports\nSaved reports: export one, or email it.\n\n## Active Workflows\n\n### Find a report\nTrigger: The user asks for a report\nSteps:\n1. Go to /reports\n2. Read the reports observation"
+        },
+        {
+          "cachePoint": {
+            "type": "default"
+          }
+        },
+        {
+          "text": "<page_index>\nThe user's screen offers these surfaces and actions. In brackets after an action: what it takes (\"?\" marks an optional one, and a name alone takes text) and what calling it involves; no brackets means it takes nothing. Run an action with ui_act; ui_describe says what one takes.\nApp Shell (app-shell): The frame around every page\n- navigate: Go to a page (path)\n\nInbox (inbox): Messages\n</page_index>"
+        },
+        {
+          "cachePoint": {
+            "type": "default"
+          }
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "text": "Open my reports"
+            },
+            {
+              "cachePoint": {
+                "type": "default"
+              }
+            },
+            {
+              "text": "<now>\nIt is <clock> UTC (the user's time zone is not known, so say UTC when you name a time).\nDays the user names — today, yesterday, this morning, last week — are days on that clock. A date or time in the page’s data or a tool’s result is UTC unless it carries its own offset: convert it to this zone before saying which day it falls on.\n</now>"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "toolUse": {
+                "toolUseId": "tooluse_ECTEownFGvr0lhJavPW43s",
+                "name": "ui_act",
+                "input": {
+                  "action": "navigate",
+                  "input": {
+                    "path": "/reports"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "toolResult": {
+                "toolUseId": "tooluse_ECTEownFGvr0lhJavPW43s",
+                "content": [
+                  {
+                    "text": "{\"result\":{\"navigatedTo\":\"/reports\"},\"page\":{\"surfaces\":[\"App Shell\",\"Reports\"],\"nowOffers\":\"Reports (reports): Saved reports\\n- reports_export: Export a report\\n- reports_send: Emails a saved report to a recipient. (reportId, to; needs approval)\",\"noLongerOnScreen\":[\"Inbox\"]},\"shown\":\"reports — reports: 2 (Q3 results, Q2 results)\",\"pageState\":\"The page’s state is at the end of what you read, in <page_state>: the page as it is now.\"}"
+                  }
+                ]
+              }
+            },
+            {
+              "cachePoint": {
+                "type": "default"
+              }
+            },
+            {
+              "text": "<page_state>\nThe page as it is now, from the newest answer that carried its state.\nCurrent values: {\"reports\":{\"reports\":[{\"id\":\"q3\",\"title\":\"Q3 results\"},{\"id\":\"q2\",\"title\":\"Q2 results\"}]}}\n</page_state>"
+            }
+          ]
+        }
+      ],
+      "additionalModelResponseFieldPaths": [
+        "/delta/stop_sequence"
+      ],
+      "inferenceConfig": {
+        "maxTokens": 32000,
+        "temperature": 0.3
+      },
+      "toolConfig": {
+        "tools": [
+          {
+            "toolSpec": {
+              "name": "ui_act",
+              "description": "Runs one action of the user’s page, as the user would. `action` is an action id from the page’s index; `input` is what it takes. The index line says what an action takes in outline: when that is not enough to write its input, call ui_describe first. The answer says what happened, what the page now offers where that changed, and what it shows.",
+              "inputSchema": {
+                "json": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "description": "The action’s id, or the name its line in the page’s index starts with."
+                    },
+                    "input": {
+                      "type": "object",
+                      "description": "The action’s input. Leave out for an action that takes nothing."
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          {
+            "toolSpec": {
+              "name": "ui_describe",
+              "description": "Says what actions of the page take: each action’s full description and its input, as a JSON Schema when it is small, or in outline when it is large. An outline names how to open each part: call again with that one action and `path`. A part opened by its path is given whole; a list too long for one answer says how many rows it has and where the next begin (`from`). Describe an action before the first time you use it, unless its line in the index already says everything it takes. Up to 8 actions a call.",
+              "inputSchema": {
+                "json": {
+                  "type": "object",
+                  "properties": {
+                    "actions": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1,
+                      "maxItems": 8,
+                      "description": "The actions: each one’s id, or the name its line in the page’s index starts with."
+                    },
+                    "path": {
+                      "type": "string",
+                      "description": "With one action: the part of its input to open, as an outline named it. A property (\"style.fill\"), a union member (\"effect=glow\"), a list’s items (\"stops.[]\")."
+                    },
+                    "from": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "With one action: the row to start at, when an answer said its rows continue (\"call again with from: 81\")."
+                    }
+                  },
+                  "required": [
+                    "actions"
+                  ],
+                  "additionalProperties": false,
+                  "sideEffects": false
+                }
+              }
+            }
+          },
+          {
+            "toolSpec": {
+              "name": "ui_read",
+              "description": "Reads part of the page’s state: an observation of a surface, or the part of it at `path`. For a list it returns rows from `offset`, `limit` at a time, with the total and where the next page begins. Use it for what the page state says was cut or left out, and to see the page again after an answer came without its state. When a surface has its own tools to query or inspect its rows, prefer those: they find rows by what they are.",
+              "inputSchema": {
+                "json": {
+                  "type": "object",
+                  "properties": {
+                    "surface": {
+                      "type": "string",
+                      "description": "The surface’s id, as the page state gives it."
+                    },
+                    "observation": {
+                      "type": "string",
+                      "description": "The observation’s id."
+                    },
+                    "path": {
+                      "type": "string",
+                      "description": "A JSON Pointer into the value (\"/lists/rows\"). Leave out for the whole value."
+                    },
+                    "offset": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "For a list: the first row to return. Default 0."
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 200,
+                      "description": "For a list: how many rows. Default 50."
+                    }
+                  },
+                  "required": [
+                    "surface",
+                    "observation"
+                  ],
+                  "additionalProperties": false,
+                  "sideEffects": false
+                }
+              }
+            }
+          },
+          {
+            "toolSpec": {
+              "name": "ui_wait",
+              "description": "Waits for work an action started that was still running when its call answered (a job, an export), until it ends, and answers as that action would have: its outcome, what the page offers now and what it shows. Use it when the rest of the request needs the outcome: to check what was made, or to act on it. It waits until the work ends, its own limit passes, or the turn must answer, whichever is first; work still running then is reported running, never done. Name the work by `jobId`, as its answer gave it, or by `action`; with neither, the work started last.",
+              "inputSchema": {
+                "json": {
+                  "type": "object",
+                  "properties": {
+                    "jobId": {
+                      "type": "string",
+                      "description": "The job’s id, as the answer that started it gave it."
+                    },
+                    "action": {
+                      "type": "string",
+                      "description": "The action that started it, by id: its latest run still going."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "sideEffects": false
+                }
+              }
+            }
+          },
+          {
+            "toolSpec": {
+              "name": "ui_guide",
+              "description": "Reads the part of what the app knows about this page that your instructions do not show: the rest of a knowledge entry (`entry`, its title, and `from`, where to continue), or one workflow with its steps (`workflow`, its name). Your instructions say what is not shown and give the title or name.",
+              "inputSchema": {
+                "json": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "entry": {
+                      "type": "string",
+                      "description": "A knowledge entry’s title, as your instructions give it."
+                    },
+                    "workflow": {
+                      "type": "string",
+                      "description": "A workflow’s name, as your instructions list it."
+                    },
+                    "from": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Where in the entry or page to begin. Default 0."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "toolChoice": {
+          "auto": {}
+        }
+      }
+    }
+  ],
+  "events": [
+    {
+      "event": "agent:tool_call_started",
+      "data": {
+        "turnId": "turn-fx-golden",
+        "toolUseId": "tooluse_ECTEownFGvr0lhJavPW43s",
+        "name": "navigate",
+        "input": {
+          "path": "/reports"
+        }
+      }
+    },
+    {
+      "event": "agent:tool_call_complete",
+      "data": {
+        "turnId": "turn-fx-golden",
+        "toolUseId": "tooluse_ECTEownFGvr0lhJavPW43s",
+        "name": "navigate",
+        "result": {
+          "result": {
+            "navigatedTo": "/reports"
+          },
+          "page": {
+            "surfaces": [
+              "App Shell",
+              "Reports"
+            ],
+            "nowOffers": "Reports (reports): Saved reports\n- reports_export: Export a report\n- reports_send: Emails a saved report to a recipient. (reportId, to; needs approval)",
+            "noLongerOnScreen": [
+              "Inbox"
+            ]
+          },
+          "shown": "reports — reports: 2 (Q3 results, Q2 results)",
+          "state": {
+            "reports": {
+              "reports": [
+                {
+                  "id": "q3",
+                  "title": "Q3 results"
+                },
+                {
+                  "id": "q2",
+                  "title": "Q2 results"
+                }
+              ]
+            }
+          }
+        },
+        "success": true
+      }
+    },
+    {
+      "event": "agent:round_end",
+      "data": {
+        "turnId": "turn-fx-golden",
+        "step": 0,
+        "calledTools": true,
+        "final": false
+      }
+    },
+    {
+      "event": "agent:token",
+      "data": {
+        "turnId": "turn-fx-golden",
+        "text": "Your Reports page is now open, showing two saved reports:",
+        "step": 1
+      }
+    },
+    {
+      "event": "agent:token",
+      "data": {
+        "turnId": "turn-fx-golden",
+        "text": " **Q3 results** and **Q2 results**.",
+        "step": 1
+      }
+    },
+    {
+      "event": "agent:round_end",
+      "data": {
+        "turnId": "turn-fx-golden",
+        "step": 1,
+        "calledTools": false,
+        "final": true
+      }
+    },
+    {
+      "event": "agent:turn_complete",
+      "data": {
+        "turnId": "turn-fx-golden",
+        "rounds": 2,
+        "usage": {
+          "promptTokens": 3151,
+          "completionTokens": 104,
+          "totalTokens": 3255,
+          "peakPromptTokens": 1684,
+          "cacheReadTokens": 2928,
+          "cacheWriteTokens": 0
+        },
+        "endReason": "complete"
+      }
+    }
+  ],
+  "stored": [
+    {
+      "turnId": "turn-fx-golden",
+      "conversationId": "conv-fx-1",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": null,
+          "toolCalls": [
+            {
+              "id": "tooluse_ECTEownFGvr0lhJavPW43s",
+              "name": "ui_act",
+              "arguments": {
+                "action": "navigate",
+                "input": {
+                  "path": "/reports"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "{\"result\":{\"navigatedTo\":\"/reports\"},\"page\":{\"surfaces\":[\"App Shell\",\"Reports\"],\"nowOffers\":\"Reports (reports): Saved reports\\n- reports_export: Export a report\\n- reports_send: Emails a saved report to a recipient. (reportId, to; needs approval)\",\"noLongerOnScreen\":[\"Inbox\"]},\"shown\":\"reports — reports: 2 (Q3 results, Q2 results)\",\"pageState\":\"The page’s state is at the end of what you read, in <page_state>: the page as it is now.\"}",
+          "toolCallId": "tooluse_ECTEownFGvr0lhJavPW43s",
+          "name": "ui_act"
+        },
+        {
+          "role": "assistant",
+          "content": "Your Reports page is now open, showing two saved reports: **Q3 results** and **Q2 results**."
+        }
+      ]
+    }
+  ],
+  "outcome": {
+    "status": "completed",
+    "turnId": "turn-fx-golden",
+    "rounds": -1
+  }
+}

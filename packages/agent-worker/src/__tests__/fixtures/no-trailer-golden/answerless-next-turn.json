@@ -1,0 +1,127 @@
+{
+  "requests": [
+    {
+      "model": "gpt-fixture",
+      "max_tokens": 32000,
+      "temperature": 0.3,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You help with music."
+        },
+        {
+          "role": "user",
+          "content": "Brighten the chorus."
+        },
+        {
+          "role": "assistant",
+          "content": "I made the chorus brighter and left the verse as it was.",
+          "tool_calls": [
+            {
+              "id": "call_note",
+              "type": "function",
+              "function": {
+                "name": "note",
+                "arguments": "{\"kind\":\"decision\",\"text\":\"Chorus brighter; verse unchanged.\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call_note",
+          "content": "{\"id\":\"note-1\",\"kind\":\"decision\",\"text\":\"Chorus brighter; verse unchanged.\"}"
+        },
+        {
+          "role": "user",
+          "content": "Make the chorus brighter and keep the verse as it is."
+        },
+        {
+          "role": "user",
+          "content": "<now>\nIt is <clock> in the user's time zone, Europe/Paris (UTC<offset>).\nDays the user names — today, yesterday, this morning, last week — are days on that clock. A date or time in the page’s data or a tool’s result is UTC unless it carries its own offset: convert it to this zone before saying which day it falls on.\n</now>"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "note",
+            "description": "Write one line in this chat’s work notes.",
+            "parameters": {
+              "type": "object",
+              "sideEffects": false,
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "decision",
+                    "task",
+                    "made"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "tool_choice": "auto",
+      "stream": true,
+      "stream_options": {
+        "include_usage": true
+      }
+    }
+  ],
+  "events": [
+    {
+      "event": "agent:token",
+      "data": {
+        "turnId": "turn-note-2",
+        "text": "The verse is as it was.",
+        "step": 0
+      }
+    },
+    {
+      "event": "agent:round_end",
+      "data": {
+        "turnId": "turn-note-2",
+        "step": 0,
+        "calledTools": false,
+        "final": true
+      }
+    },
+    {
+      "event": "agent:turn_complete",
+      "data": {
+        "turnId": "turn-note-2",
+        "rounds": 1,
+        "usage": {
+          "promptTokens": 500,
+          "completionTokens": 20,
+          "totalTokens": 520,
+          "peakPromptTokens": 500,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "endReason": "complete"
+      }
+    }
+  ],
+  "stored": [
+    {
+      "role": "assistant",
+      "content": "The verse is as it was."
+    }
+  ],
+  "recorded": {
+    "rounds": 1
+  },
+  "outcome": {
+    "status": "completed",
+    "turnId": "turn-note-2",
+    "rounds": 1
+  }
+}
