@@ -76,6 +76,8 @@ A page then declares what each use means, with values the generator can read wit
 
 <!-- schema: agent-binding.json#/$defs/AgentItem -->
 
+**Pages.** A page is described by its header's subtitle, or, declaring none, by what it offers. Where that visible copy does not say what the assistant needs (a subtitle written for the person), the page's component says it for the assistant only, in its doc comment's `@agentDescription` tag: `/** @agentDescription Make a song with sung lyrics, or an instrumental; every take is saved to Music. */`. It is then the page's description in the manifest and the knowledge, and the app's map says its first sentence on the page's line (`says`). Under route gates it goes only where its page goes, so a session that may not see the page is never told it. It changes nothing on screen, and a page without it is described as before.
+
 ### The control table
 
 <!-- schema: control-table.json#/$defs/ControlDescriptor -->

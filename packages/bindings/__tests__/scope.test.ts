@@ -145,6 +145,50 @@ describe('the app’s map, line by line', () => {
   });
 });
 
+describe('what a page says it is for, on its line of the map (`says`)', () => {
+  const said: AppMapLine[] = [
+    { kind: 'heading', text: 'Main:' },
+    { kind: 'page', surface: 'page:HomePage', depth: 0, title: 'Home', route: '/', says: 'Start the day here, then see the campaigns on /campaigns.', offers: 'Start' },
+    { kind: 'page', surface: 'page:HelpPage', depth: 0, title: 'Help', route: '/help', says: 'Answers to what people ask.' },
+    { kind: 'page', surface: 'page:CampaignsPage', depth: 0, title: 'Campaigns', route: '/campaigns', says: 'Every campaign of the brand, open and closed.', offers: 'Launch' },
+  ];
+  const withSaid: GeneratedKnowledge = { ...knowledge, overview: { ...knowledge.overview, content: appMapContent(said) }, map: said };
+
+  it('comes after the page and before what it offers', () => {
+    expect(appMapContent(said).split('\n')).toEqual([
+      'Main:',
+      '- Home /: Start the day here, then see the campaigns on /campaigns. Start',
+      '- Help /help: Answers to what people ask.',
+      '- Campaigns /campaigns: Every campaign of the brand, open and closed. Launch',
+    ]);
+  });
+
+  it('goes with its page’s line, and loses what names a page the session may not see', () => {
+    expect(scopeKnowledge(withSaid, only()).overview.content.split('\n')).toEqual([
+      'Main:',
+      '- Home /: Start',
+      '- Help /help: Answers to what people ask.',
+    ]);
+    expect(scopeKnowledge(withSaid, only('campaigns')).overview.content).toBe(appMapContent(said));
+  });
+});
+
+describe('a page’s summary or detail all of whose sentences name a page the session may not see', () => {
+  it('is said by the page’s name and its open routes, never as it was', () => {
+    const leading: GeneratedKnowledge = {
+      ...knowledge,
+      pages: knowledge.pages.map(p =>
+        p.surface === 'page:HomePage'
+          ? { ...p, summary: { title: 'Home', content: 'Home (/): the way to /campaigns.' }, detail: { title: 'Home (/)', content: 'Opens /campaigns.' } }
+          : p,
+      ),
+    };
+    const home = scopeKnowledge(leading, only()).pages.find(p => p.surface === 'page:HomePage')!;
+    expect(home.summary).toEqual({ title: 'Home', content: 'Home (/).' });
+    expect(home.detail).toEqual({ title: 'Home (/)', content: 'Home (/).' });
+  });
+});
+
 describe('scoping the knowledge and the manifest', () => {
   it('is the very same build without allows, or for a build with no gates', () => {
     expect(scopeKnowledge(knowledge)).toBe(knowledge);

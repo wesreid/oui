@@ -7,7 +7,7 @@
  * retries and timeouts, on Lambda + SQS or in a container.
  */
 
-export type { AgentWorkerConfig, AgentTurnInput, AgentTurnResult, TurnMessage, TurnHistoryMessage, ToolCallRef, SystemPromptContext } from './types.js';
+export type { AgentWorkerConfig, AgentTurnInput, AgentTurnResult, AnswerlessEnd, TurnMessage, TurnHistoryMessage, ToolCallRef, SystemPromptContext } from './types.js';
 export { historyOf } from './history.js';
 export { TURN_CONTEXT_PLACEMENTS } from './step-messages.js';
 export type { TurnContextPlacement } from './step-messages.js';

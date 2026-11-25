@@ -75,6 +75,12 @@ export interface PageMeta {
   routes: string[];
   title: string;
   description: string;
+  /**
+   * Set when the page declares its description for the assistant
+   * (`@agentDescription`): `description` is that text, and the app's map says
+   * it on the page's line.
+   */
+  agentDescription?: true;
   nav: string | null;
   rooms: string[];
   /** Surfaces of components shared with other pages that this page renders. */
@@ -334,7 +340,8 @@ export function assemble(
     const kind = page.frame ? 'shell' : 'page';
     const id = `${kind}:${page.component}`;
     const found = controlSurfaces.get(id);
-    const declared = pageDescription(page, pageTitle(page), allPaths);
+    const forAgent = agentDescriptionOf(page, uniqueErrors);
+    const declared = forAgent ?? pageDescription(page, pageTitle(page), allPaths);
     // Derived once every surface is known (`describeUndeclared`): the rooms and shared parts come after.
     const description = declared ?? '';
     const observations: ManifestObservation[] = [
@@ -374,6 +381,7 @@ export function assemble(
       routes: page.routes.map(r => r.path),
       title: pageTitle(page),
       description,
+      ...(forAgent ? { agentDescription: true as const } : {}),
       nav: navEntry ? [navEntry.group, navEntry.label].filter(Boolean).join(' › ') : null,
       rooms: [...(page.analysis?.rooms ?? [])].map(r => `room:${r.catalog.room}`).sort(),
       shown,
@@ -732,6 +740,27 @@ function pageDescription(page: PageInput, title: string, allRoutes: readonly str
     const where = page.routes.map(r => r.path);
     return `${title}: the app's frame, around ${everyPage(where, allRoutes) ?? `the pages at ${where.join(', ')}`}. Its controls are there whatever page is open.`;
   }
+  return null;
+}
+
+/**
+ * What a page tells the assistant it is for, apart from what the screen shows:
+ * its component's `@agentDescription`. Null when it declares none, or declares
+ * one that does not describe the page, which is reported.
+ */
+function agentDescriptionOf(page: PageInput, errors: Finding[]): string | null {
+  const declared = page.analysis?.agentDescription;
+  if (!declared) return null;
+  const { text, file, line } = declared;
+  if (text !== null && isDescription(text)) return text;
+  errors.push({
+    file,
+    line,
+    message:
+      text === null
+        ? `${page.component}'s @agentDescription says nothing: write what the page is for after it, or remove it`
+        : `${page.component}'s @agentDescription "${text}" does not say what the page is for: write three words or more, not a loading state`,
+  });
   return null;
 }
 
