@@ -2225,6 +2225,26 @@ export interface AgentEvalExpectation {
     /** None may match what it wrote while it worked. */
     mustNotSay?: readonly AgentEvalTextMatcher[];
   };
+  /**
+   * What the conversation's stored history keeps of the pages it was on, after the turn, as a
+   * later turn reads it: the digest of the page each of the customer's messages was sent from
+   * (`pageAtStart`) and of the page each page answer showed (`shown`), as the turns stored
+   * them.
+   */
+  history?: {
+    /** Each must match a page the stored history keeps: this turn's or an earlier one's. */
+    keeps?: readonly AgentEvalTextMatcher[];
+    /**
+     * Each must match the reply (what the turn showed the customer) and a page the stored
+     * history kept from an earlier turn: the reply quotes a fact of a page the conversation was
+     * on before. A string or a pattern; a judge cannot read the history.
+     */
+    quotes?: readonly (string | {
+      pattern: string;
+      /** Regular-expression flags among `i`, `m`, `s` and `u`. */
+      flags?: string;
+    })[];
+  };
   /** `true`: the turn ran no model call, because a person held the conversation. */
   held?: boolean;
   /** How many times each tool, or each of the page's actions, was called in the turn. */

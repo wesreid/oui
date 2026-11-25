@@ -93,6 +93,26 @@ describe('agent-evals.json', () => {
   });
 });
 
+describe('agent-evals.json: what the stored history keeps of the pages', () => {
+  const suiteWith = (history: unknown) => ({
+    version: 1,
+    name: 'dealer',
+    scenarios: [{ id: 'the-rogue', title: 'Says why it led with the Rogue after the page moved on', turns: [{ user: 'Why the Rogue?', expect: { history } }] }],
+  });
+
+  it('accepts what the history keeps, and the facts of an earlier page a reply quotes', () => {
+    const suite: AgentEvalSuite = suiteWith({ keeps: ['2021 Rogue S', { rubric: 'names the lead that was open' }], quotes: ['2021 Rogue S', { pattern: 'Rogue\\s+S', flags: 'i' }] }) as AgentEvalSuite;
+    expect(contractProblems('agent-evals.json', suite)).toEqual([]);
+  });
+
+  it('refuses a quote a judge would have to read the history for, an empty expectation and an unknown field', () => {
+    expect(contractProblems('agent-evals.json', suiteWith({ quotes: [{ rubric: 'quotes the earlier page' }] })).length).toBeGreaterThan(0);
+    expect(contractProblems('agent-evals.json', suiteWith({})).length).toBeGreaterThan(0);
+    expect(contractProblems('agent-evals.json', suiteWith({ remembers: ['x'] })).join(' ')).toMatch(/remembers/);
+    expect(contractProblems('agent-evals.json', suiteWith({ quotes: [''] })).length).toBeGreaterThan(0);
+  });
+});
+
 describe('agent-evals.json: a page, and what a turn did beyond its words', () => {
   const suite: AgentEvalSuite = {
     version: 1,

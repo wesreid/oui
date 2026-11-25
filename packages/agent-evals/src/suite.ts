@@ -44,6 +44,8 @@ export const matchersOf = (expect: AgentEvalExpectation | undefined): AgentEvalT
     ...(expect.doesNotStore ?? []),
     ...(expect.whileWorking?.says ?? []),
     ...(expect.whileWorking?.mustNotSay ?? []),
+    ...(expect.history?.keeps ?? []),
+    ...(expect.history?.quotes ?? []),
   ];
   if (expect.refusal && expect.refusal !== true) out.push(expect.refusal);
   if (expect.approvalRequested && expect.approvalRequested.readback) out.push(expect.approvalRequested.readback);

@@ -597,6 +597,8 @@ export async function runEvalCase(config: AgentEvalConfig, target: EvalCaseTarge
   const stops = createMemoryStops();
   const history = await (config.history?.({ channel, scenario, suite }) ?? createMemoryHistory());
   let stored: Array<{ messages: TurnMessage[]; stopped?: TurnStoppedMarker }> = [];
+  /** What the stored history keeps of the pages the conversation was on, by the turn that stored each (`history`). */
+  const pagesKept: EvalPageKept[] = [];
   let readingFor: EvalHistoryTurn | null = null;
   const runner = createAgentTurnRunner<null>({
     ...agentParts(agent),
@@ -617,7 +619,9 @@ export async function runEvalCase(config: AgentEvalConfig, target: EvalCaseTarge
     getHistory: (id, _db, request) => history.getHistory(id, { ...request, ...(readingFor ? { turn: readingFor } : {}) }),
     persistMessages: async ({ db: _db, ...turn }) => {
       stored.push({ messages: turn.messages, ...(turn.stopped ? { stopped: turn.stopped } : {}) });
-      return history.persistMessages(turn);
+      const answer = await history.persistMessages(turn);
+      if (!(answer && answer.stored === false)) pagesKept.push(...pagesKeptOf(currentTurn, turn.messages, turn.pageAtStart));
+      return answer;
     },
     logger: QUIET,
   });
@@ -733,7 +737,12 @@ export async function runEvalCase(config: AgentEvalConfig, target: EvalCaseTarge
         }, expectation);
       }
       const promptCache = candidate ? candidate.capabilities.promptCache : undefined;
-      for (const failure of await check(expectation, ran.record, ran.stored, judgeModel, { judge: judgeAsk, promptCache, ...(page ? { caseRan: page.ran } : {}) })) {
+      for (const failure of await check(expectation, ran.record, ran.stored, judgeModel, {
+        judge: judgeAsk,
+        promptCache,
+        ...(page ? { caseRan: page.ran } : {}),
+        pagesKept,
+      })) {
         fail(index, failure.assertion, failure.message, failure.kind ?? 'assertion');
       }
     }
@@ -823,6 +832,33 @@ export function shownToCustomer(record: Pick<EvalTurnRecord, 'reply' | 'choices'
   return [record.reply, ...cards].filter((part) => part.trim() !== '').join('\n\n');
 }
 
+/** A digest of a page the stored history keeps, and the turn that stored it. */
+export interface EvalPageKept {
+  turn: number;
+  /** `pageAtStart`: the page a customer's message was sent from. `shown`: the page a page answer showed. */
+  kind: 'pageAtStart' | 'shown';
+  digest: string;
+}
+
+/**
+ * What a turn's store keeps of the pages: the digest of the page its
+ * customer's message was sent from, then that of each page answer it stored,
+ * in order.
+ */
+export function pagesKeptOf(turn: number, messages: readonly TurnMessage[], pageAtStart?: string): EvalPageKept[] {
+  const kept: EvalPageKept[] = pageAtStart ? [{ turn, kind: 'pageAtStart', digest: pageAtStart }] : [];
+  for (const m of messages) {
+    if (m.role !== 'tool' || !m.content?.includes('"shown"')) continue;
+    try {
+      const shown = (JSON.parse(m.content) as { shown?: unknown } | null)?.shown;
+      if (typeof shown === 'string' && shown) kept.push({ turn, kind: 'shown', digest: shown });
+    } catch {
+      // Not an answer of the page's.
+    }
+  }
+  return kept;
+}
+
 /** Every way a turn breaks its expectation. */
 export async function check(
   expect: AgentEvalExpectation,
@@ -840,6 +876,8 @@ export async function check(
     promptCache?: boolean;
     /** Every action that ran on the page in the case so far, this turn's included: what `page.ranInCase` reads. */
     caseRan?: readonly EvalPageRun[];
+    /** What the stored history keeps of the pages the case was on, this turn's included: what `history` reads. */
+    pagesKept?: readonly EvalPageKept[];
   } = {},
 ): Promise<CheckFailure[]> {
   const out: CheckFailure[] = [];
@@ -876,6 +914,25 @@ export async function check(
     }
     for (const matcher of says) await textAssertion('whileWorking', matcher, working, true, 'what it wrote while it worked');
     for (const matcher of mustNotSay) await textAssertion('whileWorking', matcher, working, false, 'what it wrote while it worked');
+  }
+
+  if (expect.history) {
+    const pages = options.pagesKept ?? [];
+    const kept = pages.map((p) => p.digest).join('\n');
+    const earlier = pages.filter((p) => p.turn < record.turn).map((p) => p.digest).join('\n');
+    for (const matcher of expect.history.keeps ?? []) {
+      await textAssertion('history', matcher, kept, true, 'what the stored history keeps of the pages');
+    }
+    // A fact of a page the conversation was on before, quoted: in the reply, and kept only by the history.
+    for (const matcher of expect.history.quotes ?? []) {
+      if (!matchesText(matcher, shown)) out.push({ assertion: 'history', message: `the reply does not quote ${describeMatcher(matcher)}: ${quoted(shown)}` });
+      if (!matchesText(matcher, earlier)) {
+        out.push({
+          assertion: 'history',
+          message: `no page an earlier turn left in the stored history shows ${describeMatcher(matcher)}${earlier ? `: ${quoted(earlier)}` : ': it keeps none'}`,
+        });
+      }
+    }
   }
 
   const calls = record.toolCalls;

@@ -1,5 +1,15 @@
 # @ouispec/cli
 
+## 0.17.2
+
+### Patch Changes
+
+- Depends on the current `@ouispec/contract`, which adds the eval expectation `history`. Nothing else changes.
+- Updated dependencies
+- Updated dependencies
+  - @ouispec/bindings@0.17.2
+  - @ouispec/contract@0.17.2
+
 ## 0.17.1
 
 ### Patch Changes
