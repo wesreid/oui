@@ -229,7 +229,11 @@ export interface EvalHistory {
    * the turn is sent from, whose view it is in.
    */
   getHistory(conversationId: string, request: EvalHistoryRequest): Promise<TurnHistoryMessage[] | TurnHistory>;
-  /** The worker's `persistMessages`, with no database: how a turn's messages are stored. */
+  /**
+   * The worker's `persistMessages`, with no database: how a turn's messages are
+   * stored, and the digest of the page the customer's message was sent from
+   * (`pageAtStart`), which goes on that message and comes back with it.
+   */
   persistMessages(input: Omit<Parameters<AgentRuntimeConfig<unknown>['persistMessages']>[0], 'db'>): Promise<void | { stored: false }>;
 }
 
@@ -292,8 +296,14 @@ export function createMemoryHistory(options: MemoryHistoryOptions = {}): EvalHis
       const messages = [...of(conversationId)];
       return options.window ? await options.window(messages, { ...turn, conversationId }) : messages;
     },
-    async persistMessages({ conversationId, messages }: { conversationId: string; messages: TurnMessage[] }) {
-      of(conversationId).push(...historyOf(messages));
+    async persistMessages({ conversationId, messages, pageAtStart }: { conversationId: string; messages: TurnMessage[]; pageAtStart?: string }) {
+      const conversation = of(conversationId);
+      // The page the customer's message was sent from goes on that message, as a product's store keeps it.
+      if (pageAtStart) {
+        const at = conversation.map((m) => m.role).lastIndexOf('user');
+        if (at !== -1) conversation[at] = { ...(conversation[at] as Extract<TurnHistoryMessage, { role: 'user' }>), pageAtStart };
+      }
+      conversation.push(...historyOf(messages));
     },
   };
 }

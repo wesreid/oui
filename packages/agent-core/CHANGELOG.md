@@ -1,5 +1,13 @@
 # @ouispec/agent-core
 
+## 0.38.0
+
+### Patch Changes
+
+- Depends on the current `@ouispec/contract`, which adds the eval expectation `history`. Nothing else changes.
+- Updated dependencies
+  - @ouispec/contract@0.17.2
+
 ## 0.37.0
 
 ### Patch Changes

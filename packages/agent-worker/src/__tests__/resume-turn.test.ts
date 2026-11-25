@@ -336,3 +336,20 @@ describe('the calls a resume names', () => {
     expect(note).toMatch(/what came of each/);
   });
 });
+
+describe('what a resumed turn keeps of the page', () => {
+  it('stores the later answer with the digest of the page the work ended on, as the model was sent it, and keeps no page of its own', async () => {
+    const { channel } = store({ call_variants: finished('call_variants') });
+    const { runAgentTurn } = await import('../orchestrator.js');
+    const result = await runAgentTurn(config(channel), resumeTurn(historyWith([{ id: 'call_variants' }]), ['call_variants']));
+
+    const stored = result.newMessages.find((m) => m.role === 'tool')!;
+    const row = JSON.parse(stored.content!) as Record<string, unknown>;
+    expect(row.shown).toBe('room:image-studio — layers: 1 (Ruth in beach)');
+    expect(row).not.toHaveProperty('state');
+    expect(row.pageState).toBe(STATE_AT_END);
+    expect(resultOf(seen[0], 'call_variants')).toBe(stored.content);
+    // Nobody wrote: there is no message of the person's to keep the page on.
+    expect(result.pageAtStart).toBeUndefined();
+  });
+});

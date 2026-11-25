@@ -36,6 +36,7 @@ import type { UIActionChannel } from './channel.js';
 import { boundObservations, DEFAULT_PAGE_STATE_CHARS, observationSchemas } from './observations.js';
 import { answerCutNotes, DEFAULT_ANSWER_DATA_CHARS, fitAnswerData } from './answer-fit.js';
 import { describeSchema } from './outline.js';
+import { stateDigestOf, type StateDigestSetting } from './state-digest.js';
 import {
   definitionKey,
   indexDiff,
@@ -160,6 +161,14 @@ export interface UIToolDependencies {
   maxObservationChars?: number;
   /** How much of an action's result the model is given, in characters of JSON. Default 24,000 (answer-fit.ts). */
   maxAnswerDataChars?: number;
+  /**
+   * What an answer keeps of the page it showed, as `shown` beside its state
+   * (state-digest.ts): the default digest when left out, the host's own (a
+   * function), or none (`false`).
+   */
+  stateDigest?: StateDigestSetting;
+  /** The longest that digest is, in characters. Default 600 (`DEFAULT_STATE_DIGEST_CHARS`). */
+  maxStateDigestChars?: number;
   /**
    * When the turn must stop waiting for work an action started, so the model
    * still has time to answer: epoch ms. An action that is still running then is
@@ -749,7 +758,7 @@ export function laterAnswerFor(
   final: OUIActionResult,
   call: { actionId: string; jobId?: string },
   page: readonly PageSurface[],
-  limits: Pick<UIToolDependencies, 'maxObservationChars' | 'maxAnswerDataChars'> = {},
+  limits: AnswerLimits = {},
 ): ToolExecutionResult {
   const action = pageActions(page).actions.find((a) => a.entry.id === call.actionId) ?? {
     surface: { id: '', name: '', description: '', index: [] },
@@ -884,10 +893,13 @@ function answerFor(
   return renderAnswer(action, deps, answer, before, extra);
 }
 
+/** What an answer is fitted to, and what it keeps of its page: the host's limits and digest. */
+export type AnswerLimits = Pick<UIToolDependencies, 'maxObservationChars' | 'maxAnswerDataChars' | 'stateDigest' | 'maxStateDigestChars' | 'log'>;
+
 /** What the model reads of an answer, `extra` beside it, with a picture it carries lifted out as a picture. Records nothing. */
 function renderAnswer(
   action: PageAction,
-  limits: Pick<UIToolDependencies, 'maxObservationChars' | 'maxAnswerDataChars'>,
+  limits: AnswerLimits,
   answer: { result: OUIActionResult; page: PageSurface[] | undefined },
   before: readonly PageSurface[],
   extra: Record<string, unknown>,
@@ -897,7 +909,7 @@ function renderAnswer(
   const lifted = liftAnswerImage(answer.result.data);
   const shown: OUIActionResult = lifted.data === answer.result.data ? answer.result : { ...answer.result, data: lifted.data };
   const data = {
-    ...forModel(shown, before, answer.page, limits.maxObservationChars ?? DEFAULT_PAGE_STATE_CHARS, surface.id, limits.maxAnswerDataChars ?? DEFAULT_ANSWER_DATA_CHARS),
+    ...forModel(shown, before, answer.page, limits, surface.id),
     ...extra,
   };
   const image = lifted.image ? { image: lifted.image } : {};
@@ -1053,10 +1065,11 @@ function forModel(
   result: OUIActionResult,
   before: readonly PageSurface[],
   page: readonly PageSurface[] | undefined,
-  maxObservationChars: number,
+  limits: AnswerLimits,
   actingSurfaceId: string,
-  maxAnswerDataChars: number,
 ) {
+  const maxObservationChars = limits.maxObservationChars ?? DEFAULT_PAGE_STATE_CHARS;
+  const maxAnswerDataChars = limits.maxAnswerDataChars ?? DEFAULT_ANSWER_DATA_CHARS;
   const after = page ?? before;
   const was = new Set(before.map((s) => s.id));
   const opened = after.filter((s) => !was.has(s.id));
@@ -1067,6 +1080,13 @@ function forModel(
 
   // What the action returned, within what a model should read of it (answer-fit.ts).
   const fitted = fitAnswerData(result.data, maxAnswerDataChars);
+  const hasState = !!result.observations && Object.keys(result.observations).length > 0;
+  const schemas = observationSchemas(after);
+  // What the page showed, kept in what is stored when the state is taken out (state-digest.ts): made
+  // once, here, from the answer's own observations, so the answer reads the same every time it is sent.
+  const digest = hasState
+    ? stateDigestOf(result.observations, { surfaceId: actingSurfaceId || null, schemas, at: 'answer' }, limits.stateDigest, limits.maxStateDigestChars, limits.log)
+    : null;
 
   return {
     ...(fitted.data !== undefined ? { result: fitted.data } : {}),
@@ -1086,10 +1106,11 @@ function forModel(
       ...(added.length ? { actionsAdded: added } : {}),
       ...(removed.length ? { actionsRemoved: removed } : {}),
     },
-    ...(result.observations && Object.keys(result.observations).length
+    ...(digest ? { shown: digest } : {}),
+    ...(hasState
       ? {
-          state: boundObservations(result.observations, maxObservationChars, actingSurfaceId, {
-            schemas: observationSchemas(after),
+          state: boundObservations(result.observations!, maxObservationChars, actingSurfaceId, {
+            schemas,
             changed: changedRefs(result.data),
           }),
         }

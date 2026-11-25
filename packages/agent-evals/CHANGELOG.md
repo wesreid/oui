@@ -1,5 +1,24 @@
 # @ouispec/agent-evals
 
+## 0.38.0
+
+### Minor Changes
+
+- An eval can hold a later turn to a fact of a page the conversation has moved on from: `history` on a turn's expectation.
+
+  - contract: `AgentEvalExpectation.history` (`keeps`, `quotes`), optional, so every suite that validated still does.
+  - agent-evals: `keeps` matches what the stored history keeps of the pages (the digest of the page each customer message was sent from, `pageAtStart`, and of the page each page answer showed, `shown`), this turn's and every earlier one's, rubrics included. `quotes` (a string or a pattern) must match both the reply and a page an earlier turn left in the stored history. The memory store keeps `pageAtStart` on the customer's message and hands it back; `pagesKeptOf(turn, messages, pageAtStart)` and the `EvalPageKept` type are exported, and `check` reads them from `options.pagesKept`.
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @ouispec/bindings@0.17.2
+  - @ouispec/agent-core@0.38.0
+  - @ouispec/contract@0.17.2
+  - @ouispec/agent-worker@0.38.0
+
 ## 0.37.0
 
 ### Minor Changes

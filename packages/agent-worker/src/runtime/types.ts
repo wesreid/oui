@@ -11,6 +11,7 @@ import type { RegisteredTool } from '../tools/types.js';
 import type { AgentPersonaConfig } from '../prompt/index.js';
 import type { AgentApiSurface } from '@ouispec/agent-core';
 import type { TurnMessage, TurnHistoryMessage } from '../types.js';
+import type { StateDigestSetting } from '../ui/state-digest.js';
 import type { TurnPolicy } from '../turn-policy.js';
 import type { ToolPolicy } from '../authz/tool-policy.js';
 import type { UIActionChannel } from '../ui/channel.js';
@@ -334,6 +335,15 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
     maxAnswerDataChars?: number;
     /** Longest the page's index is in the model's context, in characters, before its furthest surfaces are listed by action id only. Default 60000 (`DEFAULT_INDEX_CHARS`). */
     maxIndexChars?: number;
+    /**
+     * What stored history keeps of each page (`AgentWorkerConfig.ui.stateDigest`):
+     * left out, the default digest; a function, the host's own; `false`, none.
+     * Each UI answer keeps it as `shown`, and the turn gives the one of the
+     * page its message was sent from to `persistMessages` as `pageAtStart`.
+     */
+    stateDigest?: StateDigestSetting;
+    /** The longest a page's digest is, in characters. Default 600 (`DEFAULT_STATE_DIGEST_CHARS`). */
+    maxStateDigestChars?: number;
   };
 
   /** Approvals: where they are kept, and the host's say before one is asked for (approvals/hooks.ts). */
@@ -437,6 +447,13 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
     messages: TurnMessage[];
     usage: { promptTokens: number; completionTokens: number; totalTokens: number };
     stopped?: TurnStoppedMarker;
+    /**
+     * The digest of the page the person's message was sent from
+     * (`AgentTurnResult.pageAtStart`). Write it on the turn's stored user
+     * message, and hand it back as that message's `pageAtStart` in history:
+     * the model read the message with it.
+     */
+    pageAtStart?: string;
     db: TDb;
   }) => Promise<void | { stored: false }>;
 

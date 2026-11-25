@@ -9,6 +9,7 @@
 import type { TurnHistoryMessage, TurnMessage } from './types.js';
 
 export { answerWithoutState, STATE_AT_END } from './ui/page-state-at-end.js';
+export { PAGE_AT_START_OPEN, PAGE_AT_START_CLOSE, pageAtStartNote, withPageAtStart } from './ui/page-at-start.js';
 
 /**
  * What a host hands back as history for the messages a turn stored: the

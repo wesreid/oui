@@ -13,7 +13,7 @@ A missing value fails when the adapter is created, and the error names it. Nothi
 | Realtime server | `realtime: { url, apiKey }` | The `agent-sdk-realtime` server and its internal key. Turn events go to `POST {url}/api/emit`, and UI action answers are collected from `GET {url}/internal/oui/action-results/:id`. The key is a string, or a getter that reads it from your secret store (see "The realtime key from a secret store"). |
 | Persona | `persona` or `systemPrompt`, exactly one | The assistant's identity comes only from here. The shipped rules name no product. |
 | Tools | `tools` | A list, or a per-turn resolver. Pass `[]` when the only tools are the tab's UI actions. |
-| Persistence | `getDb`, `getHistory`, `persistMessages` | `getDb`'s handle is passed to every callback. `recordTurnStart`, `recordTurnComplete` and `recordTurnFailure` are optional. See "Stopping a turn" for what each is told of a stopped or superseding turn. |
+| Persistence | `getDb`, `getHistory`, `persistMessages` | `getDb`'s handle is passed to every callback. `recordTurnStart`, `recordTurnComplete` and `recordTurnFailure` are optional. See "Stopping a turn" for what each is told of a stopped or superseding turn. `persistMessages` is given the digest of the page the turn's message was sent from (`pageAtStart`): store it on that message and hand it back with it ("What history keeps of the pages"). |
 
 Optional tuning, with its defaults:
 - `maxRounds`: 12
@@ -94,7 +94,7 @@ getHistory: async (conversationId, db, turn) => ({
 
 The setting is part of the system prompt and the instruction is part of the turn's context ("How a turn is assembled"), so the system prompt is the same at every level and a change of level keeps the cached conversation. A value the worker does not know fails when the adapter is created, naming it. `resolveNarration` and `NARRATION_SETTINGS` are exported for a host that reads the setting itself, and `getBaseRules`, `getCommunicationRules` and `getToolStrategyRules` take it as their last argument.
 
-A host that fits its stored history loads `@ouispec/agent-worker/history` (`answerWithoutState`): a module with no runtime imports, which also answers a CommonJS resolver.
+A host that fits its stored history loads `@ouispec/agent-worker/history` (`answerWithoutState`, and `withPageAtStart` for a message's page note): a module with no runtime imports, which also answers a CommonJS resolver.
 
 Policy hooks: `turnPolicy`, `toolPolicy`, `uiActions`, `approvals`, `stops`, `logger`, and the hooks every turn passes through, `beforeTurn` and `filterEvent` ("Hooks on every turn").
 
@@ -120,7 +120,7 @@ Every other key is the page's context, which a persona prompt shows as the curre
 Each step of a turn (each call to the model: the first, and one after every round of tool calls) sends, in this order:
 
 1. **The system prompt**, with a cache breakpoint, then the page's index (`<page_index>`) when the client has a page, with its own. A surface whose action ids share a start (`vector_studio_` on every action of a 189-action studio) says it once, in its heading (`sharedPrefixNote`), and its lines give the rest of each id; `ui_act`, `ui_describe` and an action called as a tool take either the full id or a line's name (`resolveActionName`), and refuse a name that two surfaces' actions end in, listing their full ids. Everything read away from the headings (what an answer says the page now offers, errors, `ui_find`) names actions by their full ids. The same on every step that offers the same tools, and on every turn on the same page.
-2. **The conversation** as the host stored it, ending with the turn's own message: the person's words, or the instruction that stands for them (a call's opening, glance, capture update or device update).
+2. **The conversation** as the host stored it, ending with the turn's own message: the person's words, or the instruction that stands for them (a call's opening, glance, capture update or device update). A message the person sent from a page carries a short note on what that page showed (`<page_at_start>`, "What history keeps of the pages").
 3. **The turn's context**, straight after the turn's message: what is true for the whole turn and for no other. In this order: the clock (`<now>`), how the message was entered (`<input>`), how the reply is delivered (`<output>`), whether the model can look at the caller (`<vision>`, a glance's observation included), the photo plans and the running capture (`<capture>`), the device the call is on and whether it can move (`<handoff>`), calls whose approval expired, and the host's `stepContext` (what `getHistory` returns beside the messages: an index of work notes, a dealer's notes on what the customer needs). Every step sends it in the same place, in the same words.
 4. **The turn's rounds so far**: each round's text and tool calls, then their results. A cache breakpoint moves with the end of the conversation: on the turn's context on the first step, then on the newest result, so each step reads all of the step before it from the cache.
 5. **What is true for this step only**, after that breakpoint, when there is any: the page's state (`<page_state>`: the page as the user's screen sent it, then as the newest answer that carried it left it) and the step's notes (`<step_note>`: the turn policy's `note`, a forced action, the turn's record after a call that failed, a step that has to plan less).
@@ -137,6 +137,33 @@ What is stored is only the person's message and the model's rounds, so the next 
 | `'after-conversation'` | After the conversation's end on every step, before the step's notes: where 0.30 and earlier sent it | The next turn reads all of this one from the cache. After a tool result, the context reads as the person's newest message. Choose it only for a model that `evals/turn-context.live-eval.ts` (`EVAL_MODEL_ID`) shows answering from its tool results with it. |
 
 A placement the worker does not know fails when the adapter is created, naming the ones there are (`TURN_CONTEXT_PLACEMENTS`). Context that should reach the model on one step only goes in a turn policy's `note`, never in `stepContext`.
+
+### What history keeps of the pages
+
+A UI answer gives its page state up as it arrives: the stored answer, and the answer every later step and turn is sent, says `pageState: "…the page as it is now"` where its state was (`answerWithoutState`), and the page's newest state goes after the conversation. Before 0.38 nothing else of a page survived, so once the page had moved on a later turn could not say what an earlier page had shown, and the model took back answers that had been true. Since 0.38 history keeps a digest of each page, made once and never changed:
+
+- **Each UI answer** carries `shown`, beside `state`: a digest of the page it showed. `answerWithoutState` takes out only `state`, so `shown` is stored and sent again in the same words, and an answer once sent still never changes. Work that ended after its turn (a resumed turn) and a stopped turn's answers keep it the same way.
+- **Each turn** gives the digest of the page its message was sent from (the `context.oui` snapshot) as `pageAtStart`: on `AgentTurnResult`, to `beforeTurnComplete`, and to `persistMessages`. Write it on the turn's stored user message and hand it back in history as that message's `pageAtStart` (`TurnHistoryMessage`). The model reads it as a note after the message's text (`pageAtStartNote`: `<page_at_start>When this message was sent, the page showed: …</page_at_start>`), and the turn sends its own message with it on every step in the same words, so the conversation up to that message is read from the cache in the next turn. A history that drops it reads that message differently from the turn that sent it, which writes the message to the cache once more. A turn with no page, no message of the person's (an approval's continuation, a resumed turn) or no digest has none.
+
+The default digest (`pageDigest`) is deterministic and at most 600 characters (`uiActions.maxStateDigestChars`, `DEFAULT_STATE_DIGEST_CHARS`): the surface acted on first, then the page's own surfaces, the shells last; for each surface its id, then each display's facts by label, and each list's count and its first rows' titles (`DIGEST_FIRST_ROWS`, 3). Problems, job statuses and field values are left to the page state.
+
+```
+page:lead — Lead (Name: Maria Alvarez; Source: Website; Vehicle: 2021 Rogue S); leads.open: 4 (Maria Alvarez, Tom Lee, Ana Diaz, …) | shell:app — nav.accounts: 2 (Main store, Second store)
+```
+
+A product chooses what it keeps with `uiActions.stateDigest` (`AgentWorkerConfig.ui.stateDigest`):
+
+```ts
+uiActions: {
+  // The facts your persona quotes, or null to keep no digest of that page.
+  stateDigest: (observations, { surfaceId, schemas, at }) => leadFacts(observations) ?? null,
+  maxStateDigestChars: 400,
+},
+```
+
+It is called once for each answer (`at: 'answer'`, with the surface acted on) and once for the page a turn began on (`at: 'pageAtStart'`, `surfaceId: null`); what it returns is cut to the bound. A throw, or anything but text or null, keeps no digest and is logged. `stateDigest: false` keeps none at all, as before 0.38. A setting that is neither a function nor `false` fails when the adapter is created.
+
+The digest is for the model's memory of what the person saw, not for pasting into a reply. Turning it on changes what is stored and sent: recorded evals (`@ouispec/agent-evals` cassettes) are recorded again, and the eval expectation `history` holds a later turn to a fact of an earlier page.
 
 ### What a step is told about tools
 

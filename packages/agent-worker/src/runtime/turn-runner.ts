@@ -389,7 +389,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
         let stored = false;
         /** Whether the host's store failed (threw), as opposed to finding the turn given up on. */
         let storeFailed = false;
-        const persist = async (turn: { newMessages: TurnMessage[]; usage: AgentTurnResult['usage']; stopped?: TurnStoppedMarker }) => {
+        const persist = async (turn: { newMessages: TurnMessage[]; usage: AgentTurnResult['usage']; stopped?: TurnStoppedMarker; pageAtStart?: string }) => {
           persisted = true;
           try {
             const answer = await config.persistMessages({
@@ -398,6 +398,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
               messages: turn.newMessages,
               usage: turn.usage,
               ...(turn.stopped ? { stopped: turn.stopped } : {}),
+              ...(turn.pageAtStart ? { pageAtStart: turn.pageAtStart } : {}),
               db,
             });
             // The host found the turn given up on by a newer one, and stored nothing.
@@ -445,6 +446,8 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
               maxObservationChars: config.uiActions?.maxObservationChars,
               maxAnswerDataChars: config.uiActions?.maxAnswerDataChars,
               maxIndexChars: config.uiActions?.maxIndexChars,
+              stateDigest: config.uiActions?.stateDigest,
+              maxStateDigestChars: config.uiActions?.maxStateDigestChars,
             },
             ...(config.attachments ? { attachments: config.attachments } : {}),
           },

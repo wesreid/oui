@@ -1,5 +1,23 @@
 # @ouispec/agent-worker
 
+## 0.38.0
+
+### Minor Changes
+
+- Stored history keeps a digest of every page the conversation was on, so a later turn can say what an earlier page showed after the page has moved on. Before, every stored UI answer said only "the page as it is now" where its state had been, and the page a turn began on was never stored, so an assistant took back answers that had been true.
+
+  - **Each UI answer keeps `shown`**, beside `state`: a digest of the page it showed, made once when the answer arrives. `answerWithoutState` still takes out only `state`, so `shown` is stored and sent again in the same words, and an answer once sent never changes. Answers to work that ended after its turn (`laterAnswerFor`, resumed turns) and a stopped turn's answers keep it too.
+  - **Each turn keeps `pageAtStart`**: the digest of the page its message was sent from (the `context.oui` snapshot), on `AgentTurnResult`, given to `beforeTurnComplete` and to `persistMessages`. Store it on the turn's user message and hand it back in history as `TurnHistoryMessage.pageAtStart`. The model reads it as a note after the message (`<page_at_start>`, `pageAtStartNote`), and the turn sends its own message with it on every step in the same words, so the next turn still reads the conversation up to that message from the prompt cache. A turn with no page, no message of the person's (an approval's continuation, a resumed turn) or no digest has none.
+  - **The default digest** (`pageDigest`) is deterministic and at most 600 characters (`DEFAULT_STATE_DIGEST_CHARS`): the surface acted on first, then the page's own surfaces, the shells last; each display's facts by label; each list's count and the titles of its first three rows (`DIGEST_FIRST_ROWS`).
+  - **The host chooses**: `uiActions.stateDigest` (`AgentWorkerConfig.ui.stateDigest`) is a function `(observations, { surfaceId, schemas, at }) => string | null` whose text is kept (cut to the bound; null keeps none for that page; a throw or a non-string is logged and keeps none), or `false` for no digest at all, as before. `uiActions.maxStateDigestChars` sets the bound. A setting that is neither a function nor `false` fails when the adapter is created.
+  - **On by default.** Stored answers gain `shown` and messages sent from a page gain their note, so what the model is sent changes: a host's recorded evals are recorded again when it takes this version. `stateDigestOf`, `withPageAtStart`, `PAGE_AT_START_OPEN`/`PAGE_AT_START_CLOSE` and the `StateDigest`, `StateDigestContext` and `StateDigestSetting` types are exported; `@ouispec/agent-worker/history` exports `withPageAtStart` and `pageAtStartNote` too.
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/bindings@0.17.2
+  - @ouispec/agent-core@0.38.0
+
 ## 0.37.0
 
 ### Minor Changes
