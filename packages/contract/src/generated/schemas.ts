@@ -4765,6 +4765,13 @@ export const CONTRACT_SCHEMAS = {
           "args": {
             "type": "object",
             "additionalProperties": true
+          },
+          "via": {
+            "description": "How the call arrived: `trailer`, written into the response after the reply (an agent runtime's trailer tool); `call`, called as a tool. Either, when left out.",
+            "enum": [
+              "trailer",
+              "call"
+            ]
           }
         },
         "required": [

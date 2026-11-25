@@ -86,6 +86,30 @@ export interface RegisteredTool {
    */
   answerless?: boolean;
   /**
+   * The model writes the tool's calls into its response, after its reply, as
+   * `<oui:name>{json}</oui:name>`, instead of calling it (tools/trailer.ts). A
+   * response ends at a tool call, so a model that makes an answerless call in
+   * a step of its own spends one more model call on the reply; a trailer is
+   * text, and the reply and the call arrive in one. Default false.
+   *
+   * Only for an answerless tool, with an object input schema and a name of
+   * letters, digits, `_` and `-`, whose effect is at most `edit`, that is never
+   * destructive and never needs approval: text the model copies from a page
+   * can hold a trailer. The model must be an `ai` provider model, not an id.
+   * Anything else is refused when the adapter is created, or when a resolver
+   * gives a turn its tools.
+   *
+   * Its definition is not sent to the provider: the step's system prompt
+   * teaches the trailer, from its description and schema. It runs, is stored
+   * and is reported as a call (an id starting `oui_trailer_`), and every later
+   * prompt writes its calls back as trailers. Its answer, when it succeeds, is
+   * a JSON object without an `error` field: that is how a stored result says
+   * the note was written. A trailer that cannot be read is answered with
+   * `Invalid input for tool <name>: …`; the reply stands and the turn ends. A
+   * host's tool policy that would ask for approval of a trailer refuses it.
+   */
+  trailer?: boolean;
+  /**
    * The API this tool's approved calls go to, as an origin
    * (`https://api.example.com`): the audience of the receipt an approved call
    * carries (`ctx.approval.receipt`), which that API verifies. A host tool

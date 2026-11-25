@@ -22,6 +22,7 @@ import {
   createAgentTurnRunner,
   describeModel,
   hostSystemPrompt,
+  isTrailerCallId,
   loadBuiltinTools,
   UI_ACT_TOOL,
   withoutClientUI,
@@ -86,7 +87,8 @@ export interface EvalTurnRecord {
   reply: string;
   /** What it wrote while it worked: the text of each step it went on from, before that step's calls (`workingOf`). */
   working: string;
-  toolCalls: Array<{ name: string; args: Record<string, unknown> }>;
+  /** Its calls, in order; `via: 'trailer'` on one written into the response after the reply (agent-worker's trailer tools). */
+  toolCalls: Array<{ name: string; args: Record<string, unknown>; via?: 'trailer' }>;
   /** The approval the turn stopped at, when it stopped at one. */
   approval: { tool: string; args: Record<string, unknown>; preview: ApprovalPreview } | null;
   /** True when the turn ran no model call because a person held the conversation. */
@@ -650,7 +652,9 @@ export async function runEvalCase(config: AgentEvalConfig, target: EvalCaseTarge
       ...(payload.approval ? { approval: payload.approval } : {}),
     });
     const messages = stored.flatMap((s) => s.messages);
-    const toolCalls = messages.flatMap((m) => (m.toolCalls ?? []).map((c) => ({ name: c.name, args: c.arguments })));
+    const toolCalls = messages.flatMap((m) =>
+      (m.toolCalls ?? []).map((c) => ({ name: c.name, args: c.arguments, ...(isTrailerCallId(c.id) ? { via: 'trailer' as const } : {}) })),
+    );
     // A choice the runtime sent back (refused, invalid, or held for a reply) was never shown.
     const notShown = new Set(
       messages.filter((m) => m.role === 'tool' && m.toolCallId && refusedResult(m.content)).map((m) => m.toolCallId as string),
@@ -937,15 +941,20 @@ export async function check(
   }
 
   const calls = record.toolCalls;
-  const describeCall = (c: { name: string; args: Record<string, unknown> }) =>
-    c.name === UI_ACT_TOOL && typeof c.args.action === 'string' ? `${UI_ACT_TOOL} ${c.args.action} ${JSON.stringify(c.args.input ?? {})}` : `${c.name} ${JSON.stringify(c.args)}`;
+  const describeCall = (c: { name: string; args: Record<string, unknown>; via?: 'trailer' }) =>
+    (c.name === UI_ACT_TOOL && typeof c.args.action === 'string' ? `${UI_ACT_TOOL} ${c.args.action} ${JSON.stringify(c.args.input ?? {})}` : `${c.name} ${JSON.stringify(c.args)}`) +
+    (c.via === 'trailer' ? ' (as a trailer)' : '');
   const callsText = calls.length ? calls.map(describeCall).join('; ') : 'no tool';
   for (const wanted of expect.toolCalled ?? []) {
-    const hit = calls.some((c) => c.name === wanted.name && (wanted.args === undefined || holdsSubset(c.args, wanted.args)));
+    // `via`: how the call arrived, as a trailer after the reply or as a call; either when not given.
+    const arrived = (c: { via?: 'trailer' }) => wanted.via === undefined || (wanted.via === 'trailer') === (c.via === 'trailer');
+    const hit = calls.some((c) => c.name === wanted.name && (wanted.args === undefined || holdsSubset(c.args, wanted.args)) && arrived(c));
     if (!hit) {
       out.push({
         assertion: 'toolCalled',
-        message: `${wanted.name}${wanted.args ? ` with ${JSON.stringify(wanted.args)}` : ''} was not called; the agent called ${callsText}`,
+        message:
+          `${wanted.name}${wanted.args ? ` with ${JSON.stringify(wanted.args)}` : ''}` +
+          `${wanted.via === 'trailer' ? ' as a trailer' : wanted.via === 'call' ? ' as a call' : ''} was not called; the agent called ${callsText}`,
       });
     }
   }

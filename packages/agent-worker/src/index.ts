@@ -16,6 +16,16 @@ export { filterEmitAdapter } from './emit/filter.js';
 export type { TurnEventFilter } from './emit/filter.js';
 export type { ToolRegistry, RegisteredTool, ToolExecutionResult, ToolExecutionContext, ToolCallApproval } from './tools/types.js';
 export { createToolRegistry } from './tools/types.js';
+// Answerless tools the model writes after its reply instead of calling (`RegisteredTool.trailer`).
+export {
+  asTrailers,
+  isTrailerCallId,
+  MAX_TRAILER_CHARS,
+  MAX_TRAILERS_PER_STEP,
+  TRAILER_CALL_ID_PREFIX,
+  TRAILER_TOOL_NAME,
+  trailerToolProblem,
+} from './tools/trailer.js';
 export { loadToolsFromSchema } from './tools/schema-loader.js';
 export type { LoadToolsOptions } from './tools/schema-loader.js';
 // Async tools wait on the product's declared events

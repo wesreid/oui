@@ -457,6 +457,16 @@ export interface AgentTurnResult {
 export interface AnswerlessEnd {
   /** The answerless tools the last step called, in order. */
   tools: string[];
+  /** Set when any of those calls arrived as a trailer (`RegisteredTool.trailer`). */
+  trailer?: true;
+  /** How many of them arrived as trailers, when any did. */
+  trailers?: number;
+  /**
+   * How many of those trailers wrote nothing, when any did: one that could not
+   * be read, or whose tool refused or failed it. The reply stood and the turn
+   * ended; the call is stored with its error, so a later turn writes it again.
+   */
+  failedTrailers?: number;
 }
 
 export interface TurnMessage {

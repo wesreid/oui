@@ -1112,7 +1112,7 @@ A person on the product's staff can take a live conversation from the agent, ans
 | Assertion | Holds when |
 |---|---|
 | `says`, `mustNotSay` | each matcher matches the reply; none does. A string is found ignoring case; `{ pattern, flags }` is a regular expression; `{ rubric }` is decided by a judge model |
-| `toolCalled` | the agent called each tool, its arguments holding the given ones as a subset |
+| `toolCalled` | the agent called each tool, its arguments holding the given ones as a subset, and, with `via`, the way the call arrived: `trailer` (written into the response after the reply, an agent runtime's trailer tool) or `call` |
 | `toolNotCalled` | it called none of them (`*`: no tool at all) |
 | `approvalRequested` | the turn stopped for the customer's approval of that call, with a readback that is present and matches (`false`: it stopped for none) |
 | `refusal` | the reply declines (`true`: the usual phrasing; or a matcher) |

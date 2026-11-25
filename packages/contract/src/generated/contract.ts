@@ -2238,6 +2238,11 @@ export type AgentEvalTextMatcher = string | {
 export interface AgentEvalToolCall {
   name: string;
   args?: Readonly<Record<string, unknown>>;
+  /**
+   * How the call arrived: `trailer`, written into the response after the reply (an agent
+   * runtime's trailer tool); `call`, called as a tool. Either, when left out.
+   */
+  via?: 'trailer' | 'call';
 }
 
 /** The turn stopped at a call that needs the customer's approval, with a readback present. */
