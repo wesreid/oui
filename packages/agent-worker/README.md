@@ -172,11 +172,15 @@ A product chooses what it keeps with `uiActions.stateDigest` (`AgentWorkerConfig
 uiActions: {
   // The facts your persona quotes, or null to keep no digest of that page.
   stateDigest: (observations, { surfaceId, schemas, at }) => leadFacts(observations) ?? null,
+  // A name for what it writes: change it whenever what it writes changes.
+  stateDigestId: 'lead-facts-v1',
   maxStateDigestChars: 400,
 },
 ```
 
 It is called once for each answer (`at: 'answer'`, with the surface acted on) and once for the page a turn began on (`at: 'pageAtStart'`, `surfaceId: null`); what it returns is cut to the bound. A throw, or anything but text or null, keeps no digest and is logged. `stateDigest: false` keeps none at all, as before 0.38. A setting that is neither a function nor `false` fails when the adapter is created.
+
+A function has no form a recording can be fingerprinted by, so `@ouispec/agent-evals` fingerprints it by `stateDigestId`: a recording made with another name is stale, and a function with no name is refused, naming the field, before any case runs. The worker itself never reads the name. With no function, fingerprints are what they were.
 
 The digest is for the model's memory of what the person saw, not for pasting into a reply. Turning it on changes what is stored and sent: recorded evals (`@ouispec/agent-evals` cassettes) are recorded again, and the eval expectation `history` holds a later turn to a fact of an earlier page.
 

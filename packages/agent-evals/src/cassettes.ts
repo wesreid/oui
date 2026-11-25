@@ -93,6 +93,28 @@ export interface FingerprintInputs {
   judge?: string;
 }
 
+/**
+ * The agent's UI settings as a fingerprint can hold them. A host's
+ * `stateDigest` function shapes every stored answer, but a function has no
+ * JSON form: it is held by the name the host gives what it writes
+ * (`stateDigestId`), so changing that name makes recordings stale. A function
+ * given no name is refused, rather than left out: a recording would otherwise
+ * replay against a digest that changed. Settings with no function are held as
+ * they are, so their fingerprints are what they were.
+ */
+export function fingerprintedUiActions(uiActions: unknown): unknown {
+  if (!uiActions || typeof uiActions !== 'object') return uiActions;
+  const { stateDigest, stateDigestId, ...rest } = uiActions as Record<string, unknown>;
+  if (typeof stateDigest !== 'function') return uiActions;
+  if (typeof stateDigestId !== 'string' || stateDigestId.trim() === '') {
+    throw new Error(
+      '[agent-evals] uiActions.stateDigest is a function, which a recording cannot be fingerprinted by: ' +
+        'give uiActions.stateDigestId, a name for what it writes (change it whenever what it writes changes)',
+    );
+  }
+  return { ...rest, stateDigest: { id: stateDigestId } };
+}
+
 export function fingerprint(inputs: FingerprintInputs): string {
   const { systemPrompt, tools, channel, suite, scenario, page, modelProviderOptions, forcedToolChoice, requireReplyBeforeChoice, uiActions, candidate, judge } = inputs;
   const shaped = {
@@ -118,7 +140,7 @@ export function fingerprint(inputs: FingerprintInputs): string {
     ...(modelProviderOptions !== undefined ? { modelProviderOptions } : {}),
     ...(forcedToolChoice !== undefined ? { forcedToolChoice } : {}),
     ...(requireReplyBeforeChoice ? { requireReplyBeforeChoice } : {}),
-    ...(uiActions !== undefined ? { uiActions } : {}),
+    ...(uiActions !== undefined ? { uiActions: fingerprintedUiActions(uiActions) } : {}),
     ...(candidate ? { candidate: { id: candidate.id, providerOptions: candidate.providerOptions ?? null, capabilities: candidate.capabilities } } : {}),
     ...(judge !== undefined ? { judge } : {}),
   };

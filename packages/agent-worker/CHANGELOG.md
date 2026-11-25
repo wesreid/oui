@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.41.1
+
+### Patch Changes
+
+- A host's own `stateDigest` function can be recorded. agent-evals fingerprinted the agent's UI settings as JSON, so with a `uiActions.stateDigest` function every case failed before it ran ("$.uiActions.stateDigest is not I-JSON: function"; 0.40.0 and 0.41.0). The fingerprint now holds such a function by the name the host gives what it writes, `uiActions.stateDigestId` (new, optional, in agent-worker's `uiActions` and `AgentWorkerConfig.ui`; the worker only checks it is a non-empty string): the same name keeps a recording current, another makes it stale, and a function with no name is refused with an error naming the field. Settings with no function fingerprint exactly as before, so existing recordings stay current.
+
 ## 0.41.0
 
 ### Minor Changes

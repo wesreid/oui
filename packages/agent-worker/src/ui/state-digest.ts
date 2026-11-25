@@ -63,6 +63,15 @@ export function readStateDigestSetting(value: unknown): StateDigestSetting {
   );
 }
 
+/** `ui.stateDigestId`: a non-empty name, or left out. */
+export function readStateDigestId(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === 'string' && value.trim() !== '') return value;
+  throw new Error(
+    `[agent-sdk] ui.stateDigestId must be a non-empty string naming what stateDigest writes, not ${value === null ? 'null' : typeof value === 'string' ? 'an empty string' : typeof value}`,
+  );
+}
+
 /** The bound a host set, or the default. */
 export function stateDigestChars(max: number | undefined): number {
   return typeof max === 'number' && Number.isFinite(max) && max >= 1 ? Math.floor(max) : DEFAULT_STATE_DIGEST_CHARS;
