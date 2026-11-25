@@ -230,6 +230,32 @@ Some host tools only record something, and answer only that it was written: a no
 
 Everything else goes on as before: a round with no reply text, an answerless call that failed or did not run (refused, invalid input, waiting for approval), or any other tool called in the same round. The conversation is stored as always, the call followed by its result, so the next turn reads it as it would any other. The flag changes nothing the model is sent (the tool's description and schema are as declared, so the cached prefix is the same); tell the agent in your own rules to make such a call in the round that writes its reply. A turn that ended this way is `complete`; its result, its `Turn usage` log and `recordTurnComplete` carry `answerlessEnd: { tools }`, the answerless tools its last round called.
 
+#### Trailer mode: the note written after the reply
+
+A response ends at a tool call: no text can follow it. A model that makes an answerless call in a round of its own (Claude Sonnet 5.5 and Opus 5.5 write a note alone, whatever the rules say) has written no reply in that round, so the reply costs one more model call that reads the whole conversation again. Declare the tool `trailer: true` as well, and the model writes it into its response, after the reply, as text:
+
+```ts
+{ name: 'note', effect: 'edit', answerless: true, trailer: true, description: '…', inputSchema: { … }, execute }
+```
+
+```text
+I made the chorus brighter and left the verse as it was.
+
+<oui:note>{"kind":"decision","text":"Chorus brighter; verse unchanged."}</oui:note>
+```
+
+Text never ends a response, so the reply and the note arrive in one model call.
+
+- **What the model is sent.** The tool's definition is left out of the request. Each round that offers it is taught it in its system prompt instead, by a rule generated from the tool's own description and schema (its fields, an example, the tags). The rule is the same on every round and every turn, so it stays in the cached prefix. On a spoken turn, the voice's "use no other tags" excepts the trailer.
+- **What is read.** The worker reads each trailer out of the model's text as it streams, and the trailer becomes the tool's call, which runs, is validated and is refused like any other. Nothing of a trailer reaches the person: not the room's tokens, a voice, a round's end, the stored reply or an eval's `says`. Text is held back only while it could be the start of a tag, and from the opening tag to its closing one. Trailers may be written anywhere in the text, several in a response.
+- **What is stored.** The same rows as a round that wrote its reply and called the tool: the reply as the round's text, the call (its id starts `oui_trailer_`, made from the round, its place and the request the round sent), and its result. A host stores and reports it as it does any call.
+- **What is sent again.** Every later prompt, in the turn (each round's request) and in the next turns' history, writes the tool's calls back as the trailers the model was taught, as canonical JSON after the reply's text, and takes their results out. So no request ever names a tool it does not declare. A note that was not written is written back as `<oui:note-failed>why</oui:note-failed>`, and the rule tells the model to write it again. A definition is still sent where a provider needs one: when the trailer tools are a request's only tools and its prompt holds other tool calls (Bedrock drops every call and result from a request that declares no tool, and Anthropic refuses one), and for the one request that follows a response that wrote nothing but a trailer.
+- **A trailer that cannot be read** (not JSON, not closed when the response ended, more than 5 in a response, or longer than 4,096 characters) writes nothing and shows nothing. The reply has already been shown, and may have been spoken, so the turn ends on it rather than writing it again: the call is stored with its error (`Invalid input for tool note: the note trailer could not be read (…), so no note was written. …`), which is what the next turn reads, and the turn's `Turn usage` log counts the trailers it read and could not read. The same holds for a trailer whose tool refused it or failed.
+- **Which tools may be trailers.** Text the model copies from a page could hold a trailer, so only a tool that changes nothing anyone else depends on: answerless, with an object input schema, a name of letters, digits, `_` and `-` (up to 41), an effect no further than `edit`, never destructive and never needing approval. A host's tool policy that would ask for approval of a trailer refuses it. The model must be an `ai` provider model, not an id. Anything else is refused when the adapter is created, or when a resolver gives a turn its tools. Its successful answer is a JSON object with no `error`: that is how a stored result says the note was written.
+- **What is reported.** `answerlessEnd` adds `trailer: true` and `trailers` (how many of the last round's calls arrived as trailers), and `failedTrailers` when any wrote nothing.
+
+The same tool listed by `@ouispec/agent-mcp`, or by any host that lists `RegisteredTool`s, is the tool it is: only the agent's own model writes it as a trailer. A host that declares no trailer tool is sent, shown and stored exactly what it was before.
+
 ## Approvals
 
 An irreversible action runs only on an approval the user gave, bound to the exact call. A call needs approval when:
