@@ -40,6 +40,7 @@ import { CASSETTE_VERSION, cassettePath, fingerprint, readCassette, writeCassett
 import { mergeExpectations } from './expectations.js';
 import { checkSuite, readSuiteFile, rubricsOf } from './suite.js';
 import { DEFAULT_REFUSAL, describeMatcher, holdsSubset, matchesText } from './matchers.js';
+import { describeRows, rowKeyOf, runInputHolds, sameRow, type EvalPageRow } from './rows.js';
 import { judge, type JudgeAsk } from './judge.js';
 import { NO_PAGE, createMemoryApprovalStore, createMemoryEmit, createMemoryHistory, createMemoryStops, type EvalHistoryTurn } from './memory.js';
 import { callCost, callsCost, type EvalCandidate } from './models.js';
@@ -560,9 +561,7 @@ export async function runEvalCase(config: AgentEvalConfig, target: EvalCaseTarge
     // A case that waits for a page action (`afterRan`) holds once that action has run in the case: a read of
     // what the page's work changed (a capture continued, an export made) answers as the backend then would.
     const ranOnPage = (after: { action: string; input?: Readonly<Record<string, unknown>> }) =>
-      !!page?.ran.some(
-        (r) => (sameAction(r.action, after.action) || sameAction(r.id, after.action)) && (after.input === undefined || holdsSubset(r.input, after.input)),
-      );
+      !!page?.ran.some((r) => (sameAction(r.action, after.action) || sameAction(r.id, after.action)) && runInputHolds(r.input, after.input, page?.rowsOf(r)));
     for (const cases of [scenario.stubs?.[tool.name], suite.stubs?.[tool.name]]) {
       const hit = cases?.find((c) => (c.when === undefined || holdsSubset(args, c.when)) && (c.afterRan === undefined || ranOnPage(c.afterRan)));
       if (hit) return hit.result as ToolExecutionResult;
@@ -740,7 +739,7 @@ export async function runEvalCase(config: AgentEvalConfig, target: EvalCaseTarge
       for (const failure of await check(expectation, ran.record, ran.stored, judgeModel, {
         judge: judgeAsk,
         promptCache,
-        ...(page ? { caseRan: page.ran } : {}),
+        ...(page ? { caseRan: page.ran, rowsOf: page.rowsOf } : {}),
         pagesKept,
       })) {
         fail(index, failure.assertion, failure.message, failure.kind ?? 'assertion');
@@ -876,6 +875,8 @@ export async function check(
     promptCache?: boolean;
     /** Every action that ran on the page in the case so far, this turn's included: what `page.ranInCase` reads. */
     caseRan?: readonly EvalPageRun[];
+    /** The rows of the list a run addressed (`EvalPage.rowsOf`): where `page.ran`'s `item` names a row as the page does. */
+    rowsOf?: (run: EvalPageRun) => readonly EvalPageRow[] | undefined;
     /** What the stored history keeps of the pages the case was on, this turn's included: what `history` reads. */
     pagesKept?: readonly EvalPageKept[];
   } = {},
@@ -1075,9 +1076,20 @@ export async function check(
           out.push({ assertion: 'page.at', message: `the page is at ${page.at}, not ${wanted.at}` });
         }
       }
+      const rowsOf = options.rowsOf ?? (() => undefined);
+      const runsOf = (runs: readonly EvalPageRun[], action: string) => runs.filter((r) => sameAction(r.action, action) || sameAction(r.id, action));
+      /** Why an expectation's `item` cannot be met: it names no row of the list its action's runs addressed. */
+      const missingRow = (runs: readonly EvalPageRun[], want: { action: string; input?: Readonly<Record<string, unknown>> }): string => {
+        const item = want.input?.item;
+        if (typeof item !== 'string') return '';
+        const rows = runsOf(runs, want.action).map(rowsOf).find((r): r is readonly EvalPageRow[] => !!r);
+        return rows && rowKeyOf(rows, item) === null ? `: no row of its list is "${item}" (its rows: ${describeRows(rows)})` : '';
+      };
       for (const run of wanted.ran ?? []) {
-        const hit = page.ran.some((r) => (sameAction(r.action, run.action) || sameAction(r.id, run.action)) && (run.input === undefined || holdsSubset(r.input, run.input)));
-        if (!hit) out.push({ assertion: 'page.ran', message: `${run.action}${run.input ? ` with ${JSON.stringify(run.input)}` : ''} did not run on the page; it ran ${ranText}` });
+        const hit = runsOf(page.ran, run.action).some((r) => runInputHolds(r.input, run.input, rowsOf(r)));
+        if (!hit) {
+          out.push({ assertion: 'page.ran', message: `${run.action}${run.input ? ` with ${JSON.stringify(run.input)}` : ''} did not run on the page${missingRow(page.ran, run)}; it ran ${ranText}` });
+        }
       }
       for (const name of wanted.notRan ?? []) {
         const hit = name === '*' ? page.ran.length > 0 : page.ran.some((r) => sameAction(r.action, name) || sameAction(r.id, name));
@@ -1089,13 +1101,11 @@ export async function check(
       for (const run of wanted.ranInCase ?? []) {
         // The last run of the action (for a list's control, of its row) is what the page holds: an answer changed later is the later one.
         const item = run.input?.item;
-        const last = [...caseRan]
-          .reverse()
-          .find((r) => (sameAction(r.action, run.action) || sameAction(r.id, run.action)) && (item === undefined || r.input.item === item));
-        if (!last || (run.input !== undefined && !holdsSubset(last.input, run.input))) {
+        const last = [...runsOf(caseRan, run.action)].reverse().find((r) => item === undefined || sameRow(r.input.item, item, rowsOf(r)));
+        if (!last || !runInputHolds(last.input, run.input, rowsOf(last))) {
           out.push({
             assertion: 'page.ranInCase',
-            message: `${run.action}${run.input ? ` with ${JSON.stringify(run.input)}` : ''} was not the last ${run.action} run on the page in the case; ${last ? `its last was ${JSON.stringify(last.input)}` : 'it never ran'}: ${caseText}`,
+            message: `${run.action}${run.input ? ` with ${JSON.stringify(run.input)}` : ''} was not the last ${run.action} run on the page in the case${last ? '' : missingRow(caseRan, run)}; ${last ? `its last was ${JSON.stringify(last.input)}` : 'it never ran'}: ${caseText}`,
           });
         }
       }

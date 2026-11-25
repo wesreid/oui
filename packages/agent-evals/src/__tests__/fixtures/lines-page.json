@@ -1,0 +1,66 @@
+{
+  "at": "/scripts/s-1",
+  "navigation": false,
+  "surfaces": [
+    {
+      "id": "room:script",
+      "name": "Script",
+      "description": "A script's lines, each with its words and its language.",
+      "routes": ["/scripts/:scriptId"],
+      "state": {
+        "state": {
+          "saved": "saved",
+          "lists": {
+            "line.text": [
+              { "key": "line-1", "title": "Line 1", "value": "Spring is here." },
+              { "key": "line-2", "title": "Line 2", "value": "" },
+              { "key": "line-3", "title": "Line 3", "value": "" }
+            ],
+            "line.language": [
+              { "key": "line-1", "title": "Line 1", "value": "en" },
+              { "key": "line-2", "title": "Line 2", "value": "en" },
+              { "key": "line-3", "title": "Line 3", "value": "en" }
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "id": "script_line_text",
+          "description": "Types the words of a line. It is one per row: say which row with `item`.",
+          "effect": "edit",
+          "input": {
+            "type": "object",
+            "properties": { "item": { "type": "string" }, "value": { "type": "string" } },
+            "required": ["item", "value"],
+            "additionalProperties": false
+          }
+        },
+        {
+          "id": "script_line_language",
+          "description": "Chooses the language of a line. It is one per row: say which row with `item`.",
+          "effect": "edit",
+          "input": {
+            "type": "object",
+            "properties": { "item": { "type": "string" }, "value": { "type": "string" } },
+            "required": ["item", "value"],
+            "additionalProperties": false
+          },
+          "result": { "success": false, "error": "Not an option. The languages: en, fr." },
+          "cases": [{ "when": { "value": "en" } }, { "when": { "value": "fr" } }]
+        },
+        {
+          "id": "script_title",
+          "description": "Renames the script.",
+          "effect": "edit",
+          "input": {
+            "type": "object",
+            "properties": { "value": { "type": "string" } },
+            "required": ["value"],
+            "additionalProperties": false
+          }
+        }
+      ]
+    }
+  ]
+}

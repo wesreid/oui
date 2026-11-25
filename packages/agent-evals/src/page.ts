@@ -16,7 +16,10 @@
  *
  * What the page shows and what its actions do is the fixture's. Nothing it
  * runs reaches the product: an action records that it ran, answers as the
- * fixture says, and changes what the fixture says it changes.
+ * fixture says, and changes what the fixture says it changes. A declared
+ * action that `writes` puts what its input gives into its surface's state
+ * once it succeeds, a list's row named as the product's page names it (by
+ * key, else title), so the next observation shows what was typed or chosen.
  *
  * What a page shows that is not a control (its displays' facts, `shown`) and
  * the problems it shows are the fixture's too, registered with the binding
@@ -50,6 +53,7 @@ import {
   readQuery,
   createKnowledgeLookup,
   resolveKnowledge,
+  rowValue,
   SHOWN_ROWS,
   toolName,
   writeQuery,
@@ -83,11 +87,13 @@ import type {
   AgentEvalPageAction,
   AgentEvalPageControl,
   AgentEvalPageSurface,
+  AgentEvalPageWrite,
   AgentEvalProblems,
   AgentEvalShown,
   AgentEvalShownQuery,
 } from '@ouispec/contract';
 import { holdsSubset } from './matchers.js';
+import { describeRows, resolveRow, type EvalPageRow } from './rows.js';
 
 /** One action that ran on the page. */
 export interface EvalPageRun {
@@ -115,6 +121,12 @@ export interface EvalPage {
   context(): Promise<Record<string, unknown>>;
   /** Every action that ran on the page, in order. */
   readonly ran: readonly EvalPageRun[];
+  /**
+   * The rows of the list a run addressed with its `item`, as the page showed
+   * them when it ran: a list control's (`controls[].rows`, a model's), or the
+   * list a declared action `writes` to. Undefined for any other run.
+   */
+  rowsOf(run: EvalPageRun): readonly EvalPageRow[] | undefined;
   /** Every request the worker sent it, the runtime's own (`oui.describe`, `oui.read`) included. */
   readonly requests: readonly OUIActionRequest[];
   /** The person approved a request on its card: the page will run it (oui-spec §7.3.12). */
@@ -345,6 +357,107 @@ const handlerResult = (result: Outcome['result']): ActionHandlerResult =>
     ? { success: true, ...(result?.data !== undefined ? { data: result.data } : {}) }
     : { success: false, error: { code: 'FAILED', message: result.error ?? 'It failed.' }, ...(result.data !== undefined ? { data: result.data } : {}) };
 
+// ─── What a declared action writes into its surface's state (`writes`) ───────
+
+/** What is at `path` in a surface's state: each segment a whole key. */
+function readAt(node: unknown, path: readonly string[]): unknown {
+  let at = node;
+  for (const key of path) {
+    if (at === null || typeof at !== 'object' || Array.isArray(at)) return undefined;
+    at = (at as Record<string, unknown>)[key];
+  }
+  return at;
+}
+
+/** The state with what is at `path` replaced by `update`'s answer, copied along the path: the fixture's own objects never change. */
+function writeAt(node: unknown, path: readonly string[], update: (at: unknown) => unknown): unknown {
+  if (path.length === 0) return update(node);
+  const record = node !== null && typeof node === 'object' && !Array.isArray(node) ? (node as Record<string, unknown>) : {};
+  return { ...record, [path[0]]: writeAt(record[path[0]], path.slice(1), update) };
+}
+
+/** A path as a message names it: `state › lists › line.text`. */
+const pathText = (path: readonly string[]) => path.join(' › ');
+
+/** A write's defaults filled in. */
+const writeOf = (write: AgentEvalPageWrite) => ({
+  to: write.to,
+  value: write.value ?? 'value',
+  item: write.item,
+  field: write.field ?? 'value',
+  ref: write.ref ?? 'key',
+  title: write.title ?? 'title',
+});
+
+/** The rows a list write addresses, as the state holds them now: each one's key and title. */
+function rowsAt(state: Readonly<Record<string, unknown>>, write: ReturnType<typeof writeOf>): EvalPageRow[] {
+  const list = readAt(state, write.to);
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((row): row is Record<string, unknown> => row !== null && typeof row === 'object')
+    .map((row) => ({ key: String(rowValue(row, write.ref)), title: String(rowValue(row, write.title) ?? '') }));
+}
+
+const failed = (code: string, message: string): ActionHandlerResult => ({ success: false, error: { code, message } });
+
+/**
+ * A declared action's input with each row its writes name given by its key, as
+ * a host resolves a name it is given for a row before the action runs, and the
+ * rows `item` addresses. A name several rows share fails, listing them; one no
+ * row has is left as given, for the write to refuse.
+ */
+function resolveWrittenRows(
+  action: AgentEvalPageAction,
+  state: Readonly<Record<string, unknown>>,
+  input: Record<string, unknown>,
+): { input: Record<string, unknown>; rows?: readonly EvalPageRow[] } | { error: ActionHandlerResult } {
+  let resolved = input;
+  let rows: readonly EvalPageRow[] | undefined;
+  for (const write of (action.writes ?? []).map(writeOf)) {
+    if (write.item === undefined) continue;
+    const listed = rowsAt(state, write);
+    if (write.item === 'item') rows ??= listed;
+    const given = resolved[write.item];
+    if (typeof given !== 'string') continue;
+    const found = resolveRow(listed, given);
+    if ('ambiguous' in found) return { error: failed('AMBIGUOUS_ITEM', `Several rows are called "${given}"; give the id instead: ${describeRows(found.ambiguous)}`) };
+    if ('row' in found && found.row.key !== given) resolved = { ...resolved, [write.item]: found.row.key };
+  }
+  return { input: resolved, ...(rows ? { rows } : {}) };
+}
+
+/**
+ * The surface's state once a run's writes are applied, or why they cannot be:
+ * a row its input names that the list does not hold. A value the input leaves
+ * out is not written.
+ */
+function applyWrites(
+  action: AgentEvalPageAction,
+  state: Record<string, unknown>,
+  input: Readonly<Record<string, unknown>>,
+): { state: Record<string, unknown> } | { error: ActionHandlerResult } {
+  let next = state;
+  for (const write of (action.writes ?? []).map(writeOf)) {
+    if (!(write.value in input)) continue;
+    const value = input[write.value];
+    if (write.item === undefined) {
+      next = writeAt(next, write.to, () => value) as Record<string, unknown>;
+      continue;
+    }
+    const listed = rowsAt(next, write);
+    const key = input[write.item];
+    if (typeof key !== 'string' || !listed.some((r) => r.key === key)) {
+      return { error: failed('ITEM_NOT_FOUND', `No row "${String(key)}" is on screen for ${action.title ?? action.id}. On screen: ${describeRows(listed)}`) };
+    }
+    next = writeAt(next, write.to, (list) =>
+      (list as unknown[]).map((row) =>
+        row !== null && typeof row === 'object' && String(rowValue(row, write.ref)) === key ? { ...(row as Record<string, unknown>), [write.field]: value } : row,
+      ),
+    ) as Record<string, unknown>;
+  }
+  return { state: next };
+}
+
 /** The manifest's surfaces mounted at `path`: every one whose routes match (a shell's, with none, everywhere), and of the pages only the router's pick. */
 function manifestSurfacesAt(manifest: OuiManifest, path: string): ManifestSurface[] {
   const matching = manifest.surfaces.filter(
@@ -432,6 +545,12 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
       if (startsJobs(action) && !settles(action.effect)) {
         problems.push(`the action "${action.id}" of "${surface.id}" starts a job, and its effect is not \`job\` or \`transaction\``);
       }
+      // A list's rows are written where the page shows them when it opens.
+      for (const write of action.writes ?? []) {
+        if (write.item !== undefined && !Array.isArray(readAt(surface.state ?? {}, write.to))) {
+          problems.push(`the action "${action.id}" of "${surface.id}" writes rows of ${pathText(write.to)}, and its surface’s \`state\` holds no list there`);
+        }
+      }
     }
   }
   const surfaceIds = new Set<string>();
@@ -494,6 +613,8 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
   /** The jobs the page's actions and controls started. */
   const jobs = createFixtureJobs();
   const ran: EvalPageRun[] = [];
+  /** The rows of the list each run addressed with its `item`, as the page showed them then. */
+  const runRows = new WeakMap<EvalPageRun, readonly EvalPageRow[]>();
   const requests: OUIActionRequest[] = [];
   let location = fixture.at;
   const listeners = new Set<() => void>();
@@ -564,7 +685,9 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
           const given = (input ?? {}) as Record<string, unknown>;
           // A list's control runs for one row: its call names the row as `item`, which its cases match.
           const called = row ? { ...given, item: row.key } : given;
-          ran.push({ action: action.name, id, surface: surface.id, input: called, at: location });
+          const record: EvalPageRun = { action: action.name, id, surface: surface.id, input: called, at: location };
+          ran.push(record);
+          if (spec.rows) runRows.set(record, spec.rows.map((r) => ({ key: r.key, title: r.title })));
           const outcome = outcomeOf(spec, called);
           if (outcome.result && !outcome.result.success) return { ok: false, code: 'FAILED', message: outcome.result.error ?? 'It failed.' };
           // A field takes the value it is given, as the person's typing would.
@@ -669,6 +792,8 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
   // ─── The page's models: parts rendered in code, from their own state ───────
   /** Each model's control, row by row (`id#key`), as registered now: its handle and what it showed. */
   const modelHandles = new Map<string, { handle: ControlHandle; shown: string }>();
+  /** Each model's list control's rows, as last rendered. */
+  const modelRows = new Map<string, readonly EvalPageRow[]>();
   let modelFacts: { key: string; handles: FactsHandle[] } = { key: '', handles: [] };
   let modelProblems: { key: string; handles: ProblemHandle[] } = { key: '', handles: [] };
   /** Why a model could not be rendered or run after the page was built: the next turn fails with it, never quietly. */
@@ -697,7 +822,10 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
   const runModelControl = (model: EvalPageModel, id: string, row: { key: string } | undefined, input: Record<string, unknown>): RoomResult => {
     const { surface, action } = controlActions.get(id)!;
     const called = row ? { ...input, item: row.key } : input;
-    ran.push({ action: action.name, id, surface: surface.id, input: called, at: location });
+    const record: EvalPageRun = { action: action.name, id, surface: surface.id, input: called, at: location };
+    ran.push(record);
+    const shownRows = modelRows.get(id);
+    if (row && shownRows) runRows.set(record, shownRows);
     if (modelFailure) return { ok: false, code: 'FAILED', message: modelFailure.message };
     let outcome: EvalPageModelOutcome;
     try {
@@ -717,10 +845,13 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
   /** Register what the models show now: a row or control gone is unregistered, a new one registered, a changed one updated. */
   const showModels = (views: ReturnType<typeof modelViews>) => {
     const wanted = new Map<string, { id: string; model: EvalPageModel; spec: EvalPageModelControl; row?: NonNullable<EvalPageModelControl['rows']>[number] }>();
+    modelRows.clear();
     for (const { model, view } of views) {
       for (const [id, spec] of Object.entries(view.controls ?? {})) {
-        if (spec.rows) for (const row of spec.rows) wanted.set(`${id}#${row.key}`, { id, model, spec, row });
-        else wanted.set(id, { id, model, spec });
+        if (spec.rows) {
+          modelRows.set(id, spec.rows.map((r) => ({ key: r.key, title: r.title })));
+          for (const row of spec.rows) wanted.set(`${id}#${row.key}`, { id, model, spec, row });
+        } else wanted.set(id, { id, model, spec });
       }
     }
     for (const [key, { handle }] of [...modelHandles]) {
@@ -835,6 +966,7 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
       ...(surface.shown ? [PAGE_STATE_OBSERVATION_ID] : []),
       ...(surface.problems ? [PROBLEMS_OBSERVATION_ID] : []),
       ...surface.actions.flatMap((a) => [a, ...(a.cases ?? [])].flatMap((o) => Object.keys(o.state ?? {}))),
+      ...surface.actions.flatMap((a) => (a.writes ?? []).map((w) => w.to[0])),
     ]),
   ];
   /** An observation's schema: what a page's is, for its state when it shows facts and for its problems. */
@@ -862,10 +994,21 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
           // An action that starts a job settles on its outcome, polled as the bindings poll a bound one.
           ...(startsJobs(action) ? { async: true, polling: jobOutcomePolling(jobs, DEFAULT_JOB_TIMEOUT_MS) } : {}),
           handler: async (params: Record<string, unknown>) => {
-            ran.push({ action: action.id, id: action.id, surface: surface.id, input: params, at: location });
-            const outcome = outcomeOf(action, params);
+            // A row its writes name is given by its key, as the product's page resolves it before the action runs.
+            const resolved = action.writes ? resolveWrittenRows(action, states.get(surface.id) ?? {}, params) : { input: params };
+            const input = 'input' in resolved ? resolved.input : params;
+            const record: EvalPageRun = { action: action.id, id: action.id, surface: surface.id, input, at: location };
+            ran.push(record);
+            if ('rows' in resolved && resolved.rows) runRows.set(record, resolved.rows);
+            if ('error' in resolved) return resolved.error;
+            const outcome = outcomeOf(action, input);
             if (!outcome.result || outcome.result.success) {
-              if (outcome.state) states.set(surface.id, { ...states.get(surface.id), ...outcome.state });
+              if (action.writes) {
+                // What it leaves (`state`), then what its input wrote: all of it, or, with a row it cannot find, none.
+                const written = applyWrites(action, { ...states.get(surface.id), ...(outcome.state ?? {}) }, input);
+                if ('error' in written) return written.error;
+                states.set(surface.id, written.state);
+              } else if (outcome.state) states.set(surface.id, { ...states.get(surface.id), ...outcome.state });
               push(surface);
               if (outcome.navigate) queueMicrotask(() => go(outcome.navigate!));
               if (outcome.job) {
@@ -998,6 +1141,7 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
       };
     },
     ran,
+    rowsOf: (run) => runRows.get(run),
     requests,
     grant(grant) {
       runtime.grantApproval(grant);

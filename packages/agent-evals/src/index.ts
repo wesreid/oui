@@ -45,6 +45,8 @@ export {
 } from './spend.js';
 export type { EvalEstimate, EvalModelEstimate, EvalTarget, EvalTurnEstimate } from './spend.js';
 export { createFixturePage, EvalPageError } from './page.js';
+export { resolveRow } from './rows.js';
+export type { EvalPageRow, RowResolution } from './rows.js';
 export type { EvalPage, EvalPageModel, EvalPageModelControl, EvalPageModelFactory, EvalPageModelOutcome, EvalPageModelRun, EvalPageModelView, EvalPageRun, EvalPageSource } from './page.js';
 export { recordingCalls, turnUsage } from './usage.js';
 export type { EvalCallTiming, EvalFinishReason, EvalModelCall, EvalTurnUsage } from './usage.js';
@@ -74,6 +76,7 @@ export type {
   AgentEvalPage,
   AgentEvalPageSurface,
   AgentEvalPageAction,
+  AgentEvalPageWrite,
   AgentEvalPageControl,
   AgentEvalShown,
   AgentEvalProblems,

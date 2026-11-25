@@ -2525,6 +2525,13 @@ export interface AgentEvalPageAction {
    * before.
    */
   state?: Readonly<Record<string, unknown>>;
+  /**
+   * What a run writes into its surface's state from its input, so the next observation shows
+   * what was typed or chosen, as the person's page does. Each applies once the run succeeds,
+   * after its own `state`: never when its `result`, or the `cases` entry its input holds, fails
+   * it. Default: nothing, and the state shows only what `state` gives.
+   */
+  writes?: readonly AgentEvalPageWrite[];
   /** The address the page goes to once it has run. */
   navigate?: string;
   /**
@@ -2550,6 +2557,37 @@ export interface AgentEvalPageAction {
     job?: AgentEvalJob;
   }[];
   job?: AgentEvalJob;
+}
+
+/**
+ * One value a run writes into its surface's state. To a field: the input's `value` replaces
+ * what is at `to`. To a row of a list (`item` given): `to` holds the list, the input's `item`
+ * names the row by its `ref`, else its exact `title`, else its title ignoring case, as a host
+ * resolves a row, and the input's `value` replaces the row's `field`. A row so named is the
+ * run's input as its cases match it and as it is recorded. A run whose input leaves the value
+ * out writes nothing; one whose `item` names no row, or several, fails, naming the rows the
+ * list holds, and writes nothing.
+ */
+export interface AgentEvalPageWrite {
+  /**
+   * Where the value goes, as path segments into the surface's state: its observation id first,
+   * then each key (`[state, lists, line.text]`). A segment is a whole key, so a key may hold
+   * dots.
+   */
+  to: readonly string[];
+  /** The input property whose value is written. Default: `value`. */
+  value?: string;
+  /**
+   * The input property that names the row, for a list: `to` then holds an array of rows.
+   * Absent: `to` is a field.
+   */
+  item?: string;
+  /** For a list: the row's property the value replaces. Default: `value`. */
+  field?: string;
+  /** For a list: the row's property that addresses it. Default: `key`. */
+  ref?: string;
+  /** For a list: the row's property that names it. Default: `title`. */
+  title?: string;
 }
 
 /**
@@ -2723,7 +2761,10 @@ export interface AgentEvalPageExpectation {
   at?: string;
   /**
    * Each ran on the page in the turn (by its id or its index name), its input holding `input`
-   * as a subset.
+   * as a subset. Where the run addressed a row of a list the page knows (a control's `rows`, a
+   * list one of a surface's actions `writes`), `input.item` holds when it names the run's row:
+   * by its key, else its exact title, else its title ignoring case, as a host resolves a row.
+   * An `item` that names no row of that list fails, naming the row it looked for.
    */
   ran?: readonly {
     action: string;
@@ -2736,7 +2777,7 @@ export interface AgentEvalPageExpectation {
    * and the last time it ran its input held `input` as a subset: what the page must hold done
    * by then, whichever turn the agent did it in. A form the agent answers until it reaches a
    * question the person must answer, then finishes once they have, gives each answer in either
-   * turn; a list control's answer is its row's (`item`) last run.
+   * turn; a list control's answer is its row's (`item`, named as `ran` names it) last run.
    */
   ranInCase?: readonly {
     action: string;
