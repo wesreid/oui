@@ -48,7 +48,7 @@
           "additionalProperties": false
         },
         {
-          "description": "One page's line: its depth in two spaces each, then `- <title> <route>`, then ` (from <from>)` and `: <offers>` when it has them. Shown when its page is open to the session, naming the first of the page's open routes when `route` is not open.",
+          "description": "One page's line: its depth in two spaces each, then `- <title> <route>`, then ` (from <from>)` when it has one, then `: <says>` and ` <offers>` when it says what it is for, else `: <offers>` when it offers something. Shown when its page is open to the session, naming the first of the page's open routes when `route` is not open.",
           "type": "object",
           "properties": {
             "kind": { "const": "page" },
@@ -57,6 +57,10 @@
             "title": { "type": "string" },
             "route": { "description": "The route it names: its page's first.", "type": "string" },
             "from": { "description": "The control on the page above it that opens it.", "type": "string" },
+            "says": {
+              "description": "What the page tells the assistant it is for, apart from what the screen shows (its component's `@agentDescription`): its first sentence. Only on the page's own line, so a session that may not see the page is never told it.",
+              "type": "string"
+            },
             "offers": { "description": "What it offers, as the map was fitted to `mapChars`.", "type": "string" }
           },
           "required": ["kind", "surface", "depth", "title", "route"],

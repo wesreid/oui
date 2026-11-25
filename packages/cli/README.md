@@ -59,6 +59,15 @@ The knowledge's `overview` is the app's map, which the assistant always has. It 
 
 A page's description is its `PageHeader` subtitle when that is a whole literal of three words or more and not a loading state; a fragment of a template literal is not one. A page with none is described by what it offers, then by what it shows, then by the first paragraph of its component's doc comment; a page with none of these fails the generation (unless it is in `unbound`).
 
+A page whose visible copy does not say what the assistant needs to know (a subtitle written for the person, which a product does not reword for the assistant's sake) says it for the assistant only, in its component's doc comment:
+
+```tsx
+/** @agentDescription Make a song with sung lyrics, or an instrumental, from a style and settings; every take is saved to Music. */
+export function GenerateMusicPage() {
+```
+
+Declared, it is the page's description in place of its subtitle or what it offers: its surface's `description`, its knowledge's summary (first sentence) and detail, and its line on the app's map (`says` on the page's line), where its first sentence comes before what the page offers. It is held to the same rule as a subtitle (three words or more, not a loading state); one that breaks it fails the generation, naming where it is written. It is read from source like every declaration, and changes nothing the person sees. A page that declares none is described exactly as before. Under `routeGates` (below) it goes wherever the page's own line and knowledge go: a session that may not see the page is never told it.
+
 ## One build, several brands: gated routes
 
 A build that serves several brands or audiences opens some pages only to some of them (`<FeatureRoute feature={FEATURE_KEYS.campaigns}>`). Name each such wrapper in `routeGates`, with the prop whose value names its gate, and the build records who may see what:

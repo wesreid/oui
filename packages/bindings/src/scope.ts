@@ -80,11 +80,9 @@ export function appMapContent(
         out.push(heading);
         heading = null;
       }
-      out.push(
-        `${'  '.repeat(line.depth)}- ${line.title} ${route}${line.from !== undefined ? ` (from ${line.from})` : ''}${
-          line.offers ? `: ${line.offers}` : ''
-        }`,
-      );
+      // What the page says it is for comes first; what it offers follows it.
+      const said = line.says ? `: ${line.says}${line.offers ? ` ${line.offers}` : ''}` : line.offers ? `: ${line.offers}` : '';
+      out.push(`${'  '.repeat(line.depth)}- ${line.title} ${route}${line.from !== undefined ? ` (from ${line.from})` : ''}${said}`);
       continue;
     }
     // A heading waits for a page line under it; any other line ends what it heads.
@@ -242,11 +240,19 @@ function scopePage(page: PageKnowledge, scope: RouteScope, open: ReadonlySet<str
     if (!name || !trigger || steps.some(step => !step)) return [];
     return [{ ...recipe, name, trigger, steps }];
   });
+  const routes = page.routes.filter(route => !scope.shut.has(route));
+  // An entry all of whose sentences name a page the session may not see (a description that says where it
+  // leads) is said by the page's name and its open routes alone, never as it was.
+  const named = (entry: KnowledgeEntry): KnowledgeEntry => ({
+    ...entry,
+    title: scopeText(entry.title, scope) || page.summary.title,
+    content: `${page.summary.title}${routes.length ? ` (${routes.join(', ')})` : ''}.`,
+  });
   return {
     ...page,
-    routes: page.routes.filter(route => !scope.shut.has(route)),
-    summary: scopeEntry(page.summary, scope) ?? page.summary,
-    detail: scopeEntry(page.detail, scope) ?? page.detail,
+    routes,
+    summary: scopeEntry(page.summary, scope) ?? named(page.summary),
+    detail: scopeEntry(page.detail, scope) ?? named(page.detail),
     relationships: page.relationships ? scopeEntry(page.relationships, scope) : null,
     recipes,
     adjacent: page.adjacent.filter(id => open.has(id)),
@@ -277,7 +283,14 @@ export function scopeKnowledge(knowledge: GeneratedKnowledge, allows?: GateFilte
         ...knowledge.overview,
         content: appMapContent(
           map.flatMap((line): AppMapLine[] => {
-            if (line.kind === 'page') return [line];
+            if (line.kind === 'page') {
+              // What an open page says it is for, without what names a page the session may not see.
+              if (!line.says) return [line];
+              const says = scopeText(line.says, scope);
+              if (says === line.says) return [line];
+              const { says: _says, ...rest } = line;
+              return [says ? { ...line, says } : rest];
+            }
             const text = scopeText(line.text, scope);
             return text ? [{ ...line, text }] : [];
           }),

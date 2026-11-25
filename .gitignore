@@ -6,3 +6,5 @@ coverage/
 site/
 .DS_Store
 *.tsbuildinfo
+# Copies of the cli fixture app its tests make, removed after the tests
+packages/cli/__tests__/fixtures/.agent-description-*/

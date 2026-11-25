@@ -1238,6 +1238,12 @@ export type AppMapLine = {
   route: string;
   /** The control on the page above it that opens it. */
   from?: string;
+  /**
+   * What the page tells the assistant it is for, apart from what the screen shows (its
+   * component's `@agentDescription`): its first sentence. Only on the page's own line, so a
+   * session that may not see the page is never told it.
+   */
+  says?: string;
   /** What it offers, as the map was fitted to `mapChars`. */
   offers?: string;
 };
