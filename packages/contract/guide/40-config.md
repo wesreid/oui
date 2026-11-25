@@ -7,7 +7,8 @@ The generator reads every setting from `oui.config.json` at the app's root; path
   "$schema": "https://schemas.closurestudio.ai/oui/v1/oui-config.json",
   "tsconfig": "tsconfig.json",
   "routes": "src/routes.tsx",
-  "routeWrappers": ["Suspense", "ErrorBoundary"],
+  "routeWrappers": ["Suspense", "ErrorBoundary", "FeatureRoute"],
+  "routeGates": { "FeatureRoute": "feature" },
   "nav": ["src/nav.ts"],
   "shell": [{ "module": "src/app/AppFrame.tsx", "export": "AppFrame" }],
   "designSystem": ["@acme/ui"],
@@ -35,6 +36,20 @@ The generator reads every setting from `oui.config.json` at the app's root; path
 - the page has no binding, display or room of its own, on no page the assistant is on. One a component shares with pages the assistant is on is that component's, offered there.
 
 A page in the app's frame fails the first three, and a page that binds anything only for itself fails the last. `unbound` is for pages the assistant is on that are not bound yet; a page is never in both lists.
+
+`routeGates` is for one build that serves several brands or audiences, each opening some pages to its people and not others. It names the route wrappers that gate their page, each with the prop whose value names the gate, and each must also be in `routeWrappers`:
+
+```json
+{
+  "routeWrappers": ["Suspense", "FeatureRoute"],
+  "routeGates": { "FeatureRoute": "feature" }
+}
+```
+
+- Every route records the gates its element and its parent routes' elements are wrapped in, outermost first: `<FeatureRoute feature={FEATURE_KEYS.campaigns}>` around `/campaigns` gives its page surface and its knowledge `gates: { "/campaigns": ["campaigns"] }`. A gate's value must be readable at build time, a literal or a constant; one the build cannot read, or a gating wrapper that names none, fails the build as an unreadable path does.
+- The knowledge then carries the app's map line by line too (`map`), and a page is placed under another on the map only when that page is open whenever it is.
+- In the tab, `allows` (a predicate: true for each gate the session's person has) scopes everything the assistant is told of the app: pass it to `resolveKnowledge(knowledge, path, { allows })` for the map and page knowledge the turn carries, and to `connectBindings({ knowledge, allows, … })` for the pages `app.navigate` goes to, `ui_find` and `ui_guide { page }` (see [In the tab](#in-the-tab-connecting-the-bindings)). A route is open when every one of its gates is allowed, and a page when any of its routes is.
+- A build whose config names no gates generates exactly what it did before, byte for byte, and a tab that passes no `allows` sees every page.
 
 `mappings` lists the app's tier 2 mappings; each emits a bound module into `<out>/bound/` (see [Tier 2](#tier-2-a-design-system-you-do-not-own)).
 

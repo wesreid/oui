@@ -47,7 +47,15 @@ import { evaluateToolPolicySafe } from './authz/tool-policy.js';
 import { createToolInputValidator } from './tools/input-validation.js';
 import { jsonBytes } from 'oui-spec/spec';
 import { CLIENT_SNAPSHOT_KEY, readClientPage, withoutClientUI } from './ui/snapshot.js';
-import { KNOWLEDGE_TOOL, knowledgeTool, readClientKnowledge, withClientKnowledge, type ReadPageKnowledge } from './ui/knowledge.js';
+import {
+  KNOWLEDGE_TOOL,
+  knowledgeIndexText,
+  knowledgeTool,
+  readClientKnowledge,
+  readKnowledgePlacement,
+  withClientKnowledge,
+  type ReadPageKnowledge,
+} from './ui/knowledge.js';
 import { answerWithoutState, withStatesAtEnd } from './ui/page-state-at-end.js';
 import { readStateDigestSetting, stateDigestOf } from './ui/state-digest.js';
 import { withPageAtStart } from './ui/page-at-start.js';
@@ -335,6 +343,8 @@ export async function runAgentTurn(
 
   // The knowledge the client sent for its page goes after the host's prompt.
   const knowledge = readClientKnowledge(input.context ?? null);
+  // Where the page's part of it goes: the system prompt (the default), or an index after the conversation.
+  const knowledgePlacement = readKnowledgePlacement(config.ui?.knowledgePlacement);
 
   // ─── Files ─────────────────────────────────────────
   // With the host's file area, the turn's files go to the model with its
@@ -415,7 +425,7 @@ export async function runAgentTurn(
    */
   const systemPromptFor = (offered: OfferedTools): string => {
     const host = systemPromptForTools(hostPrompt, offered);
-    return withClientKnowledge(fileArea ? `${host}\n\n${attachmentDataNote(offered)}` : host, input.context, offered);
+    return withClientKnowledge(fileArea ? `${host}\n\n${attachmentDataNote(offered)}` : host, input.context, offered, knowledgePlacement);
   };
 
   log('debug', 'agent:prompt', 'System prompt built', { turnId, promptLength: systemPromptFor(EVERY_TOOL).length, hostPromptLength: hostPrompt.length });
@@ -1531,7 +1541,9 @@ export async function runAgentTurn(
     }
     // What the prompt leaves out of the client's knowledge, read when it is needed, and another page's when the client answers it.
     if (knowledge && !tools[KNOWLEDGE_TOOL]) {
-      tools[KNOWLEDGE_TOOL] = toAiTool(knowledgeTool(knowledge, ui && client?.lookup.includes('guide') ? ui.guidePage : undefined));
+      tools[KNOWLEDGE_TOOL] = toAiTool(
+        knowledgeTool(knowledge, ui && client?.lookup.includes('guide') ? ui.guidePage : undefined, knowledgePlacement),
+      );
     }
     return tools;
   }
@@ -2156,8 +2168,11 @@ export async function runAgentTurn(
   let newestAnswerState: unknown;
   // Where it goes: with the turn's message (the default), or after the conversation, as 0.30 sent it.
   const turnContextPlacement = readTurnContextPlacement(config.turnContextPlacement);
-  /** What is true for this step only, after the conversation: the page's state, and the step's notes. */
-  const stepTail = (notes: readonly string[], turnContext: readonly string[]): string[] => [
+  /**
+   * What is true for this step only, after the conversation: the page's state,
+   * the page's knowledge by title (`index` placement), and the step's notes.
+   */
+  const stepTail = (notes: readonly string[], turnContext: readonly string[], offered: OfferedTools): string[] => [
     ...(turnPageValues
       ? [
           [
@@ -2173,6 +2188,8 @@ export async function runAgentTurn(
           ].join('\n'),
         ]
       : []),
+    // The page's knowledge by title, beside its state, where it changes nothing the cache holds.
+    ...(knowledge && knowledgePlacement === 'index' ? [knowledgeIndexText(knowledge, offered)].filter((t): t is string => t !== null) : []),
     // Placed after the conversation, the turn's context goes between the page and the notes, as it did in 0.30.
     ...(turnContextPlacement === 'after-conversation' ? turnContext : []),
     ...(notes.length > 0 ? [[STEP_NOTE_OPEN, ...notes, STEP_NOTE_CLOSE].join('\n')] : []),
@@ -2384,7 +2401,7 @@ export async function runAgentTurn(
             ? {
                 messages: forStep(
                   stepMessages,
-                  { turnContext: turnContextPlacement === 'with-message' ? turnContext : [], tail: stepTail(notes, turnContext) },
+                  { turnContext: turnContextPlacement === 'with-message' ? turnContext : [], tail: stepTail(notes, turnContext, offered) },
                   cachePoint,
                 ),
               }

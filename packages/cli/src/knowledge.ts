@@ -35,6 +35,8 @@ import {
   type PageKnowledge,
   type ReachStep,
   type RoomCatalogData,
+  appMapContent,
+  type AppMapLine,
 } from '@ouispec/bindings';
 
 import { describeStep, type PageMeta } from './assemble.js';
@@ -56,7 +58,7 @@ export function generateKnowledge(
   outside: readonly OutsidePage[] = [],
   /** The most characters the app's map takes (`mapChars`). */
   mapChars = DEFAULT_MAP_CHARS,
-): { overview: KnowledgeEntry; pages: PageKnowledge[]; frames?: PageKnowledge[] } {
+): { overview: KnowledgeEntry; map?: AppMapLine[]; pages: PageKnowledge[]; frames?: PageKnowledge[] } {
   const byId = new Map(surfaces.map(s => [s.id, s]));
   const byRoom = new Map(catalogs.map(c => [`room:${c.room}`, c]));
 
@@ -74,7 +76,10 @@ export function generateKnowledge(
         .flatMap(f => f.rooms),
     );
 
-  const overview = appMap(pages, frames, surfaces, links, nav, outside, mapChars);
+  const mapLines = appMapLines(pages, frames, surfaces, links, nav, outside, mapChars);
+  const overview: KnowledgeEntry = { title: APP_MAP_TITLE, content: appMapContent(mapLines) };
+  // Line by line too when a route is gated, so a tab leaves out the pages a session may not see (`allows`).
+  const gated = pages.some(p => p.gates);
   const out: PageKnowledge[] = pages.map(page => {
     const own = byId.get(page.surface)!;
     const shared = page.shared.map(id => byId.get(id)!).filter(Boolean);
@@ -103,6 +108,7 @@ export function generateKnowledge(
       relationships: relationships(page, controls, rooms, pages, api),
       recipes: recipes(page, controls, rooms),
       adjacent: [...adjacent].sort(),
+      ...(page.gates ? { gates: page.gates } : {}),
     };
   });
   // The frame: what it offers and where, on every page it frames. Its controls
@@ -123,7 +129,12 @@ export function generateKnowledge(
       adjacent: [],
     };
   });
-  return frameKnowledge.length ? { overview, pages: out, frames: frameKnowledge } : { overview, pages: out };
+  return {
+    overview,
+    ...(gated ? { map: mapLines } : {}),
+    pages: out,
+    ...(frameKnowledge.length ? { frames: frameKnowledge } : {}),
+  };
 }
 
 function detail(
@@ -492,6 +503,9 @@ function firstSentence(text: string): string {
 
 // ─── The app's map ───────────────────────────────────────────────────────────
 
+/** The map's title: the knowledge's `overview`. */
+export const APP_MAP_TITLE = 'The app’s pages';
+
 /** One page's line on the map before it is fitted: where it sits, how it is reached, and what it offers. */
 interface MapLine {
   page: PageMeta;
@@ -501,6 +515,23 @@ interface MapLine {
   capabilities: Capability[];
   /** The line without what it offers. */
   head: string;
+  /** For a frame's line: the whole line is text, not a page's. */
+  frame?: true;
+}
+
+/**
+ * Whether `parent` is open to every session `child` is open to (`routeGates`):
+ * each route of the child has a route of the parent whose gates are among its
+ * own. A page goes under another on the map only then, so a session that may
+ * see it never finds it under a page it may not. Always, in a build with no
+ * gates.
+ */
+function openWhenever(parent: PageMeta, child: PageMeta): boolean {
+  const gatesOf = (page: PageMeta, route: string) => page.gates?.[route] ?? [];
+  return child.routes.every(c => {
+    const needs = new Set(gatesOf(child, c));
+    return parent.routes.some(p => gatesOf(parent, p).every(g => needs.has(g)));
+  });
 }
 
 /** The longest run of route segments two routes start with. */
@@ -536,6 +567,24 @@ export function appMap(
   outside: readonly OutsidePage[],
   budget: number,
 ): KnowledgeEntry {
+  return { title: APP_MAP_TITLE, content: appMapContent(appMapLines(pages, frames, surfaces, links, nav, outside, budget)) };
+}
+
+/**
+ * The app's map line by line (`appMap`): a page's line names its page, so a
+ * session that may not see a page (`routeGates`) is given the map without it
+ * (`appMapContent`). A page is placed under another only when that page is
+ * open whenever it is.
+ */
+export function appMapLines(
+  pages: readonly PageMeta[],
+  frames: readonly PageMeta[],
+  surfaces: readonly ManifestSurface[],
+  links: ReturnType<typeof pageLinks>,
+  nav: readonly NavEntry[],
+  outside: readonly OutsidePage[],
+  budget: number,
+): AppMapLine[] {
   const bySurface = new Map(pages.map(p => [p.surface, p]));
   const route = (p: PageMeta) => p.routes[0];
 
@@ -568,6 +617,8 @@ export function appMap(
     for (const from of frontier) {
       for (const [to, via] of links.get(from) ?? []) {
         if (depth.has(to) || !bySurface.has(to)) continue;
+        // Under a page only when that page is open whenever this one is.
+        if (!openWhenever(bySurface.get(from)!, bySurface.get(to)!)) continue;
         reached.set(to, [...(reached.get(to) ?? []), { from, via }]);
       }
     }
@@ -610,9 +661,12 @@ export function appMap(
   const out: (string | MapLine)[] = [
     'Every page: sidebar groups, then their pages; a page opened from another is indented under it (from the control that opens it). After each, what it offers, by where it is (a menu, a tab), most telling first; "…": more.',
   ];
+  // The headings among the lines: each heads the page lines after it.
+  const headings = new Set<string>();
   for (const { group, roots } of groups) {
     if (!roots.length) continue;
     out.push(`${group}:`);
+    headings.add(`${group}:`);
     const start = lines.length;
     for (const root of roots) place(root, 0, []);
     out.push(...lines.slice(start));
@@ -620,6 +674,7 @@ export function appMap(
   const unplaced = pages.filter(p => !depth.has(p.surface)).sort((a, b) => a.title.localeCompare(b.title) || a.surface.localeCompare(b.surface));
   if (unplaced.length) {
     out.push('Opened by address only:');
+    headings.add('Opened by address only:');
     for (const page of unplaced) {
       const line: MapLine = { page, depth: 0, via: [], capabilities: capabilitiesFor(page), head: `- ${page.title} ${route(page)}` };
       lines.push(line);
@@ -630,12 +685,12 @@ export function appMap(
   const everywhere = frames.filter(f => f.routes.includes('*'));
   if (everywhere.length) {
     const actions = surfaces.filter(s => s.kind !== 'navigation' && s.kind !== 'page' && (s.kind === 'shell' ? everywhere.some(f => f.surface === s.id) : s.routes.includes('*'))).flatMap(s => s.actions);
-    const line: MapLine = { page: everywhere[0], depth: 0, via: [], capabilities: capabilitiesOf(actions), head: 'On every page (the app’s frame)' };
+    const line: MapLine = { page: everywhere[0], depth: 0, via: [], capabilities: capabilitiesOf(actions), head: 'On every page (the app’s frame)', frame: true };
     lines.push(line);
     out.push(line);
   }
   for (const frame of frames.filter(f => !f.routes.includes('*'))) {
-    const line: MapLine = { page: frame, depth: 0, via: [], capabilities: capabilitiesFor(frame, true), head: `Around ${frame.routes.join(', ')} (${frame.title})` };
+    const line: MapLine = { page: frame, depth: 0, via: [], capabilities: capabilitiesFor(frame, true), head: `Around ${frame.routes.join(', ')} (${frame.title})`, frame: true };
     lines.push(line);
     out.push(line);
   }
@@ -699,6 +754,19 @@ export function appMap(
       text.set(l, sentence);
     }
   }
-  const rendered = out.map(part => (typeof part === 'string' ? part : text.get(part) ? `${part.head}: ${text.get(part)}` : part.head));
-  return { title: 'The app’s pages', content: [...rendered, ...tail].join('\n') };
+  const asLine = (part: string | MapLine): AppMapLine => {
+    if (typeof part === 'string') return headings.has(part) ? { kind: 'heading', text: part } : { kind: 'text', text: part };
+    const offers = text.get(part);
+    if (part.frame) return { kind: 'text', text: offers ? `${part.head}: ${offers}` : part.head };
+    return {
+      kind: 'page',
+      surface: part.page.surface,
+      depth: part.depth,
+      title: part.page.title,
+      route: route(part.page),
+      ...(part.via.length ? { from: part.via[0].title } : {}),
+      ...(offers ? { offers } : {}),
+    };
+  };
+  return [...out.map(asLine), ...tail.map(t => ({ kind: 'text' as const, text: t }))];
 }

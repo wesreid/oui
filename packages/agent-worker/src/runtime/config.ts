@@ -3,6 +3,7 @@ import { resolveCommunicationStyle } from '../prompt/rules/communication.js';
 import { resolveNarration } from '../prompt/rules/narration.js';
 import { readTurnContextPlacement } from '../step-messages.js';
 import { readStateDigestSetting } from '../ui/state-digest.js';
+import { readKnowledgePlacement } from '../ui/knowledge.js';
 import { isRealtimeApiKey } from '../realtime/api-key.js';
 
 /**
@@ -46,4 +47,6 @@ export function assertAgentRuntimeConfig<TDb>(config: Partial<AgentRuntimeConfig
   readTurnContextPlacement(config.turnContextPlacement);
   // So does a page digest setting that is neither a function nor false.
   readStateDigestSetting(config.uiActions?.stateDigest);
+  // So does a knowledge placement the worker does not know.
+  readKnowledgePlacement(config.uiActions?.knowledgePlacement);
 }

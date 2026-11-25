@@ -39,6 +39,8 @@ export interface GeneratorConfig extends ConfigInjection {
   tsconfig: string;
   routes: string;
   routeWrappers: readonly string[];
+  /** The route wrappers that gate their page, each with the prop that names its gate (`routeGates`); empty for none. */
+  routeGates: Readonly<Record<string, string>>;
   nav: readonly string[];
   out: string;
   designSystem: readonly string[];
@@ -133,6 +135,7 @@ export function resolveConfig(root: string, raw: unknown, inject: ConfigInjectio
   strings('designSystem', 'package names');
   strings('mappings', 'paths');
   strings('routeWrappers', 'component names');
+  routeGates(raw, problems);
   strings('nav', 'paths');
   strings('unbound', 'component names');
   if ('apiSpec' in raw && raw.apiSpec !== null && (typeof raw.apiSpec !== 'string' || !raw.apiSpec.trim()))
@@ -152,6 +155,7 @@ export function resolveConfig(root: string, raw: unknown, inject: ConfigInjectio
     tsconfig: resolve(root, file.tsconfig),
     routes: resolve(root, file.routes),
     routeWrappers: [...(file.routeWrappers ?? [])],
+    routeGates: { ...(file.routeGates ?? {}) },
     nav: (file.nav ?? []).map(n => resolve(root, n)),
     out: resolve(root, file.out),
     designSystem: [...file.designSystem],
@@ -163,6 +167,26 @@ export function resolveConfig(root: string, raw: unknown, inject: ConfigInjectio
     shell: (file.shell ?? []).map(s => ({ ...s, module: resolve(root, s.module) })),
     mapChars: file.mapChars ?? DEFAULT_MAP_CHARS,
   };
+}
+
+/**
+ * `routeGates`: each a component name and the prop whose value names its
+ * gate, and each among the `routeWrappers`, since a gate is wrapped around
+ * the page and is never the page itself.
+ */
+function routeGates(raw: Record<string, unknown>, problems: string[]): void {
+  if (!('routeGates' in raw)) return;
+  const value = raw.routeGates;
+  const text = (v: unknown) => typeof v === 'string' && !!v.trim();
+  if (!isRecord(value) || !Object.entries(value).every(([k, v]) => text(k) && text(v))) {
+    problems.push('"routeGates" must map each gating route wrapper’s component name to the prop that names its gate: { "FeatureRoute": "feature" }');
+    return;
+  }
+  const wrappers = Array.isArray(raw.routeWrappers) ? raw.routeWrappers : [];
+  for (const component of Object.keys(value)) {
+    if (!wrappers.includes(component))
+      problems.push(`"routeGates" names ${component}, which "routeWrappers" does not list: a gate is wrapped around the page, never the page`);
+  }
 }
 
 /** A list of objects each with string settings `required`. */

@@ -56,47 +56,22 @@ export function routeMatcher(pattern: string): RegExp {
 
 /** The page surface for a path: the one whose route matches, preferring the most specific pattern. */
 export function pageForPath(knowledge: GeneratedKnowledge, path: string): PageKnowledge | null {
+  return pageRouteForPath(knowledge, path)?.page ?? null;
+}
+
+/** The page surface for a path and the route of it that matches, the most specific pattern first. */
+export function pageRouteForPath(knowledge: GeneratedKnowledge, path: string): { page: PageKnowledge; route: string } | null {
   const clean = path.split(/[?#]/)[0] || '/';
-  let best: { page: PageKnowledge; score: number } | null = null;
+  let best: { page: PageKnowledge; route: string; score: number } | null = null;
   for (const page of knowledge.pages) {
     for (const route of page.routes) {
       if (!routeMatcher(route).test(clean)) continue;
       const score =
         route.split('/').filter(s => s && !s.startsWith(':')).length * 10 - (route.match(/:/g)?.length ?? 0);
-      if (!best || score > best.score) best = { page, score };
+      if (!best || score > best.score) best = { page, route, score };
     }
   }
-  return best?.page ?? null;
-}
-
-/**
- * The knowledge for the page the user is on: the app's map (also apart, as
- * `map`), then the frame, the page in full with its relationships and
- * recipes, and one paragraph for each adjacent page.
- */
-export function resolveKnowledge(knowledge: GeneratedKnowledge, path: string): ResolvedKnowledge {
-  const entries: KnowledgeEntry[] = [knowledge.overview];
-  const workflows: KnowledgeRecipe[] = [];
-  // The frame is on the page too: what it offers comes first, as it is always
-  // there, and so do the recipes of the rooms it holds open.
-  const clean = path.split(/[?#]/)[0] || '/';
-  for (const frame of knowledge.frames ?? []) {
-    if (!frame.routes.some(route => routeMatcher(route).test(clean))) continue;
-    entries.push(frame.detail);
-    workflows.push(...frame.recipes);
-  }
-  const page = pageForPath(knowledge, path);
-  if (page) {
-    entries.push(page.detail);
-    if (page.relationships) entries.push(page.relationships);
-    workflows.push(...page.recipes);
-    const bySurface = new Map(knowledge.pages.map(p => [p.surface, p]));
-    for (const id of page.adjacent) {
-      const other = bySurface.get(id);
-      if (other) entries.push(other.summary);
-    }
-  }
-  return { map: knowledge.overview, entries, workflows };
+  return best ? { page: best.page, route: best.route } : null;
 }
 
 // ─── Navigation ──────────────────────────────────────────────────────────────

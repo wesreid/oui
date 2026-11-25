@@ -37,6 +37,7 @@ import {
   type PageQuery,
   type ReachStep,
   type RoomCatalogData,
+  type RouteGates,
 } from '@ouispec/bindings';
 
 import {
@@ -84,6 +85,8 @@ export interface PageMeta {
   shown: { id: string; title: string; description: string; labels: string[]; reach: ReachStep[] }[];
   /** The query the page reads from its address (`readQuery`), every declaration it reads in one; absent when it reads none. */
   query?: PageQuery;
+  /** Its gated routes, each with its gates (`routeGates`); absent when none is gated. */
+  gates?: RouteGates;
 }
 
 const PAGE_STATE_SCHEMA: JsonSchema = {
@@ -349,6 +352,9 @@ export function assemble(
       .sort((a, b) => a.id.localeCompare(b.id));
     // Each display once, by binding id: what its state's `shown` can hold.
     const displays = [...new Map(shown.map(({ reach: _reach, ...d }) => [d.id, d])).values()];
+    // The gates around each of its routes that has any: who may see it (`routeGates`).
+    const gated = page.routes.filter(r => r.gates?.length);
+    const gates: RouteGates | undefined = gated.length ? Object.fromEntries(gated.map(r => [r.path, [...r.gates!]])) : undefined;
     surfaces.push({
       id,
       kind,
@@ -358,6 +364,7 @@ export function assemble(
       actions: sortActions(found?.actions ?? []),
       observations,
       ...(displays.length ? { displays } : {}),
+      ...(gates ? { gates } : {}),
     });
     const navEntry = page.routes.map(r => navFor(r.path)).find(Boolean);
     if (declared === null) undeclared.push({ surface: surfaces[surfaces.length - 1], component: page.component });
@@ -371,6 +378,7 @@ export function assemble(
       rooms: [...(page.analysis?.rooms ?? [])].map(r => `room:${r.catalog.room}`).sort(),
       shown,
       ...(pageQueries.has(page.component) ? { query: pageQueries.get(page.component)! } : {}),
+      ...(gates ? { gates } : {}),
       shared: [...controlSurfaces.entries()]
         .filter(
           ([sid, s]) => s.kind === 'shared' && page.routes.some(r => s.routes.has(r.path)) && sid !== id,

@@ -1045,6 +1045,15 @@ export interface OuiManifest {
   surfaces: readonly ManifestSurface[];
 }
 
+/**
+ * The gates around each gated route of a page, by route: the values of the `routeGates` props
+ * the route's element and its parent routes' elements are wrapped in, outermost first (`{
+ * "/dashboard/campaigns": ["campaigns"] }`). A route is open to a session when the host allows
+ * every one of its gates (`allows`), and a route not listed has none; a page is open when any
+ * of its routes is. The host's predicate is given each value as written.
+ */
+export type RouteGates = Readonly<Record<string, readonly string[]>>;
+
 /** One step of the way a person reaches a capability. */
 export type ReachStep = {
   kind: 'route';
@@ -1160,6 +1169,11 @@ export interface ManifestSurface {
    * none, and in a manifest generated before 0.10.
    */
   displays?: readonly ManifestDisplay[];
+  /**
+   * A page's gated routes, each with its gates (`routeGates` in `oui.config.json`). Absent when
+   * none of its routes is gated.
+   */
+  gates?: RouteGates;
 }
 
 // ─── The generated knowledge ───────────────────────────────────────────────────
@@ -1184,6 +1198,14 @@ export interface GeneratedKnowledge {
    * build, so the assistant always has it.
    */
   overview: KnowledgeEntry;
+  /**
+   * The app's map line by line, present only when a route of the build is gated (`routeGates`):
+   * `overview.content` is these lines with every page shown. A tab given what the session may
+   * see (`allows`) renders them without the pages it may not (`appMapContent`), so the map
+   * names only pages the person can open. The generator places a page under another only when
+   * that page is open whenever this one is, so no line is left under a page that is gone.
+   */
+  map?: readonly AppMapLine[];
   pages: readonly PageKnowledge[];
   /**
    * The app's frame around the pages (`shell` surfaces), each part with the route patterns it
@@ -1197,6 +1219,28 @@ export interface KnowledgeEntry {
   title: string;
   content: string;
 }
+
+/** One line of the app's map. */
+export type AppMapLine = {
+  kind: 'text';
+  text: string;
+} | {
+  kind: 'heading';
+  text: string;
+} | {
+  kind: 'page';
+  /** The page surface it names. */
+  surface: string;
+  /** How far it is indented: one more than the page that opens it. */
+  depth: number;
+  title: string;
+  /** The route it names: its page's first. */
+  route: string;
+  /** The control on the page above it that opens it. */
+  from?: string;
+  /** What it offers, as the map was fitted to `mapChars`. */
+  offers?: string;
+};
 
 /** A task recipe the UI implies, as the assistant's prompt shows a workflow. */
 export interface KnowledgeRecipe {
@@ -1222,6 +1266,11 @@ export interface PageKnowledge {
   recipes: readonly KnowledgeRecipe[];
   /** Page surfaces this page leads to or is reached from. */
   adjacent: readonly string[];
+  /**
+   * Its gated routes, each with its gates, as its manifest surface has them. Absent when none
+   * of its routes is gated.
+   */
+  gates?: RouteGates;
 }
 
 // ─── `oui.config.json` ─────────────────────────────────────────────────────────
@@ -1252,6 +1301,19 @@ export interface OuiConfigFile {
    * `ErrorBoundary`). Default none.
    */
   routeWrappers?: readonly string[];
+  /**
+   * Route wrappers that open their page only to some sessions (a brand's features, an
+   * audience), each with the prop whose value names the gate: `{ "FeatureRoute": "feature" }`
+   * reads `<FeatureRoute feature="campaigns">` as the gate `campaigns`. Each must also be in
+   * `routeWrappers`. Every route records the gates its element and its parent routes' elements
+   * are wrapped in, outermost first, on its page's surface and knowledge (`gates`), and the
+   * knowledge carries the app's map line by line (`map`), so a tab given what the session may
+   * see (`allows`) leaves the other pages out of the map, the app-wide search, the page guide
+   * and the pages the assistant goes to. A gate's value must be readable at build time: a
+   * literal, or a constant. Default none: a build that names none generates exactly what it did
+   * before.
+   */
+  routeGates?: Readonly<Record<string, string>>;
   /**
    * Files holding the navigation entries (`{ label, route, group }` object literals). Default
    * none.

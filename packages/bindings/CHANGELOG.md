@@ -1,5 +1,22 @@
 # @ouispec/bindings
 
+## 0.18.0
+
+### Minor Changes
+
+- One build can serve several brands or audiences, and the assistant is told of the app only as the session's person sees it.
+
+  - cli: `routeGates` in `oui.config.json` names the route wrappers that open their page only to some sessions, each with the prop whose value names the gate (`{ "FeatureRoute": "feature" }`); each must also be in `routeWrappers`. Every route records the gates its element and its parent routes' elements are wrapped in, outermost first, read at build time from a literal or a constant (`FEATURE_KEYS.campaigns`). A gate the build cannot read, or a gating wrapper without the prop, fails the build as an unreadable path does. On the app's map a page goes under another only when that page is open whenever it is. A config that names no gates generates exactly what it did before, byte for byte (the fixture apps' output of 0.17.1 is held in `__tests__/fixtures/golden/`).
+  - contract: a page's manifest surface and knowledge carry `gates` (`RouteGates`: route → its gates), and the knowledge carries the app's map line by line (`map`, `AppMapLine`) when any route is gated. `overview.content` is still the whole map. `oui-config.json` gains `routeGates`.
+  - bindings: the host says which gates the session may see with `allows: (gate) => boolean`. `connectBindings({ knowledge, allows })` then offers `app.navigate` only the open pages and answers `oui.find` and `oui.guide` only of them; `createKnowledgeLookup({ allows })` does the same on its own, and `resolveKnowledge(knowledge, path, { allows })` gives the map without the other pages, and no page's knowledge on a page the session may not see. A route is open when every one of its gates is allowed, and a page when any of its routes is. A page the session may not see is named nowhere the assistant reads: not in a surface's, an action's or an observation's description (a shared part's "on /, /war-room" keeps only its open routes, and "It goes to /war-room." is left out), not in the navigation action, not in a page's entries, relationships or recipes (a sentence that names it by its route or an address on it is left out, a route list loses it, a heading whose items all went goes too), not in the map or its frame lines, and not in `oui.find` or `oui.guide`. A control that only goes to such a page is not offered (it leads nowhere for the session), and a route step to such a page leaves an action's reach. `scopeKnowledge`, `scopeManifest`, `scopedNavigationSurface`, `scopeText`, `routeScope`, `appMapContent`, `routeOpen`, `openRoutes`, `buildGates`, `openPageForPath` and `pageRouteForPath` are exported. Without `allows`, or for a build with no gates, nothing changes.
+
+### Patch Changes
+
+- One record drawn twice on a page (the same row key in two places, a vehicle on a lead's card and again in the list) is one row. A row action's `item` enum names it once and its count says how many rows there are, so a provider compiles the schema (on Nova, an enum that repeated a key had every call to the action refused). The page state lists it once, as first drawn; a title names it once, so it is not "several rows"; and a call runs through a drawing that can be used when one can. `uniqueRows` is exported.
+- Updated dependencies
+  - @ouispec/contract@0.18.0
+  - @ouispec/agent-events@0.39.0
+
 ## 0.17.2
 
 ### Patch Changes

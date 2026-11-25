@@ -1,0 +1,112 @@
+{
+  "buildId": "4914bc54b3985094",
+  "overview": {
+    "content": "Every page: sidebar groups, then their pages; a page opened from another is indented under it (from the control that opens it). After each, what it offers, by where it is (a menu, a tab), most telling first; \"…\": more.\nOpened by address only:\n- Account /account: Go\n- Audit /account/audit: Go\n- Home /: Go\n- Profile /profile: Edit\n- Report /reports/:reportId: Go\n- Reports /reports: Go\nGo to any page by its address with [app_navigate]. An item's page (its route has an :id) opens from the page above it.",
+    "title": "The app’s pages"
+  },
+  "pages": [
+    {
+      "adjacent": [],
+      "detail": {
+        "content": "Offers Go.\nWhere: reached by address (/account) or from another page.\n\nWhat you can do here (tool in brackets):\nOn the page:\n- Go [account_save]\n\nWhat the page reports: state (its fields, lists and unavailable controls) and problems.",
+        "title": "Account (/account)"
+      },
+      "recipes": [],
+      "relationships": null,
+      "routes": [
+        "/account"
+      ],
+      "summary": {
+        "content": "Account (/account): Offers Go.",
+        "title": "Account"
+      },
+      "surface": "page:AccountPage"
+    },
+    {
+      "adjacent": [],
+      "detail": {
+        "content": "Offers Go.\nWhere: reached by address (/account/audit) or from another page.\n\nWhat you can do here (tool in brackets):\nOn the page:\n- Go [audit_download]\n\nWhat the page reports: state (its fields, lists and unavailable controls) and problems.",
+        "title": "Audit (/account/audit)"
+      },
+      "recipes": [],
+      "relationships": null,
+      "routes": [
+        "/account/audit"
+      ],
+      "summary": {
+        "content": "Audit (/account/audit): Offers Go.",
+        "title": "Audit"
+      },
+      "surface": "page:AuditPage"
+    },
+    {
+      "adjacent": [],
+      "detail": {
+        "content": "Offers Go.\nWhere: reached by address (/) or from another page.\n\nWhat you can do here (tool in brackets):\nOn the page:\n- Go [home_start]\n\nWhat the page reports: state (its fields, lists and unavailable controls) and problems.",
+        "title": "Home (/)"
+      },
+      "recipes": [],
+      "relationships": null,
+      "routes": [
+        "/"
+      ],
+      "summary": {
+        "content": "Home (/): Offers Go.",
+        "title": "Home"
+      },
+      "surface": "page:HomePage"
+    },
+    {
+      "adjacent": [],
+      "detail": {
+        "content": "Offers Edit.\nWhere: reached by address (/profile) or from another page.\n\nWhat you can do here (tool in brackets):\nOn the page:\n- Edit [profile_edit]\n\nWhat the page reports: state (its fields, lists and unavailable controls) and problems.",
+        "title": "Profile (/profile)"
+      },
+      "recipes": [],
+      "relationships": null,
+      "routes": [
+        "/profile"
+      ],
+      "summary": {
+        "content": "Profile (/profile): Offers Edit.",
+        "title": "Profile"
+      },
+      "surface": "page:ProfilePage"
+    },
+    {
+      "adjacent": [],
+      "detail": {
+        "content": "Offers Go.\nWhere: reached by address (/reports/:reportId) or from another page.\n\nWhat you can do here (tool in brackets):\nOn the page:\n- Go [reports_detail_share]\n\nWhat the page reports: state (its fields, lists and unavailable controls) and problems.",
+        "title": "Report (/reports/:reportId)"
+      },
+      "recipes": [],
+      "relationships": null,
+      "routes": [
+        "/reports/:reportId"
+      ],
+      "summary": {
+        "content": "Report (/reports/:reportId): Offers Go.",
+        "title": "Report"
+      },
+      "surface": "page:ReportPage"
+    },
+    {
+      "adjacent": [],
+      "detail": {
+        "content": "Offers Go.\nWhere: reached by address (/reports) or from another page.\n\nWhat you can do here (tool in brackets):\nOn the page:\n- Go [reports_export]\n\nWhat the page reports: state (its fields, lists and unavailable controls) and problems.",
+        "title": "Reports (/reports)"
+      },
+      "recipes": [],
+      "relationships": null,
+      "routes": [
+        "/reports"
+      ],
+      "summary": {
+        "content": "Reports (/reports): Offers Go.",
+        "title": "Reports"
+      },
+      "surface": "page:ReportsPage"
+    }
+  ],
+  "version": 1
+}

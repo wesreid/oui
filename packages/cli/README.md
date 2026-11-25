@@ -42,6 +42,7 @@ Required, and explicit: nothing an app depends on has a default, so a misconfigu
 | `apiSpec` | yes | The API's OpenAPI 3 document, by module path as the installed API client ships it. `null`: the app has no API. |
 | `out` | yes | Where the manifest and knowledge are written. |
 | `routeWrappers` | no | Components a route's element is wrapped in that are never the page. |
+| `routeGates` | no | Route wrappers that open their page only to some sessions, each with the prop that names the gate: `{ "FeatureRoute": "feature" }` (below). Each is also in `routeWrappers`. |
 | `nav` | no | Files whose `{ label, route, group }` object literals are the navigation. |
 | `shell` | no | The app's frame: components mounted around the pages. Each becomes a `shell:` surface. |
 | `mappings` | no | Tier 2 mappings of third-party design systems the app does not own (below). |
@@ -57,6 +58,16 @@ Required, and explicit: nothing an app depends on has a default, so a misconfigu
 The knowledge's `overview` is the app's map, which the assistant always has. It lists every page under its sidebar group; a page opened from another (a navigate effect) is indented under it, with the control that opens it; the pages nothing leads to follow, by address, then what is on every page (the frame). After each page comes what it offers, grouped by where it is (a room's menu, a tab) and most telling first: work it starts and changes it saves, then a room's edits and the controls that make something, then its other actions, openers, navigation and fields, with upkeep (delete, cancel, refresh, …) last and the controls inside a dialog left to its opener. It is fitted to `mapChars`: every page keeps its line, and what is left goes to the pages that make things. The same rule (`capabilitiesOf` in `@ouispec/bindings`) derives a page's description when it declares none ("Offers Remove, Generative Fill and Relight, among 261 actions."), and ranks the tab's app-wide search.
 
 A page's description is its `PageHeader` subtitle when that is a whole literal of three words or more and not a loading state; a fragment of a template literal is not one. A page with none is described by what it offers, then by what it shows, then by the first paragraph of its component's doc comment; a page with none of these fails the generation (unless it is in `unbound`).
+
+## One build, several brands: gated routes
+
+A build that serves several brands or audiences opens some pages only to some of them (`<FeatureRoute feature={FEATURE_KEYS.campaigns}>`). Name each such wrapper in `routeGates`, with the prop whose value names its gate, and the build records who may see what:
+
+- Each route's gates, outermost first (a parent route's wrapper, then its own), are on its page's manifest surface and knowledge: `gates: { "/admin/users": ["admin", "people"] }`. A page on several routes has each route's own. A gate's value is read at build time, from a literal or a constant (`FEATURE_KEYS.campaigns` in an `as const` object); one the build cannot read, or a gating wrapper without the prop, fails the build, since the route would otherwise be open to everyone.
+- The knowledge carries the app's map line by line (`map`) beside its text, and a page goes under another on the map only when that page is open whenever it is, so a session never finds a page under one it cannot see.
+- The tab gives the bindings what the session may see (`allows`, in `@ouispec/bindings`), and the map, the page knowledge, `ui_find`, `ui_guide` and `app_navigate` then name only those pages.
+
+A config without `routeGates` generates exactly what it did before, byte for byte (`__tests__/ungated-output.test.ts` holds the output of 0.17.1 for the fixture apps).
 
 ## Capabilities only a person can reach
 

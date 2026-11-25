@@ -18,7 +18,7 @@ import {
 } from 'oui-spec/core';
 import { sharedIdPrefix } from 'oui-spec/spec';
 
-import { deriveInputSchema, ITEM_PROPERTY, itemSchema, MAX_DESCRIBED_OPTIONS } from './controls.js';
+import { deriveInputSchema, ITEM_PROPERTY, itemSchema, MAX_DESCRIBED_OPTIONS, uniqueRows } from './controls.js';
 import { effectKind, type ActionEffectKind } from './effect.js';
 import { isNarrowing, validateValue, type JsonSchema } from './json-schema.js';
 import {
@@ -31,6 +31,7 @@ import {
   type OuiManifest,
 } from './manifest.js';
 import { createKnowledgeLookup } from './lookup.js';
+import { buildGates, scopeKey, scopeManifest, type GateFilter } from './scope.js';
 import { factsByDisplay, type BindingRegistry, type ControlRegistration, type RoomRegistration } from './registry.js';
 import type { JobOutcome } from '@ouispec/contract';
 import { addressesRows, observationLookup, resolveInputRefs } from './readers.js';
@@ -71,6 +72,16 @@ export interface ConnectBindingsOptions {
    * each result starting at the page `navigation` says the person is on.
    */
   knowledge?: GeneratedKnowledge;
+  /**
+   * Which gates the session may see, for a build that serves several brands
+   * or audiences (`routeGates` in `oui.config.json`): true for each gate its
+   * person has (a brand's feature). The navigation surface then lists only
+   * the pages open to them, and the app-wide search and page guide answer
+   * only of those. Read at each rebuild and each lookup, so a change shows on
+   * the next. Without it, every page. Pass the same predicate to
+   * `resolveKnowledge` for the map the turn carries.
+   */
+  allows?: GateFilter;
 }
 
 /** How the app goes to a page, and tells which page it is on. */
@@ -136,29 +147,52 @@ export function connectBindings({
   jobs,
   navigation,
   knowledge,
+  allows,
 }: ConnectBindingsOptions): () => void {
   // What the build knows of itself, searched in the tab: one lookup, removed on disconnect.
   if (knowledge) {
-    runtime.setLookup(createKnowledgeLookup({ knowledge, manifest, ...(navigation ? { location: () => navigation.location() } : {}) }));
+    runtime.setLookup(
+      createKnowledgeLookup({
+        knowledge,
+        manifest,
+        ...(navigation ? { location: () => navigation.location() } : {}),
+        ...(allows ? { allows } : {}),
+      }),
+    );
   }
-  const navigationSurface = navigation
-    ? manifest.surfaces.find(s => s.id === NAVIGATION_SURFACE_ID && s.kind === 'navigation')
-    : undefined;
-  const byBinding = new Map<string, { surface: ManifestSurface; action: ManifestAction }>();
-  const roomSurfaces = new Map<string, ManifestSurface>();
-  for (const surface of manifest.surfaces) {
-    if (surface.kind === 'room') roomSurfaces.set(surface.id.replace(/^room:/, ''), surface);
-    for (const action of surface.actions) {
-      if (action.source === 'control') byBinding.set(action.id, { surface, action });
-    }
-  }
-
+  // The build as the session sees it (`allows`): its surfaces, less the pages it may not see, the controls that
+  // only go to one and every word that names one; made again only when what it may see changes.
+  const gates = buildGates(manifest.surfaces.filter(s => s.kind === 'page'));
+  /** Every control the build declares: one the session is not offered is not a defect. */
+  const declared = new Set(manifest.surfaces.flatMap(s => s.actions.filter(a => a.source === 'control').map(a => a.id)));
+  let viewKey: string | null | undefined;
+  let navigationSurface: ManifestSurface | undefined;
+  let byBinding = new Map<string, { surface: ManifestSurface; action: ManifestAction }>();
+  let roomSurfaces = new Map<string, ManifestSurface>();
   // What a page shows, by display id: the pages whose manifest entry records it (0.10 on).
-  const byDisplay = new Map<string, ManifestSurface[]>();
-  for (const surface of manifest.surfaces) {
-    if (surface.kind !== 'page') continue;
-    for (const display of surface.displays ?? []) byDisplay.set(display.id, [...(byDisplay.get(display.id) ?? []), surface]);
-  }
+  let byDisplay = new Map<string, ManifestSurface[]>();
+  /** Reads what the session may see; true when it changed since the last reading. */
+  const refreshView = (): boolean => {
+    const key = scopeKey(gates, allows);
+    if (key === viewKey) return false;
+    const first = viewKey === undefined;
+    viewKey = key;
+    const seen = key === null ? manifest : scopeManifest(manifest, allows);
+    navigationSurface = navigation ? seen.surfaces.find(s => s.id === NAVIGATION_SURFACE_ID && s.kind === 'navigation') : undefined;
+    byBinding = new Map();
+    roomSurfaces = new Map();
+    byDisplay = new Map();
+    for (const surface of seen.surfaces) {
+      if (surface.kind === 'room') roomSurfaces.set(surface.id.replace(/^room:/, ''), surface);
+      for (const action of surface.actions) {
+        if (action.source === 'control') byBinding.set(action.id, { surface, action });
+      }
+      if (surface.kind !== 'page') continue;
+      for (const display of surface.displays ?? []) byDisplay.set(display.id, [...(byDisplay.get(display.id) ?? []), surface]);
+    }
+    return !first;
+  };
+  refreshView();
   // Whether the last rebuild mounted a page for its controls, and which pages it mounted only for what they show.
   let pageOfControls = false;
   let showingKey = '';
@@ -249,6 +283,7 @@ export function connectBindings({
   runs.busy = bindingId => busyAfterPress.has(bindingId);
 
   const rebuild = () => {
+    refreshView();
     const wanted = new Map<string, { surface: ManifestSurface; actions: ActionDefinition<null>[] }>();
     const want = (surface: ManifestSurface) => {
       let entry = wanted.get(surface.id);
@@ -260,7 +295,8 @@ export function connectBindings({
     const groups = new Map<string, ControlRegistration[]>();
     for (const reg of registry.controls()) {
       if (!byBinding.has(reg.id)) {
-        report({ kind: 'unknown-binding', id: reg.id });
+        // A control the build declares but the session is not offered (it only goes to a page it may not see) is no defect.
+        if (!declared.has(reg.id)) report({ kind: 'unknown-binding', id: reg.id });
         continue;
       }
       const list = groups.get(reg.id) ?? [];
@@ -296,9 +332,10 @@ export function connectBindings({
 
     // Going to a page by its address: offered whenever the app gives its router.
     if (navigationSurface && navigation) {
-      const entry = want(navigationSurface);
-      for (const action of navigationSurface.actions) {
-        entry.actions.push(navigateAction(action, navigationSurface.routes, navigation));
+      const surface = navigationSurface;
+      const entry = want(surface);
+      for (const action of surface.actions) {
+        entry.actions.push(navigateAction(action, surface.routes, navigation));
       }
     }
 
@@ -389,9 +426,11 @@ export function connectBindings({
 
   // A display that starts or stops reporting can mount or unmount the page it is on.
   const unsubscribe = registry.subscribe(change =>
-    change === 'structure' || keyOf(showingPages()) !== showingKey ? rebuild() : pushObservations(),
+    change === 'structure' || refreshView() || keyOf(showingPages()) !== showingKey ? rebuild() : pushObservations(),
   );
-  const unsubscribeLocation = navigationSurface && navigation ? navigation.subscribe(() => (keyOf(showingPages()) !== showingKey ? rebuild() : pushObservations())) : null;
+  const unsubscribeLocation = navigationSurface && navigation
+    ? navigation.subscribe(() => (refreshView() || keyOf(showingPages()) !== showingKey ? rebuild() : pushObservations()))
+    : null;
   rebuild();
 
   return () => {
@@ -464,8 +503,14 @@ export function pageState(controls: readonly ControlRegistration[], isBusy: (bin
     seen.add(JSON.stringify(c.valueSchema));
     rowSchemas.set(c.id, seen);
   }
+  // Each list's rows by key: a record drawn twice on the page (the same key in two places) is one row, as first drawn.
+  const listed = new Map<string, Set<string>>();
   for (const c of controls) {
     if (c.item) {
+      const keys = listed.get(c.id) ?? new Set<string>();
+      listed.set(c.id, keys);
+      if (keys.has(c.item.key)) continue;
+      keys.add(c.item.key);
       const ownSchema = c.valueSchema && rowSchemas.get(c.id)!.size > 1;
       (lists[c.id] ??= []).push({
         key: c.item.key,
@@ -686,11 +731,16 @@ function pickRegistration(
 ): { registration: ControlRegistration } | { error: ActionHandlerResult } {
   if (!action.itemized) return { registration: regs[regs.length - 1] };
   const ref = typeof params[ITEM_PROPERTY] === 'string' ? (params[ITEM_PROPERTY] as string) : '';
-  const byKey = regs.find(r => r.item?.key === ref);
+  // A record drawn twice runs through a drawing that can be used, when one can.
+  const drawing = (key: string) => regs.find(r => r.item?.key === key && !r.disabled) ?? regs.find(r => r.item?.key === key);
+  const byKey = drawing(ref);
   if (byKey) return { registration: byKey };
-  const byTitle = regs.filter(r => r.item && r.item.title.toLowerCase() === ref.trim().toLowerCase());
-  if (byTitle.length === 1) return { registration: byTitle[0] };
-  const shown = regs
+  // A record drawn twice is one row: its title names it once.
+  const rows = uniqueRows(regs.filter(r => r.item).map(r => ({ key: r.item!.key, registration: r })));
+  const byTitle = rows.filter(r => r.registration.item!.title.toLowerCase() === ref.trim().toLowerCase()).map(r => r.registration);
+  if (byTitle.length === 1) return { registration: drawing(byTitle[0].item!.key)! };
+  const shown = rows
+    .map(r => r.registration)
     .slice(0, 30)
     .map(r => `"${r.item?.title}" (${r.item?.key})`)
     .join(', ');

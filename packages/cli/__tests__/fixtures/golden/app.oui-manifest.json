@@ -1,0 +1,1792 @@
+{
+  "buildId": "60b8be0ffb6a1cee",
+  "surfaces": [
+    {
+      "actions": [
+        {
+          "control": "choice",
+          "declaredIn": "src/pages/CreateVoicePage.tsx",
+          "description": "Choose \"Language\": Language of the accent.",
+          "id": "create.accent-language",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The option to choose: en = English; fr = French",
+                "enum": [
+                  "en",
+                  "fr"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "create_accent_language",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/voices/create",
+              "title": "Create Voice"
+            }
+          ],
+          "source": "control",
+          "title": "Language"
+        },
+        {
+          "control": "button",
+          "declaredIn": "src/pages/CreateVoicePage.tsx",
+          "description": "Press \"Direction\": Insert a direction tag. It is one per row: say which row with `item`. It is in the Add direction menu.",
+          "id": "create.direction",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "item": {
+                "description": "Which one: the id or the exact title of a row the page shows",
+                "type": "string"
+              }
+            },
+            "required": [
+              "item"
+            ],
+            "type": "object"
+          },
+          "itemized": true,
+          "name": "create_direction",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/voices/create",
+              "title": "Create Voice"
+            },
+            {
+              "kind": "menu",
+              "title": "Add direction"
+            }
+          ],
+          "source": "control",
+          "title": "Direction"
+        },
+        {
+          "control": "choice",
+          "declaredIn": "src/LanguageField.tsx",
+          "description": "Choose \"Language\": Dubbing.",
+          "id": "create.dub-language",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The option to choose: en = English; fr = French",
+                "enum": [
+                  "en",
+                  "fr"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "create_dub_language",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/voices/create",
+              "title": "Create Voice"
+            }
+          ],
+          "source": "control",
+          "title": "Language"
+        },
+        {
+          "control": "button",
+          "declaredIn": "src/pages/CreateVoicePage.tsx",
+          "description": "Press \"Generate\": Generate a sample of the voice. It starts a job that takes about 10–20 s: the call returns once the job has started, and the job is done only when its status says complete.",
+          "effect": {
+            "estimatedDuration": "10–20 s",
+            "kind": "job",
+            "timeoutMs": 1800000
+          },
+          "id": "create.generate",
+          "input": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "create_generate",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/voices/create",
+              "title": "Create Voice"
+            }
+          ],
+          "source": "control",
+          "title": "Generate"
+        },
+        {
+          "control": "choice",
+          "declaredIn": "src/pages/CreateVoicePage.tsx",
+          "description": "Choose \"Language\": Language it speaks.",
+          "id": "create.language",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The option to choose: en = English; fr = French (Spoken as in France)",
+                "enum": [
+                  "en",
+                  "fr"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "create_language",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/voices/create",
+              "title": "Create Voice"
+            }
+          ],
+          "source": "control",
+          "title": "Language"
+        },
+        {
+          "control": "button",
+          "declaredIn": "src/pages/CreateVoicePage.tsx",
+          "description": "Press \"Mood\": Add a mood. It is one per row: say which row with `item`. It is in the Moods menu.",
+          "id": "create.mood",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "item": {
+                "description": "Which one: the id or the exact title of a row the page shows",
+                "type": "string"
+              }
+            },
+            "required": [
+              "item"
+            ],
+            "type": "object"
+          },
+          "itemized": true,
+          "name": "create_mood",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/voices/create",
+              "title": "Create Voice"
+            },
+            {
+              "kind": "menu",
+              "title": "Moods"
+            }
+          ],
+          "source": "control",
+          "title": "Mood"
+        },
+        {
+          "control": "button",
+          "declaredIn": "src/pages/CreateVoicePage.tsx",
+          "description": "Press \"Clear moods\": Remove every mood. It is in the Moods menu.",
+          "id": "create.mood-clear",
+          "input": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "create_mood_clear",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/voices/create",
+              "title": "Create Voice"
+            },
+            {
+              "kind": "menu",
+              "title": "Moods"
+            }
+          ],
+          "source": "control",
+          "title": "Clear moods"
+        },
+        {
+          "control": "text",
+          "declaredIn": "src/pages/CreateVoicePage.tsx",
+          "description": "Type into \"Name\": The voice’s name. Required. Its placeholder, an example of what goes in it: \"Warm narrator\".",
+          "id": "create.name",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The text to put in the field, replacing what is there",
+                "type": "string"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "create_name",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/voices/create",
+              "title": "Create Voice"
+            }
+          ],
+          "source": "control",
+          "title": "Name"
+        },
+        {
+          "control": "text",
+          "declaredIn": "src/pages/CreateVoicePage.tsx",
+          "description": "Type into \"Notes\": Notes on the voice.",
+          "id": "create.notes",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The text to put in the field, replacing what is there",
+                "type": "string"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "create_notes",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/voices/create",
+              "title": "Create Voice"
+            }
+          ],
+          "source": "control",
+          "title": "Notes"
+        },
+        {
+          "control": "number",
+          "declaredIn": "src/pages/CreateVoicePage.tsx",
+          "description": "Set \"Pitch\": Pitch shift.",
+          "id": "create.pitch",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The value in st, from -12 to 12",
+                "maximum": 12,
+                "minimum": -12,
+                "multipleOf": 1,
+                "type": "number",
+                "x-unit": "st"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "create_pitch",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/voices/create",
+              "title": "Create Voice"
+            }
+          ],
+          "source": "control",
+          "title": "Pitch"
+        },
+        {
+          "control": "choice",
+          "declaredIn": "src/pages/CreateVoicePage.tsx",
+          "description": "Choose \"Language\": Language of the script.",
+          "id": "create.script-language",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The option to choose: en = English; fr = French",
+                "enum": [
+                  "en",
+                  "fr"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "create_script_language",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/voices/create",
+              "title": "Create Voice"
+            }
+          ],
+          "source": "control",
+          "title": "Language"
+        },
+        {
+          "control": "text",
+          "declaredIn": "src/pages/CreateVoicePage.tsx",
+          "description": "Type into \"Style\": The character style. A style names the character and describes only what a head-and-shoulders portrait shows. Good: \"Maya, short black hair, a grey blazer\" The field's hint: Only what a head-and-shoulders portrait shows; at most 1000 characters. Its placeholder, an example of what goes in it: \"Name, face, hair and clothing\".",
+          "id": "create.style",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The text to put in the field, replacing what is there",
+                "type": "string"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "create_style",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/voices/create",
+              "title": "Create Voice"
+            }
+          ],
+          "source": "control",
+          "title": "Style"
+        },
+        {
+          "control": "choice",
+          "declaredIn": "src/LanguageField.tsx",
+          "description": "Choose \"Language\": Subtitles.",
+          "id": "create.subtitle-language",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The option to choose: en = English; fr = French",
+                "enum": [
+                  "en",
+                  "fr"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "create_subtitle_language",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/voices/create",
+              "title": "Create Voice"
+            }
+          ],
+          "source": "control",
+          "title": "Language"
+        }
+      ],
+      "description": "Offers Generate, Direction, Mood, Language and Name, among 13 actions.",
+      "id": "page:CreateVoicePage",
+      "kind": "page",
+      "observations": [
+        {
+          "description": "What the page shows now. values: create.subtitle-language (Language), create.dub-language (Language), create.language (Language), create.script-language (Language), create.accent-language (Language), create.style (Style), create.notes (Notes), create.name (Name), create.pitch (Pitch). lists: the rows on screen for create.direction, create.mood, as { key, title }; pass a key or title as `item`.",
+          "id": "state",
+          "schema": {
+            "properties": {
+              "lists": {
+                "description": "The rows each list-row control is showing, by binding id: their ids (keys) and titles",
+                "type": "object"
+              },
+              "shown": {
+                "description": "What the page shows that is not a control, by display: its binding id, heading and facts, each as text by its label; facts that describe one row of a list (a card each) carry the row as item, and a long list of them keeps an index of its rows",
+                "items": {
+                  "type": "object"
+                },
+                "type": "array",
+                "x-rows": {
+                  "index": [
+                    "id"
+                  ],
+                  "ref": "item.key",
+                  "title": "item.title"
+                }
+              },
+              "unavailable": {
+                "description": "Controls that cannot be used right now",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "values": {
+                "description": "Each field's current value, by binding id",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+          "id": "problems",
+          "schema": {
+            "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+            "items": {
+              "properties": {
+                "detail": {
+                  "type": "object"
+                },
+                "hides": {
+                  "description": "Ids of what is not shown because of it",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "description": "What kind of problem it is, in the page’s own vocabulary",
+                  "type": "string"
+                },
+                "message": {
+                  "description": "The words the page shows for it",
+                  "type": "string"
+                },
+                "resolve": {
+                  "description": "The action that resolves it, and the choices it offers",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "choices": {
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      ],
+      "routes": [
+        "/voices/create"
+      ],
+      "title": "Create Voice"
+    },
+    {
+      "actions": [
+        {
+          "control": "button",
+          "declaredIn": "src/Shell.tsx",
+          "description": "Press \"Assistant\": Open the assistant panel.",
+          "id": "shell.assistant",
+          "input": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "shell_assistant",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "*",
+              "title": "Shell"
+            }
+          ],
+          "source": "control",
+          "title": "Assistant"
+        }
+      ],
+      "description": "Shell: the app's frame, around every page. Its controls are there whatever page is open.",
+      "id": "shell:Shell",
+      "kind": "shell",
+      "observations": [
+        {
+          "description": "What the page shows now.",
+          "id": "state",
+          "schema": {
+            "properties": {
+              "lists": {
+                "description": "The rows each list-row control is showing, by binding id: their ids (keys) and titles",
+                "type": "object"
+              },
+              "shown": {
+                "description": "What the page shows that is not a control, by display: its binding id, heading and facts, each as text by its label; facts that describe one row of a list (a card each) carry the row as item, and a long list of them keeps an index of its rows",
+                "items": {
+                  "type": "object"
+                },
+                "type": "array",
+                "x-rows": {
+                  "index": [
+                    "id"
+                  ],
+                  "ref": "item.key",
+                  "title": "item.title"
+                }
+              },
+              "unavailable": {
+                "description": "Controls that cannot be used right now",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "values": {
+                "description": "Each field's current value, by binding id",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+          "id": "problems",
+          "schema": {
+            "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+            "items": {
+              "properties": {
+                "detail": {
+                  "type": "object"
+                },
+                "hides": {
+                  "description": "Ids of what is not shown because of it",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "description": "What kind of problem it is, in the page’s own vocabulary",
+                  "type": "string"
+                },
+                "message": {
+                  "description": "The words the page shows for it",
+                  "type": "string"
+                },
+                "resolve": {
+                  "description": "The action that resolves it, and the choices it offers",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "choices": {
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      ],
+      "routes": [
+        "*"
+      ],
+      "title": "Shell"
+    },
+    {
+      "actions": [],
+      "description": "Offers Add text, Toggle keyframe, Save PNG, Save SVG and Select, among 7 actions.",
+      "id": "page:StudioPage",
+      "kind": "page",
+      "observations": [
+        {
+          "description": "What the page shows now.",
+          "id": "state",
+          "schema": {
+            "properties": {
+              "lists": {
+                "description": "The rows each list-row control is showing, by binding id: their ids (keys) and titles",
+                "type": "object"
+              },
+              "shown": {
+                "description": "What the page shows that is not a control, by display: its binding id, heading and facts, each as text by its label; facts that describe one row of a list (a card each) carry the row as item, and a long list of them keeps an index of its rows",
+                "items": {
+                  "type": "object"
+                },
+                "type": "array",
+                "x-rows": {
+                  "index": [
+                    "id"
+                  ],
+                  "ref": "item.key",
+                  "title": "item.title"
+                }
+              },
+              "unavailable": {
+                "description": "Controls that cannot be used right now",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "values": {
+                "description": "Each field's current value, by binding id",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+          "id": "problems",
+          "schema": {
+            "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+            "items": {
+              "properties": {
+                "detail": {
+                  "type": "object"
+                },
+                "hides": {
+                  "description": "Ids of what is not shown because of it",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "description": "What kind of problem it is, in the page’s own vocabulary",
+                  "type": "string"
+                },
+                "message": {
+                  "description": "The words the page shows for it",
+                  "type": "string"
+                },
+                "resolve": {
+                  "description": "The action that resolves it, and the choices it offers",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "choices": {
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      ],
+      "routes": [
+        "/studio"
+      ],
+      "title": "Studio"
+    },
+    {
+      "actions": [],
+      "description": "Unbound (/unbound).",
+      "id": "page:UnboundPage",
+      "kind": "page",
+      "observations": [
+        {
+          "description": "What the page shows now.",
+          "id": "state",
+          "schema": {
+            "properties": {
+              "lists": {
+                "description": "The rows each list-row control is showing, by binding id: their ids (keys) and titles",
+                "type": "object"
+              },
+              "shown": {
+                "description": "What the page shows that is not a control, by display: its binding id, heading and facts, each as text by its label; facts that describe one row of a list (a card each) carry the row as item, and a long list of them keeps an index of its rows",
+                "items": {
+                  "type": "object"
+                },
+                "type": "array",
+                "x-rows": {
+                  "index": [
+                    "id"
+                  ],
+                  "ref": "item.key",
+                  "title": "item.title"
+                }
+              },
+              "unavailable": {
+                "description": "Controls that cannot be used right now",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "values": {
+                "description": "Each field's current value, by binding id",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+          "id": "problems",
+          "schema": {
+            "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+            "items": {
+              "properties": {
+                "detail": {
+                  "type": "object"
+                },
+                "hides": {
+                  "description": "Ids of what is not shown because of it",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "description": "What kind of problem it is, in the page’s own vocabulary",
+                  "type": "string"
+                },
+                "message": {
+                  "description": "The words the page shows for it",
+                  "type": "string"
+                },
+                "resolve": {
+                  "description": "The action that resolves it, and the choices it offers",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "choices": {
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      ],
+      "routes": [
+        "/unbound"
+      ],
+      "title": "Unbound"
+    },
+    {
+      "actions": [
+        {
+          "control": "button",
+          "declaredIn": "src/pages/VoicesPage.tsx",
+          "description": "Press \"Add Voice\": Start a new voice. It goes to /voices/create.",
+          "effect": {
+            "kind": "navigate",
+            "to": "/voices/create"
+          },
+          "id": "voices.add",
+          "input": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "voices_add",
+          "reach": [
+            {
+              "kind": "route",
+              "nav": "Generation › Voices",
+              "path": "/voices",
+              "title": "Voices"
+            }
+          ],
+          "source": "control",
+          "title": "Add Voice"
+        },
+        {
+          "control": "button",
+          "declaredIn": "src/pages/VoicesPage.tsx",
+          "description": "Press \"Delete\": Delete the selected voices.",
+          "destructive": true,
+          "id": "voices.bulk-delete",
+          "input": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "voices_bulk_delete",
+          "reach": [
+            {
+              "kind": "route",
+              "nav": "Generation › Voices",
+              "path": "/voices",
+              "title": "Voices"
+            }
+          ],
+          "source": "control",
+          "title": "Delete"
+        },
+        {
+          "control": "button",
+          "declaredIn": "src/pages/VoicesPage.tsx",
+          "description": "Press \"Cancel (Delete Voices)\": Keep them. It is in the \"Delete Voices\" dialog (open it with voices_bulk_delete).",
+          "id": "voices.bulk-delete.cancel",
+          "input": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "voices_bulk_delete_cancel",
+          "reach": [
+            {
+              "kind": "route",
+              "nav": "Generation › Voices",
+              "path": "/voices",
+              "title": "Voices"
+            },
+            {
+              "kind": "dialog",
+              "openedBy": [
+                "voices.bulk-delete"
+              ],
+              "title": "Delete Voices"
+            }
+          ],
+          "source": "control",
+          "title": "Cancel (Delete Voices)"
+        },
+        {
+          "control": "button",
+          "declaredIn": "src/pages/VoicesPage.tsx",
+          "description": "Press \"Confirm (Delete Voices)\": Delete them. It is in the \"Delete Voices\" dialog (open it with voices_bulk_delete). It saves through deleteVoice (DELETE /api/v1/voices/{voiceId}: Delete a voice).",
+          "effect": {
+            "kind": "mutate",
+            "operation": "deleteVoice"
+          },
+          "id": "voices.bulk-delete.confirm",
+          "input": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "voices_bulk_delete_confirm",
+          "reach": [
+            {
+              "kind": "route",
+              "nav": "Generation › Voices",
+              "path": "/voices",
+              "title": "Voices"
+            },
+            {
+              "kind": "dialog",
+              "openedBy": [
+                "voices.bulk-delete"
+              ],
+              "title": "Delete Voices"
+            }
+          ],
+          "source": "control",
+          "title": "Confirm (Delete Voices)"
+        },
+        {
+          "control": "tabs",
+          "declaredIn": "src/pages/VoicesPage.tsx",
+          "description": "Select a tab of \"Library\": Which library to show.",
+          "id": "voices.library",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The tab to select: user = My Voices; account = Account Voices",
+                "enum": [
+                  "user",
+                  "account"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "voices_library",
+          "reach": [
+            {
+              "kind": "route",
+              "nav": "Generation › Voices",
+              "path": "/voices",
+              "title": "Voices"
+            }
+          ],
+          "source": "control",
+          "title": "Library"
+        },
+        {
+          "control": "button",
+          "declaredIn": "src/pages/VoicesPage.tsx",
+          "description": "Press \"Open\": Open a voice. It is one per row: say which row with `item`.",
+          "id": "voices.open",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "item": {
+                "description": "Which one: the id or the exact title of a row the page shows",
+                "type": "string"
+              }
+            },
+            "required": [
+              "item"
+            ],
+            "type": "object"
+          },
+          "itemized": true,
+          "name": "voices_open",
+          "reach": [
+            {
+              "kind": "route",
+              "nav": "Generation › Voices",
+              "path": "/voices",
+              "title": "Voices"
+            }
+          ],
+          "source": "control",
+          "title": "Open"
+        },
+        {
+          "control": "toggle",
+          "declaredIn": "src/pages/VoicesPage.tsx",
+          "description": "Turn on or off \"Play\": Play the sample.",
+          "id": "voices.play",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "true to turn it on, false to turn it off",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "voices_play",
+          "reach": [
+            {
+              "kind": "route",
+              "nav": "Generation › Voices",
+              "path": "/voices",
+              "title": "Voices"
+            }
+          ],
+          "source": "control",
+          "title": "Play"
+        },
+        {
+          "control": "file",
+          "declaredIn": "src/pages/VoicesPage.tsx",
+          "description": "Give a file to \"Choose (Portrait)\": Give the voice a portrait.",
+          "id": "voices.portrait",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The id of a file the person attached to the conversation: the page uses it as if the person had chosen it",
+                "format": "oui-attachment",
+                "type": "string",
+                "x-oui-attachment": {
+                  "as": "file"
+                }
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "voices_portrait",
+          "reach": [
+            {
+              "kind": "route",
+              "nav": "Generation › Voices",
+              "path": "/voices",
+              "title": "Voices"
+            }
+          ],
+          "source": "control",
+          "title": "Choose (Portrait)"
+        },
+        {
+          "control": "button",
+          "declaredIn": "src/pages/VoicesPage.tsx",
+          "description": "Press \"Rename\": Rename the account. It is on the \"Account Voices\" tab (select it with voices_library).",
+          "id": "voices.rename",
+          "input": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "voices_rename",
+          "reach": [
+            {
+              "kind": "route",
+              "nav": "Generation › Voices",
+              "path": "/voices",
+              "title": "Voices"
+            },
+            {
+              "binding": "voices.library",
+              "kind": "tab",
+              "title": "Account Voices",
+              "value": "account"
+            }
+          ],
+          "source": "control",
+          "title": "Rename"
+        },
+        {
+          "control": "dialog",
+          "declaredIn": "src/RenameDialog.tsx",
+          "description": "Close \"Rename\": The rename dialog. It is in the \"Rename\" dialog (open it with voices_rename).",
+          "id": "voices.rename-dialog",
+          "input": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "voices_rename_dialog",
+          "reach": [
+            {
+              "kind": "route",
+              "nav": "Generation › Voices",
+              "path": "/voices",
+              "title": "Voices"
+            },
+            {
+              "binding": "voices.rename-dialog",
+              "kind": "dialog",
+              "openedBy": [
+                "voices.rename"
+              ],
+              "title": "Rename"
+            }
+          ],
+          "source": "control",
+          "title": "Rename"
+        },
+        {
+          "control": "text",
+          "declaredIn": "src/RenameDialog.tsx",
+          "description": "Type into \"Name\": The new name. It is in the \"Rename\" dialog (open it with voices_rename).",
+          "id": "voices.rename-name",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The text to put in the field, replacing what is there",
+                "maxLength": 40,
+                "type": "string"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "voices_rename_name",
+          "reach": [
+            {
+              "kind": "route",
+              "nav": "Generation › Voices",
+              "path": "/voices",
+              "title": "Voices"
+            },
+            {
+              "binding": "voices.rename-dialog",
+              "kind": "dialog",
+              "openedBy": [
+                "voices.rename"
+              ],
+              "title": "Rename"
+            }
+          ],
+          "source": "control",
+          "title": "Name"
+        },
+        {
+          "control": "button",
+          "declaredIn": "src/pages/VoicesPage.tsx",
+          "description": "Press \"Open\": Open a voice from the table. It is one per row: say which row with `item`.",
+          "id": "voices.row",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "item": {
+                "description": "Which one: the id or the exact title of a row the page shows",
+                "type": "string"
+              }
+            },
+            "required": [
+              "item"
+            ],
+            "type": "object"
+          },
+          "itemized": true,
+          "name": "voices_row",
+          "reach": [
+            {
+              "kind": "route",
+              "nav": "Generation › Voices",
+              "path": "/voices",
+              "title": "Voices"
+            }
+          ],
+          "source": "control",
+          "title": "Open"
+        },
+        {
+          "control": "file",
+          "declaredIn": "src/pages/VoicesPage.tsx",
+          "description": "Give a file to \"Choose (Samples)\": Add samples of the voice.",
+          "id": "voices.samples",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The ids of the files the person attached to the conversation: every one this control should take, in one call (at most 20). The page uses them as if the person had chosen them together",
+                "items": {
+                  "description": "The id of a file the person attached to the conversation",
+                  "format": "oui-attachment",
+                  "type": "string",
+                  "x-oui-attachment": {
+                    "as": "file"
+                  }
+                },
+                "maxItems": 20,
+                "minItems": 1,
+                "type": "array"
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "voices_samples",
+          "reach": [
+            {
+              "kind": "route",
+              "nav": "Generation › Voices",
+              "path": "/voices",
+              "title": "Voices"
+            }
+          ],
+          "source": "control",
+          "title": "Choose (Samples)"
+        },
+        {
+          "control": "choice",
+          "declaredIn": "src/pages/VoicesPage.tsx",
+          "description": "Choose \"Sort\": Sort the voices.",
+          "id": "voices.sort",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The option to choose",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "type": "object"
+          },
+          "name": "voices_sort",
+          "reach": [
+            {
+              "kind": "route",
+              "nav": "Generation › Voices",
+              "path": "/voices",
+              "title": "Voices"
+            }
+          ],
+          "source": "control",
+          "title": "Sort"
+        },
+        {
+          "confirm": true,
+          "control": "button",
+          "declaredIn": "src/pages/VoicesPage.tsx",
+          "description": "Press \"Switch account\": Show the voices of another account.",
+          "id": "voices.switch-account",
+          "input": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "voices_switch_account",
+          "reach": [
+            {
+              "kind": "route",
+              "nav": "Generation › Voices",
+              "path": "/voices",
+              "title": "Voices"
+            }
+          ],
+          "source": "control",
+          "title": "Switch account"
+        }
+      ],
+      "description": "Your voice library. Voices shared with your account.",
+      "displays": [
+        {
+          "description": "The library’s generation parameters",
+          "id": "voices.parameters",
+          "labels": [
+            "Engine",
+            "Seed"
+          ],
+          "title": "Parameters"
+        }
+      ],
+      "id": "page:VoicesPage",
+      "kind": "page",
+      "observations": [
+        {
+          "description": "What the page shows now. values: voices.library (Library), voices.sort (Sort), voices.samples (Choose (Samples)), voices.portrait (Choose (Portrait)), voices.play (Play), voices.rename-name (Name). lists: the rows on screen for voices.open, voices.row, as { key, title }; pass a key or title as `item`.",
+          "id": "state",
+          "schema": {
+            "properties": {
+              "lists": {
+                "description": "The rows each list-row control is showing, by binding id: their ids (keys) and titles",
+                "type": "object"
+              },
+              "shown": {
+                "description": "What the page shows that is not a control, by display: its binding id, heading and facts, each as text by its label; facts that describe one row of a list (a card each) carry the row as item, and a long list of them keeps an index of its rows",
+                "items": {
+                  "type": "object"
+                },
+                "type": "array",
+                "x-rows": {
+                  "index": [
+                    "id"
+                  ],
+                  "ref": "item.key",
+                  "title": "item.title"
+                }
+              },
+              "unavailable": {
+                "description": "Controls that cannot be used right now",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "values": {
+                "description": "Each field's current value, by binding id",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+          "id": "problems",
+          "schema": {
+            "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+            "items": {
+              "properties": {
+                "detail": {
+                  "type": "object"
+                },
+                "hides": {
+                  "description": "Ids of what is not shown because of it",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "description": "What kind of problem it is, in the page’s own vocabulary",
+                  "type": "string"
+                },
+                "message": {
+                  "description": "The words the page shows for it",
+                  "type": "string"
+                },
+                "resolve": {
+                  "description": "The action that resolves it, and the choices it offers",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "choices": {
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      ],
+      "routes": [
+        "/voices"
+      ],
+      "title": "Voices"
+    },
+    {
+      "actions": [
+        {
+          "description": "Save PNG: Saves the artwork as PNG. (Header › Save PNG)",
+          "effect": "file",
+          "id": "demo-board/action/save-png",
+          "input": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "demo_board_save_png",
+          "reach": [
+            {
+              "kind": "room",
+              "room": "demo-board",
+              "where": "Header › Save PNG"
+            }
+          ],
+          "source": "room-action",
+          "title": "Save PNG"
+        },
+        {
+          "description": "Save SVG: Saves the artwork as SVG. (Header › Save SVG)",
+          "effect": "file",
+          "id": "demo-board/action/save-svg",
+          "input": {
+            "properties": {},
+            "type": "object"
+          },
+          "name": "demo_board_save_svg",
+          "reach": [
+            {
+              "kind": "room",
+              "room": "demo-board",
+              "where": "Header › Save SVG"
+            }
+          ],
+          "source": "room-action",
+          "title": "Save SVG"
+        }
+      ],
+      "description": "The page around the demo room.",
+      "id": "room:demo-board",
+      "kind": "room",
+      "observations": [
+        {
+          "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+          "id": "problems",
+          "schema": {
+            "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+            "items": {
+              "properties": {
+                "detail": {
+                  "type": "object"
+                },
+                "hides": {
+                  "description": "Ids of what is not shown because of it",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "description": "What kind of problem it is, in the page’s own vocabulary",
+                  "type": "string"
+                },
+                "message": {
+                  "description": "The words the page shows for it",
+                  "type": "string"
+                },
+                "resolve": {
+                  "description": "The action that resolves it, and the choices it offers",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "choices": {
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      ],
+      "routes": [
+        "/studio"
+      ],
+      "title": "Board"
+    },
+    {
+      "actions": [
+        {
+          "description": "Add text: Sets a new text layer. (The Type tool (T))",
+          "effect": "edit",
+          "id": "demo-room/action/add-text",
+          "input": {
+            "properties": {
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "text"
+            ],
+            "type": "object"
+          },
+          "name": "demo_room_add_text",
+          "reach": [
+            {
+              "kind": "room",
+              "room": "demo-room",
+              "where": "The Type tool (T)"
+            }
+          ],
+          "source": "room-action",
+          "title": "Add text"
+        },
+        {
+          "description": "Run a command: Runs a keymap command. (The keyboard)",
+          "effect": "edit",
+          "id": "demo-room/action/run-command",
+          "input": {
+            "properties": {
+              "command": {
+                "enum": [
+                  "object.group"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "command"
+            ],
+            "type": "object"
+          },
+          "name": "demo_room_run_command",
+          "reach": [
+            {
+              "kind": "room",
+              "room": "demo-room",
+              "where": "The keyboard"
+            }
+          ],
+          "source": "room-action",
+          "title": "Run a command"
+        },
+        {
+          "description": "Select: Selects layers. (Clicking a layer)",
+          "effect": "selection",
+          "id": "demo-room/action/select",
+          "input": {
+            "properties": {
+              "ids": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "name": "demo_room_select",
+          "reach": [
+            {
+              "kind": "room",
+              "room": "demo-room",
+              "where": "Clicking a layer"
+            }
+          ],
+          "source": "room-action",
+          "title": "Select"
+        },
+        {
+          "description": "Set properties: Sets fields on the selection. (The Design panel)",
+          "effect": "edit",
+          "id": "demo-room/action/set-properties",
+          "input": {
+            "properties": {
+              "values": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "values"
+            ],
+            "type": "object"
+          },
+          "name": "demo_room_set_properties",
+          "reach": [
+            {
+              "kind": "room",
+              "room": "demo-room",
+              "where": "The Design panel"
+            }
+          ],
+          "source": "room-action",
+          "title": "Set properties"
+        },
+        {
+          "description": "Toggle keyframe: Turns a property’s keyframe on at the playhead. (The diamond beside a field)",
+          "effect": "edit",
+          "id": "demo-room/action/toggle-keyframe",
+          "input": {
+            "properties": {
+              "field": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "name": "demo_room_toggle_keyframe",
+          "reach": [
+            {
+              "kind": "room",
+              "room": "demo-room",
+              "where": "The diamond beside a field"
+            }
+          ],
+          "source": "room-action",
+          "title": "Toggle keyframe"
+        }
+      ],
+      "description": "Draws shapes and text.",
+      "id": "room:demo-room",
+      "kind": "room",
+      "observations": [
+        {
+          "description": "Every layer.",
+          "id": "document",
+          "schema": {
+            "type": "object"
+          }
+        },
+        {
+          "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+          "id": "problems",
+          "schema": {
+            "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+            "items": {
+              "properties": {
+                "detail": {
+                  "type": "object"
+                },
+                "hides": {
+                  "description": "Ids of what is not shown because of it",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "description": "What kind of problem it is, in the page’s own vocabulary",
+                  "type": "string"
+                },
+                "message": {
+                  "description": "The words the page shows for it",
+                  "type": "string"
+                },
+                "resolve": {
+                  "description": "The action that resolves it, and the choices it offers",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "choices": {
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      ],
+      "routes": [
+        "/studio"
+      ],
+      "title": "Demo Room"
+    },
+    {
+      "actions": [
+        {
+          "description": "Go to a page of the app, as following a link to it does. The page’s own tools are offered once it is open.",
+          "id": "app.navigate",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "params": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Each :parameter of the route by name, when path is written as the route: {\"id\": \"v_1\"} for /voices/:id. Encoded for you.",
+                "type": "object"
+              },
+              "path": {
+                "description": "The page’s address, with an id in place of each :parameter (or the route as listed, with params). The pages: /studio (Studio), /unbound (Unbound), /voices (Voices), /voices/create (Create Voice).",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "app_navigate",
+          "reach": [],
+          "source": "navigation",
+          "title": "Go to a page"
+        }
+      ],
+      "description": "Every page of the app, by its address, and the page the person is on.",
+      "id": "app:navigation",
+      "kind": "navigation",
+      "observations": [
+        {
+          "description": "The address of the page the person is on.",
+          "id": "location",
+          "schema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "description": "What stops the page at this address from opening for the person: access it needs that they do not have, a load that failed. Reported here when the page itself is not open to report it; empty otherwise.",
+          "id": "problems",
+          "schema": {
+            "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+            "items": {
+              "properties": {
+                "detail": {
+                  "type": "object"
+                },
+                "hides": {
+                  "description": "Ids of what is not shown because of it",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "description": "What kind of problem it is, in the page’s own vocabulary",
+                  "type": "string"
+                },
+                "message": {
+                  "description": "The words the page shows for it",
+                  "type": "string"
+                },
+                "resolve": {
+                  "description": "The action that resolves it, and the choices it offers",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "choices": {
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      ],
+      "routes": [
+        "/studio",
+        "/unbound",
+        "/voices",
+        "/voices/create"
+      ],
+      "title": "Pages"
+    }
+  ],
+  "version": 1
+}

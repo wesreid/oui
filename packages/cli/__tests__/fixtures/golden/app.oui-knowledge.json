@@ -1,0 +1,195 @@
+{
+  "buildId": "60b8be0ffb6a1cee",
+  "frames": [
+    {
+      "adjacent": [],
+      "detail": {
+        "content": "Shell: the app's frame, around every page. Its controls are there whatever page is open.\nWhere: the app’s frame, whatever page is open.\n\nWhat you can do here (tool in brackets):\nOn the page:\n- Assistant [shell_assistant]\n\nWhat the page reports: state (its fields, lists and unavailable controls) and problems.",
+        "title": "Shell"
+      },
+      "recipes": [],
+      "relationships": null,
+      "routes": [
+        "*"
+      ],
+      "summary": {
+        "content": "Shell: Shell: the app's frame, around every page.",
+        "title": "Shell"
+      },
+      "surface": "shell:Shell"
+    }
+  ],
+  "overview": {
+    "content": "Every page: sidebar groups, then their pages; a page opened from another is indented under it (from the control that opens it). After each, what it offers, by where it is (a menu, a tab), most telling first; \"…\": more.\nGeneration:\n- Voices /voices: Add Voice, Switch account, Library, Play …\n  - Create Voice /voices/create (from Add Voice): Generate, Direction, Mood, Language, Name, Notes, Pitch, Style …\nCreate:\n- Studio /studio: The Type tool: Add text; Toggle keyframe …\nOpened by address only:\n- Unbound /unbound: Unbound (/unbound).\nOn every page (the app’s frame): Assistant\nGo to any page by its address with [app_navigate]. An item's page (its route has an :id) opens from the page above it.",
+    "title": "The app’s pages"
+  },
+  "pages": [
+    {
+      "adjacent": [
+        "page:VoicesPage"
+      ],
+      "detail": {
+        "content": "Offers Generate, Direction, Mood, Language and Name, among 13 actions.\nWhere: reached by address (/voices/create) or from another page.\n\nWhat you can do here (tool in brackets):\nOn the page:\n- Language [create_accent_language]\n- Language [create_dub_language]\n- Generate [create_generate]\n- Language [create_language]\n- Name [create_name]\n- Notes [create_notes]\n- Pitch [create_pitch]\n- Language [create_script_language]\n- Style [create_style]\n- Language [create_subtitle_language]\nIn the Add direction menu:\n- Direction [create_direction]: Insert a direction tag. Takes item: string. (one per row)\nIn the Moods menu:\n- Mood [create_mood]: Add a mood. Takes item: string. (one per row)\n- Clear moods [create_mood_clear]: Remove every mood.\n\nWhat the page reports: state (its fields, lists and unavailable controls) and problems.",
+        "title": "Create Voice (/voices/create)"
+      },
+      "recipes": [
+        {
+          "name": "Act on one row on Create Voice",
+          "steps": [
+            "Find the row in the page state's lists: its key (id) and title.",
+            "Call the row's tool with it as item: Direction [create_direction], Mood [create_mood].",
+            "Read the page's state and problems in the result, and tell the user only what they confirm."
+          ],
+          "trigger": "Doing something to one listed item on Create Voice"
+        }
+      ],
+      "relationships": null,
+      "routes": [
+        "/voices/create"
+      ],
+      "summary": {
+        "content": "Create Voice (/voices/create): Offers Generate, Direction, Mood, Language and Name, among 13 actions.",
+        "title": "Create Voice"
+      },
+      "surface": "page:CreateVoicePage"
+    },
+    {
+      "adjacent": [],
+      "detail": {
+        "content": "Offers Add text, Toggle keyframe, Save PNG, Save SVG and Select, among 7 actions.\nWhere: the sidebar, Create › Studio.\n\nBoard (on this page): The page around the demo room.\nActions:\n- Save SVG [demo_board_save_svg]: Header › Save SVG\n- Save PNG [demo_board_save_png]: Header › Save PNG\nWhat it reports: problems — What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.\n\nDemo Room (on this page): Draws shapes and text.\nActions:\n- Add text [demo_room_add_text]: The Type tool (T)\n- Select [demo_room_select]: Clicking a layer\n- Toggle keyframe [demo_room_toggle_keyframe]: The diamond beside a field\nFields, set with [demo_room_set_properties] under values, by id (each one's meaning, range and unit are in that tool's input):\n- Type: Tracking (tracking)\n- Transform: Angle (angle)\n- Time: Time (playhead-time)\nCommands, run with [demo_room_run_command] (what each does is in that tool's input):\n- objects: Group (object.group, ⌘G)\nNot built yet (their keys do nothing): Knife.\nWhat it reports: document — Every layer. problems — What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.\n\nWhat the page reports: state (its fields, lists and unavailable controls) and problems.",
+        "title": "Studio (/studio)"
+      },
+      "recipes": [
+        {
+          "name": "Fix what the Board reports",
+          "steps": [
+            "Read problems: each says what is wrong, what it hides, and which action resolves it.",
+            "Resolve each with the action it names, using one of the choices it offers.",
+            "Read the room’s observations and problems; if something is not drawn, fix that before saying it is done."
+          ],
+          "trigger": "problems lists anything, or the user cannot see something"
+        },
+        {
+          "name": "Change a property in the Demo Room",
+          "steps": [
+            "Find its id in document.",
+            "Select it with demo_room_select.",
+            "Set the fields that apply to its kind with demo_room_set_properties, giving their ids under values (the relationships say which).",
+            "Read document and problems; if something is not drawn, fix that before saying it is done."
+          ],
+          "trigger": "Changing how something already in the Demo Room looks"
+        },
+        {
+          "name": "Add text and style it",
+          "steps": [
+            "Make it with demo_room_add_text; the result names it and it is selected.",
+            "Style it with demo_room_set_properties, using the fields that apply to what it made.",
+            "Read document and problems; if something is not drawn, fix that before saying it is done."
+          ],
+          "trigger": "Making something new with Add text in the Demo Room"
+        },
+        {
+          "name": "Animate a property in the Demo Room",
+          "steps": [
+            "Select what should animate.",
+            "Turn on the property's keyframe with demo_room_toggle_keyframe.",
+            "Move the playhead with demo_room_set_properties playhead-time.",
+            "Change the value with demo_room_set_properties: at the new time it is a new keyframe. Keyframeable: angle.",
+            "Read document and problems; if something is not drawn, fix that before saying it is done."
+          ],
+          "trigger": "Making something move or change over time in the Demo Room"
+        },
+        {
+          "name": "Fix what the Demo Room reports",
+          "steps": [
+            "Read problems: each says what is wrong, what it hides, and which action resolves it.",
+            "Resolve each with the action it names, using one of the choices it offers.",
+            "Read document and problems; if something is not drawn, fix that before saying it is done."
+          ],
+          "trigger": "problems lists anything, or the user cannot see something"
+        }
+      ],
+      "relationships": {
+        "content": "In the Demo Room, document accepts: Time (playhead-time).\nIn the Demo Room, shape accepts: Angle (angle).\nIn the Demo Room, text accepts: Tracking (tracking), Angle (angle).\nKeyframeable (set at the playhead, a keyframe there when animated): Angle.\nThese make something new and select it: Add text.\nThese change what is selected, which fields act on: Select.",
+        "title": "Studio: how things relate"
+      },
+      "routes": [
+        "/studio"
+      ],
+      "summary": {
+        "content": "Studio (/studio), in the sidebar under Create › Studio: Offers Add text, Toggle keyframe, Save PNG, Save SVG and Select, among 7 actions.",
+        "title": "Studio"
+      },
+      "surface": "page:StudioPage"
+    },
+    {
+      "adjacent": [],
+      "detail": {
+        "content": "Unbound (/unbound).\nWhere: reached by address (/unbound) or from another page.\n\nWhat the page reports: state (its fields, lists and unavailable controls) and problems.",
+        "title": "Unbound (/unbound)"
+      },
+      "recipes": [],
+      "relationships": null,
+      "routes": [
+        "/unbound"
+      ],
+      "summary": {
+        "content": "Unbound (/unbound): Unbound (/unbound).",
+        "title": "Unbound"
+      },
+      "surface": "page:UnboundPage"
+    },
+    {
+      "adjacent": [
+        "page:CreateVoicePage"
+      ],
+      "detail": {
+        "content": "Your voice library. Voices shared with your account.\nWhere: the sidebar, Generation › Voices.\n\nWhat you can do here (tool in brackets):\nOn the page:\n- Add Voice [voices_add] (goes to /voices/create)\n- Delete [voices_bulk_delete] (confirm first)\n- Library [voices_library]\n- Open [voices_open] (one per row)\n- Play [voices_play]\n- Choose (Portrait) [voices_portrait]\n- Open [voices_row] (one per row)\n- Choose (Samples) [voices_samples]\n- Sort [voices_sort]\n- Switch account [voices_switch_account] (confirm first)\nIn the \"Delete Voices\" dialog (open it with voices_bulk_delete):\n- Cancel (Delete Voices) [voices_bulk_delete_cancel]: Keep them.\n- Confirm (Delete Voices) [voices_bulk_delete_confirm]: Delete them. (saves through deleteVoice (DELETE /api/v1/voices/{voiceId}))\nIn the \"Rename\" dialog (open it with voices_rename):\n- Rename [voices_rename_dialog]: The rename dialog.\n- Name [voices_rename_name]: The new name. Takes value: string.\nOn the \"Account Voices\" tab (select it with voices_library):\n- Rename [voices_rename]: Rename the account.\n\nWhat it shows (read it in its state, under shown, by id):\n- Parameters (Engine, Seed) [voices.parameters]: The library’s generation parameters\n\nWhat the page reports: state (its fields, lists and unavailable controls) and problems.",
+        "title": "Voices (/voices)"
+      },
+      "recipes": [
+        {
+          "name": "Use the \"Delete Voices\" dialog",
+          "steps": [
+            "Open it with voices_bulk_delete.",
+            "Finish with Confirm (Delete Voices) [voices_bulk_delete_confirm].",
+            "Read the page's state and problems in the result, and tell the user only what they confirm."
+          ],
+          "trigger": "Anything done in the \"Delete Voices\" dialog on Voices"
+        },
+        {
+          "name": "Use the \"Rename\" dialog",
+          "steps": [
+            "Be on the \"Account Voices\" tab (select it with voices_library).",
+            "Open it with voices_rename.",
+            "Set what it asks for: Name [voices_rename_name].",
+            "Read the page's state and problems in the result, and tell the user only what they confirm."
+          ],
+          "trigger": "Anything done in the \"Rename\" dialog on Voices"
+        },
+        {
+          "name": "Act on one row on Voices",
+          "steps": [
+            "Find the row in the page state's lists: its key (id) and title.",
+            "Call the row's tool with it as item: Open [voices_open], Open [voices_row].",
+            "Read the page's state and problems in the result, and tell the user only what they confirm."
+          ],
+          "trigger": "Doing something to one listed item on Voices"
+        }
+      ],
+      "relationships": {
+        "content": "Add Voice [voices_add] leads to Create Voice (/voices/create).\nConfirm (Delete Voices) [voices_bulk_delete_confirm] changes data: deleteVoice — DELETE /api/v1/voices/{voiceId}, Delete a voice.",
+        "title": "Voices: how things relate"
+      },
+      "routes": [
+        "/voices"
+      ],
+      "summary": {
+        "content": "Voices (/voices), in the sidebar under Generation › Voices: Your voice library.",
+        "title": "Voices"
+      },
+      "surface": "page:VoicesPage"
+    }
+  ],
+  "version": 1
+}

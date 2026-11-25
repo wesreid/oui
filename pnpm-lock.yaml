@@ -365,6 +365,9 @@ importers:
       '@types/react':
         specifier: ^19.0.0
         version: 19.3.0
+      oui-spec:
+        specifier: workspace:*
+        version: link:../oui-spec
       vite:
         specifier: ^7.3.2
         version: 7.3.6(@types/node@22.20.5)(yaml@2.9.1)

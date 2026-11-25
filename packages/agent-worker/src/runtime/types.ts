@@ -30,6 +30,7 @@ import type { AgentTurnInfo } from './turn-info.js';
 import type { RealtimeEmitAdapter } from '../emit/types.js';
 import type { RealtimeApiKey } from '../realtime/api-key.js';
 import type { TurnContextPlacement } from '../step-messages.js';
+import type { KnowledgePlacement } from '../ui/knowledge.js';
 
 /**
  * Database handle — opaque to the SDK. The integrator's callbacks receive
@@ -344,6 +345,14 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
     stateDigest?: StateDigestSetting;
     /** The longest a page's digest is, in characters. Default 600 (`DEFAULT_STATE_DIGEST_CHARS`). */
     maxStateDigestChars?: number;
+    /**
+     * Where the page's knowledge goes (`AgentWorkerConfig.ui.knowledgePlacement`).
+     * Default `'prompt'`: into the system prompt after the app's map, as before.
+     * `'index'`: the system prompt carries the map only, the same on every page
+     * of a build; the page's entries and workflows are listed by title after the
+     * conversation (`<page_knowledge>`) and read with `ui_guide`.
+     */
+    knowledgePlacement?: KnowledgePlacement;
   };
 
   /** Approvals: where they are kept, and the host's say before one is asked for (approvals/hooks.ts). */

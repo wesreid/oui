@@ -152,7 +152,19 @@ export {
 } from './ui/page-index.js';
 export { liftAnswerImage, ANSWER_IMAGE_MEDIA_TYPES, MAX_ANSWER_IMAGE_BASE64_CHARS, type AnswerImage } from './ui/answer-image.js';
 export { describeSchema, schemaAt, WHOLE_SCHEMA_CHARS, type SchemaView } from './ui/outline.js';
-export { readClientKnowledge, renderClientKnowledge, withClientKnowledge, CLIENT_KNOWLEDGE_KEY, type ClientKnowledge } from './ui/knowledge.js';
+export {
+  readClientKnowledge,
+  renderClientKnowledge,
+  withClientKnowledge,
+  knowledgeIndexText,
+  readKnowledgePlacement,
+  CLIENT_KNOWLEDGE_KEY,
+  KNOWLEDGE_PLACEMENTS,
+  KNOWLEDGE_INDEX_OPEN,
+  KNOWLEDGE_INDEX_CLOSE,
+  type ClientKnowledge,
+  type KnowledgePlacement,
+} from './ui/knowledge.js';
 export { BLIND_REFUSALS_BEFORE_STOP, buildUITools, createPageSight, fitNotes, UI_ACT_TOOL, UI_DESCRIBE_TOOL, UI_READ_TOOL, UI_WAIT_TOOL } from './ui/ui-tools.js';
 export type { RunningWork, RunningWorkLog } from './ui/ui-tools.js';
 export type { ResumedTurn, ResumeIgnoredReason } from './resume/resumed-calls.js';

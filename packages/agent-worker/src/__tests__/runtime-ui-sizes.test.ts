@@ -2,7 +2,8 @@
  * A host sizes the page it shows the model through the runtime config: the page
  * state (`maxObservationChars`) and the page's index
  * (`maxIndexChars`) both reach the turn. So does where the turn's context goes
- * (`turnContextPlacement`).
+ * (`turnContextPlacement`), and where the page's knowledge goes
+ * (`uiActions.knowledgePlacement`).
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentConfig } from '../types.js';
@@ -60,6 +61,27 @@ describe('the runtime config', () => {
     // A placement the worker does not know fails when the runner is created, naming the ones there are.
     expect(() => createAgentTurnRunner<object>({ ...base, turnContextPlacement: 'end' as never })).toThrow(
       /turnContextPlacement must be one of with-message, after-conversation, not "end"/,
+    );
+  });
+
+  it('passes a knowledge placement to the turn when the host sets one, none when it does not, and refuses one it does not know', async () => {
+    const base = {
+      model: 'provider/model-id',
+      realtime: { url: 'http://127.0.0.1:1', apiKey: 'realtime-key' },
+      systemPrompt: () => 'You help.',
+      tools: [],
+      getDb: async () => ({}),
+      getHistory: async () => [],
+      persistMessages: async () => {},
+      logger: { info() {}, warn() {}, error() {}, debug() {} },
+    };
+    const payload = { turnId: 't3', conversationId: 'c1', userId: 'u1', accountId: 'a1', socketRoom: 'agent:turn:t3', content: 'Hello' } as never;
+    await createAgentTurnRunner<object>({ ...base, uiActions: { knowledgePlacement: 'index' } }).run(payload);
+    expect(seen.at(-1)?.ui?.knowledgePlacement).toBe('index');
+    await createAgentTurnRunner<object>({ ...base, uiActions: {} }).run(payload);
+    expect(seen.at(-1)?.ui).not.toHaveProperty('knowledgePlacement');
+    expect(() => createAgentTurnRunner<object>({ ...base, uiActions: { knowledgePlacement: 'system' as never } })).toThrow(
+      /ui\.knowledgePlacement must be one of prompt, index, not "system"/,
     );
   });
 });
