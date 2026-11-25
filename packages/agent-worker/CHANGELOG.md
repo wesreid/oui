@@ -1,5 +1,25 @@
 # @ouispec/agent-worker
 
+## 0.42.0
+
+### Minor Changes
+
+- An answerless tool can be written as a trailer: `RegisteredTool.trailer`. A response ends at a tool call, so a model that makes an answerless call in a round of its own (Claude Sonnet 5.5 and Opus 5.5 write a note alone, whatever the rules say) pays one more model call, about 27,000 input tokens on a product's turn, for its reply. A trailer tool is written into the response after the reply, as `<oui:note>{json}</oui:note>`: text never ends a response, so the reply and the note arrive in one model call.
+
+  - Its definition is not sent; a rule generated from its own description and schema teaches it in the cached system prompt of each round that offers it (and a spoken turn's "use no other tags" excepts it).
+  - The worker reads each trailer out of the model's text as it streams and runs it as the tool's call. Nothing of it reaches the person: not the room's tokens, a voice, a round's end or the stored reply. The turn stores the rows of a round that wrote its reply and called the tool; the call's id starts `oui_trailer_` (`TRAILER_CALL_ID_PREFIX`, `isTrailerCallId`) and is made from the round, its place and the request the round sent.
+  - Every later prompt (each round's request, and the next turns' history) writes the calls back as trailers (`asTrailers`), so no request names a tool it does not declare; a note that was not written is written back as `<oui:note-failed>why</oui:note-failed>`. A definition is still sent where a provider needs one: when the trailer tools are a request's only tools and its prompt holds other calls (Bedrock drops them, Anthropic refuses them).
+  - A trailer that cannot be read (not JSON, not closed, more than 5 in a response, longer than 4,096 characters), or that its tool refused or failed, writes nothing and shows nothing; the reply stands and the turn ends, the call is stored with its error (`Invalid input for tool note: …`) so the next turn writes it again, and the turn's usage log counts it. `answerlessEnd` adds `trailer`, `trailers` and `failedTrailers`.
+  - Only an answerless tool with an object schema, a tag-safe name, an effect no further than `edit`, never destructive and never needing approval, on a model object, can be one (`trailerToolProblem`); anything else is refused when the adapter is created or a resolver gives a turn its tools. A tool policy that would ask approval of a trailer refuses it. `unavailableToolError` takes a second argument for a trailer tool.
+
+  A host that declares no trailer tool is sent, shown and stored exactly what it was before: golden captures of 0.41.1's requests, events and stored messages (the answerless scenarios, a spoken turn and the Bedrock fixture turn) are held in the tests.
+
+### Patch Changes
+
+- @ouispec/agent-core@0.42.0
+- @ouispec/agent-events@0.42.0
+- @ouispec/bindings@0.20.0
+
 ## 0.41.1
 
 ### Patch Changes

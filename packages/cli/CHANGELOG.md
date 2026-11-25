@@ -1,5 +1,13 @@
 # @ouispec/cli
 
+## 0.20.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/contract@0.20.0
+  - @ouispec/bindings@0.20.0
+
 ## 0.19.0
 
 ### Minor Changes

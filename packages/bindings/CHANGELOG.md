@@ -1,5 +1,13 @@
 # @ouispec/bindings
 
+## 0.20.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/contract@0.20.0
+  - @ouispec/agent-events@0.42.0
+
 ## 0.19.0
 
 ### Patch Changes

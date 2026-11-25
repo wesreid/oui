@@ -1,5 +1,20 @@
 # @ouispec/agent-evals
 
+## 0.42.0
+
+### Minor Changes
+
+- A case can require that a note arrived as a trailer (agent-worker's `RegisteredTool.trailer`): `toolCalled: [{ name: 'note', via: 'trailer' }]` (`AgentEvalToolCall.via`, `trailer` or `call`; either when left out). A turn's record says how each call arrived (`toolCalls[i].via: 'trailer'`), and a failure names a call that arrived as a trailer. A recording's fingerprint holds a tool's `trailer` only when it is set, so every other recording stays current (an answerless tool's fingerprint is pinned in the tests).
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - @ouispec/contract@0.20.0
+  - @ouispec/agent-worker@0.42.0
+  - @ouispec/agent-core@0.42.0
+  - @ouispec/bindings@0.20.0
+
 ## 0.41.1
 
 ### Patch Changes
