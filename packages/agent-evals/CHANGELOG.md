@@ -1,5 +1,22 @@
 # @ouispec/agent-evals
 
+## 0.41.0
+
+### Minor Changes
+
+- A declared page shows what its actions were given. An action of a surface declared in the suite may `write` its input into its surface's state once it succeeds (`writes`, `AgentEvalPageWrite`): a field at a path of whole keys, or a list's row, named as a host names a row, by its key, else its title exactly or ignoring case (the bindings' `resolveRef`). The next observation then shows what was typed or chosen, so a model no longer writes a line again, or reads it back, because the page still shows it empty. A run its `result`, or the case its input holds, fails writes nothing; a name several rows share, or one no row has, fails the call, listing the rows on screen. The run is recorded, and its cases matched, with the row's key, as the product's page hands it over, and the fixture is never changed, so each case starts from the same page.
+
+  `page.ran`, `page.ranInCase` and a stub's `afterRan` hold a run's `item` to the row it names where the run addressed a list the page knows (a control's `rows`, a page model's, or a list an action writes): an expectation of `line-3` holds a run the agent gave as "Line 3", and an `item` that names no row of that list fails, naming the row it looked for and the rows the list holds. Everything that held before still holds. `EvalPage.rowsOf(run)` gives the rows a run addressed, and `resolveRow` resolves a name among rows as the page does.
+
+  A page that declares no `writes` is the page it was: the same observations, the same verdicts and the same recording fingerprint (held in the tests). A recording's fingerprint covers `writes`, so adding one replays the old recording as stale.
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - @ouispec/contract@0.19.1
+  - @ouispec/agent-worker@0.41.0
+
 ## 0.40.0
 
 ### Patch Changes

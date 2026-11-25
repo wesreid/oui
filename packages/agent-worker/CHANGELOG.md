@@ -1,5 +1,15 @@
 # @ouispec/agent-worker
 
+## 0.41.0
+
+### Minor Changes
+
+- The host narration rules (`overrides.narration: 'host'`) are trimmed to what they need: one section of the communication rules says that how much the agent writes before a tool call, between steps and after a failed step is the host's instruction, and the base, preset and tool strategy lines no longer repeat it or fix an amount. They add 6 characters to the brief prompt, where they added 1,249 (about 431 tokens at 2.9 characters a token, on every model call), and no longer ask a tool to have "confirmed" what it did. A host that says how much is sent new rules, so its recordings are made again.
+
+  A host can state its default level once, in the cached system prompt: `overrides.narrationDefault`, the level's lines, which hold a turn that comes with no instruction in place of the one brief line, and which a turn's instruction replaces. A host whose people mostly keep the default sends an instruction only with a turn at another level. A default without `narration: 'host'`, or an empty one, fails when the adapter is created; `resolveNarrationDefault` reads it as the worker does, and `getCommunicationRules` takes it as its third argument.
+
+  A persona that names no narration, or `brief`, is sent the same prompt, byte for byte (its hash is held in the tests).
+
 ## 0.40.0
 
 ### Minor Changes
