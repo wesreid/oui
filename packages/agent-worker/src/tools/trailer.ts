@@ -74,9 +74,65 @@ export function trailerCallId(requestDigest: string, step: number, index: number
   return `${TRAILER_CALL_ID_PREFIX}${requestDigest}_${step}_${index}`;
 }
 
-/** The digest of a request a step's trailer ids are made from. */
+/**
+ * The digest of a request a step's trailer ids are made from: the same
+ * request, the same digest. It is taken over the prompt's structure, each
+ * value framed by its kind and length, and never builds the prompt as text:
+ * a file or image part's bytes (a `Uint8Array`, which `JSON.stringify` writes
+ * as an object of one key per byte) are fed to the hash as they are, so a
+ * step that carries an attachment of several megabytes costs one pass over
+ * its bytes and no copy of them.
+ */
 export function requestDigest(prompt: unknown): string {
-  return createHash('sha256').update(JSON.stringify(prompt) ?? '').digest('hex').slice(0, 12);
+  const hash = createHash('sha256');
+  feedDigest(hash, prompt);
+  return hash.digest('hex').slice(0, 12);
+}
+
+/** Feeds a value to the hash, framed so no two different values feed the same bytes. */
+function feedDigest(hash: ReturnType<typeof createHash>, value: unknown): void {
+  if (value === undefined) return void hash.update('u');
+  if (value === null) return void hash.update('n');
+  if (value instanceof Uint8Array || ArrayBuffer.isView(value) || value instanceof ArrayBuffer) {
+    const bytes =
+      value instanceof Uint8Array
+        ? value
+        : value instanceof ArrayBuffer
+          ? new Uint8Array(value)
+          : new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    hash.update(`b${bytes.byteLength}:`);
+    hash.update(bytes);
+    return;
+  }
+  switch (typeof value) {
+    case 'string':
+      hash.update(`s${value.length}:`);
+      hash.update(value);
+      return;
+    case 'number':
+    case 'boolean':
+    case 'bigint':
+      hash.update(`${typeof value}:${String(value)};`);
+      return;
+    case 'function':
+    case 'symbol':
+      return void hash.update('u');
+  }
+  if (value instanceof URL) return feedDigest(hash, `url:${value.href}`);
+  if (value instanceof Date) return feedDigest(hash, `date:${value.toISOString()}`);
+  if (Array.isArray(value)) {
+    hash.update(`[${value.length}:`);
+    for (const item of value) feedDigest(hash, item);
+    hash.update(']');
+    return;
+  }
+  const entries = Object.entries(value as Record<string, unknown>).filter(([, v]) => v !== undefined).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  hash.update(`{${entries.length}:`);
+  for (const [key, v] of entries) {
+    feedDigest(hash, key);
+    feedDigest(hash, v);
+  }
+  hash.update('}');
 }
 
 // ─── Which tools may be trailers ───────────────────────────────────────────
@@ -497,21 +553,43 @@ export function createTrailerStream<P extends { type: string }>(options: {
     return out;
   };
 
+  /**
+   * The provider metadata of parts the cut leaves nothing of (a text delta that
+   * was all trailer, the start and end of a block that was): a provider may
+   * carry what a response needs on any part (a signature, an id), so it is
+   * never dropped. It rides on the next text part, tool call or finish given
+   * out, under it: what that part carries itself wins on the same key.
+   */
+  let carried: Metadata | undefined;
+  const carry = (meta: unknown) => {
+    if (meta && typeof meta === 'object') carried = mergeMetadata(carried, meta as Metadata);
+  };
+  const put = (controller: TransformStreamDefaultController<P>, part: StreamPartLike) => {
+    if (carried && CARRIES_METADATA.has(part.type)) {
+      part = { ...part, providerMetadata: mergeMetadata(carried, part.providerMetadata as Metadata | undefined) };
+      carried = undefined;
+    }
+    controller.enqueue(part as unknown as P);
+  };
+
   const giveOut = (controller: TransformStreamDefaultController<P>) => {
     while (queued.length > 0) {
       const trailer = queued.shift()!;
       injected++;
-      controller.enqueue({ type: 'tool-call', toolCallId: trailer.toolCallId, toolName: trailer.toolName, input: trailer.input } as unknown as P);
+      put(controller, { type: 'tool-call', toolCallId: trailer.toolCallId, toolName: trailer.toolName, input: trailer.input });
     }
   };
 
   const emitText = (controller: TransformStreamDefaultController<P>, block: Block, id: string, text: string, part?: StreamPartLike) => {
-    if (!text) return;
+    if (!text) {
+      carry(part?.providerMetadata);
+      return;
+    }
     if (!block.started) {
       block.started = true;
-      controller.enqueue(block.start as unknown as P);
+      put(controller, block.start);
     }
-    controller.enqueue((part ? { ...part, delta: text } : { type: 'text-delta', id, delta: text }) as unknown as P);
+    put(controller, part ? { ...part, delta: text } : { type: 'text-delta', id, delta: text });
   };
 
   return new TransformStream<P, P>({
@@ -531,22 +609,27 @@ export function createTrailerStream<P extends { type: string }>(options: {
         case 'text-end': {
           const block = blockOf(part);
           emitText(controller, block, part.id ?? '', end(block));
-          if (block.started) controller.enqueue(given);
+          if (block.started) put(controller, part);
+          else {
+            // A block that was all trailer gives neither its start nor its end: their metadata rides on.
+            carry(block.start.providerMetadata);
+            carry(part.providerMetadata);
+          }
           blocks.delete(part.id ?? '');
           return;
         }
         case 'tool-input-start':
         case 'tool-call':
           giveOut(controller);
-          controller.enqueue(given);
+          put(controller, part);
           return;
         case 'finish': {
           giveOut(controller);
           const reason = part.finishReason;
           if (injected > 0 && reason && typeof reason === 'object' && (reason.unified === 'stop' || reason.unified === 'other')) {
-            controller.enqueue({ ...part, finishReason: { ...reason, unified: 'tool-calls' } } as unknown as P);
+            put(controller, { ...part, finishReason: { ...reason, unified: 'tool-calls' } });
           } else {
-            controller.enqueue(given);
+            put(controller, part);
           }
           return;
         }
@@ -555,6 +638,25 @@ export function createTrailerStream<P extends { type: string }>(options: {
       }
     },
   });
+}
+
+/** A part's provider metadata: per provider, its fields. */
+type Metadata = Record<string, unknown>;
+
+/** The parts carried metadata rides on: those that carry the text's, and the calls and finish that follow it. */
+const CARRIES_METADATA: ReadonlySet<string> = new Set(['text-start', 'text-delta', 'text-end', 'tool-call', 'finish']);
+
+/** `under` with `over` on top: per provider, `over`'s fields win. */
+function mergeMetadata(under: Metadata | undefined, over: Metadata | undefined): Metadata {
+  const merged: Metadata = { ...(under ?? {}) };
+  for (const [provider, fields] of Object.entries(over ?? {})) {
+    const held = merged[provider];
+    merged[provider] =
+      held && typeof held === 'object' && !Array.isArray(held) && fields && typeof fields === 'object' && !Array.isArray(fields)
+        ? { ...(held as Metadata), ...(fields as Metadata) }
+        : fields;
+  }
+  return merged;
 }
 
 function isJson(text: string): boolean {

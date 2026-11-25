@@ -264,6 +264,66 @@ describe('the stream transform', () => {
     expect(requestDigest([])).toMatch(/^[0-9a-f]{12}$/);
   });
 
+  it('carries the metadata of a delta the cut leaves nothing of onto the next part given out, under that part’s own', async () => {
+    const parts: StreamPartLike[] = [
+      { type: 'text-start', id: 'a' },
+      { type: 'text-delta', id: 'a', delta: 'Reply.' },
+      { type: 'text-delta', id: 'a', delta: TRAILER, providerMetadata: { fixture: { seq: 2, kept: true } } },
+      { type: 'text-delta', id: 'a', delta: ' More.', providerMetadata: { fixture: { seq: 3 } } },
+      { type: 'text-end', id: 'a' },
+      FINISH,
+    ];
+    const out = (await through(parts)).parts;
+    expect(out.filter((p) => p.type === 'text-delta')).toEqual([
+      { type: 'text-delta', id: 'a', delta: 'Reply.' },
+      { type: 'text-delta', id: 'a', delta: ' More.', providerMetadata: { fixture: { seq: 3, kept: true } } },
+    ]);
+  });
+
+  it('carries the metadata of a block that was all trailer, its start and end too, onto the call it became', async () => {
+    const parts: StreamPartLike[] = [
+      { type: 'text-start', id: 'a', providerMetadata: { fixture: { start: 1 } } },
+      { type: 'text-delta', id: 'a', delta: TRAILER, providerMetadata: { fixture: { delta: 1 } } },
+      { type: 'text-end', id: 'a', providerMetadata: { other: { end: 1 } } },
+      FINISH,
+    ];
+    const out = (await through(parts)).parts;
+    expect(out.map((p) => p.type)).toEqual(['tool-call', 'finish']);
+    expect(out[0].providerMetadata).toEqual({ fixture: { start: 1, delta: 1 }, other: { end: 1 } });
+    expect(out[1]).toEqual({ ...FINISH, finishReason: { unified: 'tool-calls', raw: 'end_turn' } });
+  });
+
+  it('digests a request with an attachment of several megabytes once over its bytes: the same ids, in little time and memory', () => {
+    const bytes = new Uint8Array(8 * 1024 * 1024);
+    for (let i = 0; i < bytes.length; i += 4096) bytes[i] = i % 251;
+    const prompt = (data: Uint8Array) => [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: [{ type: 'text', text: 'What is in this file?' }, { type: 'file', mediaType: 'application/pdf', data }] },
+    ];
+    const heapBefore = process.memoryUsage().heapUsed;
+    const started = performance.now();
+    const digest = requestDigest(prompt(bytes));
+    const elapsed = performance.now() - started;
+    const heapGrowth = process.memoryUsage().heapUsed - heapBefore;
+    // One pass over 8 MB; the same bytes written as JSON would be a string of about 40 million characters.
+    expect(elapsed).toBeLessThan(1_000);
+    expect(heapGrowth).toBeLessThan(16 * 1024 * 1024);
+    expect(requestDigest(prompt(new Uint8Array(bytes)))).toBe(digest);
+    expect(requestDigest(prompt(Buffer.from(bytes)))).toBe(digest);
+    const changed = new Uint8Array(bytes);
+    changed[changed.length - 1] = 1;
+    expect(requestDigest(prompt(changed))).not.toBe(digest);
+    expect(requestDigest(prompt(bytes.subarray(1)))).not.toBe(digest);
+  });
+
+  it('digests a request by its structure: the order of an object’s keys does not change it, and no two values feed the same bytes', () => {
+    expect(requestDigest([{ role: 'user', content: 'a' }])).toBe(requestDigest([{ content: 'a', role: 'user' }]));
+    expect(requestDigest(['ab', 'c'])).not.toBe(requestDigest(['a', 'bc']));
+    expect(requestDigest([1])).not.toBe(requestDigest(['1']));
+    expect(requestDigest({ a: undefined })).toBe(requestDigest({}));
+    expect(requestDigest([new URL('https://x.example/a.png')])).toBe(requestDigest([new URL('https://x.example/a.png')]));
+  });
+
   it('reads the trailers of several trailer tools', async () => {
     const { read } = await through(response([`Reply.<oui:note>{"a":1}</oui:note><oui:task-list>{"b":2}</oui:task-list>`]), ['note', 'task-list']);
     expect(read.map((t) => [t.toolName, t.input])).toEqual([
