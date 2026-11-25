@@ -1,5 +1,11 @@
 # @ouispec/agent-worker
 
+## 0.43.0
+
+### Minor Changes
+
+- A call whose whole input arrives as JSON text runs with the object it spells. Haiku 5.5 sent a page action's input through `ui_act` as a string (`"input": "{\"item\":\"lyrics\",…}"`), was refused with "(input) must be an object", and made the same call again: one more model call of about 25k input tokens. Lists and objects sent as text inside an input were already read this way; now the whole input is too, in every host. It is read only when the text is a JSON object that is valid input for the tool's schema; anything else is refused as it arrived, and a property whose schema takes a string is never read as JSON. The model is told with the result to send the value itself next time, and a turn counts such calls as `coercedJsonString` on `AgentTurnResult`, the `Turn usage` log and `recordTurnComplete`, set only when there were any, so hosts that never receive such input see nothing new.
+
 ## 0.42.0
 
 ### Minor Changes

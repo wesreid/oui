@@ -510,6 +510,8 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
     resumed?: ResumedTurn;
     /** Set when the turn ended on its reply and answerless calls, with no model call to read their answers. */
     answerlessEnd?: AnswerlessEnd;
+    /** How many calls' input arrived as JSON text and ran as what it spells (`AgentTurnResult.coercedJsonString`), when any did. */
+    coercedJsonString?: number;
     db: TDb;
   }) => Promise<void>;
 

@@ -192,6 +192,8 @@ The rules a persona's prompt carries (`buildAgentSystemPrompt`) are written once
 
 A call the model makes all the same, to a tool its step does not offer or to one the turn never had (`AI_NoSuchToolError`), or with input that cannot be read, runs nothing. It goes into the turn's calls that did not run, so it asks the person nothing and ends no turn; the model reads as its result that the tool is not one it can use now (`{ success: false, notRun: true, unavailable: true, error }`, or `invalidInput: true` with the parse error), and answers in words in the same turn; the client is sent a refused call (`agent:tool_call_complete` with `success: false`), and the conversation stores the same result.
 
+Every call's input is validated against the tool's schema before anything else. A list or an object that arrives as JSON text, where the schema takes a list or an object, is read as what it spells when that makes the input valid: a property (`"ids": "[\"a\"]"`), or a call's whole input (`ui_act` given `"input": "{\"item\":\"lyrics\",…}"`). A property whose schema takes a string is never read this way, and text that spells nothing valid is refused as it arrived. The call runs, its answer tells the model to send the value itself next time (`inputNote`), and the turn counts such calls in `coercedJsonString` (on `AgentTurnResult`, the `Turn usage` log and `recordTurnComplete`, only when there were any): each is a call the model would otherwise have made again.
+
 ## Hooks on every turn
 
 Every turn reaches the runtime one of four ways: the Lambda adapter, the container's `/turns`, the live-call handler, or your own code calling `runner.run`. Each hook below runs for all of them, and is told which turn it is called for (`AgentTurnInfo`):

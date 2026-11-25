@@ -44,7 +44,7 @@ import { defaultTurnPolicy, type StepTool, type TurnPolicy } from './turn-policy
 import { createStepClock, timeHandBackNote } from './time-hand-back.js';
 import { createReasoningRelay } from './reasoning-relay.js';
 import { evaluateToolPolicySafe } from './authz/tool-policy.js';
-import { createToolInputValidator } from './tools/input-validation.js';
+import { createToolInputValidator, INPUT_AS_TEXT } from './tools/input-validation.js';
 import { jsonBytes } from 'oui-spec/spec';
 import { CLIENT_SNAPSHOT_KEY, readClientPage, withoutClientUI } from './ui/snapshot.js';
 import {
@@ -578,6 +578,8 @@ export async function runAgentTurn(
    * its error, and a later turn writes it again.
    */
   const trailerCalls = new Set<string>();
+  /** The turn's calls whose input, or a list or object in it, arrived as JSON text and was read as what it spells. */
+  let coercedJsonString = 0;
   const unreadTrailers = new Map<string, string>();
   /**
    * Whether the turn ends after a step that said this and made these calls:
@@ -976,8 +978,12 @@ export async function runAgentTurn(
         );
       }
     }
-    // Told to the model with the result, so it sends the value itself next time (below).
+    // Told to the model with the result, so it sends the value itself next time (below), and counted.
     const readFromText = validation.coerced ?? [];
+    if (readFromText.length > 0) {
+      coercedJsonString += 1;
+      log('info', 'agent:tool', 'Tool input read from JSON text', { turnId, toolName: t.name, coercedJsonString: readFromText });
+    }
 
     // The call as a repeat is judged by: its name and its exact input. Set for a UI action that changes the page.
     let repeatKey: string | null = null;
@@ -1196,9 +1202,7 @@ export async function runAgentTurn(
       readFromText.length > 0 && payload && typeof payload === 'object' && !Array.isArray(payload)
         ? {
             ...(payload as Record<string, unknown>),
-            inputNote:
-              `${readFromText.map((k) => `"${k}"`).join(', ')} arrived as JSON text and ${readFromText.length === 1 ? 'was' : 'were'} read as the ` +
-              'list or object it spells. Send a list or an object as itself, not inside a string.',
+            inputNote: inputAsTextNote(readFromText),
           }
         : payload;
 
@@ -2731,6 +2735,8 @@ export async function runAgentTurn(
     ...(answerlessEnd ? { answerlessEnd } : {}),
     // The trailers the turn's steps wrote, and how many could not be read.
     ...(trailerNames.length > 0 ? { trailers: { read: trailerCalls.size, unread: unreadTrailers.size } } : {}),
+    // Calls whose input arrived as JSON text and ran as what it spells, rather than refused and made again.
+    ...(coercedJsonString > 0 ? { coercedJsonString } : {}),
     peakPromptTokens: usage.peakPromptTokens,
     promptTokens: usage.promptTokens,
     cacheReadTokens: usage.cacheReadTokens,
@@ -2836,6 +2842,7 @@ export async function runAgentTurn(
     maxRoundsReached: steps.length >= maxRounds,
     stopReason,
     ...(answerlessEnd ? { answerlessEnd } : {}),
+    ...(coercedJsonString > 0 ? { coercedJsonString } : {}),
     ...(fileArea ? { attachments: fileGuard.usage() } : {}),
     ...(resumed ? { resumed: resumed.record } : {}),
     ...(pageAtStart ? { pageAtStart } : {}),
@@ -3328,4 +3335,20 @@ function staffEntryText(entry: Extract<TurnHistoryMessage, { role: 'staff' }>): 
   if (entry.takeover) return takeoverNote(entry.takeover, entry.speaker);
   const said = entry.content?.trim() ? entry.content : null;
   return said ? `${staffMessageNote(entry.speaker)}\n${said}` : '';
+}
+
+/** What the model is told of input that arrived as JSON text and was read as what it spells. */
+export function inputAsTextNote(readFromText: readonly string[]): string {
+  const whole = readFromText.includes(INPUT_AS_TEXT);
+  const properties = readFromText.filter((k) => k !== INPUT_AS_TEXT);
+  const parts = [
+    ...(whole ? ['The input arrived as JSON text and was read as the object it spells.'] : []),
+    ...(properties.length > 0
+      ? [
+          `${properties.map((k) => `"${k}"`).join(', ')} arrived as JSON text and ${properties.length === 1 ? 'was' : 'were'} read as the ` +
+            'list or object it spells.',
+        ]
+      : []),
+  ];
+  return `${parts.join(' ')} Send a list or an object as itself, not inside a string.`;
 }

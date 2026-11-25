@@ -451,6 +451,13 @@ export interface AgentTurnResult {
    * the order they were called. The turn's `stopReason` is `complete`.
    */
   answerlessEnd?: AnswerlessEnd;
+  /**
+   * How many of the turn's calls had input, or a list or object in it, that
+   * arrived as JSON text and ran as what it spells (tools/input-validation.ts),
+   * when any did: each a call that would otherwise have been refused and made
+   * again.
+   */
+  coercedJsonString?: number;
 }
 
 /** How a turn ended on answerless calls (`AgentTurnResult.answerlessEnd`). */

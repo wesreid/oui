@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createToolInputValidator } from '../tools/input-validation.js';
+import { createToolInputValidator, INPUT_AS_TEXT } from '../tools/input-validation.js';
 
 const speakSchema = {
   type: 'object',
@@ -127,6 +127,53 @@ describe('createToolInputValidator', () => {
     it('reports nothing coerced for input that was valid as sent', () => {
       const result = setProperties({ ids: ['a'], values: { x: 1 } });
       expect(result).toEqual({ ok: true, value: { ids: ['a'], values: { x: 1 } } });
+    });
+  });
+
+  // Haiku 5.5 sent a page action's whole input as JSON text through ui_act (api train 6, 2026-11-25), was
+  // refused, and made the same call again with the object: one model call of about 25k tokens.
+  describe('the whole input sent as JSON text', () => {
+    const prompt = createToolInputValidator({
+      type: 'object',
+      required: ['item', 'value'],
+      additionalProperties: false,
+      properties: { item: { type: 'string', enum: ['style', 'lyrics'] }, value: { type: 'string' } },
+    });
+
+    it('is read as the object it spells when that object is valid input, and says the whole input was', () => {
+      expect(prompt(' {"item":"lyrics","value":"[Verse]\\nThe harbour wakes"} ')).toEqual({
+        ok: true,
+        value: { item: 'lyrics', value: '[Verse]\nThe harbour wakes' },
+        coerced: [INPUT_AS_TEXT],
+      });
+    });
+
+    it('is refused as it was sent when what it spells is not valid input, or is not an object', () => {
+      expect(prompt('{"item":"chorus","value":"La"}')).toEqual({ ok: false, errors: ['(input) must be an object'] });
+      expect(prompt('{"item":"lyrics"')).toEqual({ ok: false, errors: ['(input) must be an object'] });
+      expect(prompt('["lyrics","La"]')).toEqual({ ok: false, errors: ['(input) must be an object'] });
+      expect(prompt('lyrics: La')).toEqual({ ok: false, errors: ['(input) must be an object'] });
+    });
+
+    it('names its own lists and objects read from text too', () => {
+      const nested = createToolInputValidator({
+        type: 'object',
+        properties: { ids: { type: 'array', items: { type: 'string' } } },
+        required: ['ids'],
+      });
+      expect(nested('{"ids":"[\\"a\\"]"}')).toEqual({ ok: true, value: { ids: ['a'] }, coerced: [INPUT_AS_TEXT, 'ids'] });
+    });
+
+    it('never reads a property that takes a string, even when its text spells an object', () => {
+      expect(prompt({ item: 'lyrics', value: '{"verse":"La"}' })).toEqual({
+        ok: true,
+        value: { item: 'lyrics', value: '{"verse":"La"}' },
+      });
+      expect(prompt(JSON.stringify({ item: 'lyrics', value: '{"verse":"La"}' }))).toEqual({
+        ok: true,
+        value: { item: 'lyrics', value: '{"verse":"La"}' },
+        coerced: [INPUT_AS_TEXT],
+      });
     });
   });
 

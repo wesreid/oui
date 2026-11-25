@@ -35,15 +35,36 @@ export type ToolInputValidation =
       ok: true;
       value: Record<string, unknown>;
       /**
-       * Properties that arrived as JSON text and were read as the list or
-       * object the text holds, because the schema takes one there. The caller
-       * tells the model, so it sends the value itself next time.
+       * What arrived as JSON text and was read as the list or object the text
+       * holds, because the schema takes one there: property names, or
+       * `INPUT_AS_TEXT` for the whole input. The caller tells the model, so it
+       * sends the value itself next time, and counts it (`coercedJsonString`).
        */
       coerced?: string[];
     }
   | { ok: false; errors: string[] };
 
 export type ToolInputValidator = (input: unknown) => ToolInputValidation;
+
+/** `coerced` names this when the whole input arrived as JSON text. */
+export const INPUT_AS_TEXT = '(input)';
+
+/**
+ * The object a string of JSON spells, or null. A tool's input is always an
+ * object, so only a string that is one, written as JSON, is read: `ui_act`
+ * given `"input": "{\"item\":\"lyrics\",…}"` (Haiku 5.5, 2026-11-25: refused,
+ * then the same call again with the object) is the object it spells.
+ */
+function objectFromText(input: string): Record<string, unknown> | null {
+  const text = input.trim();
+  if (!text.startsWith('{')) return null;
+  try {
+    const read: unknown = JSON.parse(text);
+    return isRecord(read) ? read : null;
+  } catch {
+    return null;
+  }
+}
 
 const ajv = new Ajv({ allErrors: true, strict: false, useDefaults: false, coerceTypes: false });
 addFormats(ajv);
@@ -130,7 +151,7 @@ export function createToolInputValidator(
     Array.isArray(schema.required) ? (schema.required as unknown[]).map(String) : [],
   );
 
-  return (input) => {
+  const check = (input: unknown): ToolInputValidation => {
     if (input === null || typeof input !== 'object' || Array.isArray(input)) {
       return { ok: false, errors: ['(input) must be an object'] };
     }
@@ -146,5 +167,15 @@ export function createToolInputValidator(
     const read = structuresFromText(value, isRecord(schema.properties) ? schema.properties : {});
     if (read.coerced.length > 0 && validate(read.value)) return { ok: true, value: read.value, coerced: read.coerced };
     return { ok: false, errors };
+  };
+
+  return (input) => {
+    if (typeof input !== 'string') return check(input);
+    // The whole input as JSON text: read as the object it spells, when that object is valid input. Anything
+    // else is refused as it arrived, so a string that only looks like JSON is never run.
+    const read = objectFromText(input);
+    const result = read ? check(read) : null;
+    if (result?.ok) return { ...result, coerced: [INPUT_AS_TEXT, ...(result.coerced ?? [])] };
+    return check(input);
   };
 }
