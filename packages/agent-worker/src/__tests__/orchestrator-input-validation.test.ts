@@ -66,9 +66,12 @@ async function runCalls(
     content: 'Hello',
   };
   results = [];
-  await runAgentTurn(config, input);
+  lastTurn = await runAgentTurn(config, input);
   return results;
 }
+
+/** The result of the last turn `runCalls` ran. */
+let lastTurn: Awaited<ReturnType<typeof import('../orchestrator.js').runAgentTurn>> | undefined;
 
 function updateTool(): RegisteredTool {
   return {
@@ -145,6 +148,46 @@ describe('orchestrator tool input validation', () => {
     });
     // A call sent properly carries no note.
     expect(asList).toEqual({ moved: ['c'] });
+  });
+
+  it('runs a call whose whole input arrived as JSON text with the object, tells the model, and counts it for the turn', async () => {
+    const execute = vi.fn(async (input: Record<string, unknown>) => ({ success: true, data: { set: input.item } }));
+    const tool: RegisteredTool = {
+      name: 'set-prompt',
+      description: 'Sets one of the song’s prompts.',
+      inputSchema: {
+        type: 'object',
+        required: ['item', 'value'],
+        additionalProperties: false,
+        properties: { item: { type: 'string', enum: ['style', 'lyrics'] }, value: { type: 'string' } },
+      },
+      execute,
+    };
+    const [asText, refused, asObject] = await runCalls(
+      [tool],
+      [
+        { tool: 'set-prompt', args: '{"item":"lyrics","value":"{\\"verse\\": \\"La\\"}"}' },
+        { tool: 'set-prompt', args: '{"item":"chorus","value":"La"}' },
+        { tool: 'set-prompt', args: { item: 'style', value: 'Folk' } },
+      ],
+    );
+    // Read as the object it spells; its string value, though it spells an object, stays a string.
+    expect(execute.mock.calls[0][0]).toEqual({ item: 'lyrics', value: '{"verse": "La"}' });
+    expect(asText).toEqual({
+      set: 'lyrics',
+      inputNote: 'The input arrived as JSON text and was read as the object it spells. Send a list or an object as itself, not inside a string.',
+    });
+    // What it spells is not valid input: refused as it was sent, and never run.
+    expect(refused.error).toContain('(input) must be an object');
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(asObject).toEqual({ set: 'style' });
+    expect(lastTurn?.coercedJsonString).toBe(1);
+  });
+
+  it('reports no coercedJsonString for a turn whose input all arrived as itself', async () => {
+    await runCalls([updateTool()], [{ tool: 'update-character', args: { id: 'c1', name: 'Mara' } }]);
+    expect(lastTurn).toBeDefined();
+    expect(lastTurn).not.toHaveProperty('coercedJsonString');
   });
 
   it('does not consult the policy for an invalid call', async () => {

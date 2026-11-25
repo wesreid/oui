@@ -462,6 +462,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
           maxRoundsReached: result.maxRoundsReached,
           usage: result.usage,
           ...(result.answerlessEnd ? { answerlessEnd: result.answerlessEnd } : {}),
+          ...(result.coercedJsonString ? { coercedJsonString: result.coercedJsonString } : {}),
         });
 
         // A turn that ran out of time and could not store what it had is not a stopped turn:
@@ -488,6 +489,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
               ...(result.attachments ? { attachments: result.attachments } : {}),
               ...(result.resumed ? { resumed: result.resumed } : {}),
               ...(result.answerlessEnd ? { answerlessEnd: result.answerlessEnd } : {}),
+              ...(result.coercedJsonString ? { coercedJsonString: result.coercedJsonString } : {}),
               db,
             });
           } catch (err) {
