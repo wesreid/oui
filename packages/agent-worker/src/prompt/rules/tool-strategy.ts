@@ -7,12 +7,13 @@
  */
 import { PRESENT_OPTIONS_TOOL } from '../../tools/sdk-tool-names.js';
 import { EVERY_TOOL, renderPieces, rulesOf, type OfferedTools, type PromptPiece, type ToolRule } from '../step-tools.js';
-import { NARRATION_INSTRUCTION, resolveNarration, type NarrationSetting } from './narration.js';
+import { resolveNarration, type NarrationSetting } from './narration.js';
 
 /**
  * The multi-round and error-handling lines that say how much is written
- * between tool rounds, by narration setting (rules/narration.ts). The rest of
- * the tool strategy is the same at every setting.
+ * between tool rounds, by narration setting (rules/narration.ts). With `host`
+ * they fix no amount: the communication rules say once where it comes from.
+ * The rest of the tool strategy is the same at every setting.
  */
 const MULTI_ROUND: Record<NarrationSetting, string> = {
   brief: `- While one operation processes, move on to the next — narrate this briefly: "That's processing — meanwhile, let's handle..."
@@ -23,14 +24,13 @@ const MULTI_ROUND: Record<NarrationSetting, string> = {
 
 ### Error Handling
 - If a tool returns an error, acknowledge briefly and try an alternative approach.`,
-  host: `- While one operation processes, move on to the next, and say so as ${NARRATION_INSTRUCTION} asks: "That's processing — meanwhile, let's handle..."
-- Users see text accumulate in real-time. Never write filler between tool rounds (pleasantries, or repeating what they have already read): write there what ${NARRATION_INSTRUCTION} asks for, and nothing more.
+  host: `- While one operation processes, move on to the next.
+- Never write filler between tool rounds (pleasantries, or repeating what the user has already read): users see text as you write it.
 - If a tool fails and you retry with a different approach, do NOT re-emit the same explanation.
-- When tools fail silently or return empty results, pivot to an alternative. Say what happened only as ${NARRATION_INSTRUCTION} asks.
-- Users should see the work explained as ${NARRATION_INSTRUCTION} asks, never a log of your retries.
+- When tools fail silently or return empty results, pivot to an alternative.
 
 ### Error Handling
-- If a tool returns an error, say so as ${NARRATION_INSTRUCTION} asks, and try an alternative approach.`,
+- If a tool returns an error, try an alternative approach.`,
 };
 
 /** The tool strategy rules, as pieces, at a narration setting. */

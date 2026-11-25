@@ -1,6 +1,6 @@
 import type { AgentRuntimeConfig } from './types.js';
 import { resolveCommunicationStyle } from '../prompt/rules/communication.js';
-import { resolveNarration } from '../prompt/rules/narration.js';
+import { resolveNarration, resolveNarrationDefault } from '../prompt/rules/narration.js';
 import { readTurnContextPlacement } from '../step-messages.js';
 import { readStateDigestSetting } from '../ui/state-digest.js';
 import { readKnowledgePlacement } from '../ui/knowledge.js';
@@ -43,6 +43,9 @@ export function assertAgentRuntimeConfig<TDb>(config: Partial<AgentRuntimeConfig
   // So does a narration setting it does not know: a host that means to say how
   // much the agent narrates is never quietly held to one line.
   if (config.persona) resolveNarration(config.persona.overrides?.narration);
+  // And a default amount that is empty, or that a host which does not say
+  // how much the agent narrates could never use.
+  if (config.persona) resolveNarrationDefault(config.persona.overrides?.narration, config.persona.overrides?.narrationDefault);
   // So does a turn context placement the worker does not know.
   readTurnContextPlacement(config.turnContextPlacement);
   // So does a page digest setting that is neither a function nor false.

@@ -11,11 +11,13 @@
  *   the turn's message). The base, communication and tool strategy rules keep
  *   what holds at any amount: only words for the user, never reasoning, never
  *   a result a tool has not returned, never the same answer twice. A turn
- *   that comes with no instruction is told to keep to one brief line.
+ *   that comes with no instruction is held to the host's default
+ *   (`narrationDefault`), or, with none, to one brief line.
  *
- * The setting is part of the system prompt, which stays the same on every
- * turn: a host that lets the person choose how much the agent says sends its
- * instruction with the turn, so changing it keeps the cached conversation.
+ * The setting and the default are part of the system prompt, which stays the
+ * same on every turn: a host that lets the person choose how much the agent
+ * says states its default level once there, and sends an instruction with a
+ * turn only for another level, so changing it keeps the cached conversation.
  */
 
 /** Who decides how much the agent says while it works. */
@@ -38,3 +40,19 @@ export function resolveNarration(setting?: NarrationSetting | null): NarrationSe
 
 /** How the rules name the host's instruction, in every rule that defers to it. */
 export const NARRATION_INSTRUCTION = 'the instruction on how much you say while you work';
+
+/**
+ * The host's default amount (`overrides.narrationDefault`), as the rules
+ * carry it: its text trimmed, or null with none. It is the host's to say, so
+ * it needs `narration: 'host'`; empty text, or anything but a string, throws.
+ */
+export function resolveNarrationDefault(setting: NarrationSetting | null | undefined, text: unknown): string | null {
+  if (text === undefined || text === null) return null;
+  if (typeof text !== 'string' || !text.trim()) {
+    throw new Error(`[agent-sdk] narrationDefault must be the text of the default amount, not ${JSON.stringify(text)}`);
+  }
+  if (resolveNarration(setting) !== 'host') {
+    throw new Error("[agent-sdk] narrationDefault is the host's default amount: it needs narration: 'host'");
+  }
+  return text.trim();
+}

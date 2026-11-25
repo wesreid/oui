@@ -358,6 +358,7 @@ export type {
 export {
   getBaseRules,
   resolveNarration,
+  resolveNarrationDefault,
   NARRATION_SETTINGS,
   getCommunicationRules,
   resolveCommunicationStyle,

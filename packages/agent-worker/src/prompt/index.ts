@@ -25,6 +25,6 @@ export type {
   ResolvedCommunicationStyle,
 } from './rules/communication.js';
 export { getToolStrategyRules } from './rules/tool-strategy.js';
-export { resolveNarration, NARRATION_SETTINGS } from './rules/narration.js';
+export { resolveNarration, resolveNarrationDefault, NARRATION_SETTINGS } from './rules/narration.js';
 export type { NarrationSetting } from './rules/narration.js';
 export { getUIControlRules } from './rules/ui-control.js';

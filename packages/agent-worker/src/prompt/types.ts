@@ -127,7 +127,8 @@ export interface AgentPersonaOverrides {
    *   turn (its history's `stepContext`). The rules keep what holds at any
    *   amount (only words for the user, never reasoning, never a result a tool
    *   has not returned, never the same answer twice) and defer the amount to
-   *   that instruction. A turn sent without one is held to one brief line.
+   *   that instruction. A turn sent without one is held to
+   *   `narrationDefault`, or, with none, to one brief line.
    *
    * The setting is part of the system prompt, which stays the same on every
    * turn: a host that lets the person choose how much the agent says sends
@@ -135,6 +136,18 @@ export interface AgentPersonaOverrides {
    * conversation. Any other value fails when the adapter is created.
    */
   narration?: NarrationSetting;
+  /**
+   * With `narration: 'host'`: the host's default amount, as the lines the
+   * rules hold a turn to when it comes with no instruction of its own (one
+   * bullet per line, no heading). A host whose people mostly keep the default
+   * level states it here, once, in the cached system prompt, and sends an
+   * instruction with a turn only at another level, which then replaces it.
+   *
+   * Absent, a turn with no instruction is held to one brief line, and the
+   * prompt is exactly what it was before the option existed. Empty text, or
+   * a default without `narration: 'host'`, fails when the adapter is created.
+   */
+  narrationDefault?: string;
 }
 
 /**

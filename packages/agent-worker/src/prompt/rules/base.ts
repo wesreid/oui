@@ -4,17 +4,16 @@
  *
  * What may be written before a tool call is the same at every narration
  * setting: only words for the user, never reasoning. How much is the
- * setting's (rules/narration.ts): `brief` fixes it at one line, `host` defers
- * it to the host's instruction.
+ * setting's (rules/narration.ts): `brief` fixes it at one line, `host` leaves
+ * it to the communication rules' one statement of it.
  */
-import { NARRATION_INSTRUCTION, resolveNarration, type NarrationSetting } from './narration.js';
+import { resolveNarration, type NarrationSetting } from './narration.js';
 
 /** The rule on how much is written before a tool call, by narration setting. */
 const BEFORE_A_TOOL_CALL: Record<NarrationSetting, string> = {
   brief: `- So before a tool call, write at most one brief line meant for the user ("Let me check that for you."), or nothing at all. Never write your reasoning, plans, guesses, corrections of yourself or notes about the user there, or anywhere else: only words you would say to them.`,
   host: `- So whatever you write before or between tool calls is meant for the user: only words you would say to them. Never write your reasoning, plans, guesses, corrections of yourself or notes about the user there, or anywhere else.
-- How much you write there is set by ${NARRATION_INSTRUCTION}, which comes with the turn. Follow it.
-- Never say something is done, made, saved or found before the tool that does it has returned and confirmed it.`,
+- Never say something is done, made, saved or found before the tool that does it has returned success.`,
 };
 
 export function getBaseRules(agentName: string, narration: NarrationSetting = 'brief'): string {
