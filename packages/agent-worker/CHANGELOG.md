@@ -1,5 +1,18 @@
 # @ouispec/agent-worker
 
+## 0.40.0
+
+### Minor Changes
+
+- A host tool may be declared `answerless: true`: its answer only says that what it was given was written (a note the agent keeps for itself). A round that writes reply text and whose only calls are to answerless tools, each of which ran and succeeded, ends the turn there, with that text as the reply and its round `final`: the model is not called again to read answers it does not need. A round with no reply text, an answerless call that failed or did not run, or any other tool called in the same round goes on as before. The conversation is stored as always (each call followed by its result), and the flag changes nothing the model is sent, so the cached prefix is the same. A turn that ends this way is `complete`, and its result, its usage log and `recordTurnComplete` carry `answerlessEnd: { tools }` (the type `AnswerlessEnd` is exported). Without the flag nothing changes.
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/bindings@0.19.0
+  - @ouispec/agent-core@0.40.0
+  - @ouispec/agent-events@0.40.0
+
 ## 0.39.0
 
 ### Minor Changes

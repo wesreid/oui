@@ -38,7 +38,7 @@ import {
 import { DEFAULT_STOP_GRACE_MS, TurnStopped, stopOf, watchTurnStop, type TurnStopState } from './stop/turn-stop.js';
 import { stoppedTurnMessages, type RecordedCall, type RecordedStep } from './stop/partial.js';
 import { resultText, stoppedNotRun, stoppedWhileRunning } from './stop/results.js';
-import type { AgentWorkerConfig, AgentTurnInput, AgentTurnResult, TurnMessage, TurnHistoryMessage } from './types.js';
+import type { AgentWorkerConfig, AgentTurnInput, AgentTurnResult, AnswerlessEnd, TurnMessage, TurnHistoryMessage } from './types.js';
 import type { RegisteredTool, ToolCallApproval, ToolExecutionContext, ToolExecutionResult } from './tools/types.js';
 import { defaultTurnPolicy, type StepTool, type TurnPolicy } from './turn-policy.js';
 import { createStepClock, timeHandBackNote } from './time-hand-back.js';
@@ -537,6 +537,20 @@ export async function runAgentTurn(
    * of that error in every step's messages, and stored as the call's result.
    */
   const resultsOfCallsNoToolRan = new Map<string, string>();
+  /**
+   * The calls of this turn to answerless tools (`RegisteredTool.answerless`)
+   * that ran and succeeded: their answers say only that something was written.
+   * A step whose only calls are these, and which wrote reply text, ends the
+   * turn (`endsOnAnswerless`).
+   */
+  const answerlessSucceeded = new Set<string>();
+  /**
+   * Whether the turn ends after a step that said this and made these calls:
+   * it wrote reply text, and every call it made was to an answerless tool and
+   * succeeded. The model is not called again to read answers it does not need.
+   */
+  const endsOnAnswerless = (text: string | undefined, toolCalls: ReadonlyArray<{ toolCallId: string }>): boolean =>
+    !!text?.trim() && toolCalls.length > 0 && toolCalls.every((tc) => answerlessSucceeded.has(tc.toolCallId));
   /** Why a call that did not run did not, from the result the model was given. */
   const notRunReason = (text: string): string => {
     try {
@@ -1160,6 +1174,8 @@ export async function runAgentTurn(
     // result, and nothing else's: it is not in the text above, the event or the record.
     if (isWrapped && result.image) answerImages.set(toolUseId, result.image);
     if (isWrapped && typeof result.modelText === 'string') answerTexts.set(toolUseId, result.modelText);
+    // An answerless tool that succeeded told the model nothing it needs: its step may be the turn's last.
+    if (t.answerless === true && resultSuccess) answerlessSucceeded.add(toolUseId);
     return { text: JSON.stringify(modelPayload ?? { error: 'no result' }), ran: true };
   };
 
@@ -1790,8 +1806,8 @@ export async function runAgentTurn(
    * Whether the turn ends after a round that called these tools: the
    * conditions `stopWhen` holds the model to, beside the step count.
    */
-  const endsAfterRound = (toolCalls: ReadonlyArray<{ toolCallId: string; toolName: string }>) =>
-    approvalHold !== null || handedBackForTime || askedTheUser(toolCalls);
+  const endsAfterRound = (text: string | undefined, toolCalls: ReadonlyArray<{ toolCallId: string; toolName: string }>) =>
+    approvalHold !== null || handedBackForTime || askedTheUser(toolCalls) || endsOnAnswerless(text, toolCalls);
 
   // ─── Coalesce token deltas ─────────────────────────────────────────────────
   // Buffer for 50ms or 32 chars, whichever comes first, to avoid one HTTP POST
@@ -2270,6 +2286,12 @@ export async function runAgentTurn(
         () => approvalHold !== null,
         // The step that handed the turn back for time was its last.
         () => handedBackForTime,
+        // The step wrote its reply and made only answerless calls, which all succeeded: the
+        // answers say nothing the model needs, so it is not called again to read them.
+        (options?: { steps?: ReadonlyArray<{ text?: string; toolCalls?: ReadonlyArray<{ toolCallId: string }> }> }) => {
+          const last = options?.steps?.at(-1);
+          return !!last && endsOnAnswerless(last.text, last.toolCalls ?? []);
+        },
       ],
       ...(temperature !== undefined ? { temperature } : {}),
       telemetry: {
@@ -2425,7 +2447,7 @@ export async function runAgentTurn(
         // said and called nothing never is: it runs again, or the person is told (below).
         const cutOff = finishReason === 'length' && !text && !calledTools;
         const final =
-          !cutOff && (!calledTools || recordedSteps.length >= maxRounds || endsAfterRound(toolCalls ?? []));
+          !cutOff && (!calledTools || recordedSteps.length >= maxRounds || endsAfterRound(text, toolCalls ?? []));
         roundEnds.push({ at: stepTextReported, calledTools, final, paragraph: !!text && calledTools });
         // Sent now when the stream has already delivered the round's text; else when it has.
         await endReachedRounds();
@@ -2556,6 +2578,13 @@ export async function runAgentTurn(
   } else if (steps.some((s: { toolCalls?: Array<{ toolCallId: string; toolName: string }> }) => askedTheUser(s.toolCalls ?? []))) {
     stopReason = 'present_options';
   }
+  // A turn that ended on its reply and answerless calls is complete: what is reported is that
+  // the model was not called again to read their answers.
+  const lastStep = steps.at(-1) as { text?: string; toolCalls?: ReadonlyArray<{ toolCallId: string; toolName: string }> } | undefined;
+  const answerlessEnd: AnswerlessEnd | null =
+    stopReason === 'complete' && lastStep && endsOnAnswerless(lastStep.text, lastStep.toolCalls ?? [])
+      ? { tools: (lastStep.toolCalls ?? []).map((tc) => tc.toolName) }
+      : null;
   // deadline and token_budget are caught by the try/catch — they produce errors, not normal returns
 
   // ─── Usage ─────────────────────────────────────────────────────────────────
@@ -2588,6 +2617,8 @@ export async function runAgentTurn(
     turnId,
     rounds: steps.length,
     segments,
+    // The model call the turn did not make: it ended on its reply and answerless calls.
+    ...(answerlessEnd ? { answerlessEnd } : {}),
     peakPromptTokens: usage.peakPromptTokens,
     promptTokens: usage.promptTokens,
     cacheReadTokens: usage.cacheReadTokens,
@@ -2692,6 +2723,7 @@ export async function runAgentTurn(
     ...(expired.claimed.length > 0 ? { settledApprovals: expired.claimed } : {}),
     maxRoundsReached: steps.length >= maxRounds,
     stopReason,
+    ...(answerlessEnd ? { answerlessEnd } : {}),
     ...(fileArea ? { attachments: fileGuard.usage() } : {}),
     ...(resumed ? { resumed: resumed.record } : {}),
     ...(pageAtStart ? { pageAtStart } : {}),

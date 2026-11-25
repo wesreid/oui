@@ -1,5 +1,17 @@
 # @ouispec/cli
 
+## 0.19.0
+
+### Minor Changes
+
+- A page may say what it is for to the assistant only, apart from its visible copy: the `@agentDescription` tag of its component's doc comment. Declared, it is the page's description in place of its header's subtitle or what it offers: its surface's description in the manifest, its knowledge's summary and detail, and its line on the app's map, which carries its first sentence as `says` (a new optional field of the map's page line) and says it before what the page offers. It is held to a subtitle's rule (three words or more, not a loading state), and one that breaks it fails the generation, naming where it is written. Under route gates it goes only where its page goes: a session that may not see the page is never told it, an open page's `says` loses a sentence that names a page the session may not see, and a page's summary or detail all of whose sentences name such pages is said by the page's name and open routes instead of as it was. A page that declares none is described exactly as before (the fixture apps' golden manifest and knowledge are unchanged). The integrator guide says how.
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/bindings@0.19.0
+  - @ouispec/contract@0.19.0
+
 ## 0.18.0
 
 ### Minor Changes

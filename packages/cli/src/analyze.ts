@@ -159,6 +159,15 @@ export interface PageAnalysis {
    * resort, for a page that has no subtitle and offers and shows nothing.
    */
   doc: string | null;
+  /**
+   * What the page is for, told to the assistant only: the `@agentDescription`
+   * tag of its component's doc comment, with where it is written (`text` is
+   * null when the tag says nothing). When it describes the page, it is the
+   * page's description in place of its visible copy (its header's subtitle),
+   * wherever the build describes the page: its surface, its knowledge and the
+   * app's map. Null when the component declares none.
+   */
+  agentDescription: { text: string | null; file: string; line: number } | null;
   /** Displays of facts, each with its binding. */
   displays: FoundDisplay[];
   /** Interactive design-system controls with no binding. */
@@ -270,6 +279,7 @@ export class PageAnalyzer {
       dialogs: [],
       header: { title: null, subtitles: [] },
       doc: componentDoc(pageDecl),
+      agentDescription: null,
       displays: [],
       unbound: [],
       errors: [],
@@ -282,6 +292,15 @@ export class PageAnalyzer {
     };
     this.nonAgentReasons = result.nonAgent;
     this.importsChecked = new Set();
+    const declared = componentAgentDescription(pageDecl);
+    if (declared) {
+      const sf = declared.tag.getSourceFile();
+      result.agentDescription = {
+        text: declared.text,
+        file: this.source.rel(sf),
+        line: sf.getLineAndCharacterOfPosition(declared.tag.getStart()).line + 1,
+      };
+    }
     const seen = new Set<string>();
     this.walk(
       pageDecl,
@@ -2208,6 +2227,30 @@ export function componentDoc(decl: ts.Node): string | null {
     const text = ts.getTextOfJSDocComment(doc.comment)?.trim();
     if (!text) continue;
     return text.split(/\n\s*\n/)[0].replace(/\s+/g, ' ').trim();
+  }
+  return null;
+}
+
+/** The JSDoc tag a page's component declares its description for the assistant with. */
+export const AGENT_DESCRIPTION_TAG = 'agentDescription';
+
+/**
+ * The `@agentDescription` tag of the doc comment on a page's component: its
+ * text, whitespace folded to single spaces, or null when the tag is empty. Null
+ * when the component's doc comment has no such tag.
+ */
+export function componentAgentDescription(decl: ts.Node): { text: string | null; tag: ts.JSDocTag } | null {
+  // A component declared as a variable keeps its comment on the statement.
+  const holder =
+    ts.isVariableDeclaration(decl) && ts.isVariableDeclarationList(decl.parent) && ts.isVariableStatement(decl.parent.parent)
+      ? decl.parent.parent
+      : decl;
+  for (const doc of ts.getJSDocCommentsAndTags(holder)) {
+    if (!ts.isJSDoc(doc)) continue;
+    const tag = doc.tags?.find(t => t.tagName.text === AGENT_DESCRIPTION_TAG);
+    if (!tag) continue;
+    const text = (ts.getTextOfJSDocComment(tag.comment) ?? '').replace(/\s+/g, ' ').trim();
+    return { text: text || null, tag };
   }
   return null;
 }

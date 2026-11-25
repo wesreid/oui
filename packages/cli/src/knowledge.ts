@@ -517,6 +517,19 @@ interface MapLine {
   head: string;
   /** For a frame's line: the whole line is text, not a page's. */
   frame?: true;
+  /**
+   * The first sentence of what the page tells the assistant it is for
+   * (`@agentDescription`): the head ends with it, and what the page offers
+   * follows it.
+   */
+  says?: string;
+}
+
+/** A page's line on the map, before what it offers: with what the page tells the assistant it is for, when it declares that. */
+function mapHead(page: PageMeta, head: string): Pick<MapLine, 'head' | 'says'> {
+  if (!page.agentDescription) return { head };
+  const says = firstSentence(page.description);
+  return { head: `${head}: ${says}`, says };
 }
 
 /**
@@ -654,7 +667,7 @@ export function appMapLines(
       depth: d,
       via,
       capabilities: capabilitiesFor(page),
-      head: `${indent}- ${page.title} ${route(page)}${via.length ? ` (from ${via[0].title})` : ''}`,
+      ...mapHead(page, `${indent}- ${page.title} ${route(page)}${via.length ? ` (from ${via[0].title})` : ''}`),
     });
     for (const child of childrenOf(page.surface)) place(child, d + 1, parent.get(child.surface)!.via);
   };
@@ -676,7 +689,7 @@ export function appMapLines(
     out.push('Opened by address only:');
     headings.add('Opened by address only:');
     for (const page of unplaced) {
-      const line: MapLine = { page, depth: 0, via: [], capabilities: capabilitiesFor(page), head: `- ${page.title} ${route(page)}` };
+      const line: MapLine = { page, depth: 0, via: [], capabilities: capabilitiesFor(page), ...mapHead(page, `- ${page.title} ${route(page)}`) };
       lines.push(line);
       out.push(line);
     }
@@ -690,7 +703,7 @@ export function appMapLines(
     out.push(line);
   }
   for (const frame of frames.filter(f => !f.routes.includes('*'))) {
-    const line: MapLine = { page: frame, depth: 0, via: [], capabilities: capabilitiesFor(frame, true), head: `Around ${frame.routes.join(', ')} (${frame.title})`, frame: true };
+    const line: MapLine = { page: frame, depth: 0, via: [], capabilities: capabilitiesFor(frame, true), ...mapHead(frame, `Around ${frame.routes.join(', ')} (${frame.title})`), frame: true };
     lines.push(line);
     out.push(line);
   }
@@ -717,9 +730,11 @@ export function appMapLines(
     out.reduce<number>((n, part) => n + (typeof part === 'string' ? part.length : part.head.length) + 1, 0) +
     tail.reduce((n, t) => n + t.length + 1, 0);
   const taken = new Map<MapLine, number>(lines.map(l => [l, 0]));
+  /** What joins the head and what the page offers: after the page's own sentence, a space. */
+  const joint = (l: MapLine) => (l.says !== undefined ? ' ' : ': ');
   const lineLength = (l: MapLine, n: number) => {
     const text = capabilityText(l.capabilities, n);
-    return text ? text.length + 2 : 0;
+    return text ? text.length + joint(l).length : 0;
   };
   let used = fixed + lines.reduce((n, l) => n + lineLength(l, 0), 0);
   const grow = (l: MapLine): boolean => {
@@ -748,6 +763,8 @@ export function appMapLines(
       text.set(l, capabilityText(l.capabilities, taken.get(l)!));
       continue;
     }
+    // Its head says it already.
+    if (l.says !== undefined) continue;
     const sentence = firstSentence(l.page.description);
     if (used + sentence.length + 2 <= budget) {
       used += sentence.length + 2;
@@ -757,7 +774,7 @@ export function appMapLines(
   const asLine = (part: string | MapLine): AppMapLine => {
     if (typeof part === 'string') return headings.has(part) ? { kind: 'heading', text: part } : { kind: 'text', text: part };
     const offers = text.get(part);
-    if (part.frame) return { kind: 'text', text: offers ? `${part.head}: ${offers}` : part.head };
+    if (part.frame) return { kind: 'text', text: offers ? `${part.head}${joint(part)}${offers}` : part.head };
     return {
       kind: 'page',
       surface: part.page.surface,
@@ -765,6 +782,7 @@ export function appMapLines(
       title: part.page.title,
       route: route(part.page),
       ...(part.via.length ? { from: part.via[0].title } : {}),
+      ...(part.says !== undefined ? { says: part.says } : {}),
       ...(offers ? { offers } : {}),
     };
   };

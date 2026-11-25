@@ -204,11 +204,21 @@ Every turn reaches the runtime one of four ways: the Lambda adapter, the contain
 
 ### The rounds of a turn
 
-The model writes a reply in rounds: text, tool calls, more text. Each `agent:token` names its round (`step`, from 0), and each round's end is sent once all of its text has been: `agent:round_end { turnId, step, calledTools, final, timestamp }`. `calledTools` says the round called tools; `final` says no round follows it, so its text is the turn's last word. A round that ended at an approval, at a choice for the person (`present_options`), at the hand-back for time or at the last step allowed is final though it called a tool; a round cut off at the output limit having said nothing never is. A round's tool calls (`agent:tool_call_started`) are sent after its text and before its end. A host reply (`runner.reply`) is one final round, and so is the line the person is told when every attempt at a step was cut off.
+The model writes a reply in rounds: text, tool calls, more text. Each `agent:token` names its round (`step`, from 0), and each round's end is sent once all of its text has been: `agent:round_end { turnId, step, calledTools, final, timestamp }`. `calledTools` says the round called tools; `final` says no round follows it, so its text is the turn's last word. A round that ended at an approval, at a choice for the person (`present_options`), at the hand-back for time, on answerless calls (below) or at the last step allowed is final though it called a tool; a round cut off at the output limit having said nothing never is. A round's tool calls (`agent:tool_call_started`) are sent after its text and before its end. A host reply (`runner.reply`) is one final round, and so is the line the person is told when every attempt at a step was cut off.
 
 A consumer that shows or speaks only what the turn ends with, never what the model wrote before a tool call, holds each round's text until its `round_end` and keeps it when `final`. The live-call handler does this with `speak: 'final-round'` ("Live calls"). Text before a tool call is otherwise shown and spoken as it streams, and the shipped prompt tells the model so: at most one brief line for the person before a tool call, or nothing, and never its reasoning.
 
 Update the realtime server with the worker: a server on an older `@ouispec/agent-events` refuses `agent:round_end` as undeclared, and the worker logs each refused emit.
+
+### Tools whose answer the model does not need
+
+Some host tools only record something, and answer only that it was written: a note the agent keeps for itself. Declare such a tool `answerless: true`. A round that writes reply text and whose only calls are to answerless tools, each of which ran and succeeded, is the turn's last: its text is the reply, its round is `final`, and the model is not called again to read the answers. Without the flag, the turn sends the answers back and the model writes once more, which on a turn that ends "reply, then note" is a whole model call that reads the conversation again.
+
+```ts
+{ name: 'note', effect: 'edit', answerless: true, description: '…', inputSchema: { … }, execute }
+```
+
+Everything else goes on as before: a round with no reply text, an answerless call that failed or did not run (refused, invalid input, waiting for approval), or any other tool called in the same round. The conversation is stored as always, the call followed by its result, so the next turn reads it as it would any other. The flag changes nothing the model is sent (the tool's description and schema are as declared, so the cached prefix is the same); tell the agent in your own rules to make such a call in the round that writes its reply. A turn that ended this way is `complete`; its result, its `Turn usage` log and `recordTurnComplete` carry `answerlessEnd: { tools }`, the answerless tools its last round called.
 
 ## Approvals
 
