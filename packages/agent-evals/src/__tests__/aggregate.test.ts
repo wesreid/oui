@@ -35,6 +35,7 @@ const turn = (calls: EvalModelCall[], over: Partial<MatrixTurn> = {}): MatrixTur
   kind: 'user',
   customer: 'hi',
   reply: 'hello',
+  working: '',
   toolCalls: [],
   held: false,
   usage: turnUsage(calls),

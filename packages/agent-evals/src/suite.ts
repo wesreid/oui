@@ -38,7 +38,13 @@ export function readSuiteFile(path: string): unknown {
 /** Every text matcher an expectation holds a turn to: what a rubric's judge may be asked about. */
 export const matchersOf = (expect: AgentEvalExpectation | undefined): AgentEvalTextMatcher[] => {
   if (!expect) return [];
-  const out: AgentEvalTextMatcher[] = [...(expect.says ?? []), ...(expect.mustNotSay ?? []), ...(expect.doesNotStore ?? [])];
+  const out: AgentEvalTextMatcher[] = [
+    ...(expect.says ?? []),
+    ...(expect.mustNotSay ?? []),
+    ...(expect.doesNotStore ?? []),
+    ...(expect.whileWorking?.says ?? []),
+    ...(expect.whileWorking?.mustNotSay ?? []),
+  ];
   if (expect.refusal && expect.refusal !== true) out.push(expect.refusal);
   if (expect.approvalRequested && expect.approvalRequested.readback) out.push(expect.approvalRequested.readback);
   if (expect.choices) out.push(...(expect.choices.options ?? []), ...(expect.choices.question ?? []));

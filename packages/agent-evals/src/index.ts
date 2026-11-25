@@ -24,7 +24,7 @@
  */
 export { defineEvals } from './config.js';
 export type { AgentEvalConfig, EvalAgentConfig, EvalBudgets, EvalChannel, EvalMode, EvalModelSeam, EvalStubFunction, EvalTurnBudget } from './config.js';
-export { evalCases, evalTargets, runEvals, runEvalCase, agentForCandidate, check, EvalCaseFailed, failureLine } from './run.js';
+export { evalCases, evalTargets, runEvals, runEvalCase, agentForCandidate, check, workingOf, EvalCaseFailed, failureLine } from './run.js';
 export type { CheckFailure, EvalCase, EvalCaseResult, EvalCaseTarget, EvalChoices, EvalFailure, EvalReport, EvalRunOptions, EvalTurnRecord } from './run.js';
 export { mergeExpectations } from './expectations.js';
 export { runMatrix, estimateRun, tagsOf, DEFAULT_WITHIN_POINTS, MATRIX_FORMAT, MATRIX_VERSION } from './matrix.js';

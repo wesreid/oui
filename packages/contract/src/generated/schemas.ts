@@ -4727,6 +4727,32 @@ export const CONTRACT_SCHEMAS = {
               "$ref": "#/$defs/AgentEvalTextMatcher"
             }
           },
+          "whileWorking": {
+            "description": "What the turn wrote while it worked: the text of each of its steps that called a tool and was followed by another step, written before the call. Its last step (the answer, or the text before the card or approval it ends on) is not part of it.",
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "properties": {
+              "silent": {
+                "description": "`true`: it wrote nothing while it worked; `false`: it wrote something.",
+                "type": "boolean"
+              },
+              "says": {
+                "description": "Each must match what it wrote while it worked.",
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/AgentEvalTextMatcher"
+                }
+              },
+              "mustNotSay": {
+                "description": "None may match what it wrote while it worked.",
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/AgentEvalTextMatcher"
+                }
+              }
+            }
+          },
           "held": {
             "description": "`true`: the turn ran no model call, because a person held the conversation.",
             "type": "boolean"

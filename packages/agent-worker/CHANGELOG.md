@@ -11,6 +11,13 @@
   - The setting is part of the system prompt, so a host that lets the person choose a level keeps the same prompt at every level, and a change of level keeps the cached conversation.
   - An unknown setting fails when the adapter is created, naming it. `resolveNarration`, `NARRATION_SETTINGS` and the `NarrationSetting` type are exported, and `getBaseRules`, `getCommunicationRules` and `getToolStrategyRules` take the setting as their last argument (default `brief`).
 
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/agent-core@0.37.0
+  - @ouispec/agent-events@0.37.0
+  - @ouispec/bindings@0.17.1
+
 ## 0.36.1
 
 ### Patch Changes
