@@ -12,6 +12,7 @@
 | `approvalRequested` | the turn stopped for the customer's approval of that call, with a readback that is present and matches (`false`: it stopped for none) |
 | `refusal` | the reply declines (`true`: the usual phrasing; or a matcher) |
 | `doesNotStore` | the matchers appear nowhere the turn stored: its text, its tool arguments, its tool results |
+| `whileWorking` | what the agent wrote while it worked (the text of each step that called a tool and was followed by another, written before the call; not its last step) matches each of `says` and none of `mustNotSay`, and is empty (`silent: true`) or not (`silent: false`) |
 | `held` | the turn ran no model call, because a person held the conversation |
 | `calls` | each tool (`tool`), or each of the page's actions run through `ui_act` (`action`, by its id or its index name), was called exactly `times`, or `min` to `max` times (none given: at least once), counting only calls whose arguments or input hold `args` |
 | `usage` | the turn's model calls stayed within each bound: `modelCalls`, `firstCallInputTokens`, `callInputTokens` (every call), `inputTokens` and `outputTokens` (all of them), and `cachedShare` (the share of its input read from the prompt cache, 0 to 1), as the provider reported them |

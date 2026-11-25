@@ -1,5 +1,13 @@
 # @ouispec/agent-events
 
+## 0.37.0
+
+### Patch Changes
+
+- Depends on the current `@ouispec/contract`, which adds the eval expectation `whileWorking`. Nothing else changes.
+- Updated dependencies
+  - @ouispec/contract@0.17.1
+
 ## 0.36.0
 
 ### Patch Changes

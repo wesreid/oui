@@ -10,6 +10,7 @@
 import type { AgentPersonaConfig, PromptBuildContext } from './types.js';
 import { getBaseRules } from './rules/base.js';
 import { getCommunicationRules, resolveCommunicationStyle } from './rules/communication.js';
+import { resolveNarration } from './rules/narration.js';
 import { getToolStrategyRules, TOOL_STRATEGY_TOOL_RULES } from './rules/tool-strategy.js';
 import { getUIControlRules, UI_CONTROL_TOOL_RULES } from './rules/ui-control.js';
 import { promptForTools, type OfferedTools, type ToolRule } from './step-tools.js';
@@ -37,6 +38,9 @@ export function systemPromptForTools(prompt: string, offered: OfferedTools): str
  * 2. SDK base rules (anti-hallucination, anti-repetition, identity boundaries)
  * 3. SDK communication rules (formatting, tone): `overrides.communicationStyle`,
  *    a preset and a format (markdown, or plain text)
+ *
+ * How much the agent says while it works (sections 2–4) is `overrides.narration`:
+ * fixed and brief by default, or the host's to say with each turn.
  * 4. SDK tool strategy rules (discovery-first, error handling, options)
  * 5. SDK UI control rules (navigation, forms, player, toasts)
  * 6. Platform capabilities
@@ -54,6 +58,7 @@ export function buildAgentSystemPrompt(
   const parts: string[] = [];
   const overrides = persona.overrides ?? {};
   const style = resolveCommunicationStyle(overrides.communicationStyle);
+  const narration = resolveNarration(overrides.narration);
   // In plain text, the prompt's own labels carry no markdown either, so no
   // example shows the model a formatting symbol to copy.
   const label = (name: string) => (style.format === 'plain' ? `${name}:` : `**${name}:**`);
@@ -63,15 +68,15 @@ export function buildAgentSystemPrompt(
 
   // 2. SDK base rules
   if (!overrides.disableAntiHallucination && !overrides.disableAntiRepetition) {
-    parts.push('\n\n' + getBaseRules(persona.name));
+    parts.push('\n\n' + getBaseRules(persona.name, narration));
   } else {
     if (!overrides.disableAntiHallucination) {
-      const baseRules = getBaseRules(persona.name);
+      const baseRules = getBaseRules(persona.name, narration);
       const antiHallucSection = baseRules.split('### Anti-Repetition')[0];
       parts.push('\n\n' + antiHallucSection.trim());
     }
     if (!overrides.disableAntiRepetition) {
-      const baseRules = getBaseRules(persona.name);
+      const baseRules = getBaseRules(persona.name, narration);
       const repetitionStart = baseRules.indexOf('### Anti-Repetition');
       const identityStart = baseRules.indexOf('### Identity Boundaries');
       if (repetitionStart !== -1 && identityStart !== -1) {
@@ -81,11 +86,11 @@ export function buildAgentSystemPrompt(
   }
 
   // 3. SDK communication rules
-  parts.push('\n\n' + getCommunicationRules(style));
+  parts.push('\n\n' + getCommunicationRules(style, narration));
 
   // 4. SDK tool strategy rules
   if (!overrides.disableToolStrategy) {
-    parts.push('\n\n' + getToolStrategyRules());
+    parts.push('\n\n' + getToolStrategyRules(undefined, narration));
   }
 
   // 5. SDK UI control rules

@@ -69,6 +69,31 @@ With `format: 'plain'`, the markdown lines are replaced. The model is told to wr
 
 The format is part of the system prompt, so it stays the same on every turn of a runtime, as the prompt cache needs: a channel that needs plain text (SMS, a dealer's web chat) gets a runtime whose persona asks for it, rather than a format that changes turn by turn. A live call's turn is also told, in the turn's context, that its reply will be spoken ("What a UI client sends with a turn", `output`); in plain text the two agree, and the system prompt is the same on the call as in the chat. A preset or format the worker does not know, in the object form, fails when the adapter is created, naming it. A `systemPrompt` callback writes its own prompt, so the option does not apply to it. `resolveCommunicationStyle`, `COMMUNICATION_STYLES` and `COMMUNICATION_FORMATS` are exported for a host that reads the setting itself.
 
+### How much the agent says while it works
+
+A persona's `overrides.narration` says who decides how much the agent writes before a tool call, between steps and after a step that fails.
+
+| Value | The rules say | When to use it |
+|---|---|---|
+| `brief` (default) | At most one brief line before a tool call, one short sentence of narration, no text between tool rounds, and a pivot past a failure without narrating it | Every persona that names no narration: its prompt is unchanged, byte for byte |
+| `host` | What holds at any amount: only words for the user, never reasoning, never a result a tool has not returned, never the same answer twice. The amount is deferred to "the instruction on how much you say while you work", which the host sends with each turn; a turn sent without one is held to one brief line | A host that lets the person choose how much the agent explains, such as a setting from "explain as you go" to "results only" |
+
+```ts
+const persona: AgentPersonaConfig = {
+  name: 'Ava',
+  identity: 'You are Ava, the dealership’s assistant.',
+  overrides: { narration: 'host' },
+};
+
+// getHistory: the person's level, as an instruction in the turn's context.
+getHistory: async (conversationId, db, turn) => ({
+  messages: await load(conversationId),
+  stepContext: '## How you talk while you work: explain as you go\n- Before each distinct step, say in one or two sentences what you will do and why.',
+}),
+```
+
+The setting is part of the system prompt and the instruction is part of the turn's context ("How a turn is assembled"), so the system prompt is the same at every level and a change of level keeps the cached conversation. A value the worker does not know fails when the adapter is created, naming it. `resolveNarration` and `NARRATION_SETTINGS` are exported for a host that reads the setting itself, and `getBaseRules`, `getCommunicationRules` and `getToolStrategyRules` take it as their last argument.
+
 A host that fits its stored history loads `@ouispec/agent-worker/history` (`answerWithoutState`): a module with no runtime imports, which also answers a CommonJS resolver.
 
 Policy hooks: `turnPolicy`, `toolPolicy`, `uiActions`, `approvals`, `stops`, `logger`, and the hooks every turn passes through, `beforeTurn` and `filterEvent` ("Hooks on every turn").

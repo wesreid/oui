@@ -1,5 +1,23 @@
 # @ouispec/agent-worker
 
+## 0.37.0
+
+### Minor Changes
+
+- A host can say how much the agent says while it works. `overrides.narration` on a persona is `brief` (the default) or `host`.
+
+  - `brief` keeps today's rules, byte for byte: at most one brief line before a tool call, one short sentence of narration, no text between tool rounds, and a pivot past a failure without narrating it. A persona that names no narration is unchanged.
+  - `host` makes the base, communication and tool strategy rules level-neutral. They keep what holds at any amount (only words for the user, never reasoning, never a result a tool has not returned, never the same answer twice) and defer how much to "the instruction on how much you say while you work", which the host sends with each turn in its history's `stepContext`. A turn sent without one is held to one brief line.
+  - The setting is part of the system prompt, so a host that lets the person choose a level keeps the same prompt at every level, and a change of level keeps the cached conversation.
+  - An unknown setting fails when the adapter is created, naming it. `resolveNarration`, `NARRATION_SETTINGS` and the `NarrationSetting` type are exported, and `getBaseRules`, `getCommunicationRules` and `getToolStrategyRules` take the setting as their last argument (default `brief`).
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/agent-core@0.37.0
+  - @ouispec/agent-events@0.37.0
+  - @ouispec/bindings@0.17.1
+
 ## 0.36.1
 
 ### Patch Changes

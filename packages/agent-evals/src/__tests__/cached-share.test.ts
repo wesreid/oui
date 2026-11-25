@@ -14,6 +14,7 @@ const turn = (cachedShare: number): EvalTurnRecord =>
     kind: 'user',
     customer: 'build it',
     reply: 'Built.',
+    working: '',
     toolCalls: [],
     approval: null,
     held: false,

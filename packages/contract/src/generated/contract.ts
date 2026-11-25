@@ -2212,6 +2212,19 @@ export interface AgentEvalExpectation {
    * tool results.
    */
   doesNotStore?: readonly AgentEvalTextMatcher[];
+  /**
+   * What the turn wrote while it worked: the text of each of its steps that called a tool and
+   * was followed by another step, written before the call. Its last step (the answer, or the
+   * text before the card or approval it ends on) is not part of it.
+   */
+  whileWorking?: {
+    /** `true`: it wrote nothing while it worked; `false`: it wrote something. */
+    silent?: boolean;
+    /** Each must match what it wrote while it worked. */
+    says?: readonly AgentEvalTextMatcher[];
+    /** None may match what it wrote while it worked. */
+    mustNotSay?: readonly AgentEvalTextMatcher[];
+  };
   /** `true`: the turn ran no model call, because a person held the conversation. */
   held?: boolean;
   /** How many times each tool, or each of the page's actions, was called in the turn. */

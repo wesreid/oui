@@ -83,6 +83,8 @@ export interface EvalTurnRecord {
   customer: string;
   /** Everything the agent said in the turn, as it was stored and sent: its text, and a readback. */
   reply: string;
+  /** What it wrote while it worked: the text of each step it went on from, before that step's calls (`workingOf`). */
+  working: string;
   toolCalls: Array<{ name: string; args: Record<string, unknown> }>;
   /** The approval the turn stopped at, when it stopped at one. */
   approval: { tool: string; args: Record<string, unknown>; preview: ApprovalPreview } | null;
@@ -333,6 +335,21 @@ const replyOf = (messages: readonly TurnMessage[]) =>
     .filter((m) => m.role === 'assistant' && m.content?.trim())
     .map((m) => m.content!.trim())
     .join('\n\n');
+
+/**
+ * What a stored turn wrote while it worked, in order: the text of each step
+ * that called a tool and was followed by another step, written before its
+ * calls. The turn's last step is its answer, or the text before the card or
+ * approval it ended on, so it is never part of it.
+ */
+export const workingOf = (messages: readonly TurnMessage[]): string => {
+  const steps = messages.filter((m) => m.role === 'assistant');
+  return steps
+    .slice(0, -1)
+    .filter((m) => (m.toolCalls?.length ?? 0) > 0 && m.content?.trim())
+    .map((m) => m.content!.trim())
+    .join('\n\n');
+};
 
 /**
  * Whether a stored tool result says the model wrote the call wrong: input the
@@ -648,6 +665,7 @@ export async function runEvalCase(config: AgentEvalConfig, target: EvalCaseTarge
       kind,
       customer: payload.content,
       reply,
+      working: workingOf(messages),
       toolCalls,
       approval: pending ? { tool: pending.tool, args: pending.args, preview: pending.preview } : null,
       held: stopReason === 'taken_over' && modelRequests === before,
@@ -848,6 +866,17 @@ export async function check(
     await textAssertion('refusal', expect.refusal === true ? DEFAULT_REFUSAL : expect.refusal, reply, true, 'the reply, as a refusal,');
   }
   for (const matcher of expect.doesNotStore ?? []) await textAssertion('doesNotStore', matcher, stored, false, 'what the turn stored');
+  if (expect.whileWorking) {
+    const { silent, says = [], mustNotSay = [] } = expect.whileWorking;
+    const working = record.working;
+    if (silent === true && working.trim() !== '') {
+      out.push({ assertion: 'whileWorking', message: `it wrote while it worked: ${quoted(working)}` });
+    } else if (silent === false && working.trim() === '') {
+      out.push({ assertion: 'whileWorking', message: 'it wrote nothing while it worked' });
+    }
+    for (const matcher of says) await textAssertion('whileWorking', matcher, working, true, 'what it wrote while it worked');
+    for (const matcher of mustNotSay) await textAssertion('whileWorking', matcher, working, false, 'what it wrote while it worked');
+  }
 
   const calls = record.toolCalls;
   const describeCall = (c: { name: string; args: Record<string, unknown> }) =>

@@ -8,6 +8,7 @@
  */
 
 import type { CommunicationStyleSetting } from './rules/communication.js';
+import type { NarrationSetting } from './rules/narration.js';
 
 export interface AgentPersonaConfig {
   /** Display name of the agent (e.g. "PA", "Atlas", "Helper") */
@@ -113,6 +114,27 @@ export interface AgentPersonaOverrides {
    * left out. An unknown preset or format in the object form throws.
    */
   communicationStyle?: CommunicationStyleSetting;
+  /**
+   * How much the agent says while it works: before a tool call, between
+   * steps, after a step that fails.
+   *
+   * - 'brief' (default): the SDK fixes it. At most one brief line before a
+   *   tool call, one short sentence of narration, no text between tool
+   *   rounds, and a pivot past a failure without narrating it. A persona that
+   *   names no narration is told exactly what it was told before the option
+   *   existed.
+   * - 'host': the host says how much, in an instruction it sends with each
+   *   turn (its history's `stepContext`). The rules keep what holds at any
+   *   amount (only words for the user, never reasoning, never a result a tool
+   *   has not returned, never the same answer twice) and defer the amount to
+   *   that instruction. A turn sent without one is held to one brief line.
+   *
+   * The setting is part of the system prompt, which stays the same on every
+   * turn: a host that lets the person choose how much the agent says sends
+   * its instruction with each turn, so a change keeps the cached
+   * conversation. Any other value fails when the adapter is created.
+   */
+  narration?: NarrationSetting;
 }
 
 /**

@@ -1,5 +1,24 @@
 # @ouispec/agent-evals
 
+## 0.37.0
+
+### Minor Changes
+
+- An eval can hold a turn to what the agent writes while it works: `whileWorking` on a turn's expectation.
+
+  - contract: `AgentEvalExpectation.whileWorking` (`silent`, `says`, `mustNotSay`), optional, so every suite that validated still does.
+  - agent-evals: each turn's record carries `working`, the text of each step the turn went on from, written before that step's calls; the turn's last step (its answer, or the text before the card or approval it ends on) is never part of it. `silent: true` holds when it is empty, `silent: false` when it is not, and `says` and `mustNotSay` match it, rubrics included. `workingOf(messages)` is exported. A host that lets the person choose how much the agent explains can hold one level to naming what it uses before it acts, and another to writing nothing until its answer.
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - @ouispec/agent-core@0.37.0
+  - @ouispec/bindings@0.17.1
+  - @ouispec/contract@0.17.1
+  - @ouispec/agent-worker@0.37.0
+
 ## 0.36.0
 
 ### Patch Changes

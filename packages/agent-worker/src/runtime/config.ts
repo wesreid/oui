@@ -1,5 +1,6 @@
 import type { AgentRuntimeConfig } from './types.js';
 import { resolveCommunicationStyle } from '../prompt/rules/communication.js';
+import { resolveNarration } from '../prompt/rules/narration.js';
 import { readTurnContextPlacement } from '../step-messages.js';
 import { isRealtimeApiKey } from '../realtime/api-key.js';
 
@@ -37,6 +38,9 @@ export function assertAgentRuntimeConfig<TDb>(config: Partial<AgentRuntimeConfig
   // on the first turn's prompt: a channel that needs plain text is never sent
   // a turn the worker cannot write a prompt for.
   if (config.persona) resolveCommunicationStyle(config.persona.overrides?.communicationStyle);
+  // So does a narration setting it does not know: a host that means to say how
+  // much the agent narrates is never quietly held to one line.
+  if (config.persona) resolveNarration(config.persona.overrides?.narration);
   // So does a turn context placement the worker does not know.
   readTurnContextPlacement(config.turnContextPlacement);
 }
