@@ -7,8 +7,34 @@
  */
 import { PRESENT_OPTIONS_TOOL } from '../../tools/sdk-tool-names.js';
 import { EVERY_TOOL, renderPieces, rulesOf, type OfferedTools, type PromptPiece, type ToolRule } from '../step-tools.js';
+import { NARRATION_INSTRUCTION, resolveNarration, type NarrationSetting } from './narration.js';
 
-const TOOL_STRATEGY: readonly PromptPiece[] = [
+/**
+ * The multi-round and error-handling lines that say how much is written
+ * between tool rounds, by narration setting (rules/narration.ts). The rest of
+ * the tool strategy is the same at every setting.
+ */
+const MULTI_ROUND: Record<NarrationSetting, string> = {
+  brief: `- While one operation processes, move on to the next — narrate this briefly: "That's processing — meanwhile, let's handle..."
+- Do NOT emit filler text between tool rounds. Users see text accumulate in real-time.
+- If a tool fails and you retry with a different approach, do NOT re-emit the same explanation.
+- When tools fail silently or return empty results, pivot immediately without narrating each failure.
+- Users should see a smooth experience, not a log of your retries.
+
+### Error Handling
+- If a tool returns an error, acknowledge briefly and try an alternative approach.`,
+  host: `- While one operation processes, move on to the next, and say so as ${NARRATION_INSTRUCTION} asks: "That's processing — meanwhile, let's handle..."
+- Users see text accumulate in real-time. Never write filler between tool rounds (pleasantries, or repeating what they have already read): write there what ${NARRATION_INSTRUCTION} asks for, and nothing more.
+- If a tool fails and you retry with a different approach, do NOT re-emit the same explanation.
+- When tools fail silently or return empty results, pivot to an alternative. Say what happened only as ${NARRATION_INSTRUCTION} asks.
+- Users should see the work explained as ${NARRATION_INSTRUCTION} asks, never a log of your retries.
+
+### Error Handling
+- If a tool returns an error, say so as ${NARRATION_INSTRUCTION} asks, and try an alternative approach.`,
+};
+
+/** The tool strategy rules, as pieces, at a narration setting. */
+const toolStrategy = (narration: NarrationSetting): readonly PromptPiece[] => [
   `## TOOL STRATEGY
 
 ### Discovery First
@@ -21,14 +47,7 @@ Granularity levels:
 
 ### Multi-Round Behavior
 - When executing multi-step workflows, work on MULTIPLE THINGS IN PARALLEL when tools support it.
-- While one operation processes, move on to the next — narrate this briefly: "That's processing — meanwhile, let's handle..."
-- Do NOT emit filler text between tool rounds. Users see text accumulate in real-time.
-- If a tool fails and you retry with a different approach, do NOT re-emit the same explanation.
-- When tools fail silently or return empty results, pivot immediately without narrating each failure.
-- Users should see a smooth experience, not a log of your retries.
-
-### Error Handling
-- If a tool returns an error, acknowledge briefly and try an alternative approach.
+${MULTI_ROUND[narration]}
 - Never expose error messages, stack traces, or internal tool names to the user.
 - If multiple approaches fail, inform the user honestly and suggest a manual alternative.
 - Never retry the exact same operation more than twice.
@@ -59,10 +78,16 @@ When you need the user to pick from choices, use the ${PRESENT_OPTIONS_TOOL} too
 - For anything else that is significant or expensive but needs no approval (a long generation, say), a brief check is enough: "Ready to generate?"`,
 ];
 
-/** The tool strategy rules' rules that name tools: what a step is not told when it does not offer them. */
-export const TOOL_STRATEGY_TOOL_RULES: readonly ToolRule[] = rulesOf(TOOL_STRATEGY);
+/**
+ * The tool strategy rules' rules that name tools: what a step is not told when it does not offer them.
+ * They are the same at every narration setting, which changes only words that name no tool.
+ */
+export const TOOL_STRATEGY_TOOL_RULES: readonly ToolRule[] = rulesOf(toolStrategy('brief'));
 
-/** The tool strategy rules, as a step offering `offered` is told them (every tool by default). */
-export function getToolStrategyRules(offered: OfferedTools = EVERY_TOOL): string {
-  return renderPieces(TOOL_STRATEGY, offered);
+/**
+ * The tool strategy rules, as a step offering `offered` is told them (every tool by default), at
+ * a narration setting (`brief` by default).
+ */
+export function getToolStrategyRules(offered: OfferedTools = EVERY_TOOL, narration: NarrationSetting = 'brief'): string {
+  return renderPieces(toolStrategy(resolveNarration(narration)), offered);
 }

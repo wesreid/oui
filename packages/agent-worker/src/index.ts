@@ -330,9 +330,12 @@ export type {
   CommunicationStyleOptions,
   CommunicationStyleSetting,
   ResolvedCommunicationStyle,
+  NarrationSetting,
 } from './prompt/index.js';
 export {
   getBaseRules,
+  resolveNarration,
+  NARRATION_SETTINGS,
   getCommunicationRules,
   resolveCommunicationStyle,
   COMMUNICATION_STYLES,

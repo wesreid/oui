@@ -11,7 +11,12 @@
  * `communicationStyle` is a preset (`'concise'`) or both
  * (`{ preset: 'concise', format: 'plain' }`); a preset alone is markdown, so
  * a persona that names no format is told exactly what it was before.
+ *
+ * How much each preset narrates its tool use is the persona's `narration`
+ * (rules/narration.ts): fixed and brief by default, or deferred to the host's
+ * instruction, with a section saying what holds whatever it asks.
  */
+import { NARRATION_INSTRUCTION, resolveNarration, type NarrationSetting } from './narration.js';
 
 /** The tone a persona's replies take. */
 export type CommunicationStyle = 'conversational' | 'concise' | 'formal';
@@ -92,8 +97,43 @@ const PRESET_FORMAT_LINE: Record<'concise' | 'formal', Record<CommunicationForma
   },
 };
 
-export function getCommunicationRules(setting: CommunicationStyleSetting = 'conversational'): string {
+/**
+ * What a host that says how much the agent narrates adds after the truthfulness
+ * rules: where the amount comes from, what holds at any amount, and the
+ * amount when a turn comes without it.
+ */
+const HOST_NARRATION = `
+
+### How Much You Say While You Work
+- How much you write while you work (before a tool call, between steps, after a step that fails) is set by ${NARRATION_INSTRUCTION}, which comes with each turn. Follow it.
+- Whatever it asks, everything you write is for the user: never your reasoning, never a result a tool has not returned yet, and never the same answer twice.
+- When a turn comes with no such instruction, write at most one brief line before a tool call ("Let me check that for you."), or nothing at all.`;
+
+/** The preset lines on narrating tool use and its failures, by narration setting. */
+const NARRATION_LINES: Record<'conversationalTools' | 'conversationalFailures' | 'concise' | 'formal', Record<NarrationSetting, string>> = {
+  conversationalTools: {
+    brief: `- Briefly narrate what you're doing when using tools — but keep it to ONE short sentence, never a paragraph.`,
+    host: `- Say what you're doing when using tools as ${NARRATION_INSTRUCTION} asks, in words a person would say, never as a log of your steps.`,
+  },
+  conversationalFailures: {
+    brief: `- If a tool returns an error, acknowledge it briefly: "That didn't work — let me try another approach."
+- When tools fail silently or return empty results, pivot immediately to an alternative without narrating each failure.`,
+    host: `- If a tool returns an error, say what happened in plain words, as ${NARRATION_INSTRUCTION} asks, then try another approach.
+- When tools fail silently or return empty results, move on to an alternative. Whether and how you tell the user is for ${NARRATION_INSTRUCTION} to decide.`,
+  },
+  concise: {
+    brief: `- One sentence of narration per tool use, maximum.`,
+    host: `- Narrate tool use only as much as ${NARRATION_INSTRUCTION} asks, in the fewest words that say it.`,
+  },
+  formal: {
+    brief: `- Narrate tool usage with brief, factual statements.`,
+    host: `- Narrate tool usage with factual statements, as much as ${NARRATION_INSTRUCTION} asks.`,
+  },
+};
+
+export function getCommunicationRules(setting: CommunicationStyleSetting = 'conversational', narration: NarrationSetting = 'brief'): string {
   const { preset, format } = resolveCommunicationStyle(setting);
+  const amount = resolveNarration(narration);
   const baseRules = `## COMMUNICATION RULES
 
 ### Output Format
@@ -105,7 +145,7 @@ ${OUTPUT_FORMAT[format]}
 - NEVER tell the user that a generation, export, or other async job is "in progress," "processing," or "rendering" unless the tool returned a real jobId.
 - If a tool returns an error, an empty result, or no jobId, say what actually happened: "That didn't work — the backend rejected the request." Do NOT pretend the work started.
 - If a tool returns a jobId, you may say it's processing and quote the jobId.
-- A tool started real work only if its result says so (a job id, or a started status). Moving around the UI starts nothing by itself.`;
+- A tool started real work only if its result says so (a job id, or a started status). Moving around the UI starts nothing by itself.${amount === 'host' ? HOST_NARRATION : ''}`;
 
   switch (preset) {
     case 'concise':
@@ -115,7 +155,7 @@ ${OUTPUT_FORMAT[format]}
 - Keep responses short and direct. Answer the question, then stop.
 ${PRESET_FORMAT_LINE.concise[format]}
 - Omit filler phrases ("Great question!", "Let me help you with that!").
-- One sentence of narration per tool use, maximum.
+${NARRATION_LINES.concise[amount]}
 - Only ask follow-up questions when you genuinely cannot proceed without more information.`;
 
     case 'formal':
@@ -127,7 +167,7 @@ ${PRESET_FORMAT_LINE.concise[format]}
 - Avoid emojis, slang, or overly casual language.
 ${PRESET_FORMAT_LINE.formal[format]}
 - Address the user respectfully — no assumptions of familiarity.
-- Narrate tool usage with brief, factual statements.`;
+${NARRATION_LINES.formal[amount]}`;
 
     case 'conversational':
     default:
@@ -136,10 +176,9 @@ ${PRESET_FORMAT_LINE.formal[format]}
 ### Style: Conversational
 - Be conversational and enthusiastic. You are a collaborator, not a bot.
 - Speak as a partner with opinions and expertise in the domain.
-- Briefly narrate what you're doing when using tools — but keep it to ONE short sentence, never a paragraph.
+${NARRATION_LINES.conversationalTools[amount]}
 - Ask ONE focused question at a time. Do NOT ask 5 questions in one message.
 - Suggest defaults the user can accept: "I'm thinking X — sound right?"
-- If a tool returns an error, acknowledge it briefly: "That didn't work — let me try another approach."
-- When tools fail silently or return empty results, pivot immediately to an alternative without narrating each failure.`;
+${NARRATION_LINES.conversationalFailures[amount]}`;
   }
 }
