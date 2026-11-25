@@ -162,6 +162,15 @@ export interface AgentWorkerConfig {
      * `false`: no digest at all, as before 0.38.
      */
     stateDigest?: StateDigestSetting;
+    /**
+     * A name for what a host's `stateDigest` function writes, which changes
+     * whenever what it writes does (for example `dealer-facts-v2`). The worker
+     * never reads it; a recording of a conversation (agent-evals) is
+     * fingerprinted by it, since a function cannot be, so a recording made
+     * with another digest is stale. Required by agent-evals when
+     * `stateDigest` is a function.
+     */
+    stateDigestId?: string;
     /** The longest a page's digest is, in characters. Default 600 (`DEFAULT_STATE_DIGEST_CHARS`). */
     maxStateDigestChars?: number;
     /**

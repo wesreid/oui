@@ -179,3 +179,49 @@ describe('a case held to a fact of an earlier page, recorded and replayed (accep
     ]);
   });
 });
+
+/**
+ * A host's own digest function, recorded (nova-d3, 2026-11-25): a function has
+ * no JSON form, so the fingerprint holds the name the host gives what it writes
+ * (`stateDigestId`). Every case failed before it ran, on "is not I-JSON".
+ */
+describe('a host’s own digest, recorded and replayed (acceptance)', () => {
+  const hostDigest = (observations: Record<string, Record<string, unknown>>) =>
+    Object.entries(observations)
+      .map(([surface, shown]) => `${surface}: ${JSON.stringify(shown)}`)
+      .join('; ');
+  const withDigest = (dir: string, uiActions: Record<string, unknown>) =>
+    configFor(dir, {
+      suites: [SUITE],
+      channels: { web_chat: { approvals: 'ui' } },
+      agent: () => ({ ...agent(), uiActions }),
+    });
+
+  it('runs with the function named by stateDigestId, replays by that name, and is stale once the name changes', async () => {
+    const { dir, cleanup } = scratch();
+    dirs.push(cleanup);
+    const recorded = (await recordWith(remembering, () =>
+      runEvals(withDigest(dir, { stateDigest: hostDigest, stateDigestId: 'lead-facts-v1' }), { mode: 'record' }),
+    )).result;
+    // It ran every turn: before, it failed before its first, on a fingerprint no function can have.
+    expect(recorded.cases.map((c) => [c.scenario, c.turns.length])).toEqual([['remembers-the-rogue', 3]]);
+    expect(recorded.cases[0].failures.map((f) => f.assertion)).not.toContain('recording');
+
+    // The same name: the same fingerprint, whatever the function's body.
+    const replayed = await runEvals(withDigest(dir, { stateDigest: (o: Record<string, Record<string, unknown>>) => hostDigest(o), stateDigestId: 'lead-facts-v1' }));
+    expect(replayed.mode).toBe('replay');
+    expect(replayed.cases[0].failures.map((f) => f.assertion)).not.toContain('recording');
+
+    // Another name: what the digest writes changed, so the recording no longer answers what is asked.
+    const stale = await runEvals(withDigest(dir, { stateDigest: hostDigest, stateDigestId: 'lead-facts-v2' }));
+    expect(stale.cases[0].failures.map((f) => f.assertion)).toEqual(['recording']);
+  });
+
+  it('refuses a function with no stateDigestId, naming the field, rather than fingerprinting without it', async () => {
+    const { dir, cleanup } = scratch();
+    dirs.push(cleanup);
+    await expect(
+      recordWith(remembering, () => runEvals(withDigest(dir, { stateDigest: hostDigest }), { mode: 'record' })),
+    ).rejects.toThrow(/uiActions\.stateDigest is a function.*give uiActions\.stateDigestId/);
+  });
+});

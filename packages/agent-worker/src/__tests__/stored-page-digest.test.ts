@@ -17,7 +17,7 @@ import { createToolRegistry } from '../tools/types.js';
 import type { UIActionChannel } from '../ui/channel.js';
 import { PROMPT_CACHE_BREAKPOINTS } from '../model.js';
 import { answerWithoutState, STATE_AT_END } from '../ui/page-state-at-end.js';
-import { DEFAULT_STATE_DIGEST_CHARS, pageDigest, readStateDigestSetting, stateDigestOf } from '../ui/state-digest.js';
+import { DEFAULT_STATE_DIGEST_CHARS, pageDigest, readStateDigestId, readStateDigestSetting, stateDigestOf } from '../ui/state-digest.js';
 import { pageAtStartNote } from '../ui/page-at-start.js';
 import { laterAnswerFor } from '../ui/ui-tools.js';
 import { stoppedTurnMessages } from '../stop/partial.js';
@@ -188,6 +188,13 @@ describe('the host’s digest', () => {
       persistMessages: async () => {},
     };
     expect(() => assertAgentRuntimeConfig({ ...runtime, uiActions: { stateDigest: 'short' as never } })).toThrow(/ui\.stateDigest/);
+    // Its name, which recordings are fingerprinted by, is a non-empty string when given.
+    expect(readStateDigestId(undefined)).toBeUndefined();
+    expect(readStateDigestId('lead-facts-v1')).toBe('lead-facts-v1');
+    expect(() => readStateDigestId('  ')).toThrow(/ui\.stateDigestId must be a non-empty string naming what stateDigest writes, not an empty string/);
+    expect(() => readStateDigestId(2)).toThrow(/not number/);
+    expect(() => assertAgentRuntimeConfig({ ...runtime, uiActions: { stateDigest: () => null, stateDigestId: '' } })).toThrow(/ui\.stateDigestId/);
+    expect(() => assertAgentRuntimeConfig({ ...runtime, uiActions: { stateDigest: () => null, stateDigestId: 'lead-facts-v1' } })).not.toThrow();
     expect(() => assertAgentRuntimeConfig({ ...runtime, uiActions: { stateDigest: false } })).not.toThrow();
   });
 });
