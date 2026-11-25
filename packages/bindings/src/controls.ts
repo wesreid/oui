@@ -475,13 +475,27 @@ function numberSchema(props: SchemaProps): JsonSchema {
 export const ITEM_PROPERTY = 'item';
 
 export function itemSchema(items?: readonly { key: string; title: string }[]): JsonSchema {
+  // A record drawn twice (a vehicle on a lead's card and again in the list) is one row: its key once.
+  const rows = items ? uniqueRows(items) : undefined;
   return {
     type: 'string',
     description:
       'Which one: the id or the exact title of a row the page shows' +
-      (items && items.length ? ` (${items.length} on screen now)` : ''),
-    ...(items && items.length && items.length <= MAX_ITEM_ENUM ? { enum: items.map(i => i.key) } : {}),
+      (rows && rows.length ? ` (${rows.length} on screen now)` : ''),
+    ...(rows && rows.length && rows.length <= MAX_ITEM_ENUM ? { enum: rows.map(i => i.key) } : {}),
   };
+}
+
+/**
+ * Rows by key, each once, in the order they are first drawn: the first
+ * drawing of a record drawn twice on a page (the same key in two places)
+ * stands for it, its title included. An `enum` that repeats a value is not a
+ * schema a model provider compiles, and a count of drawings is not how many
+ * rows there are.
+ */
+export function uniqueRows<T extends { key: string }>(rows: readonly T[]): T[] {
+  const seen = new Set<string>();
+  return rows.filter(row => (seen.has(row.key) ? false : (seen.add(row.key), true)));
 }
 
 /** Beyond this many rows, the item parameter names none of them; the page observation lists them. */

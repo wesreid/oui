@@ -1,0 +1,150 @@
+{
+  "buildId": "ba1996991dccaf02",
+  "frames": [
+    {
+      "adjacent": [],
+      "detail": {
+        "content": "Settings Layout: the app's frame, around the pages at /settings, /settings/billing, /settings/team/:teamId. Its controls are there whatever page is open.\nWhere: the app’s frame, whatever page is open.\n\nWhat you can do here (tool in brackets):\nOn the page:\n- Help [settings_help]\n\nWhat the page reports: state (its fields, lists and unavailable controls) and problems.",
+        "title": "Settings Layout"
+      },
+      "recipes": [],
+      "relationships": null,
+      "routes": [
+        "/settings",
+        "/settings/billing",
+        "/settings/team/:teamId"
+      ],
+      "summary": {
+        "content": "Settings Layout: Settings Layout: the app's frame, around the pages at /settings, /settings/billing, /settings/team/:teamId.",
+        "title": "Settings Layout"
+      },
+      "surface": "shell:SettingsLayout"
+    }
+  ],
+  "overview": {
+    "content": "Every page: sidebar groups, then their pages; a page opened from another is indented under it (from the control that opens it). After each, what it offers, by where it is (a menu, a tab), most telling first; \"…\": more.\nOpened by address only:\n- About /about: Go\n- Billing /settings/billing: Go\n- General Settings /settings: Go\n- Project /projects/:projectId: Go\n- Project Edit /projects/:projectId/edit: Go\n- Projects /projects: Go\n- Team /settings/team/:teamId: Go\nAround /settings, /settings/billing, /settings/team/:teamId (Settings Layout): Help\nGo to any page by its address with [app_navigate]. An item's page (its route has an :id) opens from the page above it.",
+    "title": "The app’s pages"
+  },
+  "pages": [
+    {
+      "adjacent": [],
+      "detail": {
+        "content": "Offers Go.\nWhere: reached by address (/about) or from another page.\n\nWhat you can do here (tool in brackets):\nOn the page:\n- Go [about_contact]\n\nWhat the page reports: state (its fields, lists and unavailable controls) and problems.",
+        "title": "About (/about)"
+      },
+      "recipes": [],
+      "relationships": null,
+      "routes": [
+        "/about"
+      ],
+      "summary": {
+        "content": "About (/about): Offers Go.",
+        "title": "About"
+      },
+      "surface": "page:AboutPage"
+    },
+    {
+      "adjacent": [],
+      "detail": {
+        "content": "Offers Go.\nWhere: reached by address (/settings/billing) or from another page.\n\nWhat you can do here (tool in brackets):\nOn the page:\n- Go [settings_billing_upgrade]\n\nWhat the page reports: state (its fields, lists and unavailable controls) and problems.",
+        "title": "Billing (/settings/billing)"
+      },
+      "recipes": [],
+      "relationships": null,
+      "routes": [
+        "/settings/billing"
+      ],
+      "summary": {
+        "content": "Billing (/settings/billing): Offers Go.",
+        "title": "Billing"
+      },
+      "surface": "page:BillingPage"
+    },
+    {
+      "adjacent": [],
+      "detail": {
+        "content": "Offers Go.\nWhere: reached by address (/settings) or from another page.\n\nWhat you can do here (tool in brackets):\nOn the page:\n- Go [settings_general_save]\n\nWhat the page reports: state (its fields, lists and unavailable controls) and problems.",
+        "title": "General Settings (/settings)"
+      },
+      "recipes": [],
+      "relationships": null,
+      "routes": [
+        "/settings"
+      ],
+      "summary": {
+        "content": "General Settings (/settings): Offers Go.",
+        "title": "General Settings"
+      },
+      "surface": "page:GeneralSettingsPage"
+    },
+    {
+      "adjacent": [],
+      "detail": {
+        "content": "Offers Go.\nWhere: reached by address (/projects/:projectId/edit) or from another page.\n\nWhat you can do here (tool in brackets):\nOn the page:\n- Go [projects_edit_save]\n\nWhat the page reports: state (its fields, lists and unavailable controls) and problems.",
+        "title": "Project Edit (/projects/:projectId/edit)"
+      },
+      "recipes": [],
+      "relationships": null,
+      "routes": [
+        "/projects/:projectId/edit"
+      ],
+      "summary": {
+        "content": "Project Edit (/projects/:projectId/edit): Offers Go.",
+        "title": "Project Edit"
+      },
+      "surface": "page:ProjectEditPage"
+    },
+    {
+      "adjacent": [],
+      "detail": {
+        "content": "Offers Go.\nWhere: reached by address (/projects/:projectId) or from another page.\n\nWhat you can do here (tool in brackets):\nOn the page:\n- Go [projects_detail_rename]\n\nWhat the page reports: state (its fields, lists and unavailable controls) and problems.",
+        "title": "Project (/projects/:projectId)"
+      },
+      "recipes": [],
+      "relationships": null,
+      "routes": [
+        "/projects/:projectId"
+      ],
+      "summary": {
+        "content": "Project (/projects/:projectId): Offers Go.",
+        "title": "Project"
+      },
+      "surface": "page:ProjectPage"
+    },
+    {
+      "adjacent": [],
+      "detail": {
+        "content": "Offers Go.\nWhere: reached by address (/projects) or from another page.\n\nWhat you can do here (tool in brackets):\nOn the page:\n- Go [projects_create]\n\nWhat the page reports: state (its fields, lists and unavailable controls) and problems.",
+        "title": "Projects (/projects)"
+      },
+      "recipes": [],
+      "relationships": null,
+      "routes": [
+        "/projects"
+      ],
+      "summary": {
+        "content": "Projects (/projects): Offers Go.",
+        "title": "Projects"
+      },
+      "surface": "page:ProjectsPage"
+    },
+    {
+      "adjacent": [],
+      "detail": {
+        "content": "Offers Go.\nWhere: reached by address (/settings/team/:teamId) or from another page.\n\nWhat you can do here (tool in brackets):\nOn the page:\n- Go [settings_team_invite]\n\nWhat the page reports: state (its fields, lists and unavailable controls) and problems.",
+        "title": "Team (/settings/team/:teamId)"
+      },
+      "recipes": [],
+      "relationships": null,
+      "routes": [
+        "/settings/team/:teamId"
+      ],
+      "summary": {
+        "content": "Team (/settings/team/:teamId): Offers Go.",
+        "title": "Team"
+      },
+      "surface": "page:TeamPage"
+    }
+  ],
+  "version": 1
+}

@@ -8,6 +8,11 @@
     "version": { "description": "The contract major (`MANIFEST_VERSION`).", "const": 1 },
     "buildId": { "description": "The manifest's build id: the two are one build.", "type": "string", "minLength": 1 },
     "overview": { "description": "The app's map: every page and room, how to reach it (its sidebar group, or the page and the controls that lead to it), and what it offers, as capability groups from its bound actions and its rooms' menus. Fitted to the config's mapChars, and the same for every page of a build, so the assistant always has it.", "$ref": "#/$defs/KnowledgeEntry" },
+    "map": {
+      "description": "The app's map line by line, present only when a route of the build is gated (`routeGates`): `overview.content` is these lines with every page shown. A tab given what the session may see (`allows`) renders them without the pages it may not (`appMapContent`), so the map names only pages the person can open. The generator places a page under another only when that page is open whenever this one is, so no line is left under a page that is gone.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/AppMapLine" }
+    },
     "pages": { "type": "array", "items": { "$ref": "#/$defs/PageKnowledge" } },
     "frames": {
       "description": "The app's frame around the pages (`shell` surfaces), each part with the route patterns it frames.",
@@ -24,6 +29,40 @@
       "properties": { "title": { "type": "string" }, "content": { "type": "string" } },
       "required": ["title", "content"],
       "additionalProperties": false
+    },
+    "AppMapLine": {
+      "description": "One line of the app's map.",
+      "oneOf": [
+        {
+          "description": "A line shown whatever the session may see: the map's opening, the app's frame, how to go to a page.",
+          "type": "object",
+          "properties": { "kind": { "const": "text" }, "text": { "type": "string" } },
+          "required": ["kind", "text"],
+          "additionalProperties": false
+        },
+        {
+          "description": "A heading over the page lines that follow it (a sidebar group, the pages opened by address): shown when one of them is.",
+          "type": "object",
+          "properties": { "kind": { "const": "heading" }, "text": { "type": "string" } },
+          "required": ["kind", "text"],
+          "additionalProperties": false
+        },
+        {
+          "description": "One page's line: its depth in two spaces each, then `- <title> <route>`, then ` (from <from>)` and `: <offers>` when it has them. Shown when its page is open to the session, naming the first of the page's open routes when `route` is not open.",
+          "type": "object",
+          "properties": {
+            "kind": { "const": "page" },
+            "surface": { "description": "The page surface it names.", "type": "string" },
+            "depth": { "description": "How far it is indented: one more than the page that opens it.", "type": "integer", "minimum": 0 },
+            "title": { "type": "string" },
+            "route": { "description": "The route it names: its page's first.", "type": "string" },
+            "from": { "description": "The control on the page above it that opens it.", "type": "string" },
+            "offers": { "description": "What it offers, as the map was fitted to `mapChars`.", "type": "string" }
+          },
+          "required": ["kind", "surface", "depth", "title", "route"],
+          "additionalProperties": false
+        }
+      ]
     },
     "KnowledgeRecipe": {
       "description": "A task recipe the UI implies, as the assistant's prompt shows a workflow.",
@@ -49,7 +88,8 @@
           "anyOf": [{ "$ref": "#/$defs/KnowledgeEntry" }, { "type": "null" }]
         },
         "recipes": { "type": "array", "items": { "$ref": "#/$defs/KnowledgeRecipe" } },
-        "adjacent": { "description": "Page surfaces this page leads to or is reached from.", "type": "array", "items": { "type": "string" } }
+        "adjacent": { "description": "Page surfaces this page leads to or is reached from.", "type": "array", "items": { "type": "string" } },
+        "gates": { "description": "Its gated routes, each with its gates, as its manifest surface has them. Absent when none of its routes is gated.", "$ref": "oui-manifest.json#/$defs/RouteGates" }
       },
       "required": ["surface", "routes", "summary", "detail", "relationships", "recipes", "adjacent"],
       "additionalProperties": false

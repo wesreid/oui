@@ -26,8 +26,8 @@ import {
   type PageLinks,
 } from './app.js';
 import type { JsonSchema } from './json-schema.js';
-import { pageForPath } from './manifest.js';
 import { ROOM_SET_PROPERTIES_ID } from './room.js';
+import { buildGates, openPageForPath, scopeKey, scopeKnowledge, scopeManifest, type GateFilter } from './scope.js';
 
 /** What a lookup answers: data the assistant is given, or why it could not (oui-spec's `OUILookupAnswer`). */
 export type KnowledgeLookupAnswer =
@@ -47,6 +47,12 @@ export interface KnowledgeLookupOptions {
   manifest: OuiManifest;
   /** The address of the page the person is on, read at each search: the way to each result starts there. */
   location?: () => string;
+  /**
+   * Which gates the session may see (`routeGates`), read at each search and
+   * each guide: a page it may not see is never a result, never a page on the
+   * way to one, and never read. Without it, every page.
+   */
+  allows?: GateFilter;
 }
 
 /** Results one search gives when it names no limit, and the most it gives. */
@@ -295,13 +301,16 @@ function cutAt(text: string, max: number): string {
   return text.slice(0, end > max / 2 ? end : max);
 }
 
-/** The page a name means: a route, an address on one, a title (whatever its case), or the one title it starts. */
-function namedPage(pages: readonly PageKnowledge[], knowledge: GeneratedKnowledge, name: string): PageKnowledge | null {
+/**
+ * The page a name means: a route, an address on one (`pageAt`), a title
+ * (whatever its case), or the one title it starts.
+ */
+function namedPage(pages: readonly PageKnowledge[], pageAt: (path: string) => PageKnowledge | null, name: string): PageKnowledge | null {
   const clean = name.trim();
   if (!clean) return null;
   const byRoute = pages.find(p => p.routes.includes(clean));
   if (byRoute) return byRoute;
-  if (clean.startsWith('/')) return pageForPath(knowledge, clean);
+  if (clean.startsWith('/')) return pageAt(clean);
   const lower = clean.toLowerCase();
   const titled = pages.filter(p => p.summary.title.toLowerCase() === lower);
   if (titled.length === 1) return titled[0];
@@ -313,16 +322,33 @@ function namedPage(pages: readonly PageKnowledge[], knowledge: GeneratedKnowledg
  * The lookup over a build: `find` searches every action of the app and gives
  * each match with the way to it from the page the person is on and what it
  * needs first; `guide` gives one page's knowledge. Built once, the first time
- * either is asked.
+ * either is asked, and again when what the session may see (`allows`) changes:
+ * both answer for the build as the session sees it.
  */
-export function createKnowledgeLookup({ knowledge, manifest, location }: KnowledgeLookupOptions): KnowledgeLookup {
-  let built: { index: Index; pages: AppPage[]; links: PageLinks } | null = null;
+export function createKnowledgeLookup({ knowledge, manifest, location, allows }: KnowledgeLookupOptions): KnowledgeLookup {
+  // The build as each session sees it (`allows`): built once for what it may see, again only when that changes.
+  const gates = buildGates(knowledge.pages);
+  let built: {
+    key: string | null;
+    knowledge: GeneratedKnowledge;
+    index: Index;
+    pages: AppPage[];
+    links: PageLinks;
+  } | null = null;
   const ready = () => {
-    if (!built) {
-      const pages: AppPage[] = knowledge.pages.map(p => ({ surface: p.surface, routes: p.routes, title: p.summary.title }));
-      built = { index: buildIndex(entriesOf(manifest, pages)), pages, links: pageLinks(pages, manifest.surfaces) };
+    const key = scopeKey(gates, allows);
+    if (!built || built.key !== key) {
+      const scoped = scopeKnowledge(knowledge, allows);
+      const surfaces = scopeManifest(manifest, allows);
+      const pages: AppPage[] = scoped.pages.map(p => ({ surface: p.surface, routes: p.routes, title: p.summary.title }));
+      built = { key, knowledge: scoped, index: buildIndex(entriesOf(surfaces, pages)), pages, links: pageLinks(pages, surfaces.surfaces) };
     }
     return built;
+  };
+  /** The page open to the session at an address: matched against every route of the build. */
+  const pageAt = (scoped: GeneratedKnowledge, path: string): PageKnowledge | null => {
+    const page = openPageForPath(knowledge, path, allows);
+    return page ? (scoped.pages.find(p => p.surface === page.surface) ?? null) : null;
   };
   const refuse = (message: string): KnowledgeLookupAnswer => ({ success: false, error: { code: 'INVALID_PARAMS', message } });
 
@@ -336,9 +362,9 @@ export function createKnowledgeLookup({ knowledge, manifest, location }: Knowled
       }
       const words = searchWords(query);
       if (!words.length) return refuse(`"${query}" has no word to search for: say what the capability does.`);
-      const { index, pages, links } = ready();
+      const { index, pages, links, knowledge: scoped } = ready();
       const path = location?.() ?? '';
-      const onPage = path ? pageForPath(knowledge, path) : null;
+      const onPage = path ? pageAt(scoped, path) : null;
       const current = onPage ? (pages.find(p => p.surface === onPage.surface) ?? null) : null;
 
       const scored = index.entries
@@ -377,12 +403,13 @@ export function createKnowledgeLookup({ knowledge, manifest, location }: Knowled
     guide(params) {
       const name = typeof params.page === 'string' ? params.page : '';
       if (!name.trim()) return refuse('guide takes page: a route ("/image/:imageId"), an address on one, or a page’s title.');
-      const page = namedPage(knowledge.pages, knowledge, name);
+      const { knowledge: scoped } = ready();
+      const page = namedPage(scoped.pages, path => pageAt(scoped, path), name);
       if (!page) {
-        const titles = knowledge.pages.map(p => p.summary.title).slice(0, 40);
+        const titles = scoped.pages.map(p => p.summary.title).slice(0, 40);
         return {
           success: false,
-          error: { code: 'NOT_FOUND', message: `No page is named "${name}". Pages: ${titles.map(t => `"${t}"`).join(', ')}${knowledge.pages.length > 40 ? ', …' : ''}.` },
+          error: { code: 'NOT_FOUND', message: `No page is named "${name}". Pages: ${titles.map(t => `"${t}"`).join(', ')}${scoped.pages.length > 40 ? ', …' : ''}.` },
         };
       }
       const text = guideText(page);

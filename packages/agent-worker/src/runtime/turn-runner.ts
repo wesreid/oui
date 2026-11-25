@@ -448,6 +448,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
               maxIndexChars: config.uiActions?.maxIndexChars,
               stateDigest: config.uiActions?.stateDigest,
               maxStateDigestChars: config.uiActions?.maxStateDigestChars,
+              ...(config.uiActions?.knowledgePlacement ? { knowledgePlacement: config.uiActions.knowledgePlacement } : {}),
             },
             ...(config.attachments ? { attachments: config.attachments } : {}),
           },

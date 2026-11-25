@@ -18,6 +18,7 @@ import type { ApprovalContinuation, ResumeContinuation } from '@ouispec/agent-co
 import type { ResumedTurn } from './resume/resumed-calls.js';
 import type { TurnContextPlacement } from './step-messages.js';
 import type { StateDigestSetting } from './ui/state-digest.js';
+import type { KnowledgePlacement } from './ui/knowledge.js';
 
 /**
  * Configuration for the agent worker.
@@ -163,6 +164,22 @@ export interface AgentWorkerConfig {
     stateDigest?: StateDigestSetting;
     /** The longest a page's digest is, in characters. Default 600 (`DEFAULT_STATE_DIGEST_CHARS`). */
     maxStateDigestChars?: number;
+    /**
+     * Where the page's knowledge (`context.uiKnowledge`: the entries and
+     * workflows of the page the user is on) goes. The app's map is in the
+     * system prompt either way.
+     * - `'prompt'` (default): in the system prompt after the map, within
+     *   12,000 characters (`KNOWLEDGE_PROMPT_CHARS`), as before this option.
+     *   The system prompt then changes with the page, so a turn sent from
+     *   another page writes the prompt cache again from its start.
+     * - `'index'`: the system prompt carries the map only, the same on every
+     *   page of a build, so it is read from the cache. The page's entries and
+     *   workflows are listed by title only after the conversation, beside the
+     *   page's newest state, in `<page_knowledge>` (`knowledgeIndexText`), and
+     *   the model reads each with `ui_guide` (`entry`, `workflow`, or `page`
+     *   for another page).
+     */
+    knowledgePlacement?: KnowledgePlacement;
   };
   /**
    * Called with what the turn produced, after its last step and before the

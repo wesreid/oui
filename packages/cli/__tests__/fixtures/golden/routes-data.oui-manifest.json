@@ -1,0 +1,825 @@
+{
+  "buildId": "4914bc54b3985094",
+  "surfaces": [
+    {
+      "actions": [
+        {
+          "control": "button",
+          "declaredIn": "src/pages/AccountPage.tsx",
+          "description": "Press \"Go\": Save the account.",
+          "id": "account.save",
+          "input": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "account_save",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/account",
+              "title": "Account"
+            }
+          ],
+          "source": "control",
+          "title": "Go"
+        }
+      ],
+      "description": "Offers Go.",
+      "id": "page:AccountPage",
+      "kind": "page",
+      "observations": [
+        {
+          "description": "What the page shows now.",
+          "id": "state",
+          "schema": {
+            "properties": {
+              "lists": {
+                "description": "The rows each list-row control is showing, by binding id: their ids (keys) and titles",
+                "type": "object"
+              },
+              "shown": {
+                "description": "What the page shows that is not a control, by display: its binding id, heading and facts, each as text by its label; facts that describe one row of a list (a card each) carry the row as item, and a long list of them keeps an index of its rows",
+                "items": {
+                  "type": "object"
+                },
+                "type": "array",
+                "x-rows": {
+                  "index": [
+                    "id"
+                  ],
+                  "ref": "item.key",
+                  "title": "item.title"
+                }
+              },
+              "unavailable": {
+                "description": "Controls that cannot be used right now",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "values": {
+                "description": "Each field's current value, by binding id",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+          "id": "problems",
+          "schema": {
+            "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+            "items": {
+              "properties": {
+                "detail": {
+                  "type": "object"
+                },
+                "hides": {
+                  "description": "Ids of what is not shown because of it",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "description": "What kind of problem it is, in the page’s own vocabulary",
+                  "type": "string"
+                },
+                "message": {
+                  "description": "The words the page shows for it",
+                  "type": "string"
+                },
+                "resolve": {
+                  "description": "The action that resolves it, and the choices it offers",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "choices": {
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      ],
+      "routes": [
+        "/account"
+      ],
+      "title": "Account"
+    },
+    {
+      "actions": [
+        {
+          "control": "button",
+          "declaredIn": "src/pages/AuditPage.tsx",
+          "description": "Press \"Go\": Download the audit log.",
+          "id": "audit.download",
+          "input": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "audit_download",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/account/audit",
+              "title": "Audit"
+            }
+          ],
+          "source": "control",
+          "title": "Go"
+        }
+      ],
+      "description": "Offers Go.",
+      "id": "page:AuditPage",
+      "kind": "page",
+      "observations": [
+        {
+          "description": "What the page shows now.",
+          "id": "state",
+          "schema": {
+            "properties": {
+              "lists": {
+                "description": "The rows each list-row control is showing, by binding id: their ids (keys) and titles",
+                "type": "object"
+              },
+              "shown": {
+                "description": "What the page shows that is not a control, by display: its binding id, heading and facts, each as text by its label; facts that describe one row of a list (a card each) carry the row as item, and a long list of them keeps an index of its rows",
+                "items": {
+                  "type": "object"
+                },
+                "type": "array",
+                "x-rows": {
+                  "index": [
+                    "id"
+                  ],
+                  "ref": "item.key",
+                  "title": "item.title"
+                }
+              },
+              "unavailable": {
+                "description": "Controls that cannot be used right now",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "values": {
+                "description": "Each field's current value, by binding id",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+          "id": "problems",
+          "schema": {
+            "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+            "items": {
+              "properties": {
+                "detail": {
+                  "type": "object"
+                },
+                "hides": {
+                  "description": "Ids of what is not shown because of it",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "description": "What kind of problem it is, in the page’s own vocabulary",
+                  "type": "string"
+                },
+                "message": {
+                  "description": "The words the page shows for it",
+                  "type": "string"
+                },
+                "resolve": {
+                  "description": "The action that resolves it, and the choices it offers",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "choices": {
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      ],
+      "routes": [
+        "/account/audit"
+      ],
+      "title": "Audit"
+    },
+    {
+      "actions": [
+        {
+          "control": "button",
+          "declaredIn": "src/pages/HomePage.tsx",
+          "description": "Press \"Go\": Start something new.",
+          "id": "home.start",
+          "input": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "home_start",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/",
+              "title": "Home"
+            }
+          ],
+          "source": "control",
+          "title": "Go"
+        }
+      ],
+      "description": "Offers Go.",
+      "id": "page:HomePage",
+      "kind": "page",
+      "observations": [
+        {
+          "description": "What the page shows now.",
+          "id": "state",
+          "schema": {
+            "properties": {
+              "lists": {
+                "description": "The rows each list-row control is showing, by binding id: their ids (keys) and titles",
+                "type": "object"
+              },
+              "shown": {
+                "description": "What the page shows that is not a control, by display: its binding id, heading and facts, each as text by its label; facts that describe one row of a list (a card each) carry the row as item, and a long list of them keeps an index of its rows",
+                "items": {
+                  "type": "object"
+                },
+                "type": "array",
+                "x-rows": {
+                  "index": [
+                    "id"
+                  ],
+                  "ref": "item.key",
+                  "title": "item.title"
+                }
+              },
+              "unavailable": {
+                "description": "Controls that cannot be used right now",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "values": {
+                "description": "Each field's current value, by binding id",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+          "id": "problems",
+          "schema": {
+            "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+            "items": {
+              "properties": {
+                "detail": {
+                  "type": "object"
+                },
+                "hides": {
+                  "description": "Ids of what is not shown because of it",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "description": "What kind of problem it is, in the page’s own vocabulary",
+                  "type": "string"
+                },
+                "message": {
+                  "description": "The words the page shows for it",
+                  "type": "string"
+                },
+                "resolve": {
+                  "description": "The action that resolves it, and the choices it offers",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "choices": {
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      ],
+      "routes": [
+        "/"
+      ],
+      "title": "Home"
+    },
+    {
+      "actions": [
+        {
+          "control": "button",
+          "declaredIn": "src/pages/ProfilePage.tsx",
+          "description": "Press \"Edit\": Edit the profile.",
+          "id": "profile.edit",
+          "input": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "profile_edit",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/profile",
+              "title": "Profile"
+            }
+          ],
+          "source": "control",
+          "title": "Edit"
+        }
+      ],
+      "description": "Offers Edit.",
+      "id": "page:ProfilePage",
+      "kind": "page",
+      "observations": [
+        {
+          "description": "What the page shows now.",
+          "id": "state",
+          "schema": {
+            "properties": {
+              "lists": {
+                "description": "The rows each list-row control is showing, by binding id: their ids (keys) and titles",
+                "type": "object"
+              },
+              "shown": {
+                "description": "What the page shows that is not a control, by display: its binding id, heading and facts, each as text by its label; facts that describe one row of a list (a card each) carry the row as item, and a long list of them keeps an index of its rows",
+                "items": {
+                  "type": "object"
+                },
+                "type": "array",
+                "x-rows": {
+                  "index": [
+                    "id"
+                  ],
+                  "ref": "item.key",
+                  "title": "item.title"
+                }
+              },
+              "unavailable": {
+                "description": "Controls that cannot be used right now",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "values": {
+                "description": "Each field's current value, by binding id",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+          "id": "problems",
+          "schema": {
+            "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+            "items": {
+              "properties": {
+                "detail": {
+                  "type": "object"
+                },
+                "hides": {
+                  "description": "Ids of what is not shown because of it",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "description": "What kind of problem it is, in the page’s own vocabulary",
+                  "type": "string"
+                },
+                "message": {
+                  "description": "The words the page shows for it",
+                  "type": "string"
+                },
+                "resolve": {
+                  "description": "The action that resolves it, and the choices it offers",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "choices": {
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      ],
+      "routes": [
+        "/profile"
+      ],
+      "title": "Profile"
+    },
+    {
+      "actions": [
+        {
+          "control": "button",
+          "declaredIn": "src/pages/ReportPage.tsx",
+          "description": "Press \"Go\": Share the report.",
+          "id": "reports.detail.share",
+          "input": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "reports_detail_share",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/reports/:reportId",
+              "title": "Report"
+            }
+          ],
+          "source": "control",
+          "title": "Go"
+        }
+      ],
+      "description": "Offers Go.",
+      "id": "page:ReportPage",
+      "kind": "page",
+      "observations": [
+        {
+          "description": "What the page shows now.",
+          "id": "state",
+          "schema": {
+            "properties": {
+              "lists": {
+                "description": "The rows each list-row control is showing, by binding id: their ids (keys) and titles",
+                "type": "object"
+              },
+              "shown": {
+                "description": "What the page shows that is not a control, by display: its binding id, heading and facts, each as text by its label; facts that describe one row of a list (a card each) carry the row as item, and a long list of them keeps an index of its rows",
+                "items": {
+                  "type": "object"
+                },
+                "type": "array",
+                "x-rows": {
+                  "index": [
+                    "id"
+                  ],
+                  "ref": "item.key",
+                  "title": "item.title"
+                }
+              },
+              "unavailable": {
+                "description": "Controls that cannot be used right now",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "values": {
+                "description": "Each field's current value, by binding id",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+          "id": "problems",
+          "schema": {
+            "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+            "items": {
+              "properties": {
+                "detail": {
+                  "type": "object"
+                },
+                "hides": {
+                  "description": "Ids of what is not shown because of it",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "description": "What kind of problem it is, in the page’s own vocabulary",
+                  "type": "string"
+                },
+                "message": {
+                  "description": "The words the page shows for it",
+                  "type": "string"
+                },
+                "resolve": {
+                  "description": "The action that resolves it, and the choices it offers",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "choices": {
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      ],
+      "routes": [
+        "/reports/:reportId"
+      ],
+      "title": "Report"
+    },
+    {
+      "actions": [
+        {
+          "control": "button",
+          "declaredIn": "src/pages/ReportsPage.tsx",
+          "description": "Press \"Go\": Export the reports.",
+          "id": "reports.export",
+          "input": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "name": "reports_export",
+          "reach": [
+            {
+              "kind": "route",
+              "path": "/reports",
+              "title": "Reports"
+            }
+          ],
+          "source": "control",
+          "title": "Go"
+        }
+      ],
+      "description": "Offers Go.",
+      "id": "page:ReportsPage",
+      "kind": "page",
+      "observations": [
+        {
+          "description": "What the page shows now.",
+          "id": "state",
+          "schema": {
+            "properties": {
+              "lists": {
+                "description": "The rows each list-row control is showing, by binding id: their ids (keys) and titles",
+                "type": "object"
+              },
+              "shown": {
+                "description": "What the page shows that is not a control, by display: its binding id, heading and facts, each as text by its label; facts that describe one row of a list (a card each) carry the row as item, and a long list of them keeps an index of its rows",
+                "items": {
+                  "type": "object"
+                },
+                "type": "array",
+                "x-rows": {
+                  "index": [
+                    "id"
+                  ],
+                  "ref": "item.key",
+                  "title": "item.title"
+                }
+              },
+              "unavailable": {
+                "description": "Controls that cannot be used right now",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "values": {
+                "description": "Each field's current value, by binding id",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+          "id": "problems",
+          "schema": {
+            "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+            "items": {
+              "properties": {
+                "detail": {
+                  "type": "object"
+                },
+                "hides": {
+                  "description": "Ids of what is not shown because of it",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "description": "What kind of problem it is, in the page’s own vocabulary",
+                  "type": "string"
+                },
+                "message": {
+                  "description": "The words the page shows for it",
+                  "type": "string"
+                },
+                "resolve": {
+                  "description": "The action that resolves it, and the choices it offers",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "choices": {
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      ],
+      "routes": [
+        "/reports"
+      ],
+      "title": "Reports"
+    },
+    {
+      "actions": [
+        {
+          "description": "Go to a page of the app, as following a link to it does. The page’s own tools are offered once it is open.",
+          "id": "app.navigate",
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "params": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Each :parameter of the route by name, when path is written as the route: {\"id\": \"v_1\"} for /voices/:id. Encoded for you.",
+                "type": "object"
+              },
+              "path": {
+                "description": "The page’s address, with an id in place of each :parameter (or the route as listed, with params). The pages: / (Home), /account (Account), /account/audit (Audit), /profile (Profile), /reports (Reports), /reports/:reportId (Report).",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "type": "object"
+          },
+          "name": "app_navigate",
+          "reach": [],
+          "source": "navigation",
+          "title": "Go to a page"
+        }
+      ],
+      "description": "Every page of the app, by its address, and the page the person is on.",
+      "id": "app:navigation",
+      "kind": "navigation",
+      "observations": [
+        {
+          "description": "The address of the page the person is on.",
+          "id": "location",
+          "schema": {
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "description": "What stops the page at this address from opening for the person: access it needs that they do not have, a load that failed. Reported here when the page itself is not open to report it; empty otherwise.",
+          "id": "problems",
+          "schema": {
+            "description": "What is wrong that a person would see: what the page cannot show, load or do, as its banners and messages say it. Empty when nothing is wrong.",
+            "items": {
+              "properties": {
+                "detail": {
+                  "type": "object"
+                },
+                "hides": {
+                  "description": "Ids of what is not shown because of it",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "description": "What kind of problem it is, in the page’s own vocabulary",
+                  "type": "string"
+                },
+                "message": {
+                  "description": "The words the page shows for it",
+                  "type": "string"
+                },
+                "resolve": {
+                  "description": "The action that resolves it, and the choices it offers",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "choices": {
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      ],
+      "routes": [
+        "/",
+        "/account",
+        "/account/audit",
+        "/profile",
+        "/reports",
+        "/reports/:reportId"
+      ],
+      "title": "Pages"
+    }
+  ],
+  "version": 1
+}

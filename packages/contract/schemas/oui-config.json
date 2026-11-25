@@ -33,6 +33,16 @@
         "pattern": "\\S"
       }
     },
+    "routeGates": {
+      "description": "Route wrappers that open their page only to some sessions (a brand's features, an audience), each with the prop whose value names the gate: `{ \"FeatureRoute\": \"feature\" }` reads `<FeatureRoute feature=\"campaigns\">` as the gate `campaigns`. Each must also be in `routeWrappers`. Every route records the gates its element and its parent routes' elements are wrapped in, outermost first, on its page's surface and knowledge (`gates`), and the knowledge carries the app's map line by line (`map`), so a tab given what the session may see (`allows`) leaves the other pages out of the map, the app-wide search, the page guide and the pages the assistant goes to. A gate's value must be readable at build time: a literal, or a constant. Default none: a build that names none generates exactly what it did before.",
+      "type": "object",
+      "propertyNames": { "minLength": 1, "pattern": "\\S" },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "\\S"
+      }
+    },
     "nav": {
       "description": "Files holding the navigation entries (`{ label, route, group }` object literals). Default none.",
       "type": "array",

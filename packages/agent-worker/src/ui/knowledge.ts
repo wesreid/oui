@@ -22,6 +22,16 @@
  * turn. What fits in `KNOWLEDGE_PROMPT_CHARS` is sent; the rest of an entry,
  * and a workflow's steps, are read with `ui_guide` when they are needed, and
  * the prompt says what is not shown and how to read it.
+ *
+ * Where the page's part goes is the host's choice (`config.ui.knowledgePlacement`).
+ * `'prompt'`, the default, renders it into the system prompt as above. The
+ * system prompt then changes with the page, and every turn sent from another
+ * page writes the prompt cache again from its first byte (Nova, 2026-10-30:
+ * 0% read on a third turn after the page moved). `'index'` keeps the system
+ * prompt to the host's prompt and the app's map, the same on every page of a
+ * build, and lists the page's entries and workflows by title only after the
+ * conversation, beside the page's newest state, where nothing is cached
+ * (`knowledgeIndexText`); each is read with `ui_guide`.
  */
 import type { ResolvedKnowledge } from '@ouispec/bindings';
 import type { RegisteredTool, ToolExecutionContext, ToolExecutionResult } from '../tools/types.js';
@@ -43,6 +53,29 @@ export const APP_MAP_PROMPT_CHARS = 10_000;
 
 /** What a UI client sends: the knowledge for the page the user is on. */
 export type ClientKnowledge = ResolvedKnowledge;
+
+/**
+ * Where the page's knowledge goes (`config.ui.knowledgePlacement`): `prompt`,
+ * the default, into the system prompt after the app's map; or `index`, by
+ * title only after the conversation, each read with `ui_guide`, so the system
+ * prompt is the same on every page of a build.
+ */
+export const KNOWLEDGE_PLACEMENTS = ['prompt', 'index'] as const;
+
+export type KnowledgePlacement = (typeof KNOWLEDGE_PLACEMENTS)[number];
+
+/** The placement named, or a refusal naming the ones there are. */
+export function readKnowledgePlacement(value: unknown): KnowledgePlacement {
+  if (value === undefined) return 'prompt';
+  if ((KNOWLEDGE_PLACEMENTS as readonly unknown[]).includes(value)) return value as KnowledgePlacement;
+  throw new Error(`[agent-sdk] ui.knowledgePlacement must be one of ${KNOWLEDGE_PLACEMENTS.join(', ')}, not ${JSON.stringify(value)}`);
+}
+
+/** Opens and closes the page's knowledge index after the conversation (`index` placement). */
+export const KNOWLEDGE_INDEX_OPEN = '<page_knowledge>';
+export const KNOWLEDGE_INDEX_CLOSE = '</page_knowledge>';
+/** The most characters the page's knowledge index names its entries and workflows in, each list half of it. */
+export const KNOWLEDGE_INDEX_CHARS = 2_000;
 
 /**
  * Read and validate the knowledge from a turn's context. Returns null when the
@@ -106,9 +139,7 @@ export function renderClientKnowledge(knowledge: ClientKnowledge, maxChars = KNO
       .filter(Boolean)
       .join('\n\n');
 
-  // The map has its own section (`renderAppMap`): the copy a tab also puts first among the entries is not said twice.
-  const map = knowledge.map;
-  const pageEntries = map ? knowledge.entries.filter((e) => !(e.title === map.title && e.content === map.content)) : knowledge.entries;
+  const pageEntries = pageEntriesOf(knowledge);
   const all = sections(pageEntries.map(whole), wholeWorkflows);
   if (all.length <= maxChars) return all;
 
@@ -146,11 +177,55 @@ export function renderClientKnowledge(knowledge: ClientKnowledge, maxChars = KNO
   return sections(rendered, named);
 }
 
+/** The page's entries: the knowledge's, less the copy of the map a tab also puts first among them (it has its own section, `renderAppMap`). */
+function pageEntriesOf(knowledge: ClientKnowledge): ClientKnowledge['entries'] {
+  const map = knowledge.map;
+  return map ? knowledge.entries.filter((e) => !(e.title === map.title && e.content === map.content)) : knowledge.entries;
+}
+
+/** Names quoted and joined, as many as fit in `max` characters, and how many more there are. */
+function namesWithin(names: readonly string[], max: number): string {
+  const out: string[] = [];
+  let used = 0;
+  for (const name of names) {
+    const quoted = `"${name}"`;
+    if (out.length > 0 && used + quoted.length + 2 > max) break;
+    out.push(quoted);
+    used += quoted.length + 2;
+  }
+  const more = names.length - out.length;
+  return out.join(', ') + (more > 0 ? `, and ${more} more` : '');
+}
+
 /**
- * Reads what the prompt leaves out of the client's knowledge: the rest of an
- * entry, a page at a time, or a workflow in full. It reads only what the turn's
- * client sent, so it changes nothing and needs no approval.
+ * The page's knowledge as an index, for the `index` placement: its entries
+ * and workflows by title only, each read with `ui_guide`, told after the
+ * conversation where nothing is cached (orchestrator's step tail). Null when
+ * the page has none. `ui_guide` is named only to a step that offers it.
  */
+export function knowledgeIndexText(knowledge: ClientKnowledge, offered: OfferedTools = EVERY_TOOL): string | null {
+  const entries = pageEntriesOf(knowledge).map((e) => e.title);
+  const workflows = knowledge.workflows.map((w) => w.name);
+  if (entries.length === 0 && workflows.length === 0) return null;
+  const how = renderRule(
+    {
+      tools: [KNOWLEDGE_TOOL],
+      text:
+        ` Read one with \`${KNOWLEDGE_TOOL}\` before you rely on what it says: an entry by its title (\`entry\`, and \`from\` to continue a long one), ` +
+        'a workflow with its steps by its name (`workflow`).',
+      otherwise: ' They are not shown here.',
+    },
+    offered,
+  );
+  return [
+    KNOWLEDGE_INDEX_OPEN,
+    `What the app knows about the page the user is on, by title.${how}`,
+    ...(entries.length ? [`Entries: ${namesWithin(entries, KNOWLEDGE_INDEX_CHARS / 2)}.`] : []),
+    ...(workflows.length ? [`Workflows: ${namesWithin(workflows, KNOWLEDGE_INDEX_CHARS / 2)}.`] : []),
+    KNOWLEDGE_INDEX_CLOSE,
+  ].join('\n');
+}
+
 /** A title without the route a page's entry names after it: "Project Editor (/projects/:id)" → "Project Editor". */
 function withoutRoute(title: string): string {
   return title.replace(/\s*\(\/[^)]*\)\s*$/, '');
@@ -176,7 +251,14 @@ export function findNamed<T>(items: readonly T[], nameOf: (item: T) => string, n
 /** How a client reads another page's knowledge (oui-spec `oui.guide`): given when its lookup answers it. */
 export type ReadPageKnowledge = (params: Record<string, unknown>, ctx: ToolExecutionContext) => Promise<ToolExecutionResult>;
 
-export function knowledgeTool(knowledge: ClientKnowledge, readPage?: ReadPageKnowledge): RegisteredTool {
+/**
+ * Reads what the prompt leaves out of the client's knowledge: the rest of an
+ * entry, a page at a time, or a workflow in full; with the `index` placement,
+ * any entry or workflow the page's index names. It reads only what the turn's
+ * client sent, so it changes nothing and needs no approval. Its description is
+ * the same on every page.
+ */
+export function knowledgeTool(knowledge: ClientKnowledge, readPage?: ReadPageKnowledge, placement: KnowledgePlacement = 'prompt'): RegisteredTool {
   const titles = knowledge.entries.map((e) => e.title);
   const names = knowledge.workflows.map((w) => w.name);
   const listed = (items: string[]) => items.slice(0, 40).map((t) => `"${t}"`).join(', ') + (items.length > 40 ? ', …' : '');
@@ -185,9 +267,12 @@ export function knowledgeTool(knowledge: ClientKnowledge, readPage?: ReadPageKno
     kind: 'ui',
     effect: 'view',
     description:
-      'Reads the part of what the app knows about this page that your instructions do not show: the rest of a ' +
-      'knowledge entry (`entry`, its title, and `from`, where to continue), or one workflow with its steps (`workflow`, its name). ' +
-      'Your instructions say what is not shown and give the title or name.' +
+      (placement === 'index'
+        ? 'Reads what the app knows about this page: a knowledge entry (`entry`, its title, and `from`, where to continue a long one), ' +
+          'or one workflow with its steps (`workflow`, its name). The page’s entries and workflows are listed by title after the conversation, in <page_knowledge>.'
+        : 'Reads the part of what the app knows about this page that your instructions do not show: the rest of a ' +
+          'knowledge entry (`entry`, its title, and `from`, where to continue), or one workflow with its steps (`workflow`, its name). ' +
+          'Your instructions say what is not shown and give the title or name.') +
       (readPage
         ? ' With `page` (a route, an address or a page’s title from the app’s map), it reads another page’s knowledge in full without going there, a part at a time (`from`).'
         : ''),
@@ -195,8 +280,14 @@ export function knowledgeTool(knowledge: ClientKnowledge, readPage?: ReadPageKno
       type: 'object',
       additionalProperties: false,
       properties: {
-        entry: { type: 'string', description: 'A knowledge entry’s title, as your instructions give it.' },
-        workflow: { type: 'string', description: 'A workflow’s name, as your instructions list it.' },
+        entry: {
+          type: 'string',
+          description: placement === 'index' ? 'A knowledge entry’s title, as <page_knowledge> lists it.' : 'A knowledge entry’s title, as your instructions give it.',
+        },
+        workflow: {
+          type: 'string',
+          description: placement === 'index' ? 'A workflow’s name, as <page_knowledge> lists it.' : 'A workflow’s name, as your instructions list it.',
+        },
         ...(readPage
           ? { page: { type: 'string', description: 'Another page, by its route ("/image/:imageId"), an address on it, or its title in the app’s map.' } }
           : {}),
@@ -238,16 +329,25 @@ export function knowledgeTool(knowledge: ClientKnowledge, readPage?: ReadPageKno
   };
 }
 
-/** The host's system prompt, followed by the knowledge the turn's client sent, if any, as a step offering `offered` is told it. */
+/**
+ * The host's system prompt, followed by the knowledge the turn's client sent,
+ * if any, as a step offering `offered` is told it. With the `index`
+ * placement, the app's map only: the page's part is told after the
+ * conversation (`knowledgeIndexText`).
+ */
 export function withClientKnowledge(
   systemPrompt: string,
   context: Record<string, unknown> | null | undefined,
   offered: OfferedTools = EVERY_TOOL,
+  placement: KnowledgePlacement = 'prompt',
 ): string {
   const knowledge = readClientKnowledge(context);
   if (!knowledge) return systemPrompt;
   // The map first: the same for every page of a build, it is read from the prompt cache on every turn.
-  const parts = [renderAppMap(knowledge), renderClientKnowledge(knowledge, KNOWLEDGE_PROMPT_CHARS, offered)].filter(Boolean);
+  const parts = [
+    renderAppMap(knowledge),
+    placement === 'index' ? '' : renderClientKnowledge(knowledge, KNOWLEDGE_PROMPT_CHARS, offered),
+  ].filter(Boolean);
   return parts.length ? `${systemPrompt}\n\n${parts.join('\n\n')}` : systemPrompt;
 }
 

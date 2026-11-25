@@ -5,7 +5,8 @@
  * - The binding a design-system control carries, and the input schema derived
  *   from its props.
  * - The room catalog contract a room with its own editing model publishes.
- * - The generated manifest and knowledge, and how the runtime reads them.
+ * - The generated manifest and knowledge, and how the runtime reads them,
+ *   as a whole build or as one brand's or audience's sessions see it.
  * - The registry of what is mounted right now.
  *
  * React hooks are in `@ouispec/bindings/react`; the adapter to OUI
@@ -29,6 +30,7 @@ export * from './query.js';
 export * from './navigation.js';
 export * from './app.js';
 export * from './lookup.js';
+export * from './scope.js';
 
 // The rest of the contract an integrator builds against: the tier 2 mapping,
 // a package's `oui` declarations, and `oui.config.json`.

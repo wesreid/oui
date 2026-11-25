@@ -28,6 +28,16 @@
   ],
   "additionalProperties": false,
   "$defs": {
+    "RouteGates": {
+      "description": "The gates around each gated route of a page, by route: the values of the `routeGates` props the route's element and its parent routes' elements are wrapped in, outermost first (`{ \"/dashboard/campaigns\": [\"campaigns\"] }`). A route is open to a session when the host allows every one of its gates (`allows`), and a route not listed has none; a page is open when any of its routes is. The host's predicate is given each value as written.",
+      "type": "object",
+      "propertyNames": { "minLength": 1 },
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1 },
+        "minItems": 1
+      }
+    },
     "ReachStep": {
       "description": "One step of the way a person reaches a capability.",
       "oneOf": [
@@ -369,6 +379,10 @@
           "items": {
             "$ref": "#/$defs/ManifestDisplay"
           }
+        },
+        "gates": {
+          "description": "A page's gated routes, each with its gates (`routeGates` in `oui.config.json`). Absent when none of its routes is gated.",
+          "$ref": "#/$defs/RouteGates"
         }
       },
       "required": [

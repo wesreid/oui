@@ -448,6 +448,11 @@ export interface RouteEntry {
    * element or a parent route's is wrapped in.
    */
   around?: readonly AroundEntry[];
+  /**
+   * The gates its element and its parent routes' elements are wrapped in
+   * (`routeGates`), outermost first, each once; absent when none.
+   */
+  gates?: readonly string[];
 }
 
 /** An element the routes render around a page. */
@@ -456,6 +461,8 @@ export interface AroundEntry {
   declaration: ts.Node | null;
   /** A layout route's element (one with child routes), not a wrapper. */
   layout: boolean;
+  /** The gate it names, for a `routeGates` wrapper: its prop's build-time value. */
+  gate?: string;
 }
 
 /** A layout route's element: rendered around the pages under it, as the app's frame is. */
@@ -489,8 +496,8 @@ interface RouteNode {
   index: boolean;
   /** What it renders: a component, a redirect, or nothing (a route that only groups its children). */
   renders: { component: string; declaration: ts.Node | null } | 'redirect' | null;
-  /** The `routeWrappers` components its element is wrapped in, outermost first. */
-  wrappers: { component: string; declaration: ts.Node | null }[];
+  /** The `routeWrappers` components its element is wrapped in, outermost first, a gating one with its gate. */
+  wrappers: { component: string; declaration: ts.Node | null; gate?: string }[];
   children: RouteNode[];
 }
 
@@ -509,7 +516,7 @@ interface RouteNode {
 export function loadRoutes(source: Source, config: GeneratorConfig): AppRoutes {
   const sf = source.program.getSourceFile(config.routes);
   if (!sf) throw new Error(`Routes file ${source.rel(config.routes)} is not in the program`);
-  const reader = new RouteReader(source, new Set(config.routeWrappers));
+  const reader = new RouteReader(source, new Set(config.routeWrappers), config.routeGates);
   const roots: RouteNode[] = [];
   const visit = (n: ts.Node) => {
     const route = routeElement(n);
@@ -553,7 +560,8 @@ export function loadRoutes(source: Source, config: GeneratorConfig): AppRoutes {
       return under;
     }
     if (!node.renders || node.renders === 'redirect' || pages.has(full)) return [];
-    pages.set(full, { path: full, ...node.renders, around });
+    const gates = [...new Set(around.flatMap(a => (a.gate === undefined ? [] : [a.gate])))];
+    pages.set(full, { path: full, ...node.renders, around, ...(gates.length ? { gates } : {}) });
     return [full];
   };
   for (const root of roots) walk(root, '', []);
@@ -598,6 +606,8 @@ class RouteReader {
   constructor(
     private readonly source: Source,
     private readonly wrappers: ReadonlySet<string>,
+    /** The gating wrappers, each with the prop that names its gate. */
+    private readonly gates: Readonly<Record<string, string>> = {},
   ) {}
 
   problem(site: ts.Node, message: string): void {
@@ -689,8 +699,14 @@ class RouteReader {
     const visit = (n: ts.Node) => {
       const opening = ts.isJsxElement(n) ? n.openingElement : ts.isJsxSelfClosingElement(n) ? n : null;
       if (opening) {
-        if (!this.wrappers.has(opening.tagName.getText())) return;
-        out.push({ component: opening.tagName.getText(), declaration: componentDeclaration(this.source, opening.tagName) });
+        const component = opening.tagName.getText();
+        if (!this.wrappers.has(component)) return;
+        const gate = Object.hasOwn(this.gates, component) ? this.gateOf(opening, component, this.gates[component]) : undefined;
+        out.push({
+          component,
+          declaration: componentDeclaration(this.source, opening.tagName),
+          ...(gate !== undefined ? { gate } : {}),
+        });
         if (ts.isJsxElement(n)) n.children.forEach(visit);
         return;
       }
@@ -698,6 +714,24 @@ class RouteReader {
     };
     visit(unwrap(element));
     return out;
+  }
+
+  /**
+   * The gate a gating wrapper names: its prop's value, read at build time. One
+   * the build cannot read is an error, as an unreadable path is: the route
+   * would otherwise be open to every session.
+   */
+  private gateOf(opening: JsxOpening, component: string, prop: string): string | undefined {
+    const attr = jsxAttribute(opening, prop);
+    const value = attr === undefined || attr === true ? UNKNOWN : evaluate(this.source.checker, attr);
+    if (typeof value === 'string' && value.trim()) return value;
+    this.problem(
+      opening,
+      attr === undefined
+        ? `<${component}> must name its gate in ${prop}: the route would otherwise be open to every session`
+        : `<${component}>’s ${prop} must be readable at build time: a literal or a constant, never computed when the page renders`,
+    );
+    return undefined;
   }
 
   private path(expr: ts.Expression | undefined): string | typeof UNKNOWN {

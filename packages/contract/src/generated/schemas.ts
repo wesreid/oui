@@ -2035,6 +2035,21 @@ export const CONTRACT_SCHEMAS = {
     ],
     "additionalProperties": false,
     "$defs": {
+      "RouteGates": {
+        "description": "The gates around each gated route of a page, by route: the values of the `routeGates` props the route's element and its parent routes' elements are wrapped in, outermost first (`{ \"/dashboard/campaigns\": [\"campaigns\"] }`). A route is open to a session when the host allows every one of its gates (`allows`), and a route not listed has none; a page is open when any of its routes is. The host's predicate is given each value as written.",
+        "type": "object",
+        "propertyNames": {
+          "minLength": 1
+        },
+        "additionalProperties": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        }
+      },
       "ReachStep": {
         "description": "One step of the way a person reaches a capability.",
         "oneOf": [
@@ -2376,6 +2391,10 @@ export const CONTRACT_SCHEMAS = {
             "items": {
               "$ref": "#/$defs/ManifestDisplay"
             }
+          },
+          "gates": {
+            "description": "A page's gated routes, each with its gates (`routeGates` in `oui.config.json`). Absent when none of its routes is gated.",
+            "$ref": "#/$defs/RouteGates"
           }
         },
         "required": [
@@ -2410,6 +2429,13 @@ export const CONTRACT_SCHEMAS = {
       "overview": {
         "description": "The app's map: every page and room, how to reach it (its sidebar group, or the page and the controls that lead to it), and what it offers, as capability groups from its bound actions and its rooms' menus. Fitted to the config's mapChars, and the same for every page of a build, so the assistant always has it.",
         "$ref": "#/$defs/KnowledgeEntry"
+      },
+      "map": {
+        "description": "The app's map line by line, present only when a route of the build is gated (`routeGates`): `overview.content` is these lines with every page shown. A tab given what the session may see (`allows`) renders them without the pages it may not (`appMapContent`), so the map names only pages the person can open. The generator places a page under another only when that page is open whenever this one is, so no line is left under a page that is gone.",
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/AppMapLine"
+        }
       },
       "pages": {
         "type": "array",
@@ -2449,6 +2475,86 @@ export const CONTRACT_SCHEMAS = {
           "content"
         ],
         "additionalProperties": false
+      },
+      "AppMapLine": {
+        "description": "One line of the app's map.",
+        "oneOf": [
+          {
+            "description": "A line shown whatever the session may see: the map's opening, the app's frame, how to go to a page.",
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "text"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "description": "A heading over the page lines that follow it (a sidebar group, the pages opened by address): shown when one of them is.",
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "heading"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "description": "One page's line: its depth in two spaces each, then `- <title> <route>`, then ` (from <from>)` and `: <offers>` when it has them. Shown when its page is open to the session, naming the first of the page's open routes when `route` is not open.",
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "page"
+              },
+              "surface": {
+                "description": "The page surface it names.",
+                "type": "string"
+              },
+              "depth": {
+                "description": "How far it is indented: one more than the page that opens it.",
+                "type": "integer",
+                "minimum": 0
+              },
+              "title": {
+                "type": "string"
+              },
+              "route": {
+                "description": "The route it names: its page's first.",
+                "type": "string"
+              },
+              "from": {
+                "description": "The control on the page above it that opens it.",
+                "type": "string"
+              },
+              "offers": {
+                "description": "What it offers, as the map was fitted to `mapChars`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "surface",
+              "depth",
+              "title",
+              "route"
+            ],
+            "additionalProperties": false
+          }
+        ]
       },
       "KnowledgeRecipe": {
         "description": "A task recipe the UI implies, as the assistant's prompt shows a workflow.",
@@ -2519,6 +2625,10 @@ export const CONTRACT_SCHEMAS = {
             "items": {
               "type": "string"
             }
+          },
+          "gates": {
+            "description": "Its gated routes, each with its gates, as its manifest surface has them. Absent when none of its routes is gated.",
+            "$ref": "oui-manifest.json#/$defs/RouteGates"
           }
         },
         "required": [
@@ -2564,6 +2674,19 @@ export const CONTRACT_SCHEMAS = {
         "description": "Components a route's element is wrapped in that are never the page (`Suspense`, `ErrorBoundary`). Default none.",
         "type": "array",
         "items": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "routeGates": {
+        "description": "Route wrappers that open their page only to some sessions (a brand's features, an audience), each with the prop whose value names the gate: `{ \"FeatureRoute\": \"feature\" }` reads `<FeatureRoute feature=\"campaigns\">` as the gate `campaigns`. Each must also be in `routeWrappers`. Every route records the gates its element and its parent routes' elements are wrapped in, outermost first, on its page's surface and knowledge (`gates`), and the knowledge carries the app's map line by line (`map`), so a tab given what the session may see (`allows`) leaves the other pages out of the map, the app-wide search, the page guide and the pages the assistant goes to. A gate's value must be readable at build time: a literal, or a constant. Default none: a build that names none generates exactly what it did before.",
+        "type": "object",
+        "propertyNames": {
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "additionalProperties": {
           "type": "string",
           "minLength": 1,
           "pattern": "\\S"
@@ -5719,6 +5842,7 @@ export const CONTRACT_TYPES = {
   RoomResult: 'room-catalog-data.json#/$defs/RoomResult',
   AgentCatalogManifestEntry: 'room-catalog-data.json#/$defs/AgentCatalogManifestEntry',
   OuiManifest: 'oui-manifest.json',
+  RouteGates: 'oui-manifest.json#/$defs/RouteGates',
   ReachStep: 'oui-manifest.json#/$defs/ReachStep',
   ManifestActionSource: 'oui-manifest.json#/$defs/ManifestActionSource',
   ManifestAction: 'oui-manifest.json#/$defs/ManifestAction',
@@ -5728,6 +5852,7 @@ export const CONTRACT_TYPES = {
   ManifestSurface: 'oui-manifest.json#/$defs/ManifestSurface',
   GeneratedKnowledge: 'generated-knowledge.json',
   KnowledgeEntry: 'generated-knowledge.json#/$defs/KnowledgeEntry',
+  AppMapLine: 'generated-knowledge.json#/$defs/AppMapLine',
   KnowledgeRecipe: 'generated-knowledge.json#/$defs/KnowledgeRecipe',
   PageKnowledge: 'generated-knowledge.json#/$defs/PageKnowledge',
   OuiConfigFile: 'oui-config.json',

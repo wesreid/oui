@@ -488,7 +488,8 @@ The generator reads every setting from `oui.config.json` at the app's root; path
   "$schema": "https://schemas.closurestudio.ai/oui/v1/oui-config.json",
   "tsconfig": "tsconfig.json",
   "routes": "src/routes.tsx",
-  "routeWrappers": ["Suspense", "ErrorBoundary"],
+  "routeWrappers": ["Suspense", "ErrorBoundary", "FeatureRoute"],
+  "routeGates": { "FeatureRoute": "feature" },
   "nav": ["src/nav.ts"],
   "shell": [{ "module": "src/app/AppFrame.tsx", "export": "AppFrame" }],
   "designSystem": ["@acme/ui"],
@@ -517,6 +518,20 @@ The generator reads every setting from `oui.config.json` at the app's root; path
 
 A page in the app's frame fails the first three, and a page that binds anything only for itself fails the last. `unbound` is for pages the assistant is on that are not bound yet; a page is never in both lists.
 
+`routeGates` is for one build that serves several brands or audiences, each opening some pages to its people and not others. It names the route wrappers that gate their page, each with the prop whose value names the gate, and each must also be in `routeWrappers`:
+
+```json
+{
+  "routeWrappers": ["Suspense", "FeatureRoute"],
+  "routeGates": { "FeatureRoute": "feature" }
+}
+```
+
+- Every route records the gates its element and its parent routes' elements are wrapped in, outermost first: `<FeatureRoute feature={FEATURE_KEYS.campaigns}>` around `/campaigns` gives its page surface and its knowledge `gates: { "/campaigns": ["campaigns"] }`. A gate's value must be readable at build time, a literal or a constant; one the build cannot read, or a gating wrapper that names none, fails the build as an unreadable path does.
+- The knowledge then carries the app's map line by line too (`map`), and a page is placed under another on the map only when that page is open whenever it is.
+- In the tab, `allows` (a predicate: true for each gate the session's person has) scopes everything the assistant is told of the app: pass it to `resolveKnowledge(knowledge, path, { allows })` for the map and page knowledge the turn carries, and to `connectBindings({ knowledge, allows, … })` for the pages `app.navigate` goes to, `ui_find` and `ui_guide { page }` (see [In the tab](#in-the-tab-connecting-the-bindings)). A route is open when every one of its gates is allowed, and a page when any of its routes is.
+- A build whose config names no gates generates exactly what it did before, byte for byte, and a tab that passes no `allows` sees every page.
+
 `mappings` lists the app's tier 2 mappings; each emits a bound module into `<out>/bound/` (see [Tier 2](#tier-2-a-design-system-you-do-not-own)).
 
 > **Schema:** [`oui-config.json`](schemas/oui-config.json) · `https://schemas.closurestudio.ai/oui/v1/oui-config.json` · TypeScript: `OuiConfigFile` from `@ouispec/contract`
@@ -528,6 +543,7 @@ A page in the app's frame fails the first three, and a page that binds anything 
 > | `tsconfig` | string | yes | The tsconfig the app's source compiles with. |
 > | `routes` | string | yes | The file whose routes decide where the app can go: `<Route>` elements (nested paths are joined to their parent, `index` routes kept, `React.lazy` followed) or a data router (`createBrowserRouter([...])`). |
 > | `routeWrappers` | string[] |  | Components a route's element is wrapped in that are never the page (`Suspense`, `ErrorBoundary`). |
+> | `routeGates` | map of string |  | Route wrappers that open their page only to some sessions (a brand's features, an audience), each with the prop whose value names the gate: `{ "FeatureRoute": "feature" }` reads `<FeatureRoute feature="campaigns">` as the gate `campaigns`. |
 > | `nav` | string[] |  | Files holding the navigation entries (`{ label, route, group }` object literals). |
 > | `out` | string | yes | Where generated output goes. |
 > | `designSystem` | string[] | yes | Design-system packages whose controls carry bindings (tier 1). |
@@ -597,6 +613,7 @@ The two outputs are part of the contract too: the runtime offers the intersectio
 > | `version` | 1 | yes | The contract major (`MANIFEST_VERSION`). |
 > | `buildId` | string | yes | The manifest's build id: the two are one build. |
 > | `overview` | KnowledgeEntry | yes | The app's map: every page and room, how to reach it (its sidebar group, or the page and the controls that lead to it), and what it offers, as capability groups from its bound actions and its rooms' menus. |
+> | `map` | AppMapLine[] |  | The app's map line by line, present only when a route of the build is gated (`routeGates`): `overview.content` is these lines with every page shown. |
 > | `pages` | PageKnowledge[] | yes |  |
 > | `frames` | PageKnowledge[] |  | The app's frame around the pages (`shell` surfaces), each part with the route patterns it frames. |
 
@@ -629,6 +646,9 @@ Wrap the app in `<AgentBindingProvider registry={registry}>` (from `@ouispec/bin
 - `accept` refuses any action request that arrives while the assistant has no turn in progress in this tab.
 - A disabled control is not offered, except while a job it started is still running, or for a moment after its own press disabled it (it is reported busy, not gone).
 - A control the build does not declare, or a live schema wider than the declared one, is reported through `onDefect`; the conformance kit keeps both from shipping.
+- One record drawn twice on a page (the same row key in two places) is one row: its key is in a row action's `item` enum once, it is counted once, and the page state lists it once, as first drawn.
+- `knowledge` (the build's `oui-knowledge.json`) lets the tab answer the assistant's app-wide search and page guide (`ui_find`, `ui_guide { page }`). Send `resolveKnowledge(knowledge, path)` as the turn's `uiKnowledge`.
+- `allows`, in a build with `routeGates`, says which gates the session may see (`(gate) => brandFeatures.has(gate)`). The navigation surface then lists only the pages open to the session, the search and the guide answer only of those, and no surface, action or observation description names another: a sentence that names a page the session may not see by its route is left out, a list of routes loses it, and a control that only goes to such a page is not offered. Give `resolveKnowledge` the same predicate (`{ allows }`) so the map and the page's knowledge the turn carries name only those pages too. It is read at each rebuild and each lookup, so a change shows on the next. Without it, every page.
 
 ### What travels, and what does not
 
@@ -642,7 +662,7 @@ A page's action definitions weigh what its whole catalogue weighs. On a studio p
   - `ui_read` reads part of the page's state.
   - `ui_wait` waits for work an action started (a job, an export) that was still running when the action's call answered. A call waits for its work's outcome only briefly (20 s by default, `jobWaitMs`), so a turn is never held by a job queued for minutes. Work still going then is reported running, never done. When the rest of the request needs the outcome (to check what was made, or to act on it), the assistant calls `ui_wait`: it waits until the work ends, its own `timeoutMs` passes, or the turn must answer, whichever is first, and answers as the action's call would have, with the outcome and the page after it. A stop ends the wait; the time spent in it does not count as a step's length when the turn decides whether to hand back. Work that ends after the turn is reported by a resumed turn (below).
 
-  When the client sends knowledge, a fifth: `ui_guide` reads what the prompt leaves out of it. The knowledge is bounded in the prompt (12,000 characters): small entries whole, a large one cut at a line with how much is left, and workflows by name; `ui_guide` reads the rest of an entry a page at a time, or one workflow with its steps.
+  When the client sends knowledge, a fifth: `ui_guide` reads what the prompt leaves out of it. The knowledge is bounded in the prompt (12,000 characters): small entries whole, a large one cut at a line with how much is left, and workflows by name; `ui_guide` reads the rest of an entry a page at a time, or one workflow with its steps. A worker with `ui.knowledgePlacement: 'index'` keeps the page's knowledge out of the system prompt, so the prompt is the same on every page and stays cached: it lists the page's entries and workflows by title after the conversation, beside the page's state, and the assistant reads each with `ui_guide`.
 - **The page's index is in the page state the model reads,** with its own budget, so the assistant's context stays about the same size however many actions the app has.
 - **Only the newest answer carries the page's state to the model.** Every earlier answer of the turn keeps what its action did (its result, the rows it changed, what the page offers since) and says where the state is, so a turn of many actions costs about what one does, plus what each did.
 - **History keeps a digest of every page** (agent SDK 0.38). Each answer keeps `shown`, a short digest of the page it showed (the surface acted on first, each display's facts by label, each list's count and its first rows' titles, at most 600 characters), and each turn keeps one of the page its message was sent from as `pageAtStart`, which the product stores with the message and hands back in history. Both are made once and never change, so a later turn can say what an earlier page showed after the page has moved on, and every stored message still reads the same. The product chooses the digest's content, or turns it off (`uiActions.stateDigest`).

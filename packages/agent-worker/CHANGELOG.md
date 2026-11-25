@@ -1,5 +1,23 @@
 # @ouispec/agent-worker
 
+## 0.39.0
+
+### Minor Changes
+
+- The host chooses where the page's knowledge goes: `ui.knowledgePlacement` on `AgentWorkerConfig`, `uiActions.knowledgePlacement` on the runtime config.
+
+  - `'prompt'`, the default, renders the page's entries and workflows into the system prompt after the app's map, as before, byte for byte.
+  - `'index'` keeps the system prompt to the host's prompt and the app's map, the same on every page of a build, so a turn sent from another page reads it from the prompt cache. The page's entries and workflows are listed by title only after the conversation, beside the page's newest state, in `<page_knowledge>` (`knowledgeIndexText`), and the model reads each with `ui_guide` (`entry`, `workflow`, or `page` for another page), whose description then says where the titles are.
+  - An unknown placement fails when the adapter is created. `readKnowledgePlacement`, `KNOWLEDGE_PLACEMENTS`, `KNOWLEDGE_INDEX_OPEN`, `KNOWLEDGE_INDEX_CLOSE` and the `KnowledgePlacement` type are exported.
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies
+  - @ouispec/bindings@0.18.0
+  - @ouispec/agent-core@0.39.0
+  - @ouispec/agent-events@0.39.0
+
 ## 0.38.0
 
 ### Minor Changes
