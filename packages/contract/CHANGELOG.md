@@ -1,5 +1,11 @@
 # @ouispec/contract
 
+## 0.21.0
+
+### Minor Changes
+
+- A declared page action's `changes` (and a case's): what a run changes in its surface's observations, merged into each as the person's page changes them. An object is merged field by field. A list whose items all carry an `id` (or a row's `key`) is merged item by item, a new item added at its end. Any other value, an empty list among them, replaces the one before, and a field given null is taken away. So each run states only what it changes, and runs compose in any order. It is applied after `state`, which still replaces an observation whole, and before `writes`. A page that uses neither is the page it was.
+
 ## 0.20.0
 
 ### Minor Changes
