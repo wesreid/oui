@@ -76,6 +76,8 @@ export interface CategorySummary {
   passRate: number | null;
   costUsd: number;
   costPerCompletedTaskUsd: number | null;
+  /** The model time of every case that ran, failures included, per case passed, in ms; null when none passed. */
+  modelMsPerCompletedTask: number | null;
 }
 
 /** What a matrix says about one model. */
@@ -115,8 +117,13 @@ export interface ModelSummary {
     /** What it cost over the cases it passed: everything it spent, failures included, per case passed; null when it passed none. */
     perCompletedTaskUsd: number | null;
   };
-  /** Per turn, in milliseconds: to its first token, and its model calls' time. */
-  latencyMs: { firstToken: Percentiles; total: Percentiles };
+  /**
+   * In milliseconds: per turn, to its first token and its model calls' time; and
+   * the model time of every case that ran, failures included, per case passed
+   * (null when it passed none). A model that is quick per call but needs more
+   * calls, or fails more, is slower per completed task.
+   */
+  latencyMs: { firstToken: Percentiles; total: Percentiles; perCompletedTask: number | null };
   invalidToolCalls: { total: number; perTurn: number | null };
   /** Turns that declined: in all, those the provider stopped for their content, and replies that declined where no refusal was expected. */
   refusals: { total: number; provider: number; reply: number };
@@ -159,12 +166,23 @@ export function spreadOf(values: ReadonlyArray<number | null>): Spread | null {
   return { mean: sum(given) / given.length, min: Math.min(...given), max: Math.max(...given), values: [...values] };
 }
 
+/** The time the cases' model calls took, one after another, in ms. */
+const caseModelMs = (cases: readonly MatrixCase[]): number => sum(cases.flatMap((c) => c.turns.map((t) => t.usage.modelMs)));
+
 const categoryOf = (cases: readonly MatrixCase[]): CategorySummary => {
   const ran = cases.filter((c) => c.status !== 'stopped');
   const passed = ran.filter((c) => c.status === 'passed').length;
   const judged = passed + ran.filter((c) => c.status === 'failed').length;
   const costUsd = sum(ran.map((c) => c.costUsd));
-  return { cases: ran.length, judged, passed, passRate: ratio(passed, judged), costUsd, costPerCompletedTaskUsd: ratio(costUsd, passed) };
+  return {
+    cases: ran.length,
+    judged,
+    passed,
+    passRate: ratio(passed, judged),
+    costUsd,
+    costPerCompletedTaskUsd: ratio(costUsd, passed),
+    modelMsPerCompletedTask: ratio(caseModelMs(ran), passed),
+  };
 };
 
 /**
@@ -230,6 +248,7 @@ export function summarizeModel(model: EvalCandidate, cases: readonly MatrixCase[
     latencyMs: {
       firstToken: percentiles(turns.map((t) => t.usage.firstTokenMs).filter((ms): ms is number => ms !== null)),
       total: percentiles(turns.map((t) => t.usage.modelMs)),
+      perCompletedTask: ratio(caseModelMs(ran), passed),
     },
     invalidToolCalls: { total: invalid, perTurn: ratio(invalid, turns.length) },
     refusals: {

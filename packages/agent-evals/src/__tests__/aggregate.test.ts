@@ -140,6 +140,8 @@ describe('a model’s summary', () => {
   it('reports latency, invalid tool calls and refusals per turn', () => {
     expect(summary.latencyMs.firstToken).toEqual({ p50: 400, p90: 400, samples: 5 });
     expect(summary.latencyMs.total).toEqual({ p50: 2_000, p90: 3_200, samples: 5 });
+    // Model time of every case that ran (a 2 s, b 4 s, c 2 s, a 2 s, b 2 s), failures included, per case passed.
+    expect(summary.latencyMs.perCompletedTask).toBe(12_000 / 3);
     expect(summary.invalidToolCalls).toEqual({ total: 2, perTurn: 0.4 });
     expect(summary.refusals).toEqual({ total: 2, provider: 1, reply: 1 });
   });
@@ -148,9 +150,10 @@ describe('a model’s summary', () => {
     expect(Object.keys(summary.categories)).toEqual(['edit', 'plan', 'untagged']);
     expect(summary.categories.edit).toMatchObject({ cases: 4, judged: 4, passed: 3, passRate: 0.75 });
     expect(summary.categories.edit.costPerCompletedTaskUsd).toBeCloseTo((5 * ONE_CALL) / 3, 12);
+    expect(summary.categories.edit.modelMsPerCompletedTask).toBe(10_000 / 3);
     expect(summary.categories.plan).toMatchObject({ cases: 2, judged: 2, passed: 1, passRate: 0.5 });
     // c: one unjudged, one stopped: nothing judged.
-    expect(summary.categories.untagged).toMatchObject({ cases: 1, judged: 0, passed: 0, passRate: null, costPerCompletedTaskUsd: null });
+    expect(summary.categories.untagged).toMatchObject({ cases: 1, judged: 0, passed: 0, passRate: null, costPerCompletedTaskUsd: null, modelMsPerCompletedTask: null });
   });
 });
 

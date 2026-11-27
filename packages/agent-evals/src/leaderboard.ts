@@ -91,7 +91,7 @@ function pickLines(results: MatrixResults): string[] {
 export function matrixSummaryLines(results: MatrixResults): string[] {
   const lines = ranked(results).map(
     (s, i) =>
-      `${String(i + 1).padStart(2)}. ${s.label}: ${pct(s.passRate)} passed (${spreadText(s.passRateByRun, pct)} by run), ${usd(s.cost.perCompletedTaskUsd)} per completed task, ` +
+      `${String(i + 1).padStart(2)}. ${s.label}: ${pct(s.passRate)} passed (${spreadText(s.passRateByRun, pct)} by run), ${usd(s.cost.perCompletedTaskUsd)} per completed task, ${ms(s.latencyMs.perCompletedTask)} of model time per completed task, ` +
       `first token ${pair(s.latencyMs.firstToken)}, ${mean1(s.modelCalls.perTurn)} calls a turn, ${int(s.invalidToolCalls.total)} invalid tool calls, ${int(s.refusals.total)} refusals`,
   );
   const stop = stopLine(results);
@@ -122,6 +122,7 @@ const LEADERBOARD_COLUMNS = [
   'Pass rate',
   'By run (min–max)',
   'Cost / completed task',
+  'Model time / completed task',
   'Cost / run',
   'Input / turn',
   'Cache read',
@@ -138,6 +139,7 @@ const leaderboardRow = (s: ModelSummary): string[] => [
   pct(s.passRate),
   spreadText(s.passRateByRun, pct),
   usd(s.cost.perCompletedTaskUsd),
+  ms(s.latencyMs.perCompletedTask),
   usd(s.cost.perRunUsd?.mean),
   int(s.tokens.perTurn.input),
   pct(s.tokens.cachedShare),
@@ -287,11 +289,11 @@ function categoriesTable(results: MatrixResults): string {
   const rows = categoriesOf(results).map((tag) => {
     const cells = models.map((s) => {
       const c = s.categories[tag];
-      return c ? td(`${pct(c.passRate)} (${c.passed}/${c.judged}) · ${usd(c.costPerCompletedTaskUsd)}`, c.passRate) : td(DASH, null);
+      return c ? td(`${pct(c.passRate)} (${c.passed}/${c.judged}) · ${usd(c.costPerCompletedTaskUsd)} · ${ms(c.modelMsPerCompletedTask)}`, c.passRate) : td(DASH, null);
     });
     return `<tr>${td(tag === UNTAGGED ? `${tag} (no tag)` : tag, tag)}${cells.join('')}</tr>`;
   });
-  return `<div class="scroll"><table data-sortable id="categories"><thead>${head}</thead><tbody>${rows.join('')}</tbody></table></div><p class="muted">Pass rate (passed / judged) · cost per completed task.</p>`;
+  return `<div class="scroll"><table data-sortable id="categories"><thead>${head}</thead><tbody>${rows.join('')}</tbody></table></div><p class="muted">Pass rate (passed / judged) · cost per completed task · model time per completed task.</p>`;
 }
 
 /** A case's failures, each told once with how many of the cases it is in. */
