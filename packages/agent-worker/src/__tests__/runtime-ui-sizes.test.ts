@@ -81,7 +81,7 @@ describe('the runtime config', () => {
     await createAgentTurnRunner<object>({ ...base, uiActions: {} }).run(payload);
     expect(seen.at(-1)?.ui).not.toHaveProperty('knowledgePlacement');
     expect(() => createAgentTurnRunner<object>({ ...base, uiActions: { knowledgePlacement: 'system' as never } })).toThrow(
-      /ui\.knowledgePlacement must be one of prompt, index, not "system"/,
+      /ui\.knowledgePlacement must be one of prompt, index, page-block, not "system"/,
     );
   });
 });
