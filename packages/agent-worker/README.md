@@ -194,6 +194,8 @@ A call the model makes all the same, to a tool its step does not offer or to one
 
 Every call's input is validated against the tool's schema before anything else. A list or an object that arrives as JSON text, where the schema takes a list or an object, is read as what it spells when that makes the input valid: a property (`"ids": "[\"a\"]"`), or a call's whole input (`ui_act` given `"input": "{\"item\":\"lyrics\",…}"`). A property whose schema takes a string is never read this way, and text that spells nothing valid is refused as it arrived. The call runs, its answer tells the model to send the value itself next time (`inputNote`), and the turn counts such calls in `coercedJsonString` (on `AgentTurnResult`, the `Turn usage` log and `recordTurnComplete`, only when there were any): each is a call the model would otherwise have made again.
 
+Each model call's times are logged with its tokens: `Step completed` carries `firstTokenMs` (to the call's first token of any kind: reasoning, text or a tool call's input), `durationMs` and `sinceLastCallMs` (from the end of the call before it, or the turn's start, to this call's request: the tools and the worker's own work between them). `Turn usage` carries `timing`: `turnMs`, `firstTokenMs`, `firstTextMs` (when the person could first read text), `modelMs`, `betweenCallsMs` and each call's `callMs`. A model given by its id is not wrapped, so its times are null.
+
 ## Hooks on every turn
 
 Every turn reaches the runtime one of four ways: the Lambda adapter, the container's `/turns`, the live-call handler, or your own code calling `runner.run`. Each hook below runs for all of them, and is told which turn it is called for (`AgentTurnInfo`):
@@ -658,5 +660,5 @@ Header parameters are never model input: `actAs` supplies them, and a call fails
 - `pnpm test` includes the fixture turn. It runs on both adapters and on two providers, replaying recorded responses through each provider's real `ai` package, against the SDK realtime server on Redis.
 - `pnpm record:fixture-turn` re-records the Bedrock responses from a live model.
 - `pnpm eval:live` runs the live operating-rules eval.
-- `@ouispec/agent-worker/testing` has what a product's own tests use: `recordingFetch` and `replayingFetch` (recorded model responses through a provider's real package), `scriptedChatCompletions` (a model whose every answer a test states), `conversationOf` (a request’s conversation without the turn’s context and the step’s tail), and the Desk fixture API.
+- `@ouispec/agent-worker/testing` has what a product's own tests use: `recordingFetch` and `replayingFetch` (recorded model responses through a provider's real package; a recording hands each chunk on as it arrives, so a caller's first-token clock measures the API), `scriptedChatCompletions` (a model whose every answer a test states), `conversationOf` (a request’s conversation without the turn’s context and the step’s tail), and the Desk fixture API.
 - Both of those live commands need Bedrock credentials in the environment.

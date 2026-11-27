@@ -22,16 +22,50 @@ const pathOf = (input: Parameters<typeof fetch>[0]): string =>
   decodeURIComponent(new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url).pathname);
 
 /**
- * A fetch that calls the live API and keeps each response in `exchanges` as it
- * arrives, handing the caller an identical one.
+ * A fetch that calls the live API and keeps each response in `exchanges`,
+ * handing the caller an identical one.
+ *
+ * The caller reads the body as it arrives: each chunk is passed on the moment
+ * the API sends it and kept on the way. So a caller's clock (the time to the
+ * first token) measures the API, not this fetch. Reading the whole body first,
+ * as this fetch did before agent-worker 0.45.0, made every recorded first-token
+ * time equal to the call's whole time (ADR-0348 §1.1).
+ *
+ * An exchange takes its place in `exchanges` when its request is sent, so the
+ * recording keeps the order of the requests, which is the order a replay
+ * answers them in. Its body is what has arrived when it is read: all of it
+ * once the caller has read the body to its end.
  */
 export function recordingFetch(exchanges: RecordedExchange[], live: typeof fetch = fetch): typeof fetch {
   return async (input, init) => {
-    const res = await live(input, init);
-    const body = Buffer.from(await res.arrayBuffer());
-    const contentType = res.headers.get('content-type') ?? 'application/octet-stream';
-    exchanges.push({ path: pathOf(input), status: res.status, contentType, bodyBase64: body.toString('base64') });
-    return new Response(body, { status: res.status, headers: { 'content-type': contentType } });
+    const chunks: Uint8Array[] = [];
+    const exchange = { path: pathOf(input), status: 0, contentType: 'application/octet-stream' } as RecordedExchange;
+    Object.defineProperty(exchange, 'bodyBase64', {
+      enumerable: true,
+      get: () => Buffer.concat(chunks).toString('base64'),
+    });
+    exchanges.push(exchange);
+    let res: Response;
+    try {
+      res = await live(input, init);
+    } catch (err) {
+      // No response, so nothing to keep or to replay.
+      exchanges.splice(exchanges.indexOf(exchange), 1);
+      throw err;
+    }
+    exchange.status = res.status;
+    exchange.contentType = res.headers.get('content-type') ?? 'application/octet-stream';
+    const headers = { 'content-type': exchange.contentType };
+    if (!res.body) return new Response(null, { status: res.status, headers });
+    const kept = res.body.pipeThrough(
+      new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) {
+          chunks.push(chunk);
+          controller.enqueue(chunk);
+        },
+      }),
+    );
+    return new Response(kept, { status: res.status, headers });
   };
 }
 

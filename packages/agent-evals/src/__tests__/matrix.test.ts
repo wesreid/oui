@@ -210,7 +210,7 @@ describe('a model matrix, recorded and replayed', () => {
     const summary = matrixMarkdown(replayed);
     expect(summary).toBe(matrixMarkdown(JSON.parse(JSON.stringify(replayed)) as MatrixResults));
     expect(summary).toContain(
-      `| Strong | 100.0% | 100.0%–100.0% | ${usd((24 * STRONG_CALL) / 16)} | ${usd(12 * STRONG_CALL)} | 1,200 | 80.0% | 60 | 1.2 | 300 ms / 300 ms | 900 ms / 1.80 s | 0 | 0 |`,
+      `| Strong | 100.0% | 100.0%–100.0% | ${usd((24 * STRONG_CALL) / 16)} | 1.35 s | ${usd(12 * STRONG_CALL)} | 1,200 | 80.0% | 60 | 1.2 | 300 ms / 300 ms | 900 ms / 1.80 s | 0 | 0 |`,
     );
     expect(summary).toContain('| Weak | 62.5% | 50.0%–75.0% |');
     expect(summary).toContain('- answers: Weak, 100.0% at $0.0010 per completed task;');

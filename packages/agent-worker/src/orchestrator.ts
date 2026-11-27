@@ -125,6 +125,7 @@ import { approvalConfirmedBy, approvalRequirement, approvalToolNote, VOICE_APPRO
 import { buildApprovalPreview, declaredTitle } from './approvals/preview.js';
 import { readHostPreview, readValidation, type ApprovalHookContext, type ApprovalValidation } from './approvals/hooks.js';
 import { turnInfoOf } from './runtime/turn-info.js';
+import { startCallClock, stepClockFields, turnTiming, type CallClock } from './call-clock.js';
 import {
   approvalMarker,
   approvedExpiredMarker,
@@ -628,6 +629,17 @@ export async function runAgentTurn(
       cause: trailer.cause,
     });
   };
+  /**
+   * Each model call's clock (ADR-0348 step 0), in the order the calls were made:
+   * when it was sent, how long to its first token of any kind (reasoning, text or
+   * a tool call's input) and to its end, and how long after the call before it
+   * ended (the turn's tools and the worker's own work between them). Logged on
+   * `Step completed` and summed on `Turn usage`. A model given by its id is not
+   * wrapped, so it has no clock.
+   */
+  const callClocks: CallClock[] = [];
+  /** When the turn's first text reached the stream, in ms from the turn's start; null until it does. */
+  let firstTextMs: number | null = null;
   const replyRecorder =
     typeof config.model === 'string'
       ? config.model
@@ -638,6 +650,7 @@ export async function runAgentTurn(
             // definition is left out (tools/trailer.ts). Only for a host that declares one.
             ...(trailerNames.length > 0 ? { transformParams: async ({ params }) => trailerParams(params, trailerNames) } : {}),
             wrapStream: async ({ doStream, params }) => {
+              const clock = startCallClock(callClocks, turnStartedAt);
               const result = await doStream();
               // The step's number in the turn, and its request, name its trailers' calls: the same request, the same ids.
               const step = recordedSteps.length;
@@ -651,8 +664,14 @@ export async function runAgentTurn(
                 stream: read.pipeThrough(
                   new TransformStream({
                     transform(part, controller) {
+                      const type = (part as { type: string }).type;
+                      clock.saw(type);
+                      if (firstTextMs === null && type === 'text-delta') firstTextMs = Date.now() - turnStartedAt;
                       recordReply(part as { type: string; delta?: unknown });
                       controller.enqueue(part);
+                    },
+                    flush() {
+                      clock.ended();
                     },
                   }),
                 ),
@@ -2568,6 +2587,8 @@ export async function runAgentTurn(
           inputTokens: stepUsage?.inputTokens ?? 0,
           cacheReadTokens: stepUsage?.inputTokenDetails?.cacheReadTokens ?? 0,
           cacheWriteTokens: stepUsage?.inputTokenDetails?.cacheWriteTokens ?? 0,
+          // This step's model call: to its first token, to its end, and since the call before it ended (ADR-0348).
+          ...stepClockFields(callClocks[callClocks.length - 1]),
         });
       },
     });
@@ -2741,6 +2762,8 @@ export async function runAgentTurn(
     promptTokens: usage.promptTokens,
     cacheReadTokens: usage.cacheReadTokens,
     cacheWriteTokens: usage.cacheWriteTokens,
+    // Where the turn's time went: its calls, the time between them, and when the person first saw text (ADR-0348).
+    timing: { turnMs: Date.now() - turnStartedAt, ...turnTiming(callClocks, turnStartedAt, firstTextMs) },
     // How the page was worked.
     ...(client
       ? {
@@ -2942,6 +2965,7 @@ export async function runAgentTurn(
       promptTokens: usage.promptTokens,
       cacheReadTokens: usage.cacheReadTokens,
       cacheWriteTokens: usage.cacheWriteTokens,
+      timing: { turnMs: Date.now() - turnStartedAt, ...turnTiming(callClocks, turnStartedAt, firstTextMs) },
       ...(unsettled.length > 0 ? { unsettledCalls: unsettled } : {}),
       ...(client ? { ui: { ...uiCounts, blindRefusals: sight.refusals(), stopped: sight.stopped() } } : {}),
       ...(fileArea ? { attachments: fileGuard.usage() } : {}),
