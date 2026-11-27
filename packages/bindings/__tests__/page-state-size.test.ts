@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { deriveValueSchema, MAX_DESCRIBED_OPTIONS, validateValue, type ControlRegistration } from '../src/index.js';
+import { choicesLine, deriveValueSchema, liveOptions, MAX_DESCRIBED_OPTIONS, validateValue, type ControlRegistration } from '../src/index.js';
 import { pageState, summarisedSchema } from '../src/oui.js';
 
 const LANGUAGES = Array.from({ length: 648 }, (_, i) => ({ value: `lang_${i}`, title: `Language ${i}` }));
@@ -114,24 +114,31 @@ describe('a room’s choices known only at run time', () => {
     title: 'Language',
     item: { key, title: `Line ${key}` },
     valueSchema: deriveValueSchema('choice', { options }),
+    options: liveOptions('choice', { options }),
     value,
     run: () => ({ ok: true }),
   });
+  const aspects = [
+    { value: '16:9', title: 'Wide', description: 'For a landscape screen' },
+    { value: '1:1', title: '1:1' },
+  ];
   const format: ControlRegistration = {
-    id: 'editor.storyboard.format.voice',
+    id: 'editor.storyboard.format.aspect',
     kind: 'choice',
-    title: 'Voice',
-    valueSchema: deriveValueSchema('choice', { options: [{ value: 'v-1', title: 'Ava' }] }),
-    value: 'v-1',
+    title: 'Shape',
+    valueSchema: deriveValueSchema('choice', { options: aspects }),
+    options: liveOptions('choice', { options: aspects }),
+    value: '16:9',
     run: () => ({ ok: true }),
   };
   const declared = (id: string) => (id.startsWith('editor.storyboard.') ? DECLARED : undefined);
 
-  it('are said once per control, for a list’s rows and a field alike, where the declaration lists none', () => {
+  it('are named once per control, in a line, for a list’s rows and a field alike, where the declaration lists none', () => {
     const state = pageState([line('l1', 'en'), line('l2', 'fr'), format], () => false, { declaredValue: declared });
-    expect(state.schemas).toEqual({
-      'editor.storyboard.line.language': deriveValueSchema('choice', { options: LANGUAGES_NOW }),
-      'editor.storyboard.format.voice': deriveValueSchema('choice', { options: [{ value: 'v-1', title: 'Ava' }] }),
+    expect(state.choices).toEqual({
+      'editor.storyboard.line.language': 'en = English; fr = French',
+      // A title that is its value is said once; what an option means is its action's to say.
+      'editor.storyboard.format.aspect': '16:9 = Wide; 1:1',
     });
     // The rows themselves stay their key, title and value.
     expect(state.lists['editor.storyboard.line.language']).toEqual([
@@ -140,19 +147,27 @@ describe('a room’s choices known only at run time', () => {
     ]);
   });
 
-  it('are summarised as a row’s are, keeping the current value', () => {
+  it('name the first twenty and the current one, and say how many more', () => {
     const state = pageState([line('l1', 'lang_400', LANGUAGES)], () => false, { declaredValue: declared });
-    const schema = state.schemas!['editor.storyboard.line.language'];
-    expect(schema.enum).toEqual([...LANGUAGES.slice(0, MAX_DESCRIBED_OPTIONS).map(l => l.value), 'lang_400']);
-    expect(schema['x-enum-omitted']).toBe(648 - 21);
+    const named = state.choices!['editor.storyboard.line.language'];
+    expect(named.startsWith('lang_0 = Language 0; lang_1 = Language 1;')).toBe(true);
+    expect(named.endsWith('lang_19 = Language 19; lang_400 = Language 400; and 627 more')).toBe(true);
+    expect(choicesLine(LANGUAGES.slice(0, 2), 'lang_1')).toBe('lang_0 = Language 0; lang_1 = Language 1');
   });
 
   it('are left to the declaration that lists them, to a row that carries its own, and to a page’s own controls', () => {
     const listed = { ...DECLARED, enum: ['en', 'fr'] };
-    expect(pageState([line('l1', 'en')], () => false, { declaredValue: () => listed }).schemas).toBeUndefined();
+    expect(pageState([line('l1', 'en')], () => false, { declaredValue: () => listed }).choices).toBeUndefined();
     const differing = [line('l1', 'en'), line('l2', 'en', [{ value: 'de', title: 'German' }])];
-    expect(pageState(differing, () => false, { declaredValue: declared }).schemas).toBeUndefined();
+    expect(pageState(differing, () => false, { declaredValue: declared }).choices).toBeUndefined();
     // A page's control offers its live schema in its definition: nothing to add.
-    expect(pageState([line('l1', 'en'), format]).schemas).toBeUndefined();
+    expect(pageState([line('l1', 'en'), format]).choices).toBeUndefined();
+  });
+
+  it('come from the live schema’s values for a control that registered no options', () => {
+    const { options: _options, ...bare } = format;
+    expect(pageState([bare], () => false, { declaredValue: declared }).choices).toEqual({
+      'editor.storyboard.format.aspect': '16:9; 1:1',
+    });
   });
 });

@@ -18,7 +18,7 @@ import {
 } from 'oui-spec/core';
 import { sharedIdPrefix } from 'oui-spec/spec';
 
-import { deriveInputSchema, ITEM_PROPERTY, itemSchema, MAX_DESCRIBED_OPTIONS, PAGE_STATE_OBSERVATION_ID, uniqueRows } from './controls.js';
+import { choicesLine, deriveInputSchema, ITEM_PROPERTY, itemSchema, MAX_DESCRIBED_OPTIONS, PAGE_STATE_OBSERVATION_ID, uniqueRows } from './controls.js';
 
 /** The id of a page or shared surface's observation of what it shows: defined beside the rows it reports (`rowsOfControl`). */
 export { PAGE_STATE_OBSERVATION_ID };
@@ -491,8 +491,8 @@ export function summarisedSchema(schema: JsonSchema, value?: unknown): JsonSchem
  * a control per field per row, the same schema on row after row was three
  * quarters of the page state, and grew with the square of the form. Where the
  * definition is a declaration that does not list a live choice's options (a
- * room's, `declaredValue`), the page state says them once per control, under
- * `schemas`: before, an editor's choices made at run time (a line's
+ * room's, `declaredValue`), the page state names them once per control, in a
+ * line, under `choices`: before, an editor's choices made at run time (a line's
  * languages, a shot's points) reached the assistant nowhere, its definition
  * included.
  */
@@ -502,26 +502,27 @@ export interface PageStateOptions {
    * The value schema each control's action declares, by the control's id, where
    * that declaration is the action's definition rather than the control's live
    * schema: a room's actions, whose input is its catalog's (a page's own
-   * controls offer their live schema). A control whose live value is a choice
-   * the declaration does not list is then reported with its choices
-   * (`schemas`), since nothing else says them.
+   * controls offer their live schema). A choice whose declaration lists no
+   * options is then reported with its live ones (`choices`), since nothing
+   * else says them.
    */
   declaredValue?: (controlId: string) => JsonSchema | null | undefined;
 }
 
-/** The choices a live value schema lists: its `enum`, or its items' for a choice of several. */
+/** The choices a schema lists: its `enum`, or its items' for a choice of several. */
 const choicesOf = (schema: JsonSchema | null | undefined): readonly unknown[] | undefined =>
   schema?.enum ?? schema?.items?.enum;
 
 /**
- * A live value schema as the page state reports it beside its action's
- * declaration: its choices, summarised as a row's are (`summarisedSchema`),
- * when the live schema lists choices the declaration does not; else null.
+ * A control's live choices in one line (`choicesLine`), when its action's
+ * declaration lists none; else null. From its options, or, for a control that
+ * registered none, its live schema's values.
  */
-function undeclaredChoices(live: JsonSchema, declared: JsonSchema | null | undefined, value: unknown): JsonSchema | null {
-  if (!choicesOf(live) || choicesOf(declared)) return null;
-  if (live.enum) return summarisedSchema(live, value);
-  return { ...live, items: summarisedSchema(live.items!) };
+function undeclaredChoices(c: ControlRegistration, declared: JsonSchema | null | undefined): string | null {
+  if (choicesOf(declared)) return null;
+  if (c.options) return choicesLine(c.options, c.value);
+  const values = choicesOf(c.valueSchema);
+  return values ? choicesLine(values.filter(v => v !== null).map(v => ({ value: v as string | number, title: String(v) })), c.value) : null;
 }
 
 export function pageState(
@@ -532,7 +533,7 @@ export function pageState(
   const values: Record<string, unknown> = {};
   const lists: Record<string, PageStateRow[]> = {};
   // A control's choices known only now, once per control: what its action's declaration does not list.
-  const schemas: Record<string, JsonSchema> = {};
+  const choices: Record<string, string> = {};
   const declared = options.declaredValue;
   const unavailable: string[] = [];
   const busy: string[] = [];
@@ -553,10 +554,10 @@ export function pageState(
       if (keys.has(c.item.key)) continue;
       keys.add(c.item.key);
       const ownSchema = c.valueSchema && rowSchemas.get(c.id)!.size > 1;
-      // Rows that share one schema: said once, when the action's declaration does not say it.
-      if (declared && c.valueSchema && !ownSchema && !(c.id in schemas)) {
-        const choices = undeclaredChoices(c.valueSchema, declared(c.id), c.value);
-        if (choices) schemas[c.id] = choices;
+      // Rows that share one schema: their choices said once, when the action's declaration does not list them.
+      if (declared && c.valueSchema && !ownSchema && !(c.id in choices)) {
+        const line = undeclaredChoices(c, declared(c.id));
+        if (line) choices[c.id] = line;
       }
       (lists[c.id] ??= []).push({
         key: c.item.key,
@@ -567,9 +568,9 @@ export function pageState(
       });
     } else {
       if (c.value !== undefined) values[c.id] = c.value;
-      if (declared && c.valueSchema && !(c.id in schemas)) {
-        const choices = undeclaredChoices(c.valueSchema, declared(c.id), c.value);
-        if (choices) schemas[c.id] = choices;
+      if (declared && c.valueSchema && !(c.id in choices)) {
+        const line = undeclaredChoices(c, declared(c.id));
+        if (line) choices[c.id] = line;
       }
     }
     if (c.disabled && !c.item) (isBusy(c.id) ? busy : unavailable).push(c.id);
@@ -579,7 +580,7 @@ export function pageState(
     lists,
     unavailable,
     ...(busy.length ? { busy } : {}),
-    ...(Object.keys(schemas).length ? { schemas } : {}),
+    ...(Object.keys(choices).length ? { choices } : {}),
   };
 }
 
