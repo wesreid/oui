@@ -4,7 +4,7 @@
 
 ### Minor Changes
 
-- Each model call's clock, so a turn's time can be measured where it goes (ADR-0348 step 0).
+- Each model call's clock, so a turn's time can be measured where it goes.
 
   - **agent-worker:** `Step completed` carries the step's model call times: `firstTokenMs` (to its first token of any kind: reasoning, text or a tool call's input), `durationMs`, and `sinceLastCallMs` (from the end of the call before it, or the turn's start, to this one's request: the tools and the worker's work between them). `Turn usage` carries `timing`: `turnMs`, `firstTokenMs`, `firstTextMs` (when the person could first read text), `modelMs`, `betweenCallsMs` and each call's `callMs`. A model given by its id is not wrapped, and its fields are null.
   - **agent-worker/testing:** `recordingFetch` hands each chunk on as it arrives and keeps it on the way, instead of reading the whole body first. Every recorded first-token time used to equal the call's whole time; a recording now measures the API. An exchange takes its place when its request is sent, so a recording keeps the order of the requests, and a request that got no response leaves nothing.

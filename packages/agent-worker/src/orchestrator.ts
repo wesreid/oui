@@ -630,7 +630,7 @@ export async function runAgentTurn(
     });
   };
   /**
-   * Each model call's clock (ADR-0348 step 0), in the order the calls were made:
+   * Each model call's clock, in the order the calls were made:
    * when it was sent, how long to its first token of any kind (reasoning, text or
    * a tool call's input) and to its end, and how long after the call before it
    * ended (the turn's tools and the worker's own work between them). Logged on
@@ -2587,7 +2587,7 @@ export async function runAgentTurn(
           inputTokens: stepUsage?.inputTokens ?? 0,
           cacheReadTokens: stepUsage?.inputTokenDetails?.cacheReadTokens ?? 0,
           cacheWriteTokens: stepUsage?.inputTokenDetails?.cacheWriteTokens ?? 0,
-          // This step's model call: to its first token, to its end, and since the call before it ended (ADR-0348).
+          // This step's model call: to its first token, to its end, and since the call before it ended.
           ...stepClockFields(callClocks[callClocks.length - 1]),
         });
       },
@@ -2762,7 +2762,7 @@ export async function runAgentTurn(
     promptTokens: usage.promptTokens,
     cacheReadTokens: usage.cacheReadTokens,
     cacheWriteTokens: usage.cacheWriteTokens,
-    // Where the turn's time went: its calls, the time between them, and when the person first saw text (ADR-0348).
+    // Where the turn's time went: its calls, the time between them, and when the person first saw text.
     timing: { turnMs: Date.now() - turnStartedAt, ...turnTiming(callClocks, turnStartedAt, firstTextMs) },
     // How the page was worked.
     ...(client

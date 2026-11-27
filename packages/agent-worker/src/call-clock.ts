@@ -1,5 +1,5 @@
 /**
- * The clock of each model call in a turn (ADR-0348 step 0): what a person
+ * The clock of each model call in a turn: what a person
  * waits for is mostly the number of calls and what each one writes, so each
  * call's times are logged beside its tokens.
  *

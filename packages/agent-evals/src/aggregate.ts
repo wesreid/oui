@@ -76,7 +76,7 @@ export interface CategorySummary {
   passRate: number | null;
   costUsd: number;
   costPerCompletedTaskUsd: number | null;
-  /** The model time of every case that ran, failures included, per case passed, in ms; null when none passed (ADR-0348). */
+  /** The model time of every case that ran, failures included, per case passed, in ms; null when none passed. */
   modelMsPerCompletedTask: number | null;
 }
 
@@ -121,7 +121,7 @@ export interface ModelSummary {
    * In milliseconds: per turn, to its first token and its model calls' time; and
    * the model time of every case that ran, failures included, per case passed
    * (null when it passed none). A model that is quick per call but needs more
-   * calls, or fails more, is slower per completed task (ADR-0348 §2.6).
+   * calls, or fails more, is slower per completed task.
    */
   latencyMs: { firstToken: Percentiles; total: Percentiles; perCompletedTask: number | null };
   invalidToolCalls: { total: number; perTurn: number | null };

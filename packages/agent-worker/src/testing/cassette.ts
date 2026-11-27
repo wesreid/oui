@@ -29,7 +29,7 @@ const pathOf = (input: Parameters<typeof fetch>[0]): string =>
  * the API sends it and kept on the way. So a caller's clock (the time to the
  * first token) measures the API, not this fetch. Reading the whole body first,
  * as this fetch did before agent-worker 0.45.0, made every recorded first-token
- * time equal to the call's whole time (ADR-0348 §1.1).
+ * time equal to the call's whole time.
  *
  * An exchange takes its place in `exchanges` when its request is sent, so the
  * recording keeps the order of the requests, which is the order a replay
