@@ -103,6 +103,36 @@ export const MAX_DESCRIBED_OPTIONS = 20;
  * title alone when it is the value), then what choosing it means when the control shows that
  * (`token = Recipient token (a field of the recipient, such as {{firstName}})`).
  */
+/** The kinds whose value is chosen from options. */
+const CHOICE_KINDS: ReadonlySet<string> = new Set(['choice', 'tabs', 'multi-choice']);
+
+/**
+ * A choice's options as it is drawn now, for its registration (`options`): those
+ * that can be chosen. Undefined for a control that is not a choice, or that
+ * gives no options live (it is left to the schema its binding declares).
+ */
+export function liveOptions(kind: AnyControlKind, props: SchemaProps = {}): readonly ControlOption[] | undefined {
+  if (!CHOICE_KINDS.has(kind) || !props.options) return undefined;
+  return props.options.filter(o => !o.disabled);
+}
+
+/**
+ * A control's choices in one line, as the page state names them where its
+ * action's declaration lists none: each by its value, and its title where that
+ * says something else (`16:9 = Wide`), the first `MAX_DESCRIBED_OPTIONS` and the
+ * current value, then how many more. What an option means is left to its
+ * action's description: the page state is read on every call, and a
+ * Storyboard's every choice described in full outweighed the rest of it.
+ */
+export function choicesLine(options: readonly ControlOption[], current?: unknown): string {
+  const named = (o: ControlOption) => (String(o.value) === o.title ? o.title : `${o.value} = ${o.title}`);
+  const shown = options.slice(0, MAX_DESCRIBED_OPTIONS);
+  const chosen = options.find(o => Object.is(o.value, current));
+  const listed = chosen && !shown.includes(chosen) ? [...shown, chosen] : shown;
+  const more = options.length - listed.length;
+  return [...listed.map(named), ...(more > 0 ? [`and ${more} more`] : [])].join('; ');
+}
+
 export function describeOption(option: ControlOption): string {
   const named = String(option.value) === option.title ? option.title : `${option.value} = ${option.title}`;
   const meaning = option.description?.trim();

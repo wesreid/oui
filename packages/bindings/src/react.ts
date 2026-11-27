@@ -11,7 +11,7 @@
 import { createContext, createElement, useContext, useEffect, useRef, type ReactNode } from 'react';
 
 import { isAgentBinding, isNonAgent, type AgentProp } from './binding.js';
-import { deriveValueSchema, hasNothingToChoose, type AnyControlKind, type SchemaProps } from './controls.js';
+import { deriveValueSchema, hasNothingToChoose, liveOptions, type AnyControlKind, type SchemaProps } from './controls.js';
 import type { BindingRegistry, ControlHandle, RoomHandle } from './registry.js';
 import type { RoomCatalogData, RoomProblem, RoomResult } from './room.js';
 
@@ -83,6 +83,7 @@ export function useAgentBindings(specs: readonly AgentBindingSpec[]): void {
         kind: spec.kind,
         title: agent.title ?? spec.title,
         valueSchema: deriveValueSchema(spec.kind, spec.schemaProps),
+        options: liveOptions(spec.kind, spec.schemaProps),
         item: agent.item,
         value: spec.value,
         disabled: spec.disabled || hasNothingToChoose(spec.kind, spec.schemaProps),
@@ -104,6 +105,7 @@ export function useAgentBindings(specs: readonly AgentBindingSpec[]): void {
       handle.update({
         title: spec.agent.title ?? spec.title,
         valueSchema: deriveValueSchema(spec.kind, spec.schemaProps),
+        options: liveOptions(spec.kind, spec.schemaProps),
         item: spec.agent.item,
         value: spec.value,
         disabled: spec.disabled || hasNothingToChoose(spec.kind, spec.schemaProps),

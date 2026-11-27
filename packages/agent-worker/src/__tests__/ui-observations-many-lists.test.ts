@@ -63,16 +63,21 @@ describe('many lists over budget', () => {
 });
 
 describe('a room’s choices known only now, over budget', () => {
-  it('keeps them whole, as the fields are, while its lists are cut', () => {
-    // Each already summarised by the bindings to its first values: a list of values is no list of rows.
-    const languages = { type: 'string', enum: ['en', 'fr', 'de', 'es', 'it', 'pt', 'nl'] };
-    const observations = {
-      'room:storyboard': {
-        state: { ...form(60).state, schemas: { 'doc.part-00.field': languages } },
-      },
-    };
-    const text = observationsText(observations, 1_800);
-    expect(text).toContain(`"schemas":{"doc.part-00.field":${JSON.stringify(languages)}}`);
-    expect(text).not.toContain('"doc.part-59.field"');
+  const choices = { 'doc.part-00.field': 'en = English; fr = French; de = German' };
+  const room = (n: number) => ({ 'room:storyboard': { state: { ...form(n).state, choices } } });
+
+  it('keeps them whole while a long list is cut to index rows', () => {
+    const observations = { 'room:storyboard': { state: { values: {}, lists: { 'doc.rows': rows('doc.rows', 120) }, choices } } };
+    const text = observationsText(observations, 4_000);
+    expect(text).toMatch(/fitted from/);
+    expect(text).toContain(`"choices":${JSON.stringify(choices)}`);
+  });
+
+  it('says how many there are and where they are read, at the last steps of fitting', () => {
+    const text = observationsText(room(60), 1_800);
+    expect(text).not.toContain('en = English');
+    expect(text).toContain(
+      `"choices":"1 control's choices, not listed to fit the page state: ui_read with surface \\"room:storyboard\\", observation \\"state\\", at \\"/choices\\""`,
+    );
   });
 });

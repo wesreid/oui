@@ -11,7 +11,7 @@
  */
 
 import type { AgentItem } from './binding.js';
-import type { AnyControlKind } from './controls.js';
+import type { AnyControlKind, ControlOption } from './controls.js';
 import type { JsonSchema } from './json-schema.js';
 import type { RoomCatalogData, RoomProblem, RoomResult } from './room.js';
 
@@ -24,6 +24,12 @@ export interface ControlRegistration {
   title: string;
   /** The live schema of its value (no `item`), derived from its live props; null for a button or dialog. */
   valueSchema: JsonSchema | null;
+  /**
+   * Its live options, for a choice, tabs or a choice of several: what the page
+   * state names when its action's declaration lists none (`pageState`'s
+   * `declaredValue`), each by its value and title.
+   */
+  options?: readonly ControlOption[];
   /** Which row, when it is one of a list's. */
   item?: AgentItem;
   /** Its current value, for the page's observation. */

@@ -1,5 +1,13 @@
 # @ouispec/agent-evals
 
+## 0.48.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/bindings@0.23.0
+  - @ouispec/agent-worker@0.48.0
+
 ## 0.47.0
 
 ### Patch Changes

@@ -1,5 +1,14 @@
 # @ouispec/bindings
 
+## 0.23.0
+
+### Minor Changes
+
+- A room's choices known only at run time reach the model in a line each, within the page state's budget.
+
+  - bindings: a control registers its live options (`options`, from `liveOptions`). With `declaredValue`, `pageState` names a choice whose action's declaration lists no options once per control, under `choices`: `value = title` (the title once when it is the value), the first 20 and the current one, then how many more (`choicesLine`). What an option means stays its action's to say. This replaces 0.22's `schemas`, the whole live schemas, which on an editor with every section open weighed 15,876 characters for 46 controls; the lines weigh 7,302.
+  - agent-worker: the page state keeps `choices` whole until the step before short lists become counts, then says how many controls' choices there are and the `ui_read` call that returns them, so a page too heavy for them keeps every row it kept before. The rule of working from the index names `choices`.
+
 ## 0.22.0
 
 ### Minor Changes

@@ -100,6 +100,13 @@ interface ListStep {
   short?: 'no-schema' | 'index' | 'count' | 'lists';
   /** At the `lists` steps: how many of a page state's lists stay listed (each a count), in their order. */
   keepLists?: number;
+  /**
+   * The choices of controls whose actions declare none (`choices`) are said as
+   * how many there are and where they are read: from the step before short
+   * lists become counts, so a page too heavy for them keeps every row it kept
+   * before they were reported.
+   */
+  choicesAsCount?: boolean;
 }
 
 const LIST_STEPS: readonly ListStep[] = [
@@ -113,24 +120,31 @@ const LIST_STEPS: readonly ListStep[] = [
   { whole: 0, index: 0 },
   { whole: 0, index: 0, short: 'no-schema' },
   { whole: 0, index: 0, short: 'index' },
-  { whole: 0, index: 0, short: 'count' },
+  { whole: 0, index: 0, short: 'index', choicesAsCount: true },
+  { whole: 0, index: 0, short: 'count', choicesAsCount: true },
   // A page state of many lists, each already a count, is still one entry per list: a form of a hundred
   // lists takes thousands of characters saying "1 rows" a hundred times. Last, a page state keeps its first
   // lists (each a count) and the ones holding a chosen row, and says how many more there are, their ids read
   // on request: 40, 20, 10, then none.
-  { whole: 0, index: 0, short: 'lists', keepLists: 40 },
-  { whole: 0, index: 0, short: 'lists', keepLists: 20 },
-  { whole: 0, index: 0, short: 'lists', keepLists: 10 },
-  { whole: 0, index: 0, short: 'lists', keepLists: 0 },
+  { whole: 0, index: 0, short: 'lists', keepLists: 40, choicesAsCount: true },
+  { whole: 0, index: 0, short: 'lists', keepLists: 20, choicesAsCount: true },
+  { whole: 0, index: 0, short: 'lists', keepLists: 10, choicesAsCount: true },
+  { whole: 0, index: 0, short: 'lists', keepLists: 0, choicesAsCount: true },
 ];
 
 /**
  * What a page state reports that is never shortened: its fields, what is
- * unavailable or busy, a row's own schema (its options or range), and the
- * choices a room's controls have now that their actions do not declare
- * (`schemas`, each already summarised by the bindings to its first values).
+ * unavailable or busy, and a row's own schema (its options or range).
  */
-const FIELD_KEYS = new Set(['values', 'unavailable', 'busy', 'schema', 'schemas']);
+const FIELD_KEYS = new Set(['values', 'unavailable', 'busy', 'schema']);
+
+/**
+ * Where a page state names the choices of controls whose actions declare none
+ * (oui-bindings `pageState`, a room's): a line per control, kept whole until
+ * the step before short lists become counts (`choicesAsCount`), then said as
+ * how many there are and where they are read, as a page's many lists are.
+ */
+const CHOICES_KEY = 'choices';
 
 /**
  * Where a surface comes in the page state over budget: the surface the action
@@ -373,6 +387,7 @@ function compactValue(value: unknown, schema: SchemaNode | undefined, ctx: FitCo
         const compacted = compactValue(v, child, inner, chosen);
         if (key === 'lists' && ctx.step.short === 'lists')
           return [key, collapsedLists(compacted, ctx.step.keepLists ?? 0, inner.place)];
+        if (key === CHOICES_KEY && ctx.step.choicesAsCount) return [key, collapsedChoices(v, inner.place)];
         return [key, compacted];
       }),
     );
@@ -405,6 +420,16 @@ function collapsedLists(lists: unknown, keep: number, place: ValuePlace | undefi
     ...kept,
     '…': `${rest}${Object.keys(kept).length ? ' more' : ''} lists, not listed to fit the page state; their ids and rows: ${where}`,
   };
+}
+
+/** A page state's choices at the last steps of fitting: how many controls' there are, and the `ui_read` call that returns them. */
+function collapsedChoices(choices: unknown, place: ValuePlace | undefined): unknown {
+  if (choices === null || typeof choices !== 'object' || Array.isArray(choices)) return choices;
+  const count = Object.keys(choices).length;
+  const where = place
+    ? `${AGENT_UI_TOOLS.read} with surface "${place.surface}", observation "${place.observation}", at "${place.path}"`
+    : `${AGENT_UI_TOOLS.read} at "/${CHOICES_KEY}"`;
+  return `${count === 1 ? "1 control's" : `${count} controls'`} choices, not listed to fit the page state: ${where}`;
 }
 
 interface Fitted {
