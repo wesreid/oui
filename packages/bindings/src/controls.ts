@@ -474,7 +474,27 @@ function numberSchema(props: SchemaProps): JsonSchema {
 /** The item parameter an action takes when its control is one of a list's rows. */
 export const ITEM_PROPERTY = 'item';
 
-export function itemSchema(items?: readonly { key: string; title: string }[]): JsonSchema {
+/** The id of a page or shared surface's observation of what it shows (`pageState`). */
+export const PAGE_STATE_OBSERVATION_ID = 'state';
+
+/**
+ * Where the rows of a control drawn once per row are reported: in the `state`
+ * observation, under `lists`, by the control's id (`pageState`). It is the
+ * `x-row-of` of the control's `item`, so an assistant's index says on the
+ * action's own line which rows it takes. A room that reports its controls as a
+ * page does (`pageState` of its controls under `state`) gives its own
+ * `item` inputs this.
+ */
+export function rowsOfControl(controlId: string): string {
+  return `${PAGE_STATE_OBSERVATION_ID}/lists/${controlId}`;
+}
+
+/**
+ * The `item` input of a control drawn once per row: a row's key or exact
+ * title, its rows' keys while there are few enough, and, given the control's
+ * id, where the page reports its rows (`rowsOfControl`).
+ */
+export function itemSchema(items?: readonly { key: string; title: string }[], controlId?: string): JsonSchema {
   // A record drawn twice (a vehicle on a lead's card and again in the list) is one row: its key once.
   const rows = items ? uniqueRows(items) : undefined;
   return {
@@ -483,6 +503,7 @@ export function itemSchema(items?: readonly { key: string; title: string }[]): J
       'Which one: the id or the exact title of a row the page shows' +
       (rows && rows.length ? ` (${rows.length} on screen now)` : ''),
     ...(rows && rows.length && rows.length <= MAX_ITEM_ENUM ? { enum: rows.map(i => i.key) } : {}),
+    ...(controlId ? { 'x-row-of': rowsOfControl(controlId) } : {}),
   };
 }
 
@@ -508,7 +529,12 @@ export const MAX_ITEM_ENUM = 100;
 export function deriveInputSchema(
   kind: AnyControlKind,
   props: SchemaProps = {},
-  options: { itemized?: boolean; items?: readonly { key: string; title: string }[] } = {},
+  options: {
+    itemized?: boolean;
+    items?: readonly { key: string; title: string }[];
+    /** The control's id, whose rows the page reports under it (`rowsOfControl`): the `item`'s `x-row-of`. */
+    list?: string;
+  } = {},
 ): JsonSchema {
   const properties: Record<string, JsonSchema> = {};
   const required: string[] = [];
@@ -518,7 +544,7 @@ export function deriveInputSchema(
     required.push('value');
   }
   if (options.itemized) {
-    properties[ITEM_PROPERTY] = itemSchema(options.items);
+    properties[ITEM_PROPERTY] = itemSchema(options.items, options.list);
     required.push(ITEM_PROPERTY);
   }
   return {

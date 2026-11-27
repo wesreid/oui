@@ -1,5 +1,25 @@
 # @ouispec/agent-worker
 
+## 0.47.0
+
+### Minor Changes
+
+- An index line says what each input is, so the model acts from it without describing the action first.
+
+  - contract: `x-row-of` on an input names the list of a control's rows it takes, `state/lists/<control id>`.
+  - oui-spec: `summarizeInput` names the list a row-taking input comes from, `row of <list>` (`x-row-of`, or `x-ref`; `rows of` for several), before any enum of row keys, so a line reads the same however many rows show. A long line keeps whole properties and counts the rest (`+N more`); a list's name is never cut.
+  - bindings: a control's `item` carries `x-row-of` (`rowsOfControl`, also for rooms that report their controls as a page does). `pageState` takes `declaredValue`: a room's controls whose live choices their action's declaration does not list are reported once per control under `schemas`, summarised as a row's are. The generator check refuses an `x-row-of` where the room reports nothing.
+  - cli: a control's `item` in the manifest carries its `x-row-of`.
+  - agent-worker: a surface's heading says once the start its lines' lists share (`every list a line names is <start> + the name it gives`). The rule of working from the index says what each input form means and describes only for an object, a list, a union, an input past `+N more`, or a value not among a choice's first values; the page state's `schemas` are never shortened.
+
+### Patch Changes
+
+- Updated dependencies
+  - oui-spec@0.17.0
+  - @ouispec/bindings@0.22.0
+  - @ouispec/agent-core@0.47.0
+  - @ouispec/agent-events@0.47.0
+
 ## 0.46.0
 
 ### Minor Changes

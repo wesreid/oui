@@ -11,7 +11,7 @@
           }
         },
         {
-          "text": "<page_index>\nThe user's screen offers these surfaces and actions. In brackets after an action: what it takes (\"?\" marks an optional one, and a name alone takes text) and what calling it involves; no brackets means it takes nothing. Run an action with ui_act; ui_describe says what one takes.\nApp Shell (app-shell): The frame around every page\n- navigate: Go to a page (path)\n\nInbox (inbox): Messages\n</page_index>"
+          "text": "<page_index>\nThe user's screen offers these surfaces and actions. In brackets after an action: what it takes (\"?\" marks an optional one, a name alone takes text, and \"row of <list>\" takes a row of that list in the surface's page state, by its key or exact title) and what calling it involves; no brackets means it takes nothing. Run an action with ui_act; ui_describe says what one takes.\nApp Shell (app-shell): The frame around every page\n- navigate: Go to a page (path)\n\nInbox (inbox): Messages\n</page_index>"
         },
         {
           "cachePoint": {
@@ -224,7 +224,7 @@
           }
         },
         {
-          "text": "<page_index>\nThe user's screen offers these surfaces and actions. In brackets after an action: what it takes (\"?\" marks an optional one, and a name alone takes text) and what calling it involves; no brackets means it takes nothing. Run an action with ui_act; ui_describe says what one takes.\nApp Shell (app-shell): The frame around every page\n- navigate: Go to a page (path)\n\nInbox (inbox): Messages\n</page_index>"
+          "text": "<page_index>\nThe user's screen offers these surfaces and actions. In brackets after an action: what it takes (\"?\" marks an optional one, a name alone takes text, and \"row of <list>\" takes a row of that list in the surface's page state, by its key or exact title) and what calling it involves; no brackets means it takes nothing. Run an action with ui_act; ui_describe says what one takes.\nApp Shell (app-shell): The frame around every page\n- navigate: Go to a page (path)\n\nInbox (inbox): Messages\n</page_index>"
         },
         {
           "cachePoint": {

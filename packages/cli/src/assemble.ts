@@ -541,7 +541,7 @@ function controlAction(
     },
     ...c.reach.map(cleanStep),
   ];
-  const input = deriveInputSchema(c.kind, c.schemaProps, { itemized: c.itemized });
+  const input = deriveInputSchema(c.kind, c.schemaProps, { itemized: c.itemized, list: c.binding.id });
   return {
     name: toolName(c.binding.id),
     id: c.binding.id,

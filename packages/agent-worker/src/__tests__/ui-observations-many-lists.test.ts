@@ -61,3 +61,18 @@ describe('many lists over budget', () => {
     expect(observationsText(observations, 1_200)).not.toContain('lists, not listed');
   });
 });
+
+describe('a room’s choices known only now, over budget', () => {
+  it('keeps them whole, as the fields are, while its lists are cut', () => {
+    // Each already summarised by the bindings to its first values: a list of values is no list of rows.
+    const languages = { type: 'string', enum: ['en', 'fr', 'de', 'es', 'it', 'pt', 'nl'] };
+    const observations = {
+      'room:storyboard': {
+        state: { ...form(60).state, schemas: { 'doc.part-00.field': languages } },
+      },
+    };
+    const text = observationsText(observations, 1_800);
+    expect(text).toContain(`"schemas":{"doc.part-00.field":${JSON.stringify(languages)}}`);
+    expect(text).not.toContain('"doc.part-59.field"');
+  });
+});

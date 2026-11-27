@@ -798,9 +798,15 @@ interface OUIActionIndexEntry {
   needs those to shorten a list of rows by rule (§7.3.9). A definition in full
   form (`surfaces`) keeps the whole declaration.
 - `input` names the input's properties with their types, required ones first,
-  optional ones marked `?`, the first six, then `+N more`. An action that takes
+  optional ones marked `?`, the first six, as many whole ones as fit in 120
+  characters, then `+N more`. An action that takes
   nothing has `none`. A union has `one of N shapes`, and `by <property>` when
-  one property tells its members apart.
+  one property tells its members apart. A property that names a row says which
+  list: `row of <list>` (`rows of <list>` for several), from its `x-row-of` (a
+  list of a control's rows, `state/lists/<control id>`) or its `x-ref` (an
+  `x-rows` list; several joined with `|`), before an enum of the rows' keys it
+  may also have. An agent runtime MAY say the start the lists of a surface's
+  lines share once, as it may an id start, and give each line the rest.
 - `idPrefix` is the start every action id of the surface's whole catalog
   shares, in whole `_`-separated words, with each id keeping at least one word
   of its own (`sharedIdPrefix`; at least three ids). A client that knows its

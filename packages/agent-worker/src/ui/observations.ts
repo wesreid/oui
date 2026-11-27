@@ -126,9 +126,11 @@ const LIST_STEPS: readonly ListStep[] = [
 
 /**
  * What a page state reports that is never shortened: its fields, what is
- * unavailable or busy, and a row's own schema (its options or range).
+ * unavailable or busy, a row's own schema (its options or range), and the
+ * choices a room's controls have now that their actions do not declare
+ * (`schemas`, each already summarised by the bindings to its first values).
  */
-const FIELD_KEYS = new Set(['values', 'unavailable', 'busy', 'schema']);
+const FIELD_KEYS = new Set(['values', 'unavailable', 'busy', 'schema', 'schemas']);
 
 /**
  * Where a surface comes in the page state over budget: the surface the action

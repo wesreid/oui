@@ -1,5 +1,5 @@
 {
-  "buildId": "60b8be0ffb6a1cee",
+  "buildId": "6074fe90882b2704",
   "surfaces": [
     {
       "actions": [
@@ -46,7 +46,8 @@
             "properties": {
               "item": {
                 "description": "Which one: the id or the exact title of a row the page shows",
-                "type": "string"
+                "type": "string",
+                "x-row-of": "state/lists/create.direction"
               }
             },
             "required": [
@@ -172,7 +173,8 @@
             "properties": {
               "item": {
                 "description": "Which one: the id or the exact title of a row the page shows",
-                "type": "string"
+                "type": "string",
+                "x-row-of": "state/lists/create.mood"
               }
             },
             "required": [
@@ -973,7 +975,8 @@
             "properties": {
               "item": {
                 "description": "Which one: the id or the exact title of a row the page shows",
-                "type": "string"
+                "type": "string",
+                "x-row-of": "state/lists/voices.open"
               }
             },
             "required": [
@@ -1165,7 +1168,8 @@
             "properties": {
               "item": {
                 "description": "Which one: the id or the exact title of a row the page shows",
-                "type": "string"
+                "type": "string",
+                "x-row-of": "state/lists/voices.row"
               }
             },
             "required": [

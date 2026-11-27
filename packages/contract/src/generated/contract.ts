@@ -22,7 +22,8 @@ export const CONTRACT_SCHEMA_BASE = 'https://schemas.closurestudio.ai/oui/v1/';
  * It is what assistant tool inputs are written in, so a declared or derived schema is used as
  * is. `x-unit` names the unit a number is in: `px`, `%`, `°`; `x-space` names the frame it is
  * measured in; `x-rows` and `x-ref` say which lists hold addressable rows and which inputs
- * address them; `x-routes` says which pages a navigation query belongs to.
+ * address them; `x-row-of` says which list of a control's rows an input names; `x-routes` says
+ * which pages a navigation query belongs to.
  */
 export interface JsonSchema {
   type?: JsonSchemaType | readonly JsonSchemaType[];
@@ -76,6 +77,15 @@ export interface JsonSchema {
    * its exact title when one row has it.
    */
   'x-ref'?: readonly string[];
+  /**
+   * On a string in an action's input: the value names a row of the list at this place in its
+   * surface's observations, `<observation id>/<path>`: a page's list of a control's rows is
+   * `state/lists/<control id>`. The row's key, or its exact title when one row has it. It is
+   * how an assistant's index of the page says, on the action's own line, which rows it takes,
+   * so the assistant acts without first asking for the definition. `x-ref` says the same of an
+   * `x-rows` list.
+   */
+  'x-row-of'?: string;
   /**
    * On one alternative of the generated `app.navigate` action's `query`: the routes whose page
    * takes that query (`/dashboard/service-lane`). The page declares it (`page-query.json`); the

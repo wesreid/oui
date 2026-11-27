@@ -133,8 +133,41 @@ export function constantOf(
   return schema.enum?.length === 1 ? schema.enum[0] : undefined;
 }
 
-/** A value's type in a few words: "number 0–100 px", "a|b|c|d|…(12)", "list of string". */
+/**
+ * The list whose rows a value names, when its schema says: `x-row-of` (a
+ * control's rows, `state/lists/<control id>`), or `x-ref` (an `x-rows` list,
+ * `<observation id>/<list property>`; several are joined with "|"). Null when it
+ * names none.
+ */
+export function rowListOf(schema: JSONSchema): string | null {
+  const rowOf = schema["x-row-of"];
+  if (typeof rowOf === "string" && rowOf) return rowOf;
+  const ref = schema["x-ref"];
+  if (
+    Array.isArray(ref) &&
+    ref.length > 0 &&
+    ref.every((r) => typeof r === "string" && r)
+  )
+    return ref.join("|");
+  return null;
+}
+
+/**
+ * A value's type in a few words: "number 0–100 px", "a|b|c|d|…(12)", "list of
+ * string", "row of state/lists/line.text". A value that names a row says which
+ * list it is a row of, before anything else it could say: the rows' keys and
+ * titles are in the page state under that name, so the line is all a model
+ * needs to act, and it reads the same however many rows there are now.
+ */
 function valueSummary(schema: JSONSchema): string {
+  // `x-ref` on an array addresses its items (as on the items themselves).
+  if (schema.type === "array") {
+    const itemRows =
+      rowListOf(schema) ?? (schema.items ? rowListOf(schema.items) : null);
+    if (itemRows) return `rows of ${itemRows}`;
+  }
+  const rows = rowListOf(schema);
+  if (rows) return `row of ${rows}`;
   const constant = constantOf(schema);
   if (constant !== undefined && !schema.enum) return JSON.stringify(constant);
   if (schema.enum) {
@@ -180,7 +213,8 @@ function valueSummary(schema: JSONSchema): string {
  * What an action takes, in one line of at most `INDEX_INPUT_CHARS` characters:
  * - "none" for an action that takes nothing;
  * - each property with its type, required ones first, optional ones marked
- *   "?", the first `INDEX_INPUT_PROPERTIES` of them, then "+N more";
+ *   "?", the first `INDEX_INPUT_PROPERTIES` of them, as many whole ones as fit,
+ *   then "+N more";
  * - "one of N shapes by <property>" for a union.
  */
 export function summarizeInput(schema: JSONSchema | undefined): string {
@@ -204,13 +238,24 @@ export function summarizeInput(schema: JSONSchema | undefined): string {
     ...names.filter((n) => required.has(n)),
     ...names.filter((n) => !required.has(n)),
   ];
-  const shown = ordered.slice(0, INDEX_INPUT_PROPERTIES);
-  const more = ordered.length - shown.length;
-  const parts = shown.map(
-    (n) => `${n}${required.has(n) ? "" : "?"}: ${valueSummary(properties[n])}`,
-  );
-  if (more > 0) parts.push(`+${more} more`);
-  return clip(parts.join(", "), INDEX_INPUT_CHARS);
+  const parts = ordered
+    .slice(0, INDEX_INPUT_PROPERTIES)
+    .map(
+      (n) =>
+        `${n}${required.has(n) ? "" : "?"}: ${valueSummary(properties[n])}`,
+    );
+  // Whole properties, never one cut off in the middle: a list's name or a value cut short names
+  // nothing. What does not fit is counted, as what is past the first few is.
+  const line = (shown: number) => {
+    const more = ordered.length - shown;
+    return [
+      ...parts.slice(0, shown),
+      ...(more > 0 ? [`+${more} more`] : []),
+    ].join(", ");
+  };
+  let shown = parts.length;
+  while (shown > 1 && line(shown).length > INDEX_INPUT_CHARS) shown--;
+  return clip(line(shown), INDEX_INPUT_CHARS);
 }
 
 /** The longest lead-in before a quoted title that is still a lead-in ("Turn on or off", "Choose the face of"). */

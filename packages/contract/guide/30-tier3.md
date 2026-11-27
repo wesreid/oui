@@ -93,7 +93,9 @@ const catalog: RoomCatalog<LedgerContext> = {
 - **`x-ref`** on an input that takes a row (`{ type: 'string', ...refTo(POSITIONS) }`) names the list it addresses. The runtime then takes a row's exact name where its id is expected, when one row has it, and refuses an ambiguous one with the ids it could mean.
 - **`changed`** on an action's result reports the rows it changed, added or removed, each as `inspect` would return it now (`changedRows(lists, ctx, refs)`), so the assistant checks an edit against what the room holds, not against what it meant to do.
 
-The generator refuses a catalog whose observation lists things with an `id` and no `x-rows`, a list without its readers, and an `x-ref` to a list the room does not declare.
+- **`x-row-of`** on an input that takes one of a control's rows names where the room reports them: `state/lists/<control id>`, for a room that reports its controls as a page does (`pageState`). `rowsOfControl(id)` of `@ouispec/bindings` gives it. A page's own controls carry it without being asked. An assistant's index then says on the action's line which rows it takes (`item: row of state/lists/<control id>`), so it acts without describing the action first.
+
+The generator refuses a catalog whose observation lists things with an `id` and no `x-rows`, a list without its readers, an `x-ref` to a list the room does not declare, and an `x-row-of` in an observation the room does not report.
 
 <!-- schema: json-schema.json#/$defs/RowList -->
 
@@ -103,6 +105,6 @@ The generator refuses a catalog whose observation lists things with an `id` and 
 
 `x-unit` names a number's unit (`px`, `%`, `°`, `s`); `x-space` names the frame a length, a point or a fraction is measured in, in the room's own words (`artboard`, `canvas`, `artboard-fraction`). A value that moves something else when it changes says so in its description: an assistant sets a value it has not seen explained by guessing, and a guess about a frame of reference is how a layer leaves the page.
 
-Every input, value and observation schema, here and in tier 1, is written in the same subset of JSON Schema, which is what assistant tool inputs are written in; `x-unit` names a number's unit, `x-space` the frame it is measured in, and `x-rows` and `x-ref` the lists of addressable rows and the inputs that address them.
+Every input, value and observation schema, here and in tier 1, is written in the same subset of JSON Schema, which is what assistant tool inputs are written in; `x-unit` names a number's unit, `x-space` the frame it is measured in, `x-rows` and `x-ref` the lists of addressable rows and the inputs that address them, and `x-row-of` the list of a control's rows an input names.
 
 <!-- schema: json-schema.json -->

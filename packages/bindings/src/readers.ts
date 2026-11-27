@@ -413,11 +413,37 @@ function refsIn(schema: JsonSchema | undefined, path: string): { path: string; l
   ];
 }
 
+/** Every `x-row-of` a schema holds, with where it is. */
+function rowOfsIn(schema: JsonSchema | undefined, path: string): { path: string; place: string }[] {
+  if (!schema) return [];
+  return [
+    ...(typeof schema['x-row-of'] === 'string' ? [{ path, place: schema['x-row-of'] }] : []),
+    ...rowOfsIn(schema.items, `${path}[]`),
+    ...Object.entries(schema.properties ?? {}).flatMap(([key, value]) => rowOfsIn(value, path ? `${path}.${key}` : key)),
+  ];
+}
+
+/**
+ * Why an `x-row-of` names no place the room reports, or null: its observation
+ * must be one the room declares, and the property under it one that
+ * observation's schema declares, when it declares any (`state/lists/<id>`: a
+ * `state` with `lists`).
+ */
+function rowOfProblem(place: string, observations: ListedCatalog['observations']): string | null {
+  const [observationId, property] = place.split('/');
+  const observation = observations.find(o => o.id === observationId);
+  if (!observation) return `no observation ${observationId}`;
+  const declared = observation.schema.properties;
+  if (property !== undefined && declared && !(property in declared)) return `no ${property} in ${observationId}`;
+  return null;
+}
+
 /**
  * What is wrong with how a catalog declares its lists, in
  * words: a list of things with ids that does not say how its rows are
- * addressed, lists with no readers, and an input that addresses a list the
- * room does not have. A generator fails on any of them, and the conformance
+ * addressed, lists with no readers, an input that addresses a list the
+ * room does not have, and one that names rows where the room reports none
+ * (`x-row-of`). A generator fails on any of them, and the conformance
  * kit checks them, so a room cannot ship rows the assistant cannot read.
  */
 export function roomListProblems(catalog: ListedCatalog): string[] {
@@ -455,6 +481,10 @@ export function roomListProblems(catalog: ListedCatalog): string[] {
       for (const list of named) {
         if (!lists.has(list)) problems.push(`${catalog.room} action ${action.id}: ${path} addresses ${list}, which is not a list the room declares`);
       }
+    }
+    for (const { path, place } of rowOfsIn(action.input, '')) {
+      const problem = rowOfProblem(place, catalog.observations);
+      if (problem) problems.push(`${catalog.room} action ${action.id}: ${path} names rows at ${place}, where the room reports none (${problem})`);
     }
   }
   return problems;

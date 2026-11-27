@@ -1,5 +1,15 @@
 # @ouispec/agent-realtime
 
+## 0.47.0
+
+### Patch Changes
+
+- Updated dependencies
+  - oui-spec@0.17.0
+  - @ouispec/contract@0.22.0
+  - @ouispec/agent-core@0.47.0
+  - @ouispec/agent-events@0.47.0
+
 ## 0.44.0
 
 ### Patch Changes
