@@ -2531,10 +2531,19 @@ export interface AgentEvalPageAction {
    */
   state?: Readonly<Record<string, unknown>>;
   /**
+   * What it changes in its surface's observations once it has run, by observation id, as the
+   * person's page changes them: merged into each, applied after `state` and before `writes`. An
+   * object is merged field by field; a list whose items each carry an `id` (or, a row, a
+   * `key`), on both sides, item by item, a new item added at its end; any other value, an empty
+   * list among them, replaces the one before; a field given null is taken away. So each run
+   * states only what it changes, and runs compose in any order.
+   */
+  changes?: Readonly<Record<string, unknown>>;
+  /**
    * What a run writes into its surface's state from its input, so the next observation shows
    * what was typed or chosen, as the person's page does. Each applies once the run succeeds,
-   * after its own `state`: never when its `result`, or the `cases` entry its input holds, fails
-   * it. Default: nothing, and the state shows only what `state` gives.
+   * after its own `state` and `changes`: never when its `result`, or the `cases` entry its
+   * input holds, fails it. Default: nothing, and the state shows only what `state` gives.
    */
   writes?: readonly AgentEvalPageWrite[];
   /** The address the page goes to once it has run. */
@@ -2557,6 +2566,15 @@ export interface AgentEvalPageAction {
      * one before.
      */
     state?: Readonly<Record<string, unknown>>;
+    /**
+     * What it changes in its surface's observations once it has run, by observation id, as the
+     * person's page changes them: merged into each, applied after `state` and before `writes`.
+     * An object is merged field by field; a list whose items each carry an `id` (or, a row, a
+     * `key`), on both sides, item by item, a new item added at its end; any other value, an
+     * empty list among them, replaces the one before; a field given null is taken away. So each
+     * run states only what it changes, and runs compose in any order.
+     */
+    changes?: Readonly<Record<string, unknown>>;
     /** The address the page goes to once it has run. */
     navigate?: string;
     job?: AgentEvalJob;

@@ -1286,9 +1286,10 @@ The package ships an example: a fake dealer tool set, with scenarios for disclos
 > | `input` | object |  | What it takes, as a JSON Schema. |
 > | `result` | { success: boolean, data?: any, error?: string } |  | What it answers. |
 > | `state` | object |  | Its surface's observations once it has run, by observation id: each given replaces the one before. |
+> | `changes` | object |  | What it changes in its surface's observations once it has run, by observation id, as the person's page changes them: merged into each, applied after `state` and before `writes`. |
 > | `writes` | AgentEvalPageWrite[] |  | What a run writes into its surface's state from its input, so the next observation shows what was typed or chosen, as the person's page does. |
 > | `navigate` | string |  | The address the page goes to once it has run. |
-> | `cases` | { when?: object, result?: { success: boolean, data?: any, error?: string }, state?: object, navigate?: string, job?: AgentEvalJob }[] |  | What it does for a call whose input holds `when`, the first that matches; a call none matches gets the defaults beside them. |
+> | `cases` | { when?: object, result?: { success: boolean, data?: any, error?: string }, state?: object, changes?: object, navigate?: string, job?: AgentEvalJob }[] |  | What it does for a call whose input holds `when`, the first that matches; a call none matches gets the defaults beside them. |
 > | `job` | AgentEvalJob |  |  |
 
 > **Schema:** [`agent-evals.json#/$defs/AgentEvalPageControl`](schemas/agent-evals.json) · `https://schemas.closurestudio.ai/oui/v1/agent-evals.json#/$defs/AgentEvalPageControl` · TypeScript: `AgentEvalPageControl` from `@ouispec/contract`

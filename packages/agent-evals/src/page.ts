@@ -264,7 +264,7 @@ function shownFacts(entry: AgentEvalShown, title: string): ShownFacts {
   return { id: entry.id, title, facts, ...(entry.item ? { item: { ...entry.item } } : {}) };
 }
 
-type Outcome = Pick<AgentEvalPageAction, 'result' | 'state' | 'navigate' | 'job'>;
+type Outcome = Pick<AgentEvalPageAction, 'result' | 'state' | 'changes' | 'navigate' | 'job'>;
 
 /** What a call does: the first case whose `when` its input holds, else the action's own defaults. */
 function outcomeOf(declared: Outcome & { cases?: ReadonlyArray<Outcome & { when?: Readonly<Record<string, unknown>> }> }, input: Record<string, unknown>): Outcome {
@@ -356,6 +356,58 @@ const handlerResult = (result: Outcome['result']): ActionHandlerResult =>
   !result || result.success
     ? { success: true, ...(result?.data !== undefined ? { data: result.data } : {}) }
     : { success: false, error: { code: 'FAILED', message: result.error ?? 'It failed.' }, ...(result.data !== undefined ? { data: result.data } : {}) };
+
+// ─── What a declared action changes in its surface's state (`changes`) ──────
+
+const isPlainRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/** What an item of a list is merged by: its `id`, else a row's `key`; none, and the list is replaced whole. */
+function identityOf(item: unknown): string | undefined {
+  if (!isPlainRecord(item)) return undefined;
+  if (typeof item.id === 'string') return `id:${item.id}`;
+  if (typeof item.key === 'string') return `key:${item.key}`;
+  return undefined;
+}
+
+/**
+ * `change` merged into `before`, as the person's page changes its state: an object field by field (a field given null
+ * taken away); a list whose items all carry an identity, on both sides, item by item, a new item added at its end; any
+ * other value, an empty list among them, replaces the one before. Copied along the way: the fixture's objects never
+ * change.
+ */
+function mergeStateChanges(before: unknown, change: unknown): unknown {
+  if (isPlainRecord(before) && isPlainRecord(change)) {
+    const out: Record<string, unknown> = { ...before };
+    for (const [key, value] of Object.entries(change)) {
+      if (value === null) delete out[key];
+      else out[key] = key in out ? mergeStateChanges(out[key], value) : value;
+    }
+    return out;
+  }
+  if (Array.isArray(before) && Array.isArray(change) && before.length > 0 && change.length > 0) {
+    const ids = before.map(identityOf);
+    const changed = change.map(identityOf);
+    if (ids.every((id) => id !== undefined) && changed.every((id) => id !== undefined)) {
+      const out = [...before];
+      changed.forEach((id, i) => {
+        const at = ids.indexOf(id);
+        if (at >= 0) out[at] = mergeStateChanges(out[at], change[i]);
+        else {
+          out.push(change[i]);
+          ids.push(id);
+        }
+      });
+      return out;
+    }
+  }
+  return change;
+}
+
+/** A surface's state once a run has left its `state` and made its `changes`. */
+function leftBy(before: Readonly<Record<string, unknown>> | undefined, outcome: Outcome): Record<string, unknown> {
+  const replaced = { ...before, ...(outcome.state ?? {}) };
+  return outcome.changes ? (mergeStateChanges(replaced, outcome.changes) as Record<string, unknown>) : replaced;
+}
 
 // ─── What a declared action writes into its surface's state (`writes`) ───────
 
@@ -1004,11 +1056,12 @@ export function createFixturePage(fixture: AgentEvalPage, source: EvalPageSource
             const outcome = outcomeOf(action, input);
             if (!outcome.result || outcome.result.success) {
               if (action.writes) {
-                // What it leaves (`state`), then what its input wrote: all of it, or, with a row it cannot find, none.
-                const written = applyWrites(action, { ...states.get(surface.id), ...(outcome.state ?? {}) }, input);
+                // What it leaves (`state`) and changes (`changes`), then what its input wrote: all of it, or, with a row it
+                // cannot find, none.
+                const written = applyWrites(action, leftBy(states.get(surface.id), outcome), input);
                 if ('error' in written) return written.error;
                 states.set(surface.id, written.state);
-              } else if (outcome.state) states.set(surface.id, { ...states.get(surface.id), ...outcome.state });
+              } else if (outcome.state || outcome.changes) states.set(surface.id, leftBy(states.get(surface.id), outcome));
               push(surface);
               if (outcome.navigate) queueMicrotask(() => go(outcome.navigate!));
               if (outcome.job) {
