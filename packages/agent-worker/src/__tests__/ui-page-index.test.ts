@@ -21,6 +21,8 @@ import {
   sharedIdPrefix,
   sharedPrefixNote,
   foldedListStart,
+  ownListStart,
+  ownRowNote,
   rowListsOf,
   sharedListNote,
   sharedListStart,
@@ -341,7 +343,8 @@ describe('the list a row an action takes comes from, said on its line', () => {
     name: 'Storyboard',
     description: 'The Storyboard',
     actions: controls.map((c) => ({
-      id: `storyboard_${c.replace(/[.-]/g, '_')}`,
+      // Named apart from their lists, so each line names its list (the own-list form is tested below).
+      id: `storyboard_set_${c.replace(/[.-]/g, '_')}`,
       description: `Sets ${c}.`,
       input: {
         type: 'object',
@@ -359,11 +362,11 @@ describe('the list a row an action takes comes from, said on its line', () => {
     expect(foldedListStart(page[0])).toBe('state/lists/editor.storyboard.');
     const text = indexText(page);
     expect(text).toContain(`${sharedListNote('state/lists/editor.storyboard.')}): The Storyboard`);
-    expect(text).toContain('- storyboard_overlay_anchor: Sets overlay.anchor. (item: row of overlay.anchor, value)');
-    expect(text).toContain('- storyboard_shot_points_add_region: Sets shot.points.add-region. (item: row of shot.points.add-region, value)');
+    expect(text).toContain('- storyboard_set_overlay_anchor: Sets overlay.anchor. (item: row of overlay.anchor, value)');
+    expect(text).toContain('- storyboard_set_shot_points_add_region: Sets shot.points.add-region. (item: row of shot.points.add-region, value)');
     // Read on its own, a line names its list whole.
     expect(indexDiff([], page).added[0]).toBe(
-      '- storyboard_overlay_anchor: Sets overlay.anchor. (item: row of state/lists/editor.storyboard.overlay.anchor, value)',
+      '- storyboard_set_overlay_anchor: Sets overlay.anchor. (item: row of state/lists/editor.storyboard.overlay.anchor, value)',
     );
   });
 
@@ -397,5 +400,88 @@ describe('the list a row an action takes comes from, said on its line', () => {
     expect(text).toContain(sharedListNote('document/'));
     expect(text).toContain('- vector_studio_align: Does align. (ids: rows of layers|artboards, name?)');
     expect(text).toContain('- navigate: Go to a page. (path)');
+  });
+});
+
+describe('a row of the line’s own list, said once for the surface', () => {
+  /** A page whose row controls each list their rows under their own id, as the bindings report them. */
+  const page = (ids: string[], extra: OUISurface['actions'] = []): OUISurface => ({
+    id: 'page:Studio',
+    name: 'Studio',
+    description: 'A studio',
+    actions: [
+      ...ids.map((id) => ({
+        id: id.replace(/[.-]/g, '_'),
+        description: `Does ${id}.`,
+        input: {
+          type: 'object' as const,
+          required: ['item'],
+          properties: { item: { type: 'string' as const, 'x-row-of': `state/lists/${id}` } },
+        },
+      })),
+      ...extra,
+    ],
+  });
+  const IDS = ['studio.track.mute', 'studio.track.solo', 'pitch-stage.zoom.length-out', 'studio.bus.fx'];
+
+  it('writes "row" where the line’s list is its own id, "." or "-" for its "_", and names the list once in the heading', () => {
+    const surfaces = pageFromSurfaces([page(IDS)], new Map());
+    expect(ownListStart(surfaces[0])).toBe('state/lists/');
+    const text = indexText(surfaces);
+    expect(text).toContain(`Studio (page:Studio; ${ownRowNote('state/lists/')}): A studio`);
+    expect(text).toContain('- studio_track_mute: Does studio.track.mute. (item: row)');
+    expect(text).toContain('- pitch_stage_zoom_length_out: Does pitch-stage.zoom.length-out. (item: row)');
+    expect(text).not.toContain('(item: row of');
+    // Shorter than naming every list, which 0.47 did.
+    expect(text.length).toBeLessThan(indexText(surfaces, Infinity, { foldSharedPrefix: false }).length);
+    // Read on its own, a line names its list whole.
+    expect(indexDiff([], surfaces).added[0]).toBe('- studio_track_mute: Does studio.track.mute. (item: row of state/lists/studio.track.mute)');
+  });
+
+  it('keeps naming a list that is not the line’s own, and a line of several lists', () => {
+    const other: OUISurface['actions'] = [
+      {
+        id: 'studio_send_level',
+        description: 'Sends.',
+        input: { type: 'object', required: ['item'], properties: { item: { type: 'string', 'x-row-of': 'state/lists/studio.track.mute' } } },
+      },
+      {
+        id: 'studio_align',
+        description: 'Aligns.',
+        input: { type: 'object', required: ['ids'], properties: { ids: { type: 'array', items: { type: 'string', 'x-ref': ['document/layers', 'document/artboards'] } } } },
+      },
+    ];
+    const text = indexText(pageFromSurfaces([page(IDS, other)], new Map()));
+    expect(text).toContain('- studio_send_level: Sends. (item: row of state/lists/studio.track.mute)');
+    expect(text).toContain('- studio_align: Aligns. (ids: rows of document/layers|document/artboards)');
+    expect(text).toContain('- studio_track_solo: Does studio.track.solo. (item: row)');
+  });
+
+  it('says nothing once where one line would not repay the heading', () => {
+    const surfaces = pageFromSurfaces([page(['studio.track.mute'])], new Map());
+    expect(ownListStart(surfaces[0])).toBe('');
+    expect(indexText(surfaces)).toContain('(item: row of state/lists/studio.track.mute)');
+  });
+
+  it('reads the own list through a surface’s folded id start', () => {
+    const room: OUISurface = {
+      id: 'room:storyboard',
+      name: 'Storyboard',
+      description: 'The Storyboard',
+      actions: ['overlay.anchor', 'shot.camera.target', 'shot.points.add-region', 'line.language', 'line.text', 'shot.kind'].map((c) => ({
+        id: `storyboard_editor_storyboard_${c.replace(/[.-]/g, '_')}`,
+        description: `Sets ${c}.`,
+        input: {
+          type: 'object' as const,
+          required: ['item'],
+          properties: { item: { type: 'string' as const, 'x-row-of': `state/lists/editor.storyboard.${c}` } },
+        },
+      })),
+    };
+    const surfaces = pageFromSurfaces([room], new Map());
+    const text = indexText(surfaces);
+    expect(text).toContain(sharedPrefixNote('storyboard_editor_storyboard_'));
+    expect(text).toContain(ownRowNote('state/lists/editor.storyboard.'));
+    expect(text).toContain('- shot_points_add_region: Sets shot.points.add-region. (item: row)');
   });
 });
