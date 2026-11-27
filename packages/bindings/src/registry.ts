@@ -256,6 +256,11 @@ export function createBindingRegistry(): BindingRegistry {
   };
 }
 
+/**
+ * Whether a row stays the row it was: its key, its title and its description. A description that
+ * arrives or changes later (a name read after the row was drawn) is a change the assistant must
+ * hear, as a new title is.
+ */
 function sameItem(a: AgentItem | undefined, b: AgentItem | undefined): boolean {
-  return a?.key === b?.key && a?.title === b?.title;
+  return a?.key === b?.key && a?.title === b?.title && a?.description === b?.description;
 }

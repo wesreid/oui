@@ -1,5 +1,11 @@
 # @ouispec/bindings
 
+## 0.21.1
+
+### Patch Changes
+
+- A row whose description arrives or changes after it is drawn is announced again, so the page state carries the description the person sees. The registry compared a row by its key and title only, and a later description never reached the assistant.
+
 ## 0.21.0
 
 ### Patch Changes
