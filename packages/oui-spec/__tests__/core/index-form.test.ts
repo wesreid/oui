@@ -167,7 +167,7 @@ describe("an action’s index entry", () => {
         },
       }),
     ).toBe(
-      "clipId: string, start?: number ≥0, mode?: a|b|c|d|…(6), when?: string(date), tags?: list of string, style?: object(2),…",
+      "clipId: string, start?: number ≥0, mode?: a|b|c|d|…(6), when?: string(date), tags?: list of string, +3 more",
     );
     expect(summarizeInput(effectUnion(60, 12))).toBe(
       "one of 60 shapes by effect",
@@ -191,6 +191,59 @@ describe("an action’s index entry", () => {
         INDEX_INPUT_CHARS,
       );
     }
+  });
+
+  it("says which list a row it takes comes from, whatever rows there are now", () => {
+    // A control's rows (`x-row-of`), with the live keys an enum would otherwise preview: the list's name
+    // reads the same however many rows show, and its keys and titles are in the page state under it.
+    const item = (keys?: string[]) => ({
+      type: "string" as const,
+      "x-row-of": "state/lists/editor.storyboard.overlay.anchor",
+      ...(keys ? { enum: keys } : {}),
+    });
+    const input = (keys?: string[]) => ({
+      type: "object" as const,
+      required: ["item", "value"],
+      properties: { item: item(keys), value: { type: "string" as const } },
+    });
+    expect(summarizeInput(input())).toBe(
+      "item: row of state/lists/editor.storyboard.overlay.anchor, value: string",
+    );
+    expect(summarizeInput(input(["feature-2"]))).toBe(summarizeInput(input()));
+    expect(summarizeInput(input(["a", "b", "c", "d", "e"]))).toBe(summarizeInput(input()));
+    // An `x-rows` list (`x-ref`), one or several, and a list of rows.
+    expect(
+      summarizeInput({
+        type: "object",
+        required: ["layer_id"],
+        properties: {
+          layer_id: { type: "string", "x-ref": ["document/layers"] },
+          among: { type: "string", "x-ref": ["document/layers", "document/artboards"] },
+          ids: { type: "array", items: { type: "string", "x-ref": ["document/layers"] } },
+        },
+      }),
+    ).toBe("layer_id: row of document/layers, among?: row of document/layers|document/artboards, ids?: rows of document/layers");
+    // `x-ref` on the array itself addresses its items.
+    expect(
+      summarizeInput({
+        type: "object",
+        required: ["ids"],
+        properties: { ids: { type: "array", "x-ref": ["document/layers"], items: { type: "string" } } },
+      }),
+    ).toBe("ids: rows of document/layers");
+    // A line too long keeps whole properties and counts the rest: a list's name is never cut.
+    const long = summarizeInput({
+      type: "object",
+      required: ["a_rather_long_name", "another_long_name", "item"],
+      properties: {
+        a_rather_long_name: { type: "string", "x-ref": ["document/layers", "document/artboards"] },
+        another_long_name: { type: "string", "x-ref": ["document/layers", "document/artboards"] },
+        item: { type: "string", "x-row-of": "state/lists/editor.storyboard.shot.points.add-region" },
+      },
+    });
+    expect(long).toBe(
+      "a_rather_long_name: row of document/layers|document/artboards, +2 more",
+    );
   });
 
   it("keeps the first sentence of a description, on one line", () => {

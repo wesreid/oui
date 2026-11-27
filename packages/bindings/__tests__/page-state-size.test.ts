@@ -99,3 +99,60 @@ describe('a list’s rows that take the same value', () => {
     expect(pageState([press]).lists['form.remove']).toEqual([{ key: 'a', title: 'Shot a' }]);
   });
 });
+
+describe('a room’s choices known only at run time', () => {
+  // A room's action takes its catalog's declaration ("The option to choose", no options), not the control's live
+  // schema: a Storyboard line's languages, a shot's points. Before, they reached the assistant nowhere.
+  const LANGUAGES_NOW = [
+    { value: 'en', title: 'English' },
+    { value: 'fr', title: 'French' },
+  ];
+  const DECLARED = { type: 'string', description: 'The option to choose' } as const;
+  const line = (key: string, value: string, options = LANGUAGES_NOW): ControlRegistration => ({
+    id: 'editor.storyboard.line.language',
+    kind: 'choice',
+    title: 'Language',
+    item: { key, title: `Line ${key}` },
+    valueSchema: deriveValueSchema('choice', { options }),
+    value,
+    run: () => ({ ok: true }),
+  });
+  const format: ControlRegistration = {
+    id: 'editor.storyboard.format.voice',
+    kind: 'choice',
+    title: 'Voice',
+    valueSchema: deriveValueSchema('choice', { options: [{ value: 'v-1', title: 'Ava' }] }),
+    value: 'v-1',
+    run: () => ({ ok: true }),
+  };
+  const declared = (id: string) => (id.startsWith('editor.storyboard.') ? DECLARED : undefined);
+
+  it('are said once per control, for a list’s rows and a field alike, where the declaration lists none', () => {
+    const state = pageState([line('l1', 'en'), line('l2', 'fr'), format], () => false, { declaredValue: declared });
+    expect(state.schemas).toEqual({
+      'editor.storyboard.line.language': deriveValueSchema('choice', { options: LANGUAGES_NOW }),
+      'editor.storyboard.format.voice': deriveValueSchema('choice', { options: [{ value: 'v-1', title: 'Ava' }] }),
+    });
+    // The rows themselves stay their key, title and value.
+    expect(state.lists['editor.storyboard.line.language']).toEqual([
+      { key: 'l1', title: 'Line l1', value: 'en' },
+      { key: 'l2', title: 'Line l2', value: 'fr' },
+    ]);
+  });
+
+  it('are summarised as a row’s are, keeping the current value', () => {
+    const state = pageState([line('l1', 'lang_400', LANGUAGES)], () => false, { declaredValue: declared });
+    const schema = state.schemas!['editor.storyboard.line.language'];
+    expect(schema.enum).toEqual([...LANGUAGES.slice(0, MAX_DESCRIBED_OPTIONS).map(l => l.value), 'lang_400']);
+    expect(schema['x-enum-omitted']).toBe(648 - 21);
+  });
+
+  it('are left to the declaration that lists them, to a row that carries its own, and to a page’s own controls', () => {
+    const listed = { ...DECLARED, enum: ['en', 'fr'] };
+    expect(pageState([line('l1', 'en')], () => false, { declaredValue: () => listed }).schemas).toBeUndefined();
+    const differing = [line('l1', 'en'), line('l2', 'en', [{ value: 'de', title: 'German' }])];
+    expect(pageState(differing, () => false, { declaredValue: declared }).schemas).toBeUndefined();
+    // A page's control offers its live schema in its definition: nothing to add.
+    expect(pageState([line('l1', 'en'), format]).schemas).toBeUndefined();
+  });
+});

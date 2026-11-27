@@ -20,6 +20,10 @@ import {
   resolveActionName,
   sharedIdPrefix,
   sharedPrefixNote,
+  foldedListStart,
+  rowListsOf,
+  sharedListNote,
+  sharedListStart,
   type HeldDefinitions,
   type PageSurface,
 } from '../ui/page-index.js';
@@ -171,6 +175,14 @@ describe('what an action takes, in a line of the index', () => {
     expect(shortInput('value: string, item?: string, ids?: list of string, paint?: object(4), +3 more')).toBe('value, item?, ids?: list, paint?: object, +3 more');
   });
 
+  it('keeps the list a row it takes comes from, which is what lets the model act from the line', () => {
+    const input = 'item: row of state/lists/editor.storyboard.overlay.anchor, value: string';
+    expect(shortInput(input)).toBe('item: row of state/lists/editor.storyboard.overlay.anchor, value');
+    expect(shortInput('layer_id: row of document/layers, ids?: rows of document/layers|document/artboards')).toBe(
+      'layer_id: row of document/layers, ids?: rows of document/layers|document/artboards',
+    );
+  });
+
   it('leaves what has no properties to name as the entry gives it', () => {
     expect(shortInput('one of 60 shapes by effect')).toBe('one of 60 shapes by effect');
     expect(shortInput('number 0–100 px')).toBe('number 0–100 px');
@@ -319,5 +331,71 @@ describe('a surface whose folded name would be another action’s full id', () =
     expect(resolvablePrefixes([song]).get('room:song')).toBe('song_');
     expect(resolvablePrefixes([page, song]).get('room:song')).toBe('');
     expect(resolveActionName([song], 'voice_track')).toEqual({ id: 'song_voice_track' });
+  });
+});
+
+describe('the list a row an action takes comes from, said on its line', () => {
+  /** A room whose actions each take a row of one of its controls' lists, and a value. */
+  const storyboard = (controls: string[]): OUISurface => ({
+    id: 'room:storyboard',
+    name: 'Storyboard',
+    description: 'The Storyboard',
+    actions: controls.map((c) => ({
+      id: `storyboard_${c.replace(/[.-]/g, '_')}`,
+      description: `Sets ${c}.`,
+      input: {
+        type: 'object',
+        required: ['item', 'value'],
+        properties: { item: { type: 'string', 'x-row-of': `state/lists/editor.storyboard.${c}` }, value: { type: 'string' } },
+      },
+    })),
+  });
+  const CONTROLS = ['overlay.anchor', 'shot.camera.target', 'shot.points.add-region', 'line.language'];
+
+  it('names each list by what follows the start its lines share, said once in the heading', () => {
+    const page = pageFromSurfaces([storyboard(CONTROLS)], new Map());
+    expect(rowListsOf(page[0].index[0].input)).toEqual(['state/lists/editor.storyboard.overlay.anchor']);
+    expect(sharedListStart(CONTROLS.map((c) => `state/lists/editor.storyboard.${c}`))).toBe('state/lists/editor.storyboard.');
+    expect(foldedListStart(page[0])).toBe('state/lists/editor.storyboard.');
+    const text = indexText(page);
+    expect(text).toContain(`${sharedListNote('state/lists/editor.storyboard.')}): The Storyboard`);
+    expect(text).toContain('- storyboard_overlay_anchor: Sets overlay.anchor. (item: row of overlay.anchor, value)');
+    expect(text).toContain('- storyboard_shot_points_add_region: Sets shot.points.add-region. (item: row of shot.points.add-region, value)');
+    // Read on its own, a line names its list whole.
+    expect(indexDiff([], page).added[0]).toBe(
+      '- storyboard_overlay_anchor: Sets overlay.anchor. (item: row of state/lists/editor.storyboard.overlay.anchor, value)',
+    );
+  });
+
+  it('keeps every list whole where saying a start once is no shorter, or the lists share none', () => {
+    const one = pageFromSurfaces([storyboard(['overlay.anchor'])], new Map());
+    expect(foldedListStart(one[0])).toBe('');
+    expect(indexText(one)).toContain('(item: row of state/lists/editor.storyboard.overlay.anchor, value)');
+    // Each name keeps a word of its own, and names with nothing in common share no start.
+    expect(sharedListStart(['document/layers', 'document/artboards'])).toBe('document/');
+    expect(sharedListStart(['document/layers', 'timeline/clips'])).toBe('');
+    expect(sharedListStart(['document/layers', 'document/layers'])).toBe('document/');
+  });
+
+  it('folds each of several lists a line names, and a line with no list is as it was', () => {
+    const studio: OUISurface = {
+      id: 'room:vector-studio',
+      name: 'Vector Studio',
+      description: 'Artwork',
+      actions: ['align', 'group', 'delete', 'rename'].map((id) => ({
+        id: `vector_studio_${id}`,
+        description: `Does ${id}.`,
+        input: {
+          type: 'object',
+          required: ['ids'],
+          properties: { ids: { type: 'array', items: { type: 'string', 'x-ref': ['document/layers', 'document/artboards'] } }, name: { type: 'string' } },
+        },
+      })),
+    };
+    const page = pageFromSurfaces([studio, shell], new Map());
+    const text = indexText(page);
+    expect(text).toContain(sharedListNote('document/'));
+    expect(text).toContain('- vector_studio_align: Does align. (ids: rows of layers|artboards, name?)');
+    expect(text).toContain('- navigate: Go to a page. (path)');
   });
 });

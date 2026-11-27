@@ -2236,7 +2236,7 @@ export async function runAgentTurn(
         ? [
             [
               '<page_index>',
-              `The user's screen offers these surfaces and actions. In brackets after an action: what it takes ("?" marks an optional one, and a name alone takes text) and what calling it involves; no brackets means it takes nothing.${renderRule(RUN_AN_ACTION, offered)}`,
+              `The user's screen offers these surfaces and actions. In brackets after an action: what it takes ("?" marks an optional one, a name alone takes text, and "row of <list>" takes a row of that list in the surface's page state, by its key or exact title) and what calling it involves; no brackets means it takes nothing.${renderRule(RUN_AN_ACTION, offered)}`,
               pageIndexText,
               '</page_index>',
             ].join('\n'),

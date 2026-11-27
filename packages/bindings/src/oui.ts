@@ -18,7 +18,10 @@ import {
 } from 'oui-spec/core';
 import { sharedIdPrefix } from 'oui-spec/spec';
 
-import { deriveInputSchema, ITEM_PROPERTY, itemSchema, MAX_DESCRIBED_OPTIONS, uniqueRows } from './controls.js';
+import { deriveInputSchema, ITEM_PROPERTY, itemSchema, MAX_DESCRIBED_OPTIONS, PAGE_STATE_OBSERVATION_ID, uniqueRows } from './controls.js';
+
+/** The id of a page or shared surface's observation of what it shows: defined beside the rows it reports (`rowsOfControl`). */
+export { PAGE_STATE_OBSERVATION_ID };
 import { effectKind, type ActionEffectKind } from './effect.js';
 import { isNarrowing, validateValue, type JsonSchema } from './json-schema.js';
 import {
@@ -38,8 +41,6 @@ import { addressesRows, observationLookup, resolveInputRefs } from './readers.js
 import { navigationQueries, navigationTarget, sameAddress } from './query.js';
 import { PROBLEMS_OBSERVATION_ID, type RoomResult } from './room.js';
 
-/** The id of a page or shared surface's observation of what it shows. */
-export const PAGE_STATE_OBSERVATION_ID = 'state';
 
 /** Something the build and the running page disagree on. Reported once each; the conformance test keeps them from shipping. */
 export type BindingDefect =
@@ -488,11 +489,51 @@ export function summarisedSchema(schema: JsonSchema, value?: unknown): JsonSchem
  * without their definitions in the build. Rows that all take one schema leave it
  * to their action's definition, which offers exactly that schema: on a form with
  * a control per field per row, the same schema on row after row was three
- * quarters of the page state, and grew with the square of the form.
+ * quarters of the page state, and grew with the square of the form. Where the
+ * definition is a declaration that does not list a live choice's options (a
+ * room's, `declaredValue`), the page state says them once per control, under
+ * `schemas`: before, an editor's choices made at run time (a line's
+ * languages, a shot's points) reached the assistant nowhere, its definition
+ * included.
  */
-export function pageState(controls: readonly ControlRegistration[], isBusy: (bindingId: string) => boolean = () => false) {
+/** How a page state is reported (`pageState`). */
+export interface PageStateOptions {
+  /**
+   * The value schema each control's action declares, by the control's id, where
+   * that declaration is the action's definition rather than the control's live
+   * schema: a room's actions, whose input is its catalog's (a page's own
+   * controls offer their live schema). A control whose live value is a choice
+   * the declaration does not list is then reported with its choices
+   * (`schemas`), since nothing else says them.
+   */
+  declaredValue?: (controlId: string) => JsonSchema | null | undefined;
+}
+
+/** The choices a live value schema lists: its `enum`, or its items' for a choice of several. */
+const choicesOf = (schema: JsonSchema | null | undefined): readonly unknown[] | undefined =>
+  schema?.enum ?? schema?.items?.enum;
+
+/**
+ * A live value schema as the page state reports it beside its action's
+ * declaration: its choices, summarised as a row's are (`summarisedSchema`),
+ * when the live schema lists choices the declaration does not; else null.
+ */
+function undeclaredChoices(live: JsonSchema, declared: JsonSchema | null | undefined, value: unknown): JsonSchema | null {
+  if (!choicesOf(live) || choicesOf(declared)) return null;
+  if (live.enum) return summarisedSchema(live, value);
+  return { ...live, items: summarisedSchema(live.items!) };
+}
+
+export function pageState(
+  controls: readonly ControlRegistration[],
+  isBusy: (bindingId: string) => boolean = () => false,
+  options: PageStateOptions = {},
+) {
   const values: Record<string, unknown> = {};
   const lists: Record<string, PageStateRow[]> = {};
+  // A control's choices known only now, once per control: what its action's declaration does not list.
+  const schemas: Record<string, JsonSchema> = {};
+  const declared = options.declaredValue;
   const unavailable: string[] = [];
   const busy: string[] = [];
   // Whether each list's rows differ in what they take, as an action decides what it offers (`controlAction`).
@@ -512,6 +553,11 @@ export function pageState(controls: readonly ControlRegistration[], isBusy: (bin
       if (keys.has(c.item.key)) continue;
       keys.add(c.item.key);
       const ownSchema = c.valueSchema && rowSchemas.get(c.id)!.size > 1;
+      // Rows that share one schema: said once, when the action's declaration does not say it.
+      if (declared && c.valueSchema && !ownSchema && !(c.id in schemas)) {
+        const choices = undeclaredChoices(c.valueSchema, declared(c.id), c.value);
+        if (choices) schemas[c.id] = choices;
+      }
       (lists[c.id] ??= []).push({
         key: c.item.key,
         title: c.item.title,
@@ -519,12 +565,22 @@ export function pageState(controls: readonly ControlRegistration[], isBusy: (bin
         ...(ownSchema ? { schema: summarisedSchema(c.valueSchema!, c.value) } : {}),
         ...(c.value !== undefined ? { value: c.value } : {}),
       });
-    } else if (c.value !== undefined) {
-      values[c.id] = c.value;
+    } else {
+      if (c.value !== undefined) values[c.id] = c.value;
+      if (declared && c.valueSchema && !(c.id in schemas)) {
+        const choices = undeclaredChoices(c.valueSchema, declared(c.id), c.value);
+        if (choices) schemas[c.id] = choices;
+      }
     }
     if (c.disabled && !c.item) (isBusy(c.id) ? busy : unavailable).push(c.id);
   }
-  return { values, lists, unavailable, ...(busy.length ? { busy } : {}) };
+  return {
+    values,
+    lists,
+    unavailable,
+    ...(busy.length ? { busy } : {}),
+    ...(Object.keys(schemas).length ? { schemas } : {}),
+  };
 }
 
 function controlAction(
@@ -558,10 +614,10 @@ function controlAction(
   const items = action.itemized ? regs.filter(r => r.item).map(r => r.item!) : undefined;
   const input: JsonSchema = action.control
     ? {
-        ...deriveInputSchema(action.control, {}, { itemized: action.itemized, items }),
+        ...deriveInputSchema(action.control, {}, { itemized: action.itemized, items, list: action.id }),
         properties: {
           ...(toolValue ? { value: toolValue } : {}),
-          ...(action.itemized ? { [ITEM_PROPERTY]: itemSchema(items) } : {}),
+          ...(action.itemized ? { [ITEM_PROPERTY]: itemSchema(items, action.id) } : {}),
         },
       }
     : action.input;

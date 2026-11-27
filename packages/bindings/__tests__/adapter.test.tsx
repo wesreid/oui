@@ -639,8 +639,12 @@ describe('connectBindings on a runtime in index form', () => {
     const page = snap.index.find(s => s.id === 'page:VoicesPage')!;
     expect(page.index.map(a => [a.id, a.title, a.input])).toEqual([
       ['voices_library', 'Library', 'value: user|account'],
-      ['voices_open', 'Open', 'item: v1|v2'],
+      // The rows' list, where the page state reports them, whatever rows show now.
+      ['voices_open', 'Open', 'item: row of state/lists/voices.open'],
     ]);
+    expect(snap.observations['page:VoicesPage'].state).toMatchObject({
+      lists: { 'voices.open': [{ key: 'v1', title: 'Ava' }, { key: 'v2', title: 'Ben' }] },
+    });
     // No definition travels with the snapshot: only what choosing an action needs.
     expect(JSON.stringify(snap.index)).not.toContain('"properties"');
     // The page's state travels as before.

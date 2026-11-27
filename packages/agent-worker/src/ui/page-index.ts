@@ -130,7 +130,10 @@ export function pageFingerprint(page: readonly PageSurface[]): string {
  * values and a number's range stay. Measured on a long form with a live model:
  * names alone, or a long enum as a count, made it describe twice as often, and
  * a turn cost more than the shorter index saved. The values it sees are what let
- * it act without asking.
+ * it act without asking. So does the list a row it takes comes from
+ * (`row of state/lists/<control id>`, oui-spec `summarizeInput`), which stays:
+ * without it, a line that took a row and a value was described first on every
+ * turn that used it, by every model measured.
  */
 export function shortInput(input: string): string {
   if (input.startsWith('one of ') || !input.includes(': ')) return input;
@@ -149,14 +152,70 @@ export function shortInput(input: string): string {
     .join(', ');
 }
 
+/** Where an entry's input names the list a row it takes comes from: `row of <list>`, `rows of <a>|<b>`. */
+const ROW_LIST = /\b(rows? of )([^,;()\s]+)/g;
+
+/** The lists an entry's input names rows of (oui-spec `summarizeInput`: `x-row-of`, `x-ref`), each once. */
+export function rowListsOf(input: string): string[] {
+  return [...new Set([...input.matchAll(ROW_LIST)].flatMap((m) => m[2].split('|')))];
+}
+
+/** A list's name in its words, each with the `/` or `.` that ends it: `state/`, `lists/`, `editor.`, `anchor`. */
+const listWords = (name: string): string[] => name.match(/[^/.]+[/.]?/g) ?? [name];
+
+/**
+ * The start every list a surface's lines name shares, in whole words, leaving
+ * each name a word of its own: `state/lists/editor.storyboard.` for the
+ * Storyboard's control lists, `document/` for a document's layers and
+ * artboards. Empty when they share none.
+ */
+export function sharedListStart(names: readonly string[]): string {
+  if (names.length === 0) return '';
+  const words = names.map(listWords);
+  const shortest = Math.min(...words.map((w) => w.length));
+  let shared = 0;
+  while (shared < shortest - 1 && words.every((w) => w[shared] === words[0][shared])) shared++;
+  return words[0].slice(0, shared).join('');
+}
+
+/**
+ * How a surface's heading says its lines leave out the start every list they
+ * name shares. The one wording of it, as `sharedPrefixNote` is for ids.
+ */
+export const sharedListNote = (start: string): string => `every list a line names is ${start} + the name it gives`;
+
+/**
+ * The list start a surface's lines leave out: the one its lines' lists share
+ * (`sharedListStart`), where saying it once in the heading is shorter than
+ * repeating it wherever a line names a list.
+ */
+export function foldedListStart(surface: Pick<PageSurface, 'index'>): string {
+  const named = surface.index.flatMap((a) => [...a.input.matchAll(ROW_LIST)].flatMap((m) => m[2].split('|')));
+  const start = sharedListStart([...new Set(named)]);
+  return start && start.length * named.length > sharedListNote(start).length + 2 ? start : '';
+}
+
+/** An input with each list it names told without the start its surface's heading says once. */
+function withoutListStart(input: string, start: string): string {
+  if (!start) return input;
+  return input.replace(ROW_LIST, (_, of: string, lists: string) =>
+    `${of}${lists
+      .split('|')
+      .map((l) => (l.startsWith(start) && l.length > start.length ? l.slice(start.length) : l))
+      .join('|')}`,
+  );
+}
+
 /**
  * One action on a line, as the model reads the index: its id, what it does, and
  * in brackets what it takes and what calling it involves. An index is hundreds
- * of these. No brackets: it takes nothing.
+ * of these. No brackets: it takes nothing. A surface that says once, in its
+ * heading, the start its action ids or its lines' lists share gives each line
+ * the rest (`sharedPrefix`, `listStart`).
  */
-export function indexLine(entry: OUIActionIndexEntry, sharedPrefix = ''): string {
+export function indexLine(entry: OUIActionIndexEntry, sharedPrefix = '', listStart = ''): string {
   const notes = [
-    entry.input === 'none' ? '' : shortInput(entry.input),
+    entry.input === 'none' ? '' : withoutListStart(shortInput(entry.input), listStart),
     entry.effect === 'view' ? 'reads' : '',
     entry.effect === 'transaction' || entry.confirm ? 'needs approval' : '',
     entry.async ? `waits for its work${entry.estimatedDuration ? `, ${entry.estimatedDuration}` : ''}` : '',
@@ -227,9 +286,10 @@ export function foldedPrefixes(page: readonly PageSurface[]): Map<string, string
   );
 }
 
-/** A surface's heading: its name, its id, and the id start its lines leave out. */
-function surfaceHeading(s: PageSurface, prefix: string): string {
-  return `${s.name} (${s.id}${prefix ? `; ${sharedPrefixNote(prefix)}` : ''}): ${s.description}`;
+/** A surface's heading: its name, its id, and the id start and list start its lines leave out. */
+function surfaceHeading(s: PageSurface, prefix: string, listStart = ''): string {
+  const notes = [prefix ? sharedPrefixNote(prefix) : '', listStart ? sharedListNote(listStart) : ''].filter(Boolean);
+  return `${s.name} (${[s.id, ...notes].join('; ')}): ${s.description}`;
 }
 
 export interface IndexTextOptions {
@@ -257,7 +317,12 @@ export function indexText(page: readonly PageSurface[], maxChars: number = DEFAU
   const folded = fold ? foldedPrefixes(page) : new Map<string, string>();
   const full = page.map((s) => {
     const prefix = fold ? (folded.get(s.id) ?? '') : '';
-    return { surface: s, prefix, text: [surfaceHeading(s, prefix), ...s.index.map((a) => indexLine(a, prefix))].join('\n') };
+    const listStart = fold ? foldedListStart(s) : '';
+    return {
+      surface: s,
+      prefix,
+      text: [surfaceHeading(s, prefix, listStart), ...s.index.map((a) => indexLine(a, prefix, listStart))].join('\n'),
+    };
   });
   let total = full.reduce((n, s) => n + s.text.length + 2, 0);
   if (total <= maxChars) return full.map((s) => s.text).join('\n\n');

@@ -396,6 +396,23 @@ describe('a room’s lists', () => {
     ]);
   });
 
+  it('fails an input that names a control’s rows where the room reports none, and passes one it does report', async () => {
+    const naming = (place: string) => [
+      ...LEDGER.actions.map(a =>
+        a.id === 'select-position'
+          ? { ...a, input: { ...a.input, properties: { item: { type: 'string' as const, 'x-row-of': place } } } }
+          : a,
+      ),
+      ...READERS,
+    ];
+    const missing = await generate(contractConfig({}, [withList({ ref: 'id', title: 'symbol' }, naming('state/lists/ledger.row') as never) as never]));
+    expect(missing.errors.map(e => e.message)).toEqual([
+      'ledger action select-position: item names rows at state/lists/ledger.row, where the room reports none (no observation state)',
+    ]);
+    const reported = await generate(contractConfig({}, [withList({ ref: 'id', title: 'symbol' }, naming('positions') as never) as never]));
+    expect(reported.errors).toEqual([]);
+  });
+
   it('passes a declared list with its readers, and the manifest carries the declaration to the tab', async () => {
     const actions = [
       ...LEDGER.actions.map(a =>

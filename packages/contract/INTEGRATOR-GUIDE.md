@@ -422,7 +422,9 @@ const catalog: RoomCatalog<LedgerContext> = {
 - **`x-ref`** on an input that takes a row (`{ type: 'string', ...refTo(POSITIONS) }`) names the list it addresses. The runtime then takes a row's exact name where its id is expected, when one row has it, and refuses an ambiguous one with the ids it could mean.
 - **`changed`** on an action's result reports the rows it changed, added or removed, each as `inspect` would return it now (`changedRows(lists, ctx, refs)`), so the assistant checks an edit against what the room holds, not against what it meant to do.
 
-The generator refuses a catalog whose observation lists things with an `id` and no `x-rows`, a list without its readers, and an `x-ref` to a list the room does not declare.
+- **`x-row-of`** on an input that takes one of a control's rows names where the room reports them: `state/lists/<control id>`, for a room that reports its controls as a page does (`pageState`). `rowsOfControl(id)` of `@ouispec/bindings` gives it. A page's own controls carry it without being asked. An assistant's index then says on the action's line which rows it takes (`item: row of state/lists/<control id>`), so it acts without describing the action first.
+
+The generator refuses a catalog whose observation lists things with an `id` and no `x-rows`, a list without its readers, an `x-ref` to a list the room does not declare, and an `x-row-of` in an observation the room does not report.
 
 > **Schema:** [`json-schema.json#/$defs/RowList`](schemas/json-schema.json) · `https://schemas.closurestudio.ai/oui/v1/json-schema.json#/$defs/RowList` · TypeScript: `RowList` from `@ouispec/contract`
 >
@@ -446,7 +448,7 @@ The generator refuses a catalog whose observation lists things with an `id` and 
 
 `x-unit` names a number's unit (`px`, `%`, `°`, `s`); `x-space` names the frame a length, a point or a fraction is measured in, in the room's own words (`artboard`, `canvas`, `artboard-fraction`). A value that moves something else when it changes says so in its description: an assistant sets a value it has not seen explained by guessing, and a guess about a frame of reference is how a layer leaves the page.
 
-Every input, value and observation schema, here and in tier 1, is written in the same subset of JSON Schema, which is what assistant tool inputs are written in; `x-unit` names a number's unit, `x-space` the frame it is measured in, and `x-rows` and `x-ref` the lists of addressable rows and the inputs that address them.
+Every input, value and observation schema, here and in tier 1, is written in the same subset of JSON Schema, which is what assistant tool inputs are written in; `x-unit` names a number's unit, `x-space` the frame it is measured in, `x-rows` and `x-ref` the lists of addressable rows and the inputs that address them, and `x-row-of` the list of a control's rows an input names.
 
 > **Schema:** [`json-schema.json`](schemas/json-schema.json) · `https://schemas.closurestudio.ai/oui/v1/json-schema.json` · TypeScript: `JsonSchema` from `@ouispec/contract`
 >
@@ -477,6 +479,7 @@ Every input, value and observation schema, here and in tier 1, is written in the
 > | `x-space` | string |  | The frame a length, a point or a fraction is measured in, in the room's own words: `artboard` (from its top left), `canvas`, `layer` (the layer's own content), `artboard-fraction` (0–1 of the artboard's width and height). |
 > | `x-rows` | RowList |  | On an array of objects in an observation: the list is a collection the assistant addresses rows of (a document's layers, its artboards). |
 > | `x-ref` | string[] |  | On a string (or the items of an array of strings) in an action's input: the value addresses a row of one of the surface's `x-rows` lists, each named `<observation id>/<list property>`, or `<observation id>` when the observation itself is the list. |
+> | `x-row-of` | string |  | On a string in an action's input: the value names a row of the list at this place in its surface's observations, `<observation id>/<path>`: a page's list of a control's rows is `state/lists/<control id>`. |
 > | `x-routes` | string[] |  | On one alternative of the generated `app.navigate` action's `query`: the routes whose page takes that query (`/dashboard/service-lane`). |
 > | `x-enum-omitted` | number |  | How many allowed values a shortened `enum` leaves out. |
 > | `x-oui-attachment` | { as: "file" \| "text", mediaTypes?: string[] } |  | On a string with `format: oui-attachment`: what the action takes once the client resolves the attachment's id. |

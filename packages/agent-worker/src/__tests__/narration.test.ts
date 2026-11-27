@@ -91,10 +91,11 @@ describe('no setting: the rules are the earlier release’s, byte for byte', () 
     const before = fixture('prompt.default.markdown.txt');
     expect(withNarration()).toBe(before);
     expect(withNarration('brief')).toBe(before);
-    // The hash of the prompt agent SDK 0.40.0 wrote for this persona, before the host rules were trimmed
-    // and `narrationDefault` existed: a host that opts into neither is sent the same bytes.
-    expect(sha256(withNarration())).toBe('8eabd0ee9874cd4c5c859e8d07220c6eae97691502bafb1d9ecda78de5c792b9');
-    expect(withNarration()).toHaveLength(17_234);
+    // The hash of the prompt for this persona, pinned so a change to any rule is a deliberate one: agent SDK
+    // 0.40.0's (8eabd0ee…, 17,234 characters) until the index line said what each input is (0.47.0), whose one rule
+    // of working from the index is the only change.
+    expect(sha256(withNarration())).toBe('4d6e661f5383a83513304b13b4b88465b4cf9a8061b1be53aebf20a575b9d171');
+    expect(withNarration()).toHaveLength(17_652);
   });
 
   it.each(COMMUNICATION_STYLES)('the %s preset’s rules are the earlier release’s with no narration and with brief', (preset) => {
