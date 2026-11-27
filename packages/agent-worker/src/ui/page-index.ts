@@ -189,10 +189,66 @@ export const sharedListNote = (start: string): string => `every list a line name
  * (`sharedListStart`), where saying it once in the heading is shorter than
  * repeating it wherever a line names a list.
  */
-export function foldedListStart(surface: Pick<PageSurface, 'index'>): string {
-  const named = surface.index.flatMap((a) => [...a.input.matchAll(ROW_LIST)].flatMap((m) => m[2].split('|')));
+export function foldedListStart(surface: Pick<PageSurface, 'index'>, sharedPrefix = '', ownStart = ''): string {
+  const named = surface.index.flatMap((a) =>
+    ownListOf(a, sharedPrefix, ownStart) ? [] : [...a.input.matchAll(ROW_LIST)].flatMap((m) => m[2].split('|')),
+  );
   const start = sharedListStart([...new Set(named)]);
   return start && start.length * named.length > sharedListNote(start).length + 2 ? start : '';
+}
+
+/** A list's name as a tool names it: each "." or "-" a "_", `studio_track_mute` for `studio.track.mute` (oui-bindings `toolName`). */
+const asToolName = (name: string): string => name.replace(/[.-]/g, '_');
+
+/**
+ * Where a line's one list starts before the line's own name: `state/lists/` for `studio_track_mute` taking a
+ * row of `state/lists/studio.track.mute`, a control's rows listed under its own id, which is the line's name with
+ * "." or "-" for each "_". Tool names are unique, so on its surface that list is the only one its name reads as.
+ * Null when the line names no list, several, or one that is not its own.
+ */
+function ownListStartOf(entry: OUIActionIndexEntry, sharedPrefix: string): string | null {
+  const named = [...entry.input.matchAll(ROW_LIST)];
+  if (named.length !== 1 || named[0][1] !== 'row of ' || named[0][2].includes('|')) return null;
+  const list = named[0][2];
+  const name = entry.id.slice(sharedPrefix.length);
+  if (list.length <= name.length || asToolName(list.slice(-name.length)) !== name) return null;
+  const start = list.slice(0, list.length - name.length);
+  return start.endsWith('/') || start.endsWith('.') ? start : null;
+}
+
+/** Whether a line's one list is its own (`ownListStartOf`) under the surface's own-list start. */
+const ownListOf = (entry: OUIActionIndexEntry, sharedPrefix: string, ownStart: string): boolean =>
+  !!ownStart && ownListStartOf(entry, sharedPrefix) === ownStart;
+
+/** What a line says of a row of its own list, its surface's heading saying once which list that is. */
+export const OWN_ROW = 'row';
+
+/** How a surface's heading says what a line's own row is. The one wording of it, as `sharedPrefixNote` is for ids. */
+export const ownRowNote = (start: string): string =>
+  `"${OWN_ROW}" alone is a row of the line's own list, ${start} + its name ("_" as "." or "-")`;
+
+/**
+ * The start before a line's own name that a surface's lines' own lists share (`ownListStartOf`), when saying it
+ * once in the heading is shorter than naming each list: most of a page's or a room's row actions take a row of
+ * the list of their own control's id. Of several starts, the one most lines have (the first, on a tie).
+ */
+export function ownListStart(surface: Pick<PageSurface, 'index'>, sharedPrefix = ''): string {
+  const counts = new Map<string, number>();
+  let saved = 0;
+  for (const entry of surface.index) {
+    const start = ownListStartOf(entry, sharedPrefix);
+    if (start === null) continue;
+    counts.set(start, (counts.get(start) ?? 0) + 1);
+  }
+  let best = '';
+  for (const [start, n] of counts) if (n > (counts.get(best) ?? 0)) best = start;
+  if (!best) return '';
+  for (const entry of surface.index) {
+    if (ownListStartOf(entry, sharedPrefix) !== best) continue;
+    // `row of <start><its own name>` becomes `row`.
+    saved += `row of ${best}${entry.id.slice(sharedPrefix.length)}`.length - OWN_ROW.length;
+  }
+  return saved > ownRowNote(best).length + 2 ? best : '';
 }
 
 /** An input with each list it names told without the start its surface's heading says once. */
@@ -213,9 +269,14 @@ function withoutListStart(input: string, start: string): string {
  * heading, the start its action ids or its lines' lists share gives each line
  * the rest (`sharedPrefix`, `listStart`).
  */
-export function indexLine(entry: OUIActionIndexEntry, sharedPrefix = '', listStart = ''): string {
+export function indexLine(entry: OUIActionIndexEntry, sharedPrefix = '', listStart = '', ownStart = ''): string {
+  const input = shortInput(entry.input);
   const notes = [
-    entry.input === 'none' ? '' : withoutListStart(shortInput(entry.input), listStart),
+    entry.input === 'none'
+      ? ''
+      : ownListOf(entry, sharedPrefix, ownStart)
+        ? input.replace(ROW_LIST, OWN_ROW)
+        : withoutListStart(input, listStart),
     entry.effect === 'view' ? 'reads' : '',
     entry.effect === 'transaction' || entry.confirm ? 'needs approval' : '',
     entry.async ? `waits for its work${entry.estimatedDuration ? `, ${entry.estimatedDuration}` : ''}` : '',
@@ -286,9 +347,13 @@ export function foldedPrefixes(page: readonly PageSurface[]): Map<string, string
   );
 }
 
-/** A surface's heading: its name, its id, and the id start and list start its lines leave out. */
-function surfaceHeading(s: PageSurface, prefix: string, listStart = ''): string {
-  const notes = [prefix ? sharedPrefixNote(prefix) : '', listStart ? sharedListNote(listStart) : ''].filter(Boolean);
+/** A surface's heading: its name, its id, and the id start, own list and list start its lines leave out. */
+function surfaceHeading(s: PageSurface, prefix: string, listStart = '', ownStart = ''): string {
+  const notes = [
+    prefix ? sharedPrefixNote(prefix) : '',
+    ownStart ? ownRowNote(ownStart) : '',
+    listStart ? sharedListNote(listStart) : '',
+  ].filter(Boolean);
   return `${s.name} (${[s.id, ...notes].join('; ')}): ${s.description}`;
 }
 
@@ -317,11 +382,15 @@ export function indexText(page: readonly PageSurface[], maxChars: number = DEFAU
   const folded = fold ? foldedPrefixes(page) : new Map<string, string>();
   const full = page.map((s) => {
     const prefix = fold ? (folded.get(s.id) ?? '') : '';
-    const listStart = fold ? foldedListStart(s) : '';
+    const ownStart = fold ? ownListStart(s, prefix) : '';
+    const listStart = fold ? foldedListStart(s, prefix, ownStart) : '';
     return {
       surface: s,
       prefix,
-      text: [surfaceHeading(s, prefix, listStart), ...s.index.map((a) => indexLine(a, prefix, listStart))].join('\n'),
+      text: [
+        surfaceHeading(s, prefix, listStart, ownStart),
+        ...s.index.map((a) => indexLine(a, prefix, listStart, ownStart)),
+      ].join('\n'),
     };
   });
   let total = full.reduce((n, s) => n + s.text.length + 2, 0);

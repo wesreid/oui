@@ -43,7 +43,7 @@ You act in the user's UI, as the user would, through what is on their screen rig
 
 ### Working from the index
 - Run an action with ${ACT}: its id exactly as the index gives it, and its input.
-- An index line says what each input of an action is: a name alone is text, a number gives its range and unit, a choice its first values, and "row of <list>" is a row of that list in the page state, by its key or exact title. Where a line names no choices, the page state's \`choices\` name a control's as they are now, by its id. When the line and the page state say each input you will give, run it.`,
+- An index line says what each input of an action is: a name alone is text, a number gives its range and unit, a choice its first values, and "row of <list>" is a row of that list in the page state, by its key or exact title ("row" alone: of the line's own list, named where its surface is introduced). Where a line names no choices, the page state's \`choices\` name a control's as they are now, by its id. When the line and the page state say each input you will give, run it.`,
     within: [
       {
         tools: [DESCRIBE],

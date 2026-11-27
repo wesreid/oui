@@ -93,10 +93,10 @@ describe('no setting: the rules are the earlier release’s, byte for byte', () 
     expect(withNarration('brief')).toBe(before);
     // The hash of the prompt for this persona, pinned so a change to any rule is a deliberate one: agent SDK
     // 0.40.0's (8eabd0ee…, 17,234 characters) until the index line said what each input is (0.47.0, 4d6e661f…, 17,652),
-    // then where a room's choices made at run time are read (0.48.0): its one rule of working from the index is the
-    // only change.
-    expect(sha256(withNarration())).toBe('6872c61aff9c308f5c89b3db3d394b5a90d77c27776804c77be36d578ba48bdf');
-    expect(withNarration()).toHaveLength(17_644);
+    // then where a room's choices made at run time are read (0.48.0, 6872c61a…, 17,644), then what "row" alone is
+    // (0.49.0): its one rule of working from the index is the only change.
+    expect(sha256(withNarration())).toBe('3f32e8102d27960d35803bb8034a28a9b29969e9008fb795e6e5518145090da3');
+    expect(withNarration()).toHaveLength(17_721);
   });
 
   it.each(COMMUNICATION_STYLES)('the %s preset’s rules are the earlier release’s with no narration and with brief', (preset) => {

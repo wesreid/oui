@@ -1,5 +1,13 @@
 # @ouispec/agent-worker
 
+## 0.49.0
+
+### Minor Changes
+
+- A row of a line's own list is said in one word: the index names the list once for its surface.
+
+  A control's row action takes a row of the list under its own id (`state/lists/studio.track.mute` for `studio_track_mute`), so 0.47's `item: row of <list>` repeated each line's own name. Where most of a surface's row lines take their own list, its heading says once which list that is (`"row" alone is a row of the line's own list, state/lists/ + its name ("_" as "." or "-")`) and each such line says `item: row`. A line whose list is another's, or that names several, still names them; a line read on its own (what an answer adds) names its list whole. Tool names are unique, so the list each line means stays exact. On a music studio window's heaviest layouts this takes the page's index from 8,578, 9,524 and 3,185 characters to 7,934, 8,806 and 3,074, under what it measured before lines named their lists. The rule of working from the index and the index's opening line say what "row" alone is.
+
 ## 0.48.0
 
 ### Minor Changes
