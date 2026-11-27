@@ -33,6 +33,15 @@ export interface AgentWorkerConfig {
    */
   apiSurface?: import('@ouispec/agent-core').AgentApiSurface;
   systemPrompt: string | ((context: SystemPromptContext) => string);
+  /**
+   * What the host says about the page the turn was sent from (its address, the
+   * thing in focus): rendered at the start of the page's own system block, after
+   * the system prompt's cache breakpoint, so the system prompt stays the same on
+   * every page and every turn reads it from the cache. A host that gives this
+   * renders none of it in `systemPrompt`. Called with the same context as
+   * `systemPrompt`; null or blank for none.
+   */
+  pageContext?: (context: SystemPromptContext) => string | null;
   /** The model, from any `ai` library provider. Required. */
   model: LanguageModel;
   /**
@@ -187,6 +196,13 @@ export interface AgentWorkerConfig {
      *   page's newest state, in `<page_knowledge>` (`knowledgeIndexText`), and
      *   the model reads each with `ui_guide` (`entry`, `workflow`, or `page`
      *   for another page).
+     * - `'page-block'`: the system prompt carries the map only, as with
+     *   `'index'`, and the page's knowledge goes whole (within the same 12,000
+     *   characters as `'prompt'`) into the page's own system block, beside the
+     *   page's index, behind a cache breakpoint of its own. Nothing is taken
+     *   from what the model reads: the system prompt is the same on every page
+     *   of a build, so every turn reads it from the cache, and only the page's
+     *   block is written again when the page changes.
      */
     knowledgePlacement?: KnowledgePlacement;
   };

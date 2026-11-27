@@ -48,11 +48,13 @@ import { createToolInputValidator, INPUT_AS_TEXT } from './tools/input-validatio
 import { jsonBytes } from 'oui-spec/spec';
 import { CLIENT_SNAPSHOT_KEY, readClientPage, withoutClientUI } from './ui/snapshot.js';
 import {
+  KNOWLEDGE_PROMPT_CHARS,
   KNOWLEDGE_TOOL,
   knowledgeIndexText,
   knowledgeTool,
   readClientKnowledge,
   readKnowledgePlacement,
+  renderClientKnowledge,
   withClientKnowledge,
   type ReadPageKnowledge,
 } from './ui/knowledge.js';
@@ -441,6 +443,13 @@ export async function runAgentTurn(
   const hostPrompt = typeof config.systemPrompt === 'function'
     ? config.systemPrompt({ userId: input.userId, accountId: input.accountId, context: withoutClientUI(input.context) })
     : config.systemPrompt;
+  /**
+   * What the host says about the page the turn was sent from, in the page's own
+   * system block (`config.pageContext`), so the system prompt is the same on
+   * every page and every turn reads it from the cache.
+   */
+  const pageContextText =
+    config.pageContext?.({ userId: input.userId, accountId: input.accountId, context: withoutClientUI(input.context) })?.trim() || null;
   /**
    * The system prompt as a step offering `offered` is told it: the host's,
    * whose SDK rules name only the tools the step offers (prompt/step-tools.ts),
@@ -2215,16 +2224,30 @@ export async function runAgentTurn(
       content: systemPromptFor(offered),
       ...(cachePoint ? { providerOptions: cachePoint } : {}),
     };
-    const pageIndex =
-      pageIndexText !== null
-        ? {
-            role: 'system' as const,
-            content: [
+    // The page's own block, after the system prompt's breakpoint: what the host says about the page,
+    // the page's knowledge whole (`page-block` placement), then what the page offers. Each changes
+    // with the page, so only this block and what follows are written again when the page changes.
+    const pageKnowledgeText =
+      knowledge && knowledgePlacement === 'page-block' ? renderClientKnowledge(knowledge, KNOWLEDGE_PROMPT_CHARS, offered) : '';
+    const pageParts = [
+      ...(pageContextText ? [pageContextText] : []),
+      ...(pageKnowledgeText ? [pageKnowledgeText] : []),
+      ...(pageIndexText !== null
+        ? [
+            [
               '<page_index>',
               `The user's screen offers these surfaces and actions. In brackets after an action: what it takes ("?" marks an optional one, and a name alone takes text) and what calling it involves; no brackets means it takes nothing.${renderRule(RUN_AN_ACTION, offered)}`,
               pageIndexText,
               '</page_index>',
             ].join('\n'),
+          ]
+        : []),
+    ];
+    const pageIndex =
+      pageParts.length > 0
+        ? {
+            role: 'system' as const,
+            content: pageParts.join('\n\n'),
             ...(cachePoint ? { providerOptions: cachePoint } : {}),
           }
         : null;

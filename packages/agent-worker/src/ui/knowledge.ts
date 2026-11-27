@@ -31,7 +31,11 @@
  * prompt to the host's prompt and the app's map, the same on every page of a
  * build, and lists the page's entries and workflows by title only after the
  * conversation, beside the page's newest state, where nothing is cached
- * (`knowledgeIndexText`); each is read with `ui_guide`.
+ * (`knowledgeIndexText`); each is read with `ui_guide`. `'page-block'` keeps the
+ * system prompt to the host's prompt and the app's map too, and renders the
+ * page's knowledge whole (as `'prompt'` does) into the page's own system block
+ * beside its index, behind a cache breakpoint of its own: nothing is taken from
+ * what the model reads, and only that block is written again when the page changes.
  */
 import type { ResolvedKnowledge } from '@ouispec/bindings';
 import type { RegisteredTool, ToolExecutionContext, ToolExecutionResult } from '../tools/types.js';
@@ -60,7 +64,7 @@ export type ClientKnowledge = ResolvedKnowledge;
  * title only after the conversation, each read with `ui_guide`, so the system
  * prompt is the same on every page of a build.
  */
-export const KNOWLEDGE_PLACEMENTS = ['prompt', 'index'] as const;
+export const KNOWLEDGE_PLACEMENTS = ['prompt', 'index', 'page-block'] as const;
 
 export type KnowledgePlacement = (typeof KNOWLEDGE_PLACEMENTS)[number];
 
@@ -346,7 +350,7 @@ export function withClientKnowledge(
   // The map first: the same for every page of a build, it is read from the prompt cache on every turn.
   const parts = [
     renderAppMap(knowledge),
-    placement === 'index' ? '' : renderClientKnowledge(knowledge, KNOWLEDGE_PROMPT_CHARS, offered),
+    placement === 'prompt' ? renderClientKnowledge(knowledge, KNOWLEDGE_PROMPT_CHARS, offered) : '',
   ].filter(Boolean);
   return parts.length ? `${systemPrompt}\n\n${parts.join('\n\n')}` : systemPrompt;
 }

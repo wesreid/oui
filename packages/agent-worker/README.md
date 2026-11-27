@@ -150,8 +150,11 @@ A placement the worker does not know fails when the adapter is created, naming t
 |---|---|---|
 | `'prompt'` (default) | In the system prompt after the map, within `KNOWLEDGE_PROMPT_CHARS` (12,000): small entries whole, large ones cut at a line, workflows by name when they do not fit | As before this option, byte for byte. The system prompt changes with the page, so a turn sent from another page writes the prompt cache again from its first byte. |
 | `'index'` | The system prompt carries the map only. After the conversation, beside the page's state, `<page_knowledge>` lists the page's entries and workflows by title (`knowledgeIndexText`), and the model reads each with `ui_guide` (`entry`, `workflow`, or `page` for another page) | The system prompt is the same on every page of a build (for a brand, with `allows`), so it is read from the cache. The page's knowledge costs nothing until the model reads a part of it. |
+| `'page-block'` | The system prompt carries the map only, as with `'index'`. The page's knowledge goes whole, within the same 12,000 characters as `'prompt'`, into the page's own system block: after the system prompt's cache breakpoint, before `<page_index>`, behind a breakpoint of its own | Nothing the model reads is taken away: it is the default's knowledge, moved. The system prompt is the same on every page of a build, so every turn reads it from the cache, and only the page's block (and what follows) is written again when the page changes. |
 
 An unknown placement fails when the adapter is created (`KNOWLEDGE_PLACEMENTS`).
+
+`pageContext` (on `AgentWorkerConfig`) is what the host says about the page the turn was sent from: its address, the thing in focus. It is called with the same context as `systemPrompt` and rendered at the start of the page's block, before the page's knowledge and `<page_index>`. A host that gives it renders none of that in `systemPrompt`, so a turn's system prompt is the same whatever page it is sent from; with `'page-block'`, the system prompt is then the same for every turn of every user of a build, and is read from the cache on a turn's first call.
 
 ### What history keeps of the pages
 

@@ -222,12 +222,83 @@ describe('the page’s knowledge as an index (`knowledgePlacement: \'index\'`)',
   });
 });
 
+describe('the page’s knowledge in the page’s own block (`knowledgePlacement: \'page-block\'`)', () => {
+  /** The turn's first step: its system prompt (block 1) and the page's block (block 2), as `ai` is given them. */
+  async function blocksOn(path: string, user = 'user-1', pageContext?: AgentWorkerConfig['pageContext']) {
+    const t = tab();
+    let blocks: string[] = [];
+    model = async (opts) => {
+      const prepared = await opts.prepareStep({ steps: [], messages: opts.messages });
+      const instructions = prepared.instructions as { content: string } | Array<{ content: string }>;
+      blocks = (Array.isArray(instructions) ? instructions : [instructions]).map((b) => b.content);
+      return [{ text: 'ok', toolCalls: [] }];
+    };
+    const { runAgentTurn } = await import('../orchestrator.js');
+    await runAgentTurn(
+      {
+        ...config(t.channel, 'page-block'),
+        // A host that renders the page's context in the page's block, and none of it in its prompt.
+        systemPrompt: () => 'You are the PA.',
+        ...(pageContext ? { pageContext } : {}),
+      },
+      { ...turn(t, path), userId: user },
+    );
+    return blocks;
+  }
+  const whereTheUserIs: AgentWorkerConfig['pageContext'] = ({ context }) => `## CURRENT UI CONTEXT\nThe user is on ${String(context?.currentPath)}.`;
+
+  it('keeps the system prompt byte for byte the same on every page and for every user: the host’s prompt and the map', async () => {
+    const [voices] = await blocksOn('/voices', 'user-1', whereTheUserIs);
+    const [clips] = await blocksOn('/clips', 'user-2', whereTheUserIs);
+    expect(voices).toBe(clips);
+    expect(voices).toContain(`## The App: The app’s pages\n\n${MAP}`);
+    expect(voices).not.toContain('Platform Knowledge');
+    expect(voices).not.toContain('CURRENT UI CONTEXT');
+    // The same words the index placement gives the system prompt.
+    expect(voices).toBe((await systemPromptOn('/voices', 'index')).system);
+  });
+
+  it('gives the page’s block the host’s context, then the page’s knowledge whole, then what the page offers', async () => {
+    const [, page] = await blocksOn('/voices', 'user-1', whereTheUserIs);
+    // Every word the default placement puts in the system prompt about the page is here instead: nothing is cut.
+    const prompt = (await systemPromptOn('/voices')).system;
+    const knowledgeAt = prompt.indexOf('## Platform Knowledge');
+    expect(knowledgeAt).toBeGreaterThan(0);
+    expect(page).toContain(prompt.slice(knowledgeAt));
+    expect(page.indexOf('The user is on /voices.')).toBe(page.indexOf('## CURRENT UI CONTEXT') + '## CURRENT UI CONTEXT\n'.length);
+    expect(page.indexOf('## CURRENT UI CONTEXT')).toBeLessThan(page.indexOf('## Platform Knowledge'));
+    expect(page.indexOf('## Platform Knowledge')).toBeLessThan(page.indexOf('## Active Workflows'));
+    expect(page.indexOf('## Active Workflows')).toBeLessThan(page.indexOf('<page_index>'));
+    expect(page).toContain('Voices: everything it offers.');
+    expect(page).toContain('Make a voice');
+    // Another page's block is that page's.
+    const [, clips] = await blocksOn('/clips', 'user-1', whereTheUserIs);
+    expect(clips).toContain('Clips: everything it offers.');
+    expect(clips).not.toContain('Voices: everything it offers.');
+  });
+
+  it('lists nothing after the conversation, and reads entries with ui_guide as the system prompt’s', async () => {
+    const t = tab();
+    let last = '';
+    model = async (opts) => {
+      const prepared = await opts.prepareStep({ steps: [], messages: opts.messages });
+      last = text((prepared.messages ?? opts.messages).at(-1)!);
+      return [{ text: 'ok', toolCalls: [] }];
+    };
+    const { runAgentTurn } = await import('../orchestrator.js');
+    await runAgentTurn(config(t.channel, 'page-block'), turn(t, '/voices'));
+    expect(last).not.toContain(KNOWLEDGE_INDEX_OPEN);
+    expect(seenOpts.at(-1)!.tools.ui_guide.description).not.toContain('<page_knowledge>');
+  });
+});
+
 describe('the parts', () => {
   const voices = readClientKnowledge({ uiKnowledge: resolveKnowledge(knowledge, '/voices') })!;
 
   it('reads the placement, and refuses one it does not know', () => {
     expect(readKnowledgePlacement(undefined)).toBe('prompt');
     expect(readKnowledgePlacement('index')).toBe('index');
+    expect(readKnowledgePlacement('page-block')).toBe('page-block');
     expect(() => readKnowledgePlacement('system')).toThrow('ui.knowledgePlacement must be one of prompt, index');
   });
 
@@ -235,6 +306,7 @@ describe('the parts', () => {
     const context = { uiKnowledge: resolveKnowledge(knowledge, '/voices') };
     expect(withClientKnowledge('Host.', context, EVERY_TOOL, 'index')).toBe(`Host.\n\n## The App: The app’s pages\n\n${MAP}`);
     expect(withClientKnowledge('Host.', context, EVERY_TOOL)).toBe(withClientKnowledge('Host.', context, EVERY_TOOL, 'prompt'));
+    expect(withClientKnowledge('Host.', context, EVERY_TOOL, 'page-block')).toBe(withClientKnowledge('Host.', context, EVERY_TOOL, 'index'));
   });
 
   it('says nothing of ui_guide to a step that does not offer it', () => {

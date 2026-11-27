@@ -419,6 +419,7 @@ export function createAgentTurnRunner<TDb>(config: AgentRuntimeConfig<TDb>): Age
             beforeTurnComplete: persist,
             apiSurface: config.apiSurfaceFactory ? config.apiSurfaceFactory({ userId, accountId, userToken }) : config.apiSurface,
             systemPrompt,
+            ...(config.pageContext ? { pageContext: config.pageContext } : {}),
             model: config.model,
             promptCacheBreakpoint: config.promptCacheBreakpoint,
             ...(config.modelProviderOptions ? { modelProviderOptions: config.modelProviderOptions } : {}),

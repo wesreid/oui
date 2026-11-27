@@ -1,5 +1,15 @@
 # @ouispec/agent-worker
 
+## 0.46.0
+
+### Minor Changes
+
+- A system prompt every page shares, with nothing taken from what the model reads.
+
+  - `ui.knowledgePlacement: 'page-block'` (and `uiActions.knowledgePlacement` on the runtime config): the system prompt carries the host's prompt and the app's map only, and the page's knowledge goes whole, within the same 12,000 characters as `'prompt'`, into the page's own system block, beside `<page_index>`, behind a cache breakpoint of its own.
+  - `pageContext` on `AgentWorkerConfig` and the runtime config: what the host says about the page the turn was sent from (its address, the thing in focus), rendered at the start of the page's block. A host that gives it renders none of it in its prompt.
+  - Together they make the system prompt the same for every turn of every user of a build, so a turn's first call reads it from the prompt cache, and only the page's block is written again when the page changes. The page's block is sent whenever it has anything in it, even with no page index.
+
 ## 0.45.0
 
 ### Minor Changes

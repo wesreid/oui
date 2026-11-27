@@ -194,6 +194,14 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
    */
   systemPrompt?: (context: { userId: string; accountId: string; context?: Record<string, unknown> | null }) => string;
 
+  /**
+   * What the host says about the page the turn was sent from (its address, the
+   * thing in focus), rendered at the start of the page's own system block, after
+   * the system prompt's cache breakpoint (`AgentWorkerConfig.pageContext`). A host
+   * that gives it renders none of it in its prompt. Null or blank for none.
+   */
+  pageContext?: (context: { userId: string; accountId: string; context?: Record<string, unknown> | null }) => string | null;
+
   // ─── Model ───────────────────────────────────────────────────────────
 
   /** The model, from any `ai` library provider. Required. */
@@ -360,6 +368,8 @@ export interface AgentRuntimeConfig<TDb = IntegratorDb> {
      * `'index'`: the system prompt carries the map only, the same on every page
      * of a build; the page's entries and workflows are listed by title after the
      * conversation (`<page_knowledge>`) and read with `ui_guide`.
+     * `'page-block'`: the system prompt carries the map only, and the page's
+     * knowledge goes whole into the page's own system block, beside its index.
      */
     knowledgePlacement?: KnowledgePlacement;
   };
