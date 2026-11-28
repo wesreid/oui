@@ -1,5 +1,12 @@
 # @ouispec/agent-worker
 
+## 0.49.1
+
+### Patch Changes
+
+- Updated dependencies
+  - @ouispec/bindings@0.24.0
+
 ## 0.49.0
 
 ### Minor Changes

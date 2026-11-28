@@ -193,7 +193,9 @@ describe('connectBindings', () => {
     const page = snap.surfaces.find(s => s.id === 'page:VoicesPage')!;
     expect(page.actions.map(a => a.id)).toEqual(['voices_library', 'voices_open']);
     const open = page.actions.find(a => a.id === 'voices_open')!;
-    expect(open.input.properties?.item?.enum).toEqual(['v1', 'v2']);
+    // Any string the action resolves, a row's key or its title, and where the page lists the rows.
+    expect(open.input.properties?.item?.enum).toBeUndefined();
+    expect(open.input.properties?.item?.['x-row-of']).toBe('state/lists/voices.open');
     expect(snap.observations['page:VoicesPage'].state).toEqual({
       values: { 'voices.library': 'user' },
       lists: {
@@ -650,7 +652,7 @@ describe('connectBindings on a runtime in index form', () => {
     // The page's state travels as before.
     expect(snap.observations['page:VoicesPage'].state).toMatchObject({ values: { 'voices.library': 'user' } });
 
-    // The definition, when asked for: narrowed to the rows on screen, as the tool validates it.
+    // The definition, when asked for: the rows' list, any string the action resolves (a key or a title).
     const described = await runtime.execute({
       requestId: 'd1',
       surfaceId: 'oui',
@@ -660,6 +662,26 @@ describe('connectBindings on a runtime in index form', () => {
     });
     const [{ action }] = (described.data as { definitions: Array<{ action: { id: string; input: { properties?: Record<string, { enum?: unknown[] }> } } }> }).definitions;
     expect(action.id).toBe('voices_open');
-    expect(action.input.properties?.item?.enum).toEqual(['v1', 'v2']);
+    expect(action.input.properties?.item?.enum).toBeUndefined();
+    expect(action.input.properties?.item).toMatchObject({ type: 'string', 'x-row-of': 'state/lists/voices.open' });
+
+    // A row's title runs it, as the line and the rule say: it is not refused before the action resolves it.
+    const byTitle = await runtime.execute({
+      requestId: 't1',
+      surfaceId: 'page:VoicesPage',
+      actionId: 'voices_open',
+      params: { item: 'Ben' },
+      timestamp: 0,
+    });
+    expect(byTitle.success).toBe(true);
+    const unknown = await runtime.execute({
+      requestId: 't2',
+      surfaceId: 'page:VoicesPage',
+      actionId: 'voices_open',
+      params: { item: 'Cleo' },
+      timestamp: 0,
+    });
+    expect(unknown).toMatchObject({ success: false, error: { code: 'ITEM_NOT_FOUND' } });
+    expect((unknown.error as { message: string }).message).toContain('"Ben" (v2)');
   });
 });
