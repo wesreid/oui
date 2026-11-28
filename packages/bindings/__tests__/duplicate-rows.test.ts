@@ -86,9 +86,10 @@ describe('a record drawn twice', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
 
     const action = runtime.snapshot().surfaces.find(s => s.id === 'page:LeadPage')!.actions[0];
-    const item = (action.input as { properties: { item: { enum: string[]; description: string } } }).properties.item;
-    // The rows that can be used, each once: u1's disabled drawing is not offered, its other is.
-    expect(item.enum).toEqual(['u2', 'u1']);
+    const item = (action.input as { properties: { item: { enum?: string[]; description: string; 'x-row-of'?: string } } }).properties.item;
+    // The rows counted once each; the input takes a key or a title, which the action resolves.
+    expect(item.enum).toBeUndefined();
+    expect(item['x-row-of']).toBe('state/lists/inventory.vehicle.open');
     expect(item.description).toContain('(2 on screen now)');
 
     const run = (ref: string) =>

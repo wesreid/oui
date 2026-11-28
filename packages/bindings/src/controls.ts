@@ -520,9 +520,16 @@ export function rowsOfControl(controlId: string): string {
 }
 
 /**
- * The `item` input of a control drawn once per row: a row's key or exact
- * title, its rows' keys while there are few enough, and, given the control's
- * id, where the page reports its rows (`rowsOfControl`).
+ * The `item` input of a control drawn once per row: a row's key or its exact
+ * title, as the control's action resolves it. Given the control's id, it says
+ * where the page reports its rows (`rowsOfControl`), and takes any string:
+ * the action finds the row by key, then by title, and refuses one it cannot
+ * find by naming the rows on screen. Without it, the rows' keys while there are
+ * few enough.
+ *
+ * Measured (a live screen on three models): an enum of keys beside a line that
+ * says a row is named by its key or title refused every title the model gave,
+ * before the action could resolve it, and each refusal cost a call.
  */
 export function itemSchema(items?: readonly { key: string; title: string }[], controlId?: string): JsonSchema {
   // A record drawn twice (a vehicle on a lead's card and again in the list) is one row: its key once.
@@ -532,8 +539,11 @@ export function itemSchema(items?: readonly { key: string; title: string }[], co
     description:
       'Which one: the id or the exact title of a row the page shows' +
       (rows && rows.length ? ` (${rows.length} on screen now)` : ''),
-    ...(rows && rows.length && rows.length <= MAX_ITEM_ENUM ? { enum: rows.map(i => i.key) } : {}),
-    ...(controlId ? { 'x-row-of': rowsOfControl(controlId) } : {}),
+    ...(controlId
+      ? { 'x-row-of': rowsOfControl(controlId) }
+      : rows && rows.length && rows.length <= MAX_ITEM_ENUM
+        ? { enum: rows.map(i => i.key) }
+        : {}),
   };
 }
 

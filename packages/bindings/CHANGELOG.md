@@ -1,5 +1,13 @@
 # @ouispec/bindings
 
+## 0.24.0
+
+### Minor Changes
+
+- A row control's `item` takes a row's key or its exact title, as its action resolves it, wherever its rows' list is named.
+
+  Since 0.22 a control's `item` names where the page lists its rows (`x-row-of`), and an assistant's index says a row is given by its key or exact title. Its live schema still held an enum of the rows' keys, so a title was refused before the action could resolve it: on a live screen of three models, 12 calls were refused this way against none before, each costing a model call. With `x-row-of` the schema takes any string; the action finds the row by key, then by title, and refuses one it cannot find by naming the rows on screen. A control given no id keeps the keys' enum.
+
 ## 0.23.0
 
 ### Minor Changes
